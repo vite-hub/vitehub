@@ -2,6 +2,7 @@
 title: Queue
 description: Define Queue Definitions, enqueue Queue Jobs, and choose Cloudflare or Vercel Queue Providers.
 navigation.order: 9
+navigation.group: Background work
 icon: i-lucide-list-ordered
 ---
 
@@ -241,8 +242,7 @@ import { runQueue } from '@vite-hub/queue'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
 
-  return runQueue('welcome-email', {
-    payload: { email: body.email },
+  return runQueue('welcome-email', { email: body.email }, {
     idempotencyKey: `welcome:${body.email}`,
   })
 })
@@ -256,18 +256,16 @@ await runQueue('welcome-email', { email: 'ava@example.com' })
 
 ## Queue Enqueue options
 
-Queue Enqueue accepts either a raw payload or an envelope with `payload` and options.
+Pass payload and enqueue options in separate arguments. Payload fields such as `payload`, `region`, and `id` remain business data.
 
 ```ts
-await runQueue('welcome-email', {
-  payload: { email: 'ava@example.com' },
+await runQueue('welcome-email', { email: 'ava@example.com' }, {
   delaySeconds: 60,
 })
 ```
 
 | Option | Type | Cloudflare | Vercel | Description |
 | --- | --- | --- | --- | --- |
-| `payload` | `TPayload` | Yes | Yes | The payload delivered to the Queue Definition. Required when using the envelope form. |
 | `id` | `string` | Yes | Yes | ViteHub message id. If omitted, ViteHub generates one. |
 | `contentType` | `CloudflareQueueContentType` | Yes | No | Cloudflare message content type. Values: `bytes`, `json`, `text`, `v8`. |
 | `delaySeconds` | `number` | Yes | Yes | Provider-supported enqueue delay. |
@@ -300,7 +298,7 @@ Queue does not include an in-memory Queue Provider for local Queue Delivery. Tes
 
 ## Runtime helpers
 
-### `runQueue(name, input)`
+### `runQueue(name, payload, options?)`
 
 Enqueues one Queue Job and returns the Queue Provider acceptance result.
 
@@ -317,7 +315,7 @@ type QueueSendResult = {
 }
 ```
 
-### `deferQueue(name, input)`
+### `deferQueue(name, payload, options?)`
 
 Schedules Queue Enqueue through the current request's `waitUntil` support and returns `void`.
 
@@ -415,3 +413,20 @@ Keep the Capability specific to the product task. Don't give a model arbitrary q
 - Use [Workflows](/docs/server-primitives/workflows) for durable orchestration.
 - Learn shared discovery rules in [Definitions and discovery](/docs/concepts/definitions-and-discovery).
 - Expose app-owned agent actions through [Custom capabilities](/docs/capabilities/custom-capabilities).
+
+
+## Definition-owned dispatch types
+
+The Vite Integration writes `.vitehub/queue.d.ts`. Include that file in your TypeScript project. The Nuxt Integration adds it to the generated type context. Names and payloads then come from the discovered Queue Definitions:
+
+```ts
+await runQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
+const queue = await getQueue("welcome-email")
+await queue.send({ email: "ada@example.com" })
+```
+
+`QueueRegistry` is the generated definition map. `QueuePayload<"welcome-email">` extracts a payload type. A missing name or wrong payload is a type error. Run Vite configuration or the Nuxt prepare step after you add a definition. For a standalone TypeScript host, you can extend `QueueRegistry` with `typeof import("./welcome.queue").default`.
+
+Use `dynamicQueue.run(name, payload, options?)`, `dynamicQueue.defer()`, or `dynamicQueue.get()` for names read from external input. These methods check that the definition exists at runtime. They do not validate payload shape. Validate external data in your application. Direct provider clients from `createQueueClient()` also accept unknown payloads because they have no Queue Definition.
+
+This is a breaking change: replace `runQueue(name, { payload, ...options })` with `runQueue(name, payload, options)`, and `client.send({ payload, ...options })` with `client.send(payload, options)`. There is no envelope detection. Existing envelope objects are delivered whole as payloads.

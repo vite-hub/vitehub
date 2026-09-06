@@ -12,6 +12,7 @@ import type {
   MarkdownTemplateImport,
   ResolveMarkdownTemplateImport,
 } from "./types.ts"
+import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface ExpandMarkdownTemplateImportsOptions {
   maxImportDepth: number
@@ -95,7 +96,7 @@ async function replaceImports(segment: string, state: ImportState, depth: number
 async function importReplacement(token: string, state: ImportState, depth: number): Promise<string | undefined> {
   if (/^@(?:https?:)?\/\//.test(token) || token.startsWith("@/")) {
     if (!state.resolveImport) return
-    throw new Error(`[vitehub] Markdown template import "${token}" must be a relative path.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0003({ message: `[vitehub] Markdown template import "${token}" must be a relative path.` })
   }
   const trailing = token.match(/[.,;:!?)]*$/)?.[0] || ""
   const specifier = token.slice(1, token.length - trailing.length)
@@ -108,7 +109,7 @@ async function importReplacement(token: string, state: ImportState, depth: numbe
   if (!relative) validateImportRequest(specifier, state, depth)
   assertImportResolution(resolved, specifier)
   if (state.seen.has(resolved.id)) {
-    throw new Error(`[vitehub] Circular Markdown template import: ${specifier}.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0004({ message: `[vitehub] Circular Markdown template import: ${specifier}.` })
   }
 
   state.seen.add(resolved.id)
@@ -126,10 +127,10 @@ async function importReplacement(token: string, state: ImportState, depth: numbe
 
 function validateImportRequest(specifier: string, state: ImportState, depth: number): void {
   if (/[*?]/.test(specifier)) {
-    throw new Error(`[vitehub] Markdown template import "${specifier}" cannot use globs.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0005({ message: `[vitehub] Markdown template import "${specifier}" cannot use globs.` })
   }
   if (depth >= state.maxImportDepth) {
-    throw new Error(`[vitehub] Markdown template import depth exceeded ${state.maxImportDepth}.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0006({ message: `[vitehub] Markdown template import depth exceeded ${state.maxImportDepth}.` })
   }
 }
 
@@ -142,18 +143,18 @@ function assertImportResolution(
   specifier: string,
 ): asserts resolution is MarkdownTemplateImport {
   if (!resolution) {
-    throw new Error(`[vitehub] Markdown template import "${specifier}" could not be resolved.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0007({ message: `[vitehub] Markdown template import "${specifier}" could not be resolved.` })
   }
   if (!resolution.id || typeof resolution.id !== "string") {
-    throw new TypeError(`[vitehub] Markdown template import "${specifier}" must resolve with a non-empty id.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0008({ message: `[vitehub] Markdown template import "${specifier}" must resolve with a non-empty id.` })
   }
   if (typeof resolution.template !== "string") {
-    throw new TypeError(`[vitehub] Markdown template import "${specifier}" must resolve with a template string.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0009({ message: `[vitehub] Markdown template import "${specifier}" must resolve with a template string.` })
   }
 }
 
 function validateMaxImportDepth(value: number): void {
   if (!Number.isInteger(value) || value < 0) {
-    throw new TypeError("[vitehub] Markdown template maxImportDepth must be a non-negative integer.")
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0010({ message: "[vitehub] Markdown template maxImportDepth must be a non-negative integer." })
   }
 }

@@ -7,6 +7,7 @@ import {
 } from "./server.ts"
 
 import type { WorkspaceDevTokenOptions } from "./server.ts"
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface WorkspaceCliContext {
   cwd: string
@@ -172,7 +173,7 @@ function writeWorkspaceDevUsage(context: WorkspaceCliContext): void {
 
 function readOptionValue(args: string[], index: number, flag: string): string {
   const value = args[index + 1]
-  if (!value || value.startsWith("-")) throw new Error(`Missing value for ${flag}.`)
+  if (!value || value.startsWith("-")) throw workspaceErrorDiagnostics.WORKSPACE_R0004({ message: `Missing value for ${flag}.` })
   return value
 }
 
@@ -199,14 +200,14 @@ function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWo
     }
     if (arg === "--timeout") {
       const timeout = Number.parseInt(readOptionValue(args, index, arg), 10)
-      if (!Number.isFinite(timeout) || timeout <= 0) throw new Error("--timeout must be a positive number.")
+      if (!Number.isFinite(timeout) || timeout <= 0) throw workspaceErrorDiagnostics.WORKSPACE_R0005({ message: "--timeout must be a positive number." })
       parsed.timeout = timeout
       index += 1
       continue
     }
     if (arg.startsWith("--timeout=")) {
       const timeout = Number.parseInt(arg.slice("--timeout=".length), 10)
-      if (!Number.isFinite(timeout) || timeout <= 0) throw new Error("--timeout must be a positive number.")
+      if (!Number.isFinite(timeout) || timeout <= 0) throw workspaceErrorDiagnostics.WORKSPACE_R0006({ message: "--timeout must be a positive number." })
       parsed.timeout = timeout
       continue
     }
@@ -221,19 +222,19 @@ function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWo
       parsed.paths.push(arg.slice("--path=".length))
       continue
     }
-    if (arg.startsWith("-") && !parsed.workspace) throw new Error(`Unknown option: ${arg}.`)
+    if (arg.startsWith("-") && !parsed.workspace) throw workspaceErrorDiagnostics.WORKSPACE_R0007({ message: `Unknown option: ${arg}.` })
     if (!parsed.workspace) {
       parsed.workspace = arg
       continue
     }
     if (arg === "exec") {
       const [command, ...commandArgs] = args.slice(index + 1)
-      if (!command?.trim()) throw new Error("workspace dev exec requires a command.")
+      if (!command?.trim()) throw workspaceErrorDiagnostics.WORKSPACE_R0008({ message: "workspace dev exec requires a command." })
       parsed.command = command
       if (commandArgs.length) parsed.args = commandArgs
       break
     }
-    throw new Error(`Unexpected argument: ${arg}. Use exec <command...> for one-shot commands.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0009({ message: `Unexpected argument: ${arg}. Use exec <command...> for one-shot commands.` })
   }
   return parsed
 }

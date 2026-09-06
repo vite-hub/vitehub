@@ -10,6 +10,7 @@ import type {
   ShellObservation,
   ShellRuntimeExecOptions,
 } from "../runtime/types.ts"
+import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface JustBashFileSystem extends IFileSystem {
   readonly writeFs: boolean
@@ -157,7 +158,7 @@ type ParsedControlledCurl = ParsedValue<{
 }>
 
 function parseFailure<T>(message: string): ParsedValue<T> {
-  return [new Error(message), undefined]
+  return [shellErrorDiagnostics.SHELL_R0004({ message: message }), undefined]
 }
 
 function parseControlledCurlCommand(command: string): ParsedControlledCurl {
@@ -170,7 +171,7 @@ function parseControlledCurlCommand(command: string): ParsedControlledCurl {
     words = parseShellCommand(command)
   }
   catch (error) {
-    return [error instanceof Error ? error : new Error(String(error)), undefined]
+    return [error instanceof Error ? error : shellErrorDiagnostics.SHELL_R0005({ message: String(error) }), undefined]
   }
 
   if (words[0] !== "curl") return parseFailure("Controlled curl command must start with curl.")
@@ -248,7 +249,7 @@ function parseControlledCurlCommand(command: string): ParsedControlledCurl {
     }
   }
   catch (error) {
-    return [error instanceof Error ? error : new Error(String(error)), undefined]
+    return [error instanceof Error ? error : shellErrorDiagnostics.SHELL_R0006({ message: String(error) }), undefined]
   }
 
   if (!url) return parseFailure("Controlled curl requires a URL.")
@@ -327,7 +328,7 @@ function parseJsonCurlBody(value: string): ParsedValue<unknown> {
 }
 
 function setCurlUrl(current: string | undefined, next: string): string {
-  if (current) throw new Error("Controlled curl accepts exactly one URL.")
+  if (current) throw shellErrorDiagnostics.SHELL_R0007({ message: "Controlled curl accepts exactly one URL." })
   return next
 }
 

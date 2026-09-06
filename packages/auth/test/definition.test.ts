@@ -4,12 +4,13 @@ import { defineAuth } from "../src/index.ts"
 
 describe("defineAuth", () => {
   it("creates an Auth Definition with ViteHub placement metadata", () => {
+    const authorize = ({ user }: { user: Record<string, unknown> }) => user.isAdmin === true
     expect(defineAuth({
       appName: "ViteHub",
       access: {
         routes: [
           "/app",
-          { method: "POST", route: "/app/actions" },
+          { authorize, method: "POST", route: "/app/actions" },
         ],
         signIn: {
           callbackURL: "/app",
@@ -28,7 +29,7 @@ describe("defineAuth", () => {
         access: {
           routes: [
             "/app",
-            { method: "POST", route: "/app/actions" },
+            { authorize, method: "POST", route: "/app/actions" },
           ],
           signIn: {
             callbackURL: "/app",
@@ -90,6 +91,7 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ access: { routes: "/app" } } as never)).toThrow(/access\.routes must be an array/)
     expect(() => defineAuth({ access: { routes: ["app"] } } as never)).toThrow(/access\.routes\[0\] must start/)
     expect(() => defineAuth({ access: { routes: [{ route: "/app", role: "admin" }] } } as never)).toThrow(/does not support/)
+    expect(() => defineAuth({ access: { routes: [{ authorize: true, route: "/app" }] } } as never)).toThrow(/authorize must be a function/)
     expect(() => defineAuth({ access: { routes: [{ method: "", route: "/app" }] } } as never)).toThrow(/access\.routes\[0\]\.method/)
     expect(() => defineAuth({ access: { routes: [{}] } } as never)).toThrow(/access\.routes\[0\]\.route/)
   })

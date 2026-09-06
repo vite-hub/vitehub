@@ -1,8 +1,8 @@
 import { file, type FileSourceOptions } from "./file.ts"
 
-import type { Source } from "../core/types.ts"
+import type { FileSource } from "../core/types.ts"
 
-export function markdown<const TKey extends string = string>(options: FileSourceOptions<TKey>): Source<TKey> {
+export function markdown<const TKey extends string = string>(options: FileSourceOptions<TKey>): FileSource<TKey> {
   return file<TKey>({
     ...options,
     mediaType: options.mediaType || "text/markdown",

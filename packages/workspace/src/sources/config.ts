@@ -4,7 +4,9 @@ import { workspaceError } from "../core/errors.ts"
 import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
 import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
+import { resolveGitHubIgnore } from "./github-ignore.ts"
 import { loadMcpResourcesSource } from "./mcp-resources-loader.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   copyWorkspaceSourceRequestMetadata,
   assertWorkspaceSourceRequestDescriptorKey,
@@ -29,6 +31,7 @@ import type {
   WorkspaceSourceSyncPolicy,
   WorkspaceValidateMode,
 } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResources"
 
@@ -119,9 +122,6 @@ export function normalizeWorkspaceSources(sources: WorkspaceDefinition["sources"
 
 export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInput): ResolvedWorkspaceSource {
   const source = toWorkspaceSource(input)
-  if (source && typeof source === "object" && "instructions" in source) {
-    throw new TypeError(`[vitehub] Workspace source "${key}" instructions were removed. Put model-facing guidance in Agent Driver Instructions with ::source coverage.`)
-  }
   const mount = normalizeSourceMount(source)
   const cache = mount.cache ?? normalizeSourceCache(source) ?? false
   const sync = normalizeSourceSync(source.sync)
@@ -157,7 +157,7 @@ export function workspaceSourceGrantPaths(key: string, input: WorkspaceSourceInp
   const descriptorPath = safeWorkspaceSourceRequestDescriptorPath(key)
   if (source.requestOnly) {
     if (!descriptorPath) {
-      throw new Error(`[vitehub] Workspace Scope source grant "${key}" is request-only without a Source Request descriptor.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_C0003({ message: `[vitehub] Workspace Scope source grant "${key}" is request-only without a Source Request descriptor.` })
     }
     return [descriptorPath]
   }
@@ -165,7 +165,7 @@ export function workspaceSourceGrantPaths(key: string, input: WorkspaceSourceInp
   const probePaths = source.probeKeys?.map(sourcePath => joinSourcePath(source.mountPath, sourcePath)).filter(Boolean) || []
   const paths = probePaths.length ? probePaths : source.mountPath ? [source.mountPath] : []
   if (!paths.length) {
-    throw new Error(`[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_C0004({ message: `[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.` })
   }
   return descriptorPath ? [...paths, descriptorPath] : paths
 }
@@ -271,8 +271,8 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
   return input
 }
 
-function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): TypeError {
-  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A { source: ... } wrapper or custom(...) call makes the source kind explicit.`)
+function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): Error {
+  return workspaceErrorDiagnostics.WORKSPACE_C0005({ message: `[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A { source: ... } wrapper or custom(...) call makes the source kind explicit.` })
 }
 
 function createInferredFetchSource(input: WorkspaceSourceInput): WorkspaceSource {
@@ -293,13 +293,14 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
 
   const source: WorkspaceSource = {
     ...inferredSourceDefaults(family, input),
+    name: family,
     fingerprint: {
       inferredSource: family,
-      options: input,
+      options: inferredSourceFingerprintOptions(family, input),
     },
     async prepare(ctx) {
       const loaded = await loadSource()
-      await loaded.prepare?.(ctx)
+      await prepareWorkspaceSource(loaded, ctx)
       copyLivePaths(livePaths, getLiveWorkspaceSourcePaths(loaded))
     },
     async getKeys(ctx) {
@@ -310,17 +311,32 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     },
     async getItems(ctx) {
       const source = await loadSource()
-      return await source.getItems?.(ctx) ?? await Promise.all((await source.getKeys(ctx)).map(async key => await source.getItem(key, ctx)))
+      if (source.getItems) return await source.getItems(ctx)
+      return await Promise.all((await source.getKeys(ctx)).map(async (key) => {
+        const [item, metadata] = await Promise.all([
+          source.getItem(key, ctx),
+          source.getMeta?.(key, ctx),
+        ])
+        return metadata ? { ...item, metadata: { ...metadata, ...item.metadata } } : item
+      }))
     },
     async getMeta(key, ctx) {
       return await (await loadSource()).getMeta?.(key, ctx)
     },
-    async search(query, ctx) {
-      return await (await loadSource()).search?.(query, ctx) ?? []
+    async resolveRevision(ctx) {
+      return await (await loadSource()).resolveRevision?.(ctx)
     },
   }
 
   return livePaths ? markLiveWorkspaceSource(source, livePaths) : source
+}
+
+function inferredSourceFingerprintOptions(family: WorkspaceSourceFamily, input: WorkspaceSourceInput) {
+  if (family !== "github" || !isPlainRecord(input)) return input
+  return {
+    ...input,
+    ignore: resolveGitHubIgnore(input.ignore),
+  }
 }
 
 async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Promise<WorkspaceSource> {
@@ -386,10 +402,10 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
 
 function inferredFileSourceKey(input: WorkspaceSourceInput): string {
   if (typeof input === "string") return normalizeSafeWorkspacePath(input)
-  const options = input as unknown as Record<string, unknown>
+  const options = input as Record<string, unknown>
   if (typeof options.workspacePath === "string") return normalizeSafeWorkspacePath(options.workspacePath)
   if (typeof options.path === "string") return normalizeSafeWorkspacePath(options.path)
-  throw new TypeError("[vitehub] file requires a path or workspacePath.")
+  throw workspaceErrorDiagnostics.WORKSPACE_C0006({ message: "[vitehub] file requires a path or workspacePath." })
 }
 
 function inferredLivePaths(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Record<string, string> | undefined {
@@ -415,7 +431,7 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
 
   const url = input.url instanceof URL ? input.url : new URL(String(input.url))
   if (url.search) {
-    throw new Error("[vitehub] fetch() requires an explicit path when the URL includes query parameters.")
+    throw workspaceErrorDiagnostics.WORKSPACE_C0007({ message: "[vitehub] fetch() requires an explicit path when the URL includes query parameters." })
   }
 
   let path = normalizeSafeWorkspacePath(decodeURI(url.pathname).replace(/^\/+/, ""), { allowEmpty: false })

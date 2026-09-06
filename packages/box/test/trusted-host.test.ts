@@ -427,6 +427,65 @@ describe("createTrustedHostRuntime", () => {
     await session.destroy?.();
   });
 
+  it("does not start commands cancelled during working-directory resolution", async () => {
+    const root = await temporaryRoot();
+    const marker = join(root, "started");
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
+    const session = await boxProvider(box).createSession();
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+
+    try {
+      const running = session.run({
+        abortSignal: controller.signal,
+        command: `touch '${marker}'`,
+      });
+      controller.abort(reason);
+
+      await expect(running).rejects.toBe(reason);
+      await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await session.destroy?.();
+    }
+  });
+
+  it("preserves cancellation when abort listener registration starts late", async () => {
+    const box = await resolveBox({ runtime: createTrustedHostRuntime() }, {});
+    const session = await boxProvider(box).createSession();
+    const controller = new AbortController();
+    const reason = new Error("cancelled");
+    const addEventListener = controller.signal.addEventListener.bind(controller.signal);
+    const registration = vi
+      .spyOn(controller.signal, "addEventListener")
+      .mockImplementation((type, listener, options) => {
+        controller.abort(reason);
+        addEventListener(type, listener, options);
+      });
+
+    try {
+      const child = await session.spawn({
+        abortSignal: controller.signal,
+        command: `node -e "setInterval(() => {}, 1000)"`,
+      });
+      const settled = child.wait().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      await expect(
+        Promise.race([
+          settled,
+          new Promise((resolvePromise) => setTimeout(resolvePromise, 1_500, "still-running")),
+        ]),
+      ).resolves.toBe(reason);
+      if (process.platform !== "win32")
+        await vi.waitFor(() => expect(() => process.kill(-child.pid!, 0)).toThrow());
+    } finally {
+      registration.mockRestore();
+      await session.destroy?.();
+    }
+  });
+
   it("force-kills commands that ignore abort termination", async () => {
     if (process.platform === "win32") return;
     const root = await temporaryRoot();

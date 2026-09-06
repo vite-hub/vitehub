@@ -12,6 +12,7 @@ import type {
   ResolvedAuthSecondaryStorageConfiguration,
   ResolvedAuthViteConfig,
 } from "./types.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface DefinitionObjectBody {
   body: string
@@ -54,6 +55,11 @@ function readDefinitionArgumentObjectBody(argument: string | undefined): Definit
   const trimmed = argument?.trim()
   if (!trimmed) return
 
+  if (trimmed.startsWith("{")) {
+    const objectBody = objectLiteralBody(trimmed)
+    return objectBody === undefined ? undefined : { body: objectBody, callback: false }
+  }
+
   const arrowIndex = trimmed.indexOf("=>")
   if (arrowIndex !== -1) {
     const body = trimmed.slice(arrowIndex + 2).trim()
@@ -82,8 +88,9 @@ function arrayLiteralBody(value: string | undefined): string | undefined {
 }
 
 function readEntryKey(entry: string): string | undefined {
-  const match = /^\s*(?:([A-Za-z_$][\w$]*)|["'`]([^"'`]+)["'`])\s*(?::|$)/.exec(entry)
-  return match?.[1] || match?.[2]
+  const property = /^\s*(?:([A-Za-z_$][\w$]*)|["'`]([^"'`]+)["'`])\s*(?::|$)/.exec(entry)
+  if (property) return property[1] || property[2]
+  return /^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/.exec(entry)?.[1]
 }
 
 function readEntryValue(entry: string): string | undefined {
@@ -123,10 +130,10 @@ function readStaticStringProperty(body: string | undefined, property: string, la
   if (!hasObjectProperty(body, property)) return
   const value = readStaticStringLiteral(readObjectPropertyValue(body, property))
   if (typeof value === "undefined") {
-    throw new TypeError(`\`defineAuth()\` ${label} must be an inline string literal.`)
+    throw authErrorDiagnostics.AUTH_C0001({ message: `\`defineAuth()\` ${label} must be an inline string literal.` })
   }
   if (value.trim().length === 0 || value !== value.trim()) {
-    throw new TypeError(`\`defineAuth()\` ${label} must be a non-empty trimmed string.`)
+    throw authErrorDiagnostics.AUTH_C0002({ message: `\`defineAuth()\` ${label} must be a non-empty trimmed string.` })
   }
   return value
 }
@@ -134,7 +141,7 @@ function readStaticStringProperty(body: string | undefined, property: string, la
 function readStaticRouteProperty(body: string | undefined, property: string, label: string): string | undefined {
   const value = readStaticStringProperty(body, property, label)
   if (typeof value !== "undefined" && !value.startsWith("/")) {
-    throw new TypeError(`\`defineAuth()\` ${label} must start with \`/\`.`)
+    throw authErrorDiagnostics.AUTH_C0003({ message: `\`defineAuth()\` ${label} must start with \`/\`.` })
   }
   return value
 }
@@ -143,7 +150,7 @@ function readStaticBooleanProperty(body: string | undefined, property: string, l
   if (!hasObjectProperty(body, property)) return
   const value = readStaticBooleanLiteral(readObjectPropertyValue(body, property))
   if (typeof value === "undefined") {
-    throw new TypeError(`\`defineAuth()\` ${label} must be an inline boolean literal.`)
+    throw authErrorDiagnostics.AUTH_C0004({ message: `\`defineAuth()\` ${label} must be an inline boolean literal.` })
   }
   return value
 }
@@ -152,14 +159,14 @@ function assertOnlyObjectKeys(body: string | undefined, allowed: Set<string>, la
   const unknownEntry = readObjectEntries(body).find(entry => !entry.key || !allowed.has(entry.key))
   if (!unknownEntry) return
   if (!unknownEntry.key) {
-    throw new TypeError(`\`defineAuth()\` ${label} must use static object keys.`)
+    throw authErrorDiagnostics.AUTH_C0005({ message: `\`defineAuth()\` ${label} must use static object keys.` })
   }
-  throw new TypeError(`\`defineAuth()\` ${label} does not support the "${unknownEntry.key}" option.`)
+  throw authErrorDiagnostics.AUTH_C0006({ message: `\`defineAuth()\` ${label} does not support the "${unknownEntry.key}" option.` })
 }
 
 function assertStaticObjectKeys(body: string | undefined, label: string): void {
   if (readObjectEntries(body).some(entry => !entry.key)) {
-    throw new TypeError(`\`defineAuth()\` ${label} must use static object keys.`)
+    throw authErrorDiagnostics.AUTH_C0007({ message: `\`defineAuth()\` ${label} must use static object keys.` })
   }
 }
 
@@ -169,32 +176,38 @@ function readAuthRouteConfig(body: string | undefined): false | string {
 
   const route = readStaticBooleanLiteral(readObjectPropertyValue(body, "route"))
   if (route === false) return false
-  throw new TypeError("`defineAuth()` route can only be `false` when provided.")
+  throw authErrorDiagnostics.AUTH_C0008({ message: "`defineAuth()` route can only be `false` when provided." })
 }
 
 function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRoute {
   const route = readStaticStringLiteral(entry)
   if (typeof route !== "undefined") {
     if (!route.startsWith("/")) {
-      throw new TypeError(`\`defineAuth()\` access.routes[${index}] must start with \`/\`.`)
+      throw authErrorDiagnostics.AUTH_C0009({ message: `\`defineAuth()\` access.routes[${index}] must start with \`/\`.` })
     }
     return { route }
   }
 
   const routeObject = objectLiteralBody(entry)
   if (typeof routeObject === "undefined") {
-    throw new TypeError(`\`defineAuth()\` access.routes[${index}] must be an inline route string or route object.`)
+    throw authErrorDiagnostics.AUTH_C0010({ message: `\`defineAuth()\` access.routes[${index}] must be an inline route string or route object.` })
   }
 
-  assertOnlyObjectKeys(routeObject, new Set(["method", "route"]), `access.routes[${index}]`)
+  assertOnlyObjectKeys(routeObject, new Set(["authorize", "method", "route"]), `access.routes[${index}]`)
 
   const resolvedRoute = readStaticRouteProperty(routeObject, "route", `access.routes[${index}].route`)
   if (!resolvedRoute) {
-    throw new TypeError(`\`defineAuth()\` access.routes[${index}].route is required.`)
+    throw authErrorDiagnostics.AUTH_C0011({ message: `\`defineAuth()\` access.routes[${index}].route is required.` })
   }
 
   const method = readStaticStringProperty(routeObject, "method", `access.routes[${index}].method`)
-  return method ? { method, route: resolvedRoute } : { route: resolvedRoute }
+  const authorize = readObjectEntries(routeObject).find(entry => entry.key === "authorize")
+  const resolved: ResolvedAuthAccessRoute = {
+    route: resolvedRoute,
+  }
+  if (authorize) resolved.authorize = true
+  if (method) resolved.method = method
+  return resolved
 }
 
 function readAuthAccessRoutesConfig(body: string | undefined): ResolvedAuthAccessRoute[] {
@@ -203,7 +216,7 @@ function readAuthAccessRoutesConfig(body: string | undefined): ResolvedAuthAcces
 
   const routes = arrayLiteralBody(readObjectPropertyValue(access, "routes"))
   if (typeof routes === "undefined") {
-    throw new TypeError("`defineAuth()` access.routes must be an inline array.")
+    throw authErrorDiagnostics.AUTH_C0012({ message: "`defineAuth()` access.routes must be an inline array." })
   }
 
   return splitTopLevel(routes)
@@ -217,13 +230,13 @@ function readAuthDatabaseConfig(body: string | undefined, allowRuntimeValue = fa
   const expression = readObjectPropertyValue(body, "database")?.trim()
   if (expression === "true") return { mode: "default" }
   if (expression === "false") {
-    throw new TypeError("`defineAuth()` database cannot be `false`.")
+    throw authErrorDiagnostics.AUTH_C0013({ message: "`defineAuth()` database cannot be `false`." })
   }
 
   const database = objectLiteralBody(expression)
   if (typeof database === "undefined") {
     if (allowRuntimeValue) return { mode: "default" }
-    throw new TypeError("`defineAuth()` database must be `true` or an inline object with `name`.")
+    throw authErrorDiagnostics.AUTH_C0014({ message: "`defineAuth()` database must be `true` or an inline object with `name`." })
   }
 
   assertOnlyObjectKeys(database, new Set(["dedicated", "name"]), "database")
@@ -232,7 +245,7 @@ function readAuthDatabaseConfig(body: string | undefined, allowRuntimeValue = fa
     dedicated: readStaticBooleanProperty(database, "dedicated", "database.dedicated") ?? false,
     mode: "named",
     name: readStaticStringProperty(database, "name", "database.name") ?? (() => {
-      throw new TypeError("`defineAuth()` database.name is required when database is an object.")
+      throw authErrorDiagnostics.AUTH_C0015({ message: "`defineAuth()` database.name is required when database is an object." })
     })(),
   }
 }
@@ -243,13 +256,13 @@ function readAuthSecondaryStorageConfig(body: string | undefined, allowRuntimeVa
   const expression = readObjectPropertyValue(body, "secondaryStorage")?.trim()
   if (expression === "true") return { mode: "default" }
   if (expression === "false") {
-    throw new TypeError("`defineAuth()` secondaryStorage cannot be `false`.")
+    throw authErrorDiagnostics.AUTH_C0016({ message: "`defineAuth()` secondaryStorage cannot be `false`." })
   }
 
   const secondaryStorage = objectLiteralBody(expression)
   if (typeof secondaryStorage === "undefined") {
     if (allowRuntimeValue) return false
-    throw new TypeError("`defineAuth()` secondaryStorage must be `true` or an inline object with `store`.")
+    throw authErrorDiagnostics.AUTH_C0017({ message: "`defineAuth()` secondaryStorage must be `true` or an inline object with `store`." })
   }
 
   assertOnlyObjectKeys(secondaryStorage, new Set(["store"]), "secondaryStorage")
@@ -257,7 +270,7 @@ function readAuthSecondaryStorageConfig(body: string | undefined, allowRuntimeVa
   return {
     mode: "named",
     store: readStaticStringProperty(secondaryStorage, "store", "secondaryStorage.store") ?? (() => {
-      throw new TypeError("`defineAuth()` secondaryStorage.store is required when secondaryStorage is an object.")
+      throw authErrorDiagnostics.AUTH_C0018({ message: "`defineAuth()` secondaryStorage.store is required when secondaryStorage is an object." })
     })(),
   }
 }
@@ -274,7 +287,7 @@ export function resolveAuthViteConfig(
 
   const definitionObject = readDefinitionObjectBody(definition.handler)
   if (typeof definitionObject === "undefined") {
-    throw new TypeError("`defineAuth()` options must be an inline object literal.")
+    throw authErrorDiagnostics.AUTH_C0019({ message: "`defineAuth()` options must be an inline object literal." })
   }
   const body = definitionObject.body
   assertStaticObjectKeys(body, "options")

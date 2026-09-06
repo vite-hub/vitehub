@@ -33,7 +33,7 @@ export function tickets() {
         name: 'searchTickets',
         description: 'Search support tickets by query.',
         inputSchema: searchTicketsInput,
-        execute: async (input: z.output<typeof searchTicketsInput>) => searchTickets(input.query),
+        execute: async input => searchTickets(input.query),
       },
     },
   })
@@ -41,6 +41,10 @@ export function tickets() {
 ```
 
 Agent tools accept raw JSON Schema or a validator that implements both Standard Schema and Standard JSON Schema. Zod 4 implements both directly. ViteHub does not bundle a validator; use the one your app owns.
+
+For inline tools, `defineCapability()` infers the handler input from the validator output, including transforms and optional values. TypeScript rejects a handler that requires a different input. Raw JSON Schema has no TypeScript output type, so annotate its handler input. Tools returned by a resolver also check annotated handler inputs against their schemas. Existing AI SDK `tool()` definitions and provider-native tools keep their own contracts.
+
+To set a runtime config type, use `defineCapability<Config>()({...})`. The inner call infers the Capability and its tools. Replace `defineCapability<Config>({...})` calls with this form; the old form could not infer tool schemas.
 
 Attach the custom Capability like any official Capability.
 Keep instructions explicit in the Agent Driver so Capability config does not become a hidden prompt bag.

@@ -1,0 +1,185 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
+import { execFileSync } from "node:child_process"
+
+import { describe, expect, it } from "vitest"
+
+const repoRoot = resolve(import.meta.dirname, "..")
+const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8")
+
+function job(name: string) {
+  const start = workflow.indexOf(`  ${name}:\n`)
+  if (start === -1) throw new Error(`Missing ${name} release job`)
+
+  const nextJob = workflow.slice(start + 1).search(/^  [a-z][\w-]*:\n/m)
+  return nextJob === -1 ? workflow.slice(start) : workflow.slice(start, start + 1 + nextJob)
+}
+
+const verify = job("verify")
+const publishNpm = job("publish-npm")
+const githubRelease = job("github-release")
+
+function releaseMetadata(eventName: string, ref: string, refName: string) {
+  const step = "      - name: Resolve release metadata\n"
+  const start = verify.indexOf(step)
+  const runMarker = "        run: |\n"
+  const runStart = verify.indexOf(runMarker, start)
+  const scriptStart = runStart + runMarker.length
+  const scriptEnd = verify.indexOf("\n      - name:", scriptStart)
+  if (start === -1 || runStart === -1 || scriptEnd === -1) throw new Error("Missing release metadata script")
+  const script = verify.slice(scriptStart, scriptEnd).replace(/^ {10}/gm, "")
+  const directory = mkdtempSync(join(tmpdir(), "vitehub-release-metadata-"))
+  const output = join(directory, "output")
+  try {
+    execFileSync("bash", ["-euo", "pipefail", "-c", script], {
+      cwd: directory,
+      env: {
+        ...process.env,
+        GITHUB_EVENT_NAME: eventName,
+        GITHUB_OUTPUT: output,
+        GITHUB_REF: ref,
+        GITHUB_REF_NAME: refName,
+        GITHUB_RUN_ATTEMPT: "3",
+        GITHUB_RUN_ID: "42",
+        GITHUB_SHA: "a".repeat(40),
+      },
+    })
+    return Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => line.split("=", 2)))
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
+}
+
+describe("release workflow authority", () => {
+  it("serializes every npm-mutating release", () => {
+    expect(workflow).toContain(
+      "concurrency:\n  group: npm-release\n  cancel-in-progress: false\n  queue: max",
+    )
+    expect(workflow).not.toContain("release-${{ github.ref }}")
+  })
+
+  it("grants each job only its required authority", () => {
+    expect(workflow).toContain("\npermissions: {}\n")
+    expect(verify).toMatch(/permissions:\n      contents: read\n/)
+    expect(verify).not.toContain("id-token:")
+    expect(verify).not.toContain("contents: write")
+
+    expect(publishNpm).toContain("environment: npm-release")
+    expect(publishNpm).toContain("Configure required reviewers and release-tag protection")
+    expect(publishNpm).toMatch(/permissions:\n      contents: read\n      id-token: write\n/)
+    expect(publishNpm).not.toContain("contents: write")
+    expect(publishNpm).toContain("voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0")
+    expect(publishNpm).toContain(
+      'node-version: "24"\n          working-directory: trusted-source\n          run-install: false\n          cache: false',
+    )
+    expect(publishNpm).not.toContain("voidzero-dev/setup-vp@v1")
+
+    expect(githubRelease).toMatch(/permissions:\n      contents: write\n/)
+    expect(githubRelease).not.toContain("id-token:")
+  })
+
+  it("keeps manual and fork runs out of authority-bearing jobs", () => {
+    expect(verify).toContain("Dry-run npm package publish")
+    expect(verify).not.toContain("Publish packages to npm")
+    expect(verify).not.toContain("gh release create")
+
+    const publishGate = "if: github.event_name == 'push' && needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
+    expect(publishNpm.indexOf(publishGate)).toBeLessThan(publishNpm.indexOf("    steps:"))
+    expect(githubRelease.indexOf(publishGate)).toBeLessThan(githubRelease.indexOf("    steps:"))
+    expect(workflow).not.toContain("pull_request_target")
+    expect(releaseMetadata("push", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "true", version: "1.2.3" })
+    expect(releaseMetadata("workflow_dispatch", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
+  })
+})
+
+describe("release workflow artifact handoff", () => {
+  it("uploads one bounded immutable tarball set after verification", () => {
+    expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("Dry-run npm package publish"))
+    expect(verify).toContain("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1")
+    expect(verify).toContain('artifact_name="release-packages-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"')
+    expect(verify).toContain(".release/release-metadata.json")
+    expect(verify).toContain(".release/npm")
+    expect(verify).not.toMatch(/^\s+packages\s*$/m)
+    expect(verify).not.toContain("pnpm-lock.yaml")
+    expect(verify).not.toContain("pnpm-workspace.yaml")
+    expect(verify).toContain("if-no-files-found: error")
+    expect(verify).toContain("overwrite: false")
+    expect(verify).toContain("retention-days: 35")
+    expect(verify).not.toMatch(/\n\s+path: (?:\.|\.\/|packages\/\*\*)\s*\n/)
+  })
+
+  it("feeds the same verified artifact through npm publication to the GitHub release", () => {
+    const uploadPathBlock = verify.match(/- name: Upload verified release workspace[\s\S]*?\n          path: \|\n((?:            \S.*\n)+)/)?.[1]
+    if (!uploadPathBlock) throw new Error("Missing release artifact upload paths")
+    const uploadPaths = uploadPathBlock.trim().split("\n").map(path => path.trim())
+    const uploadRoot = uploadPaths
+      .map(path => path.split("/"))
+      .reduce((root, path) => root.filter((part, index) => path[index] === part))
+      .join("/")
+    const downloadedPath = (path: string) => `release-data/${path.slice(uploadRoot.length + 1)}`
+
+    expect(uploadRoot).toBe(".release")
+    for (const downstream of [publishNpm, githubRelease]) {
+      expect(downstream).toContain("actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1")
+      expect(downstream).toContain("name: ${{ needs.verify.outputs.artifact_name }}")
+      expect(downstream).toContain("EXPECTED_ARTIFACT_DIGEST: ${{ needs.verify.outputs.artifact_digest }}")
+    }
+
+    expect(publishNpm).toContain("needs: verify")
+    expect(githubRelease).toContain("needs: [verify, publish-npm]")
+    expect(githubRelease).not.toContain("actions/checkout@")
+    expect(publishNpm).toContain("Checkout trusted release verifier")
+    expect(publishNpm).toContain("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1")
+    expect(publishNpm).toContain("persist-credentials: false")
+    expect(publishNpm).toContain("ref: ${{ github.sha }}")
+    expect(publishNpm).toContain('test "$(git -C trusted-source rev-parse HEAD)" = "$GITHUB_SHA"')
+    expect(publishNpm).toContain("--workspace trusted-source")
+    expect(publishNpm).toContain('--workspace-version "$EXPECTED_VERSION"')
+    expect(publishNpm).toContain("trusted-source/.github/scripts/release-packages.mjs publish")
+    expect(publishNpm).toContain(`--manifest ${downloadedPath(".release/npm")}/release-manifest.json`)
+    expect(publishNpm).toContain('readFileSync("release-metadata.json", "utf8")')
+    expect(publishNpm).not.toContain("release-data/.github/scripts")
+    expect(publishNpm).not.toContain("vp install")
+    expect(publishNpm).not.toContain("package-release-order.mjs")
+    expect(publishNpm).not.toContain("vp pm publish")
+    expect(publishNpm).toContain("timeout-minutes: 360")
+    expect(githubRelease).toContain(`metadata=${downloadedPath(".release/release-metadata.json").replace("release-data/", "")}`)
+    expect(publishNpm.indexOf("Revalidate release tag")).toBeLessThan(publishNpm.indexOf("Publish packages to npm"))
+    for (const authorityJob of [publishNpm, githubRelease]) {
+      expect(authorityJob).toContain('gh api "repos/${GH_REPO}/commits/${')
+      expect(authorityJob).toContain("live_tag_commit")
+      expect(authorityJob).toContain('live_tag_commit" != "$artifact_commit')
+    }
+  })
+
+  it("retains safe resume behavior", () => {
+    expect(publishNpm).toContain("release-packages.mjs publish")
+    expect(githubRelease).toContain('gh release view "$release_tag"')
+    expect(githubRelease).toContain('gh release create "$release_tag"')
+  })
+
+  it("validates and dry-runs the exact packed files before upload", () => {
+    expect(verify).toContain("const releaseNames = new Set")
+    expect(verify).toContain('["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]')
+    expect(verify).toContain("manifest[section][name] = process.env.RELEASE_VERSION")
+    expect(verify).toContain("--verify-reproducible")
+    expect(verify).toContain("release-packages.mjs verify")
+    expect(verify).toContain('vp exec --filter @vite-hub/auth -- publint run "$tarball" --strict')
+    expect(verify).toContain("VITEHUB_RELEASE_MANIFEST")
+    expect(verify).toContain("release-packages.mjs publish")
+    expect(verify).toContain("--dry-run")
+    expect(verify).not.toContain("vp pm publish")
+    expect(verify).not.toContain("package-release-order.mjs")
+  })
+
+  it("pins every external action in the OIDC job", () => {
+    for (const reference of publishNpm.matchAll(/^\s+- uses: ([^\s]+)(?:\s+#\s+(.+))?$/gm)) {
+      const uses = reference[1]!
+      if (uses.startsWith("./")) continue
+      expect(uses).toMatch(/@[0-9a-f]{40}$/)
+      expect(reference[2]).toMatch(/^v\d+\.\d+\.\d+/)
+    }
+  })
+})

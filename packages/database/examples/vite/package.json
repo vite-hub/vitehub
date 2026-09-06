@@ -1,13 +1,18 @@
 {
+  "name": "@vite-hub/database-example-vite",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "vp build"
   },
   "dependencies": {
     "@vite-hub/database": "workspace:*",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "vite-plus": "catalog:tooling"
   }
 }

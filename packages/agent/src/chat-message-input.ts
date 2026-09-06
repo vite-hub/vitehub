@@ -12,6 +12,7 @@ import type {
   AgentRuntimeConfig,
 } from "./types.ts"
 import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export type UIMessageLike = {
   createdAt?: Date | string
@@ -44,6 +45,21 @@ export interface ChatMessageTriggerInputResult<TRuntimeConfig extends AgentRunti
   selectedMessages: UIMessageLike[]
 }
 
+const derivedChatInvokers = new WeakMap<object, AgentInvoker>()
+
+export function markDerivedChatTriggerInvoker(invoker: unknown, source?: AgentInvoker): void {
+  // SAFETY: Agent Invokers are object records, and this branch rejects every non-object runtime value.
+  if (typeof invoker === "object" && invoker !== null) derivedChatInvokers.set(invoker, source || invoker as AgentInvoker)
+}
+
+export function hasDerivedChatTriggerInvoker(invoker: unknown): boolean {
+  return derivedChatTriggerInvoker(invoker) !== undefined
+}
+
+export function derivedChatTriggerInvoker(invoker: unknown): AgentInvoker | undefined {
+  return invoker !== null && Object(invoker) === invoker ? derivedChatInvokers.get(Object(invoker)) : undefined
+}
+
 function uiMessageText(message: UIMessageLike): string {
   const parts = Array.isArray(message.parts) ? message.parts : []
   return parts
@@ -63,11 +79,7 @@ function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMe
 }
 
 export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerInput | undefined): AgentInvoker | undefined {
-  const userMeta: Record<string, unknown> = {}
-  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
-    const value = firstString(triggerInput?.user?.[key])?.trim()
-    if (value) userMeta[key] = value
-  }
+  const userMeta = chatTriggerUserMeta(triggerInput?.user)
   const meta = Object.keys(userMeta).length || triggerInput?.meta
     ? { ...userMeta, ...triggerInput?.meta }
     : undefined
@@ -81,6 +93,15 @@ export function resolveChatTriggerInvoker(triggerInput: AgentChatMessageTriggerI
           ...(meta ? { meta } : {}),
         }, "chat.message input.user")
       : undefined
+}
+
+export function chatTriggerUserMeta(user: Record<string, unknown> | undefined): Record<string, unknown> {
+  const userMeta: Record<string, unknown> = {}
+  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
+    const value = firstString(user?.[key])?.trim()
+    if (value) userMeta[key] = value
+  }
+  return userMeta
 }
 
 function uiToolName(part: Record<string, unknown>): string {
@@ -107,12 +128,14 @@ function uiAttachmentPartToAgentPart(part: Record<string, unknown>): MessagePart
   if (!type || !mediaType) return []
 
   const id = firstString(part.id)
-  const data = isAttachmentData(part.data) ? part.data : undefined
+  const url = typeof part.url === "string" && part.url ? part.url : undefined
+  const data = isAttachmentData(part.data)
+    ? part.data
+    : url?.startsWith("data:") ? url : undefined
   const fetchData = typeof part.fetchData === "function"
     ? part.fetchData as () => AttachmentData | Promise<AttachmentData>
     : undefined
   const name = firstString(part.name, part.filename)
-  const url = typeof part.url === "string" && part.url ? part.url : undefined
   if (!data && !fetchData && !url) return []
   const attachment = {
     ...(data ? { data } : {}),
@@ -123,7 +146,7 @@ function uiAttachmentPartToAgentPart(part: Record<string, unknown>): MessagePart
     ...(typeof part.fetchMetadata === "object" && part.fetchMetadata !== null ? { fetchMetadata: part.fetchMetadata as Record<string, string> } : {}),
     mediaType,
     type,
-    ...(url ? { url } : {}),
+    ...(url && !data ? { url } : {}),
   } satisfies AttachmentPart
   return [attachment]
 }
@@ -333,36 +356,53 @@ function normalizedMaxMessages(value: unknown): number | undefined {
     : undefined
 }
 
-function threadHistoryMaxMessages(threadHistory: unknown): number | undefined {
-  if (!threadHistory || typeof threadHistory !== "object" || Array.isArray(threadHistory)) return
-  return normalizedMaxMessages((threadHistory as { maxMessages?: unknown }).maxMessages)
+function normalizedMaxAgeMs(value: unknown): number | undefined {
+  const numericValue = Object.prototype.toString.call(value) === "[object Number]" ? Number(value) : undefined
+  return numericValue !== undefined && Number.isFinite(numericValue) && numericValue >= 0
+    ? numericValue
+    : undefined
 }
 
 export function resolveChatTriggerHistory(
-  options: Pick<AgentChatOptions, "threadHistory" | "triggerHistory"> | undefined,
+  options: Pick<AgentChatOptions, "triggerHistory"> | undefined,
   triggerHistory?: AgentChatTriggerHistory,
 ): AgentChatTriggerHistory | undefined {
   if (triggerHistory !== undefined) return triggerHistory
-  if (options?.triggerHistory !== undefined) return options.triggerHistory
-  const maxMessages = threadHistoryMaxMessages(options?.threadHistory)
-  return maxMessages === undefined ? undefined : { maxMessages, source: "thread" }
+  return options?.triggerHistory
 }
 
 export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory | undefined): number | undefined {
   if (triggerHistory === "none") return
   if (!triggerHistory || triggerHistory.source !== "thread") return
-  return normalizedMaxMessages(triggerHistory.maxMessages) ?? 20
+  if (
+    Object.prototype.hasOwnProperty.call(triggerHistory, "maxAgeMs") &&
+    triggerHistory.maxAgeMs !== undefined &&
+    normalizedMaxAgeMs(triggerHistory.maxAgeMs) === undefined
+  ) return
+  return normalizedMaxMessages(triggerHistory.maxMessages)
+}
+
+function selectRecentChatHistory(messages: UIMessageLike[], triggerHistory: Exclude<AgentChatTriggerHistory, "none">): UIMessageLike[] {
+  const maxAgeMs = normalizedMaxAgeMs(triggerHistory.maxAgeMs)
+  if (maxAgeMs === undefined || messages.length < 2) return messages
+  const latestTime = uiMessageTime(messages.at(-1)!)
+  if (latestTime === undefined) return messages.slice(-1)
+  for (let index = messages.length - 2; index >= 0; index--) {
+    const messageTime = uiMessageTime(messages[index]!)
+    if (messageTime === undefined || latestTime - messageTime > maxAgeMs) return messages.slice(index + 1)
+  }
+  return messages
 }
 
 function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatTriggerHistory | undefined, sessions?: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
   const sessionMessages = selectChatSession(messages, sessions, triggerSession)
-  if (triggerHistory === "none") return sessionMessages.slice(-1)
   const limit = chatTriggerHistoryLimit(triggerHistory)
-  if (limit) return sessionMessages.slice(-limit)
-  return sessionMessages.slice(-20)
+  if (!limit || !triggerHistory || triggerHistory === "none") return sessionMessages.slice(-1)
+  return selectRecentChatHistory(sessionMessages, triggerHistory).slice(-limit)
 }
 
 function createChatTriggerHookArgs<TRuntimeConfig extends AgentRuntimeConfig>(
+  _options: AgentChatOptions<TRuntimeConfig>,
   messages: UIMessageLike[],
   run: AgentRunMetadata | undefined,
   session: AgentChatMessageTriggerInput["session"] | undefined,
@@ -390,7 +430,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
 ): ChatMessageTriggerInputResult<TRuntimeConfig> {
   const messages = Array.isArray(triggerInput?.messages) ? triggerInput.messages : []
   if (!messages.length) {
-    throw new TypeError("[vitehub] chat.message trigger requires at least one UI message.")
+    throw agentDiagnostics.AGENT_R0375({ message: "[vitehub] chat.message trigger requires at least one UI message." })
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
@@ -399,8 +439,9 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const providerSessionId = triggerInput?.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId
     ? `${transportSessionId}:chat-session:${selectedSessionId}`
     : transportSessionId)
-  const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
+  const hookArgs = createChatTriggerHookArgs(options, selectedMessages, triggerInput?.run, triggerInput?.session)
   const invoker = resolveChatTriggerInvoker(triggerInput)
+  if (!triggerInput?.invoker) markDerivedChatTriggerInvoker(invoker)
   return {
     hookArgs,
     input: {

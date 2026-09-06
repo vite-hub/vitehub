@@ -5,10 +5,11 @@ import { normalizeWebSearchProviderInput } from "./credentials.ts"
 
 import type { AgentCapabilityDefinition } from "../../types.ts"
 import type { WebSearchOptions } from "./types.ts"
+import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export function webSearch(options: WebSearchOptions): AgentCapabilityDefinition {
   if (!options || typeof options !== "object") {
-    throw new TypeError("[vitehub] webSearch() requires options with mode: \"tool\" or mode: \"model\".")
+    throw agentDiagnostics.AGENT_R0270({ message: "[vitehub] webSearch() requires options with mode: \"tool\" or mode: \"model\"." })
   }
   if (options.mode === "tool") {
     const provider = normalizeWebSearchProviderInput(options.provider)
@@ -27,7 +28,7 @@ export function webSearch(options: WebSearchOptions): AgentCapabilityDefinition 
       },
     })
   }
-  throw new TypeError("[vitehub] webSearch() mode must be \"tool\" or \"model\".")
+  throw agentDiagnostics.AGENT_R0271({ message: "[vitehub] webSearch() mode must be \"tool\" or \"model\"." })
 }
 
 export type {

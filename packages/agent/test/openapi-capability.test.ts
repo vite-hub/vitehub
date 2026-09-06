@@ -5,6 +5,7 @@ import type { AgentToolSet } from "../src/types.ts"
 const runtime = () => ({
   capabilities: {},
   memo: vi.fn(),
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   runtime: "unknown" as const,
   runtimeConfig: {},
   waitUntil: vi.fn(),
@@ -175,6 +176,7 @@ describe("openapi capability", () => {
       ],
     }, runtime(), { prompt: "list" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await (resolved.tools as AgentToolSet).listCustomers.execute?.({ query: { region: "eu" } })
 
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/customers?region=eu")
@@ -192,6 +194,7 @@ describe("openapi capability", () => {
       capabilities: [openapi({ operations: ["listCustomers"], spec: portalSpec() })],
     }, runtime(), { prompt: "list" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const request = (resolved.tools as AgentToolSet).listCustomers.execute?.(
       {},
       { abortSignal: controller.signal },
@@ -236,7 +239,7 @@ describe("openapi capability", () => {
       operations: ["listCustomers"],
       spec: ({ context }) => ({
         ...portalSpec(),
-        servers: [{ url: context.get<{ baseUrl: string }>("portal")?.baseUrl }],
+        servers: [{ url: context.get("portal")?.baseUrl }],
       }),
     })
 
@@ -246,6 +249,7 @@ describe("openapi capability", () => {
       context: { portal: { baseUrl: "https://first.example.com/api" } },
       prompt: "list",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await (first.tools as AgentToolSet).listCustomers.execute?.({})
 
     const second = await resolveAgentCapabilities({
@@ -254,6 +258,7 @@ describe("openapi capability", () => {
       context: { portal: { baseUrl: "https://second.example.com/api" } },
       prompt: "list",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await (second.tools as AgentToolSet).listCustomers.execute?.({})
 
     expect(request.mock.calls.map(call => call[0])).toEqual([
@@ -269,7 +274,7 @@ describe("openapi capability", () => {
     const capability = openapi({
       operations: ["listCustomers"],
       server({ context }) {
-        const server = context.get<{ baseUrl: string }>("portal")?.baseUrl
+        const server = context.get("portal")?.baseUrl
         if (!server) throw new Error("Portal server missing.")
         return server
       },
@@ -282,6 +287,7 @@ describe("openapi capability", () => {
       context: { portal: { baseUrl: "https://first-override.example.com/runtime" } },
       prompt: "list",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await (first.tools as AgentToolSet).listCustomers.execute?.({})
 
     const second = await resolveAgentCapabilities({
@@ -290,6 +296,7 @@ describe("openapi capability", () => {
       context: { portal: { baseUrl: "https://second-override.example.com/runtime" } },
       prompt: "list",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await (second.tools as AgentToolSet).listCustomers.execute?.({})
 
     expect(request.mock.calls.map(call => call[0])).toEqual([
@@ -315,7 +322,7 @@ describe("openapi capability", () => {
           operations: ["listCustomers", "createOrder"],
           spec: ({ context }) => ({
             ...portalSpec(),
-            servers: [{ url: context.get<{ baseUrl: string }>("portal")?.baseUrl }],
+            servers: [{ url: context.get("portal")?.baseUrl }],
           }),
         }),
       ],
@@ -381,8 +388,9 @@ describe("openapi capability", () => {
                 query: ["currency"],
               },
               handler({ context, request }) {
-                const cubeToken = context.get<{ cubeToken: string }>("portal")?.cubeToken
-                const previewCookie = context.get<{ previewCookie: string }>("portal")?.previewCookie
+                const cubeToken = context.get("portal")?.cubeToken
+                const previewCookie = context.get("portal")?.previewCookie
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken }
                 request.path.tenantId = "acme"
                 request.query.currency = "EUR"
@@ -401,7 +409,9 @@ describe("openapi capability", () => {
       },
       prompt: "create",
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const tools = resolved.tools as AgentToolSet
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const schema = tools.createOrder.inputSchema as {
       properties: Record<string, { properties?: Record<string, unknown>, required?: string[] } | undefined>
       required?: string[]
@@ -417,11 +427,37 @@ describe("openapi capability", () => {
       query: { currency: "USD" },
     })).resolves.toEqual({ ok: true })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders?currency=EUR")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(JSON.parse(init.body as string)).toEqual({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((init.headers as Headers).get("cookie")).toBe("preview=preview-cookie")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((init.headers as Headers).get("x-cube-token")).toBe("cube-token")
+  })
+
+  it("lets request hooks lower the bounded OpenAPI response limit", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [openapi({
+        hooks: {
+          request: ({ request }) => {
+            expect(request.maxResponseBytes).toBe(100)
+            return { maxResponseBytes: 4 }
+          },
+        },
+        maxResponseBytes: 100,
+        operations: ["listCustomers"],
+        spec: portalSpec(),
+      })],
+    }, runtime(), { prompt: "list" })
+
+    await expect((resolved.tools as AgentToolSet).listCustomers.execute?.({}))
+      .rejects.toThrow("configured 4-byte limit")
   })
 
   it("allows hooks to fill path params without requiring them in tool input", async () => {
@@ -445,7 +481,9 @@ describe("openapi capability", () => {
         }),
       ],
     }, runtime(), { prompt: "get" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const tools = resolved.tools as AgentToolSet
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const schema = tools.getOrder.inputSchema as { properties: { path?: { required?: string[] } }, required?: string[] }
     expect(schema.properties.path?.required).toEqual(["orderId"])
     expect(schema.required).toEqual(["path"])
@@ -478,7 +516,9 @@ describe("openapi capability", () => {
         }),
       ],
     }, runtime(), { prompt: "report" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const tools = resolved.tools as AgentToolSet
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const schema = tools.getReport.inputSchema as {
       properties: { query?: { properties?: Record<string, unknown>, required?: string[] } }
       required?: string[]
@@ -506,11 +546,14 @@ describe("openapi capability", () => {
         }),
       ],
     }, runtime(), { prompt: "inspect" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const tools = resolved.tools as AgentToolSet
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const createOrder = tools.createOrder.inputSchema as {
       properties: { body?: { required?: string[] }, path?: { required?: string[] } }
       required?: string[]
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const getReport = tools.getReport.inputSchema as {
       properties: { query?: { required?: string[] } }
       required?: string[]
@@ -542,8 +585,9 @@ describe("openapi capability", () => {
               },
               handler({ context, request }) {
                 request.body = {
+                  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                   ...(request.body as Record<string, unknown> | undefined),
-                  cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken,
+                  cubeToken: context.get("portal")?.cubeToken,
                 }
                 request.path.tenantId = "acme"
                 request.query.currency = "EUR"
@@ -570,8 +614,10 @@ describe("openapi capability", () => {
       json: { ok: true },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders?currency=EUR")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(JSON.parse(init.body as string)).toEqual({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" })
 
     await expect(resolved.tools?.portal?.execute?.({
@@ -723,6 +769,7 @@ describe("openapi capability", () => {
       exitCode: 0,
       json: { ok: true },
     })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect((request.mock.calls[0]?.[1] as RequestInit).body).toBe(JSON.stringify({
       cubeToken: "cube-token",
       note: null,
@@ -770,6 +817,7 @@ describe("openapi capability", () => {
       json: { ok: true },
     })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(request.mock.calls.map(call => (call[1] as RequestInit).body)).toEqual([
       JSON.stringify(["red", "blue"]),
       "hello",
@@ -823,6 +871,7 @@ describe("openapi capability", () => {
                 path: ["tenantId"],
               },
               handler({ request }) {
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken: "cube-token" }
                 request.path.tenantId = "acme"
               },
@@ -833,13 +882,16 @@ describe("openapi capability", () => {
       ],
     }, runtime(), { prompt: "create" })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const tools = resolved.tools as AgentToolSet
     await expect(tools.createOrder.execute?.({
       quantity: 2,
       sku: "sku-1",
     })).resolves.toEqual({ ok: true })
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const init = request.mock.calls[0]?.[1] as RequestInit
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     expect(JSON.parse(init.body as string)).toEqual({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" })
   })
 
@@ -861,6 +913,7 @@ describe("openapi capability", () => {
                 path: ["tenantId"],
               },
               handler({ request }) {
+                // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
                 request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken: "cube-token" }
                 request.path.tenantId = "acme"
               },
@@ -871,6 +924,7 @@ describe("openapi capability", () => {
             return {
               operationId: context.operation.id,
               status: context.response.status,
+              // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
               rows: (response as { data: Array<Record<string, unknown>> }).data.map(row => ({
                 quantity: row["PurchaseOrder.quantity"],
                 sku: row["Product.sku"],
@@ -880,6 +934,7 @@ describe("openapi capability", () => {
         }),
       ],
     }, runtime(), { prompt: "create" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const tools = resolved.tools as AgentToolSet
 
     await expect(tools.createOrder.execute?.({

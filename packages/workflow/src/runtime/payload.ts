@@ -1,3 +1,4 @@
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 interface PayloadSchema<T> {
   safeParse: (payload: unknown) => { success: boolean, data?: T, error?: unknown }
 }
@@ -27,7 +28,7 @@ export async function validatePayload<T>(payload: unknown, schema: PayloadValida
   if ("safeParse" in schema && typeof schema.safeParse === "function") {
     const result = schema.safeParse(payload)
     if (!result.success) {
-      throw result.error || new TypeError("Invalid workflow payload.")
+      throw result.error || workflowErrorDiagnostics.WORKFLOW_R0021({ message: "Invalid workflow payload." })
     }
     return result.data as T
   }
@@ -36,7 +37,7 @@ export async function validatePayload<T>(payload: unknown, schema: PayloadValida
     return schema.parse(payload)
   }
 
-  throw new TypeError("Invalid workflow payload schema.")
+  throw workflowErrorDiagnostics.WORKFLOW_R0022({ message: "Invalid workflow payload schema." })
 }
 
 export async function readValidatedPayload<T>(request: Request, schema: PayloadValidator<T>): Promise<T> {

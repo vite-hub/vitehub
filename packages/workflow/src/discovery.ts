@@ -7,6 +7,7 @@ import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  isGitRepositoryDirectory,
   mergeDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
@@ -25,7 +26,6 @@ const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
 const folderAgentFilePattern = /^agent\.(?:c|m)?[jt]s$/i
 const folderAgentIndexFilePattern = /^index\.(?:c|m)?[jt]s$/i
-const legacyFolderAgentFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const agentEvalFilePattern = /\.eval\.(?:c|m)?[jt]s$/i
 
 function normalizeSuffixWorkflowName(rootDir: string, file: string) {
@@ -42,6 +42,7 @@ function readDirEntries(root: string) {
     return readdirSync(root, { withFileTypes: true })
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return []
     }
@@ -232,6 +233,7 @@ function findWorkflowFolders(workflowsDir: string): string[] {
     }
 
     const directory = resolve(workflowsDir, entry.name)
+    if (isGitRepositoryDirectory(directory)) continue
     if (isWorkflowFolder(directory)) {
       folders.push(directory)
       continue
@@ -255,6 +257,7 @@ function findFolderAgentFiles(agentsDir: string): string[] {
     }
     const absolute = resolve(agentsDir, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      if (isGitRepositoryDirectory(absolute)) continue
       if ((entry.name === "workspace" || entry.name === "skills") && hasFolderAgentDefinition(agentsDir)) continue
       files.push(...findFolderAgentFiles(absolute))
       continue
@@ -303,7 +306,6 @@ function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): Discove
           return path === "workspace" || path.startsWith("workspace/") || path === "skills" || path.startsWith("skills/")
         })) return undefined
         if ((folderAgentFilePattern.test(fileName) && parent !== normalize(directory))
-          || legacyFolderAgentFilePattern.test(fileName)
           || agentEvalFilePattern.test(fileName)) {
           return undefined
         }

@@ -1,6 +1,7 @@
 import { getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 
 import type { MaybePromise } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 const transcriptionErrorMessages = {
   TRANSCRIPTION_AUTHENTICATION_FAILED: "[vitehub] Transcription authentication failed.",
@@ -105,7 +106,7 @@ interface TranscriptionErrorOptions extends ErrorOptions {
 
 export function transcriptionError(code: TranscriptionErrorCode, options?: TranscriptionErrorOptions): ViteHubError<TranscriptionErrorCode, TranscriptionErrorDetails> {
   if (typeof code !== "string" || !Object.hasOwn(transcriptionErrorMessages, code)) {
-    throw new TypeError("[vitehub] Transcription errors require a known code.")
+    throw agentDiagnostics.AGENT_R0256({ message: "[vitehub] Transcription errors require a known code." })
   }
   const details = safeErrorDetails(options)
   const cause = readErrorOption(options, "cause")
@@ -120,13 +121,15 @@ export function isTranscriptionError(value: unknown): boolean {
 }
 
 function assertDriver(driver: unknown): asserts driver is TranscriptionDriver {
-  if (!driver || typeof driver !== "object") throw new TypeError("[vitehub] Transcription driver must be an object.")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- External transcription drivers must provide the required object and callable methods.
+  if (!driver || typeof driver !== "object") throw agentDiagnostics.AGENT_R0257({ message: "[vitehub] Transcription driver must be an object." })
   const value = driver as Partial<TranscriptionDriver>
   if (!safeProvider(value.name)) {
-    throw new TypeError("[vitehub] Transcription driver name must be a safe identifier.")
+    throw agentDiagnostics.AGENT_R0258({ message: "[vitehub] Transcription driver name must be a safe identifier." })
   }
-  if (typeof value.submit !== "function") throw new TypeError("[vitehub] Transcription driver submit must be a function.")
-  if (typeof value.receive !== "function") throw new TypeError("[vitehub] Transcription driver receive must be a function.")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- External transcription drivers must provide the required object and callable methods.
+  if (typeof value.submit !== "function") throw agentDiagnostics.AGENT_R0259({ message: "[vitehub] Transcription driver submit must be a function." })
+  if (typeof value.receive !== "function") throw agentDiagnostics.AGENT_R0260({ message: "[vitehub] Transcription driver receive must be a function." })
 }
 
 function assertMetadata(
@@ -136,16 +139,16 @@ function assertMetadata(
 ): asserts metadata is TranscriptionMetadata | undefined {
   if (metadata === undefined) return
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
-    throw transcriptionError(code, { cause: new TypeError(`[vitehub] ${field} must be an object.`) })
+    throw transcriptionError(code, { cause: agentDiagnostics.AGENT_R0261({ message: `[vitehub] ${field} must be an object.` }) })
   }
 }
 
 function normalizeSource(source: TranscriptionSource | undefined): TranscriptionSource {
   if (!source || typeof source !== "object") {
-    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source must be an object.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: agentDiagnostics.AGENT_R0262({ message: "[vitehub] Transcription source must be an object." }) })
   }
   if (typeof source.url !== "string" || !source.url.trim()) {
-    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.url must be a non-empty URL.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: agentDiagnostics.AGENT_R0263({ message: "[vitehub] Transcription source.url must be a non-empty URL." }) })
   }
   let url: URL
   try {
@@ -155,13 +158,13 @@ function normalizeSource(source: TranscriptionSource | undefined): Transcription
     throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause })
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.url must use HTTP or HTTPS.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: agentDiagnostics.AGENT_R0264({ message: "[vitehub] Transcription source.url must use HTTP or HTTPS." }) })
   }
   if (source.mediaType !== undefined && (typeof source.mediaType !== "string" || !source.mediaType.trim())) {
-    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.mediaType must be a non-empty string.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: agentDiagnostics.AGENT_R0265({ message: "[vitehub] Transcription source.mediaType must be a non-empty string." }) })
   }
   if (source.name !== undefined && (typeof source.name !== "string" || !source.name.trim())) {
-    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: new TypeError("[vitehub] Transcription source.name must be a non-empty string.") })
+    throw transcriptionError("TRANSCRIPTION_INVALID_REQUEST", { cause: agentDiagnostics.AGENT_R0266({ message: "[vitehub] Transcription source.name must be a non-empty string." }) })
   }
   return { ...source, url: url.href }
 }
@@ -169,7 +172,7 @@ function normalizeSource(source: TranscriptionSource | undefined): Transcription
 function assertId(id: unknown, provider: string, phase: string): asserts id is string {
   if (typeof id !== "string" || !id.trim()) {
     throw transcriptionError("TRANSCRIPTION_INVALID_PAYLOAD", {
-      cause: new TypeError(`[vitehub] Transcription driver ${provider} returned an invalid ${phase} id.`),
+      cause: agentDiagnostics.AGENT_R0267({ message: `[vitehub] Transcription driver ${provider} returned an invalid ${phase} id.` }),
       provider,
     })
   }
@@ -231,7 +234,7 @@ function normalizeCompletion(completion: TranscriptionDriverCompletion, provider
       if (typeof completion.error !== "string" || !completion.error.trim()) throw invalidPayload(provider)
       return {
         error: transcriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
-          cause: new Error(completion.error),
+          cause: agentDiagnostics.AGENT_R0268({ message: completion.error }),
           provider,
         }),
         id: completion.id,

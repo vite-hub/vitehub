@@ -1,11 +1,14 @@
+import { randomUUID } from "node:crypto"
+
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { composeNitroCloudflareProviderOutput, registerCloudflareProviderOutput, resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName } from "@vite-hub/internal/build/vite"
+import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
-import { createCloudflareR2Bindings, generateProviderOutputs, prepareProviderOutputs, renderBlobRuntimeModule, blobPackageName } from "./internal/vite-build.ts"
+import { createCloudflareR2Bindings, generateProviderOutputs, prepareProviderOutputs, registerSupportedProviderRuntimeModules, renderBlobRuntimeModule, blobPackageName } from "./internal/vite-build.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -16,7 +19,7 @@ import {
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions, BlobServeConfig } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
-import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
@@ -38,7 +41,7 @@ interface BlobProvisionContributingPlugin {
 
 export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI }
 
-type InternalBlobModuleOptions = BlobModuleOptions & {
+interface InternalBlobModuleOptions {
   importBase?: string
   nitroOwned?: boolean
 }
@@ -85,9 +88,10 @@ function isNitroCloudflareHost(value: unknown): boolean {
 }
 
 function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, unknown>, blob: BlobModuleOptions | undefined, cloudflareOwnedByNitro: boolean): Record<string, unknown> {
+  const providerOutput = useProviderOutputCatalog(config)
   if (!cloudflareOwnedByNitro) {
-    registerCloudflareProviderOutput(config, "blob", {})
-    return composeNitroCloudflareProviderOutput(config, nitro)
+    contributeCloudflareProviderOutput(providerOutput, { owner: "blob" })
+    return composeNitroCloudflareProviderOutput(providerOutput, nitro)
   }
   const bindings = createCloudflareR2Bindings(resolveBlobViteConfig(blob, { hosting: "cloudflare" }).blob)
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
@@ -100,8 +104,8 @@ function mergeNitroCloudflareBlobOutput(config: object, nitro: Record<string, un
     cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
     rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") },
   }
-  registerCloudflareProviderOutput(config, "blob", bindings ? { r2Buckets: bindings } : {})
-  return composeNitroCloudflareProviderOutput(config, baseNitro)
+  contributeCloudflareProviderOutput(providerOutput, { owner: "blob", ...(bindings ? { r2Buckets: bindings } : {}) })
+  return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, nitro)
 }
 
 function normalizeNitroRoute(route: string): string {
@@ -188,9 +192,10 @@ function renderNitroBlobMiddleware(importBase = blobPackageName): string {
 
 function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
   const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
+  const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
   return [
     `import { blob } from '${importBase}'`,
-    `import { createError, getRouterParam${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
+    `import { createError, getRouterParam${cacheControl !== undefined ? ", handleCacheHeaders, setResponseHeader" : ""}${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
     "import { defineCachedHandler } from 'nitro/cache'",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
@@ -219,7 +224,20 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
           "  if (error) throw error",
           "  return stream",
         ]),
-    "}, { headersOnly: true, maxAge: 0 })",
+    ...(cacheControl !== undefined
+      ? [
+          "}, {",
+          "  headersOnly: true,",
+          "  maxAge: 0,",
+          "  // Keep the configured policy after conditional request handling sets default cache headers.",
+          "  handleCacheHeaders(event, conditions) {",
+          "    const handled = handleCacheHeaders(event, conditions)",
+          `    setResponseHeader(event, 'Cache-Control', ${JSON.stringify(cacheControl)})`,
+          "    return handled",
+          "  },",
+          "})",
+        ]
+      : ["}, { headersOnly: true, maxAge: 0 })"]),
     "",
   ].join("\n")
 }
@@ -237,19 +255,22 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
   await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase))
 }
 
-export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
-  const internalOptions = options as InternalBlobModuleOptions | undefined
-  const importBase = internalOptions?.importBase ?? blobPackageName
-  const nitroOwned = internalOptions?.nitroOwned === true
+export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
+  const importBase = internalOptions.importBase ?? blobPackageName
+  const nitroOwned = internalOptions.nitroOwned === true
   let blob: BlobModuleOptions | undefined = options
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
   let cloudflareOwnedByNitro = false
-  let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
-  let providerOutput: ComposedProviderOutput | undefined
+  let providerOutput: ProviderOutputCatalog | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   let resolved: ResolvedConfig | undefined
+  const stagedArtifactDirs = new WeakMap<object, string>()
+  const fallbackEnvironment = {}
+  const buildEnvironment = (context: { environment?: object } | undefined): object =>
+    context?.environment ?? context ?? fallbackEnvironment
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
 
   return {
@@ -267,12 +288,15 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       command = env.command
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
-      cloudflareOwnedByNitro = (nitroOwned || hasNitroVitePluginOption(config.plugins)) && isNitroCloudflareHost(configuredNitro)
+      const nitroConfigContext = hasNitroConfigContext(config)
+      const nitroOwnsConfig = nitroOwned || nitroConfigContext || hasNitroVitePluginOption(config.plugins)
+      cloudflareOwnedByNitro = nitroOwnsConfig && isNitroCloudflareHost(configuredNitro)
       const blobConfig = resolveBlobViteConfig(blob, cloudflareOwnedByNitro ? { hosting: "cloudflare" } : undefined)
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
         cloudflareOwnedByNitro,
+        nitroConfigContext ? resolveViteHubProjectRoot(config.root || process.cwd()) : undefined,
       )
       const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
       ;(config as { nitro?: unknown }).nitro = composedNitro
@@ -280,7 +304,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
     async configResolved(config) {
       resolved = config
       clientOutDir = config.build.outDir
-      rootDir = config.root
+      rootDir = resolveViteHubProjectRoot(config.root)
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       cloudflareOwnedByNitro = (nitroOwned || hasNitroConfigContext(config)) && isNitroCloudflareHost(configuredNitro)
@@ -289,15 +313,15 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
         cloudflareOwnedByNitro,
-        config.root,
+        rootDir,
       )
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflareOwnedByNitro)
-      providerOutput = useComposedProviderOutput(config)
+      providerOutput = useProviderOutputCatalog(config)
       runtimeConfig = blobConfig
       const hosting = getNitroHostingProvider(configuredNitro)
         ?? (resolveNitroVercelFunctionName(config, "blob") ? "vercel" : undefined)
       await refreshBlobGeneratedFiles(
-        config.root,
+        rootDir,
         runtimeConfig.blob,
         cloudflareOwnedByNitro,
         importBase,
@@ -316,34 +340,79 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       }
     },
     buildStart() {
-      resetComposedProviderOutput(providerOutput)
+      providerOutputGenerations.capture(this, providerOutput)
+      resetProviderOutputRuntime(providerOutput)
     },
-    async buildEnd() {
+    async buildEnd(error) {
+      if (error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        return
+      }
       if (shouldSkipViteProviderBuild(command, getViteMode())) {
         return
       }
-
-      providerArtifacts = await prepareProviderOutputs({
-        blob,
-        cloudflareOwnedByNitro,
-        providerOutput,
-        rootDir,
-      })
-    },
-    async closeBundle() {
-      if (shouldSkipViteProviderBuild(command, getViteMode())) {
-        return
+      const generation = providerOutputGenerations.get(this)
+      const environment = generation ?? buildEnvironment(this)
+      const artifactDir = resolve(rootDir, ".vitehub/blob-generations", randomUUID())
+      try {
+        const blobOptions = blob
+        const blobCloudflareOwnedByNitro = cloudflareOwnedByNitro
+        const blobClientOutDir = clientOutDir
+        const blobRootDir = rootDir
+        const blobServerFunctionName = resolveNitroVercelFunctionName(resolved ?? {}, "blob")
+        const providerArtifacts = await prepareProviderOutputs({
+          blob: blobOptions,
+          cloudflareOwnedByNitro: blobCloudflareOwnedByNitro,
+          generatedDir: artifactDir,
+          providerOutput,
+          rootDir: blobRootDir,
+        })
+        registerSupportedProviderRuntimeModules(providerOutput, providerArtifacts, blobOptions, blobCloudflareOwnedByNitro, generation)
+        stagedArtifactDirs.set(environment, artifactDir)
+        contributeProviderDeploymentOutput(providerOutput, {
+          discard: async () => {
+            await removeProviderOutputArtifactDir(artifactDir)
+            if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+          },
+          owner: "blob",
+          rootDir: blobRootDir,
+          write: async ({ signal, write }) => {
+            await generateProviderOutputs({
+              blob: blobOptions,
+              clientOutDir: blobClientOutDir,
+              cloudflareOwnedByNitro: blobCloudflareOwnedByNitro,
+              artifacts: providerArtifacts,
+              providerOutput,
+              rootDir: blobRootDir,
+              serverFunctionName: blobServerFunctionName,
+              signal,
+            }, write)
+          },
+        }, generation)
       }
-
-      await generateProviderOutputs({
-        blob,
-        clientOutDir,
-        cloudflareOwnedByNitro,
-        artifacts: providerArtifacts,
-        providerOutput,
-        rootDir,
-        serverFunctionName: resolveNitroVercelFunctionName(resolved ?? {}, "blob"),
-      })
+      catch (error) {
+        await removeProviderOutputArtifactDir(artifactDir)
+        if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        throw error
+      }
+    },
+    async renderError(error) {
+      const environment = providerOutputGenerations.get(this) ?? buildEnvironment(this)
+      await providerOutputGenerations.reset(this, providerOutput, error)
+      const artifactDir = stagedArtifactDirs.get(environment)
+      if (artifactDir) {
+        await removeProviderOutputArtifactDir(artifactDir)
+        if (stagedArtifactDirs.get(environment) === artifactDir) stagedArtifactDirs.delete(environment)
+      }
+    },
+    closeBundle: {
+      order: "post",
+      sequential: true,
+      async handler() {
+        if (shouldSkipViteProviderBuild(command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(providerOutput)
+      },
     },
     load(id) {
       if (id === RESOLVED_BLOB_VIRTUAL_CONFIG_ID) {

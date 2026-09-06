@@ -24,6 +24,7 @@ import {
 } from "./requirements.ts"
 import { markBuiltInBoxRuntime } from "./runtime.ts"
 import { createBoxSession, type RuntimeSession } from "./session.ts"
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface CrabboxOptions {
   /** Enables loopback port URLs when the target shares the ViteHub process network namespace. */
@@ -43,6 +44,7 @@ interface CrabboxSandboxOptions extends CrabboxOptions {
 }
 
 interface CrabboxSessionOptions extends CrabboxSandboxOptions {
+  staticId?: string
   stateHome: string
 }
 
@@ -167,18 +169,16 @@ export function createCrabboxRuntime(options: CrabboxOptions = {}): BoxRuntime {
 
 async function resolveCrabboxInput(input: BoxRuntimeInput, options: CrabboxOptions) {
   const cwd = input.cwd
-  if (!cwd && !input.checkout) throw new Error("[vitehub] The crabbox runtime requires box.cwd or box.checkout.")
+  if (!cwd && !input.checkout) throw boxErrorDiagnostics.BOX_R0091({ message: "[vitehub] The crabbox runtime requires box.cwd or box.checkout." })
   if (input.plan.state.length && (!options.stateRoot || !posix.isAbsolute(options.stateRoot))) {
-    throw new Error(
-      "[vitehub] The crabbox runtime requires an absolute stateRoot when box.home.state is declared.",
-    )
+    throw boxErrorDiagnostics.BOX_R0092({ message: "[vitehub] The crabbox runtime requires an absolute stateRoot when box.home.state is declared." })
   }
   if (
     input.plan.state.length &&
     options.stateRoot &&
     posix.dirname(posix.normalize(options.stateRoot)) === posix.normalize(options.stateRoot)
   ) {
-    throw new Error("[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.")
+    throw boxErrorDiagnostics.BOX_R0093({ message: "[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root." })
   }
   const requestedWorkspace = cwd ? resolve(cwd) : undefined
   const workspace = requestedWorkspace
@@ -186,7 +186,7 @@ async function resolveCrabboxInput(input: BoxRuntimeInput, options: CrabboxOptio
     : undefined
   const item = workspace ? await stat(workspace).catch(() => undefined) : undefined
   if (workspace && !item?.isDirectory())
-    throw new Error(`[vitehub] Box workspace directory does not exist: ${workspace}`)
+    throw boxErrorDiagnostics.BOX_R0094({ message: `[vitehub] Box workspace directory does not exist: ${workspace}` })
   return { workspace }
 }
 
@@ -199,6 +199,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
     } = {}) {
       const sessionOptions: CrabboxSessionOptions = {
         ...options,
+        staticId: `vitehub-${randomUUID()}`,
         stateHome: await mkdtemp(join(tmpdir(), "vitehub-crabbox-state-")),
       }
       let releaseWorkspace = () => {};
@@ -220,19 +221,18 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
         const [root, remoteWorkspace, remotePath, remoteUser, remoteStateRoot] = lastLines(setup.stdout,
           hasState ? 5 : 4,
         );
-        if (!/^\/tmp\/vitehub-box\.[A-Za-z0-9]+$/.test(root)) throw new Error(`[vitehub] Crabbox returned an invalid session root: ${root || "<empty>"}`)
-        if (!posix.isAbsolute(remoteWorkspace)) throw new Error(`[vitehub] Crabbox returned an invalid workspace path: ${remoteWorkspace || "<empty>"}`,
-          );
+        if (!/^\/tmp\/vitehub-box\.[A-Za-z0-9]+$/.test(root)) throw boxErrorDiagnostics.BOX_R0095({ message: `[vitehub] Crabbox returned an invalid session root: ${root || "<empty>"}` })
+        if (!posix.isAbsolute(remoteWorkspace)) throw boxErrorDiagnostics.BOX_R0096({ message: `[vitehub] Crabbox returned an invalid workspace path: ${remoteWorkspace || "<empty>"}` });
         if (
           hasState &&
           (!remoteStateRoot ||
             !posix.isAbsolute(remoteStateRoot) ||
             posix.dirname(remoteStateRoot) === remoteStateRoot)
         ) {
-          throw new Error("[vitehub] Box stateRoot must resolve to a dedicated target directory.");
+          throw boxErrorDiagnostics.BOX_R0097({ message: "[vitehub] Box stateRoot must resolve to a dedicated target directory." });
         }
         if (hasState && remotePathsOverlap(remoteStateRoot, remoteWorkspace)) {
-          throw new Error("[vitehub] Box stateRoot must be outside the authoritative workspace.");
+          throw boxErrorDiagnostics.BOX_R0098({ message: "[vitehub] Box stateRoot must be outside the authoritative workspace." });
         }
         if (hasState) sessionOptions.stateRoot = remoteStateRoot;
         remoteRoot = root;
@@ -255,7 +255,7 @@ function createCrabboxProvider(options: CrabboxSandboxOptions) {
                 abortSignal: bootstrapSignal,
                 command: `${shellQuote(materialized.environmentFile)} git ${args.map(shellQuote).join(" ")}`,
               })
-              if (result.exitCode !== 0) throw new Error("Git command failed.")
+              if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0099({ message: "Git command failed." })
               return { stdout: result.stdout }
             },
           })
@@ -345,8 +345,8 @@ async function materializePlan(
   remoteUser: string,
   abortSignal: AbortSignal | undefined,
 ) {
-  if (!remotePath) throw new Error("[vitehub] Crabbox returned an empty command PATH.");
-  if (!remoteUser) throw new Error("[vitehub] Crabbox returned an empty command user.");
+  if (!remotePath) throw boxErrorDiagnostics.BOX_R0100({ message: "[vitehub] Crabbox returned an empty command PATH." });
+  if (!remoteUser) throw boxErrorDiagnostics.BOX_R0101({ message: "[vitehub] Crabbox returned an empty command user." });
   const home = posix.join(root, "home");
   const environmentFile = posix.join(root, ".vitehub-environment");
   const missingState = await findMissingState(options, leaseId, abortSignal);
@@ -354,6 +354,7 @@ async function materializePlan(
   for (const index of missingState)
     seeds.set(index, await resolveFiles(options.plan.state[index].seed));
   const files = await resolveFiles(options.plan.files);
+  // SAFETY: every entry is produced from a string-keyed environment resolver returning a string.
   const environment = Object.fromEntries(
     await Promise.all(
       Object.entries(options.plan.env).map(async ([name, resolveValue]) => [
@@ -629,7 +630,7 @@ async function acquireRemoteState(
     controller.abort(error);
   };
   child.once("error", (error) => {
-    if (ready) loseLease(new Error("[vitehub] Crabbox state lease was lost.", { cause: error }));
+    if (ready) loseLease(boxErrorDiagnostics.BOX_R0102({ message: "[vitehub] Crabbox state lease was lost.", cause: error }));
     else rejectReady(error);
   });
   const completion = new Promise<number>((resolvePromise) =>
@@ -639,21 +640,17 @@ async function acquireRemoteState(
     if (!ready) {
       const detail = stderr.trim();
       rejectReady(
-        new Error(
-          `[vitehub] Failed to acquire Crabbox state lease${detail ? `: ${detail}` : code === 0 ? "." : ` (exit ${code ?? 1}).`}`,
-        ),
+        boxErrorDiagnostics.BOX_R0103({ message: `[vitehub] Failed to acquire Crabbox state lease${detail ? `: ${detail}` : code === 0 ? "." : ` (exit ${code ?? 1}).`}` }),
       );
     } else if (!releasing) {
       loseLease(
-        new Error(
-          `[vitehub] Crabbox state lease was lost${code && code !== 0 ? ` (exit ${code}).` : "."}`,
-        ),
+        boxErrorDiagnostics.BOX_R0104({ message: `[vitehub] Crabbox state lease was lost${code && code !== 0 ? ` (exit ${code}).` : "."}` }),
       );
     }
   });
   const abort = () => {
     child.kill();
-    rejectReady(abortSignal?.reason || new Error("Crabbox state lease aborted."));
+    rejectReady(abortSignal?.reason || boxErrorDiagnostics.BOX_R0105({ message: "Crabbox state lease aborted." }));
   };
   abortSignal?.addEventListener("abort", abort, { once: true });
   try {
@@ -682,7 +679,7 @@ async function acquireRemoteState(
       const exitCode = await completion;
       if (failure) throw failure;
       if (exitCode !== 0)
-        throw new Error(`[vitehub] Failed to release Crabbox state lease (exit ${exitCode}).`);
+        throw boxErrorDiagnostics.BOX_R0106({ message: `[vitehub] Failed to release Crabbox state lease (exit ${exitCode}).` });
     },
     signal: controller.signal,
   };
@@ -694,6 +691,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     defaultWorkingDirectory: state.root,
     description: "Crabbox session.",
     id: sessionId || randomUUID(),
+    inspectionConcurrency: 1,
     ports: [0],
     async destroy() {
       if (destroyed) return;
@@ -751,7 +749,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
         .filter(Boolean)
         .map((line) => {
           const [kind, size, entryPath] = line.split("\t")
-          if (!entryPath || !kind) throw new Error(`[vitehub] Crabbox returned an invalid file entry for ${path}.`)
+          if (!entryPath || !kind) throw boxErrorDiagnostics.BOX_R0107({ message: `[vitehub] Crabbox returned an invalid file entry for ${path}.` })
           return {
             path: entryPath,
             size: kind === "f" ? Number(size) : undefined,
@@ -817,6 +815,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
     async readTextFile({ abortSignal, encoding = "utf8", endLine, path, startLine }: { abortSignal?: AbortSignal, encoding?: string, endLine?: number, path: string, startLine?: number }) {
       const bytes = await this.readBinaryFile({ abortSignal, path })
       if (!bytes) return null
+      // SAFETY: RuntimeSession accepts Node.js buffer encoding names through this string API.
       const text = Buffer.from(bytes).toString(encoding as BufferEncoding)
       if (startLine === undefined && endLine === undefined) return text
       return text.split(/\r?\n/).slice((startLine || 1) - 1, endLine).join("\n")
@@ -887,6 +886,7 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
       await this.writeBinaryFile({ abortSignal, content: await bytesFromStream(content), path })
     },
     async writeTextFile({ abortSignal, content, encoding = "utf8", path }: { abortSignal?: AbortSignal, content: string, encoding?: string, path: string }) {
+      // SAFETY: RuntimeSession accepts Node.js buffer encoding names through this string API.
       await this.writeBinaryFile({ abortSignal, content: Buffer.from(content, encoding as BufferEncoding), path })
     },
   } satisfies RuntimeSession
@@ -912,11 +912,12 @@ async function warmup(options: CrabboxSessionOptions, abortSignal: AbortSignal |
   if (result.exitCode !== 0) throw crabboxError("warm Crabbox", result)
   const timing = result.stderr.trim().split(/\r?\n/).reverse().find(line => line.trim().startsWith("{"))
   try {
-    const leaseId = timing && (JSON.parse(timing) as { leaseId?: unknown }).leaseId
-    if (typeof leaseId === "string" && leaseId) return leaseId
+    const parsed: unknown = timing && JSON.parse(timing)
+    const leaseId = Reflect.get(Object(parsed), "leaseId")
+    if (Object.prototype.toString.call(leaseId) === "[object String]" && leaseId) return String(leaseId)
   }
   catch {}
-  throw new Error("[vitehub] Crabbox warmup did not return a lease id.")
+  throw boxErrorDiagnostics.BOX_R0108({ message: "[vitehub] Crabbox warmup did not return a lease id." })
 }
 
 function spawnCrabboxRun(state: CrabboxSessionState, options: CrabboxRunOptions) {
@@ -1001,14 +1002,14 @@ function startTunnel(state: CrabboxSessionState, remotePort: number) {
       const url = new URL(line)
       const localPort = Number(url.port)
       if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !Number.isInteger(localPort) || localPort < 1 || localPort > 65_535) {
-        throw new Error("Crabbox returned an invalid tunnel URL.")
+        throw boxErrorDiagnostics.BOX_R0109({ message: "Crabbox returned an invalid tunnel URL." })
       }
       return localPort
     }).catch(async (cause) => {
       child.kill()
       await waitForExit(child)
       const detail = stderr.trim()
-      throw new Error(`[vitehub] Crabbox tunnel failed${detail ? `: ${detail}` : "."}`, { cause })
+      throw boxErrorDiagnostics.BOX_R0110({ message: `[vitehub] Crabbox tunnel failed${detail ? `: ${detail}` : "."}`, ...{ cause } })
     }).finally(() => child.stderr.off("data", captureStderr)),
   }
   state.tunnels.set(remotePort, tunnel)
@@ -1064,6 +1065,7 @@ function spawnCrabbox(options: CrabboxSessionOptions, args: string[], abortSigna
     env: {
       ...process.env,
       XDG_STATE_HOME: options.stateHome,
+      ...(options.staticId ? { CRABBOX_STATIC_ID: options.staticId } : {}),
       ...(options.profile ? { CRABBOX_PROFILE: options.profile } : {}),
     },
     signal: abortSignal,
@@ -1072,7 +1074,7 @@ function spawnCrabbox(options: CrabboxSessionOptions, args: string[], abortSigna
 
 function processHandle(child: ChildProcessWithoutNullStreams, abortSignal: AbortSignal | undefined) {
   let abortReason: unknown
-  const abort = () => abortReason = abortSignal?.reason || new Error("Crabbox command aborted.")
+  const abort = () => abortReason = abortSignal?.reason || boxErrorDiagnostics.BOX_R0111({ message: "Crabbox command aborted." })
   abortSignal?.addEventListener("abort", abort, { once: true })
   const wait = new Promise<{ exitCode: number }>((resolvePromise, reject) => {
     child.once("error", reject)
@@ -1084,7 +1086,9 @@ function processHandle(child: ChildProcessWithoutNullStreams, abortSignal: Abort
   })
   return {
     pid: child.pid,
+    // SAFETY: child-process stderr yields Buffer chunks, which are Uint8Array values.
     stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
+    // SAFETY: child-process stdout yields Buffer chunks, which are Uint8Array values.
     stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     wait: () => wait,
     async kill() {
@@ -1125,9 +1129,9 @@ function shellCommand(command: string, workingDirectory: string | undefined, env
   if (workingDirectory) parts.push(`cd -P -- ${shellQuote(workingDirectory)}`)
   const names = Object.keys(env || {})
   for (const name of names) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`[vitehub] Invalid Box environment variable: ${name}`);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw boxErrorDiagnostics.BOX_R0112({ message: `[vitehub] Invalid Box environment variable: ${name}` });
     if (runtimeEnvironmentKeys.has(name))
-      throw new Error(`[vitehub] Box commands cannot override ${name}.`);
+      throw boxErrorDiagnostics.BOX_R0113({ message: `[vitehub] Box commands cannot override ${name}.` });
   }
   const run = names.length
     ? `env ${names.map(name => `${name}=${shellQuote(env![name])}`).join(" ")} sh -c ${shellQuote(command)}`
@@ -1145,7 +1149,7 @@ function resolveSessionPath(root: string, path = "") {
       : posix.join(normalizedRoot, path.replace(/^\/+/, ""))
     : posix.join(normalizedRoot, path)
   if (candidate !== normalizedRoot && !candidate.startsWith(`${normalizedRoot}/`)) {
-    throw new Error(`[vitehub] Crabbox path escapes the session root: ${path}`)
+    throw boxErrorDiagnostics.BOX_R0114({ message: `[vitehub] Crabbox path escapes the session root: ${path}` })
   }
   return candidate
 }
@@ -1293,7 +1297,7 @@ async function rejectSymlinkedParents(workspace: string, entries: readonly strin
       if (checked.has(path)) continue
       checked.add(path)
       const item = await lstat(join(workspace, path)).catch(() => undefined)
-      if (item?.isSymbolicLink()) throw new Error(`[vitehub] Crabbox workspace archive conflicts with local symlink: ${path}`)
+      if (item?.isSymbolicLink()) throw boxErrorDiagnostics.BOX_R0115({ message: `[vitehub] Crabbox workspace archive conflicts with local symlink: ${path}` })
     }
   }
 }
@@ -1330,7 +1334,7 @@ async function listArchiveEntries(archivePath: string) {
     if (!path) return []
     const normalized = normalizeRelativeArchivePath(path)
     if (!normalized && path !== "." && path !== "./") {
-      throw new Error(`[vitehub] Crabbox workspace archive contains an invalid path: ${path}`)
+      throw boxErrorDiagnostics.BOX_R0116({ message: `[vitehub] Crabbox workspace archive contains an invalid path: ${path}` })
     }
     return normalized ? [{ directory: path.endsWith("/"), path: normalized }] : []
   })
@@ -1352,7 +1356,7 @@ function lastLines(value: string, count: number) {
 
 function crabboxError(action: string, result: { stderr: string, stdout: string }) {
   const detail = result.stderr.trim() || result.stdout.trim()
-  return new Error(`[vitehub] Failed to ${action}${detail ? `: ${detail}` : "."}`)
+  return boxErrorDiagnostics.BOX_R0117({ message: `[vitehub] Failed to ${action}${detail ? `: ${detail}` : "."}` })
 }
 
 function firstLine(stream: NodeJS.ReadableStream, child: ChildProcessWithoutNullStreams): Promise<string> {
@@ -1367,7 +1371,7 @@ function firstLine(stream: NodeJS.ReadableStream, child: ChildProcessWithoutNull
     }
     const close = () => {
       cleanup()
-      reject(new Error("[vitehub] Crabbox tunnel exited before readiness."))
+      reject(boxErrorDiagnostics.BOX_R0118({ message: "[vitehub] Crabbox tunnel exited before readiness." }))
     }
     const error = (cause: Error) => {
       cleanup()

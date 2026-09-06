@@ -21,21 +21,26 @@ first call.
 
 ## Install the framework distribution
 
-Add `vite-hub` to an existing Vite application.
+Add `vite-hub` and Nitro to an existing Vite application. Raw Vite applications
+register Nitro's Vite integration for framework preset builds. Nuxt provides its
+own Nitro integration.
 
 ```bash [Terminal]
-pnpm add vite-hub
+pnpm add vite-hub nitro @vite-hub/schedule
 ```
 
 Register the framework integration in Vite.
 
 ```ts [vite.config.ts]
-import { vitehub } from "vite-hub"
+import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
     vitehub({ preset: "node" }),
+    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
+    nitro() as never,
   ],
 })
 ```
@@ -63,9 +68,14 @@ import { defineWorkspace } from "vite-hub/workspace"
 ```
 
 Install third-party model providers and chat adapters separately. Built-in coding
-providers use the provider runtime pinned by ViteHub. The distribution includes
-the Workflow DevKit runtime and builders for Vercel Workflow; install other
-provider SDKs only when you use them.
+providers use the provider runtime pinned by ViteHub, but ViteHub does not install
+their large native binaries for applications that do not use them. Add
+`@openai/codex@0.149.1` for Codex or `@anthropic-ai/claude-agent-sdk@0.3.246`
+for Claude Code. Self-hosted Node builds on macOS and Linux then package only
+the build host's OS, CPU, and Linux libc payload; build on the same host type as
+the deployment host. The distribution includes the
+Workflow DevKit runtime and builders for Vercel Workflow; install other provider
+SDKs only when you use them.
 
 Until T3 publishes the provider runtime on npm, pnpm consumers using a built-in coding provider must set `blockExoticSubdeps: false` in `pnpm-workspace.yaml`; ViteHub pins an exact pkg.pr.new tarball rather than a moving branch.
 
@@ -117,4 +127,3 @@ The two first-success guides include complete build and runtime commands:
 - Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) to understand integration ownership.
 - Open [Server Primitives](/docs/server-primitives) to choose infrastructure.
 - Open [Agents](/docs/agents) to choose an Agent Driver and Capabilities.
-- Read [Migrate to `vite-hub`](/docs/getting-started/migration) for existing applications.

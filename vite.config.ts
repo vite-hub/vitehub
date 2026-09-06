@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { rootTestTasks } from "./test/tasks.ts";
+
 export default defineConfig({
   run: {
     tasks: {
@@ -7,6 +9,10 @@ export default defineConfig({
         cache: false,
         command: "node packages/blob/test/e2e.mjs",
         dependsOn: ["@vite-hub/blob#build"],
+      },
+      "console:dev": {
+        cache: false,
+        command: "vp dev --config playground/console/vite.config.ts",
       },
       build: {
         cache: false,
@@ -17,6 +23,11 @@ export default defineConfig({
         command: "node packages/database/test/e2e.mjs",
         dependsOn: ["@vite-hub/database#build"],
       },
+      "doctor:typescript": {
+        cache: false,
+        command:
+          'node node_modules/vite-doctor/dist/cli.mjs . --extends vite-doctor/typescript/strict --since "${VITE_DOCTOR_SINCE:-HEAD^}" --baseline .vite-doctor-baseline.json --new-only --no-cache --max-warnings 0',
+      },
       "docs:build": {
         cache: false,
         command: "vp run --filter vitehub-docs build",
@@ -24,6 +35,11 @@ export default defineConfig({
       "docs:dev": {
         cache: false,
         command: "vp run --filter vitehub-docs dev",
+      },
+      "examples:verify": {
+        cache: false,
+        command: "node test/package-examples.mjs",
+        dependsOn: ["build"],
       },
       "e2e:local": {
         cache: false,
@@ -43,10 +59,6 @@ export default defineConfig({
         cache: false,
         command: "node test/local/deno-real-project.mjs --live",
         dependsOn: ["build"],
-      },
-      "fallow:dead-code": {
-        cache: false,
-        command: "vp exec fallow dead-code --summary --format markdown --fail-on-issues",
       },
       "knip:catalog": {
         cache: false,
@@ -80,6 +92,10 @@ export default defineConfig({
         command: "cd playground/vite && node ../../packages/cli/dist/index.js provision run",
         dependsOn: ["@vite-hub/cli#build"],
       },
+      preflight: {
+        cache: false,
+        command: "node test/preflight.mjs",
+      },
       "queue:e2e": {
         cache: false,
         command: "node packages/queue/test/e2e-live.mjs",
@@ -92,7 +108,8 @@ export default defineConfig({
       },
       release: {
         cache: false,
-        command: 'vp dlx bumpp@11.1.0 package.json packages/*/package.json --commit "chore(release): v%s" --tag "v%s" --push --no-push-all --git-check',
+        command:
+          'vp dlx bumpp@11.1.0 package.json packages/*/package.json --commit "chore(release): v%s" --tag "v%s" --push --no-push-all --git-check',
       },
       "sandbox:e2e": {
         cache: false,
@@ -104,39 +121,16 @@ export default defineConfig({
         command: "node packages/schedule/test/e2e-live.mjs",
         dependsOn: ["@vite-hub/schedule#build"],
       },
-      test: {
-        cache: false,
-        command: "node test/run-package-task.mjs test",
-      },
-      "test:contracts": {
-        cache: false,
-        command: "vp test",
-      },
-      "test:consumer": {
-        cache: false,
-        command:
-          "VITEHUB_CONSUMER_CONTRACT=1 vp test test/consumer/vite-hub.test.ts test/consumer/source-closures.test.ts",
-        dependsOn: ["build"],
-      },
-      "test:output": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts",
-      },
-      "test:output:cloudflare": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts",
-      },
-      "test:output:vercel": {
-        cache: false,
-        command: "vp test --config test/output/vitest.config.ts test/output/vercel.test.ts",
-      },
+      ...rootTestTasks,
       typecheck: {
         cache: false,
-        command: "vp run build && vp run --filter vitehub-docs --ignore-depends-on typecheck && node test/run-package-task.mjs typecheck",
+        command:
+          "vp run build && vp run --filter vitehub-docs --ignore-depends-on typecheck && node test/run-package-task.mjs typecheck",
       },
       verify: {
         cache: false,
-        command: "vp run fallow:dead-code && vp run knip:catalog && vp run lint && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
+        command:
+          "vp run preflight && vp run knip:catalog && vp run lint && vp run doctor:typescript && vp run typecheck && vp run test:contracts && vp run test && vp run test:consumer",
       },
       "workflow:e2e": {
         cache: false,

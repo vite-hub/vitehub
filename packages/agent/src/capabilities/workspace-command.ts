@@ -8,6 +8,7 @@ import type {
   AgentToolSet,
 } from "../types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface WorkspaceCommandInput {
   args?: string[]
@@ -54,29 +55,29 @@ const defaultWorkspaceCommandTimeout = 60_000
 
 export function normalizeWorkspaceCommandEntries(commands: unknown, label = "workspaceShell({ commands })"): WorkspaceCommandEntry[] {
   if (!Array.isArray(commands) || !commands.length) {
-    throw new TypeError(`[vitehub] ${label} requires at least one command.`)
+    throw agentDiagnostics.AGENT_R0277({ message: `[vitehub] ${label} requires at least one command.` })
   }
   return commands.map((entry) => {
     if (typeof entry === "string") {
       if (!isValidCommand(entry)) {
-        throw new TypeError(`[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.`)
+        throw agentDiagnostics.AGENT_R0278({ message: `[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.` })
       }
       return { command: entry }
     }
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      throw new TypeError(`[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.`)
+      throw agentDiagnostics.AGENT_R0279({ message: `[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.` })
     }
     const command = (entry as WorkspaceCommandEntry).command
     if (!isValidCommand(command)) {
-      throw new TypeError(`[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.`)
+      throw agentDiagnostics.AGENT_R0280({ message: `[vitehub] ${label} accepts simple executable names or absolute paths without whitespace/control characters.` })
     }
     const description = (entry as WorkspaceCommandEntry).description
     const install = (entry as WorkspaceCommandEntry).install
     if (description !== undefined && typeof description !== "string") {
-      throw new TypeError(`[vitehub] ${label} description must be a string.`)
+      throw agentDiagnostics.AGENT_R0281({ message: `[vitehub] ${label} description must be a string.` })
     }
     if (install !== undefined && typeof install !== "string") {
-      throw new TypeError(`[vitehub] ${label} install must be a string.`)
+      throw agentDiagnostics.AGENT_R0282({ message: `[vitehub] ${label} install must be a string.` })
     }
     return { command, ...(description ? { description } : {}), ...(install ? { install } : {}) }
   })
@@ -95,7 +96,7 @@ function isValidCommand(command: string): boolean {
 export function normalizeWorkspaceCommandTimeout(value: unknown, label: string): number | undefined {
   if (value === undefined) return undefined
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 2_147_483_647) {
-    throw new TypeError(`[vitehub] ${label} must be a positive number no greater than 2,147,483,647.`)
+    throw agentDiagnostics.AGENT_R0283({ message: `[vitehub] ${label} must be a positive number no greater than 2,147,483,647.` })
   }
   return value
 }
@@ -103,7 +104,7 @@ export function normalizeWorkspaceCommandTimeout(value: unknown, label: string):
 function stringArray(value: unknown, label: string): string[] {
   if (value === undefined) return []
   if (!Array.isArray(value) || value.some(item => typeof item !== "string")) {
-    throw new TypeError(`[vitehub] workspace_exec ${label} must be an array of strings.`)
+    throw agentDiagnostics.AGENT_R0284({ message: `[vitehub] workspace_exec ${label} must be an array of strings.` })
   }
   return value
 }
@@ -111,19 +112,19 @@ function stringArray(value: unknown, label: string): string[] {
 function envRecord(value: unknown): Record<string, string> | undefined {
   if (value === undefined) return undefined
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError("[vitehub] workspace_exec env must be an object with string values.")
+    throw agentDiagnostics.AGENT_R0285({ message: "[vitehub] workspace_exec env must be an object with string values." })
   }
   const env = value as Record<string, unknown>
   for (const [key, item] of Object.entries(env)) {
     if (!key || key.includes("=") || key.includes("\0")) {
-      throw new TypeError("[vitehub] workspace_exec env keys must be valid environment variable names.")
+      throw agentDiagnostics.AGENT_R0286({ message: "[vitehub] workspace_exec env keys must be valid environment variable names." })
     }
     const normalizedKey = key.toUpperCase()
     if (blockedEnvKeys.has(normalizedKey) || normalizedKey.startsWith("LD_") || normalizedKey.startsWith("DYLD_")) {
-      throw new TypeError("[vitehub] workspace_exec env cannot override PATH or loader-related variables.")
+      throw agentDiagnostics.AGENT_R0287({ message: "[vitehub] workspace_exec env cannot override PATH or loader-related variables." })
     }
     if (typeof item !== "string") {
-      throw new TypeError("[vitehub] workspace_exec env must be an object with string values.")
+      throw agentDiagnostics.AGENT_R0288({ message: "[vitehub] workspace_exec env must be an object with string values." })
     }
   }
   return env as Record<string, string>
@@ -131,19 +132,19 @@ function envRecord(value: unknown): Record<string, string> | undefined {
 
 function normalizeCwd(cwd: unknown): string {
   if (cwd !== undefined && typeof cwd !== "string") {
-    throw new TypeError("[vitehub] workspace_exec cwd must be a string.")
+    throw agentDiagnostics.AGENT_R0289({ message: "[vitehub] workspace_exec cwd must be a string." })
   }
   const stripped = (cwd || "").replace(/\\/g, "/").replace(/^\/workspace(?:\/|$)/, "")
   const parts = stripped.split("/").filter(Boolean)
   if (parts.some(part => part === "." || part === "..")) {
-    throw new Error("[vitehub] workspace_exec cwd must stay inside the workspace.")
+    throw agentDiagnostics.AGENT_R0290({ message: "[vitehub] workspace_exec cwd must stay inside the workspace." })
   }
   return parts.length ? `/workspace/${parts.join("/")}` : "/workspace"
 }
 
 function assertWorkspace(workspace: unknown, message: string): asserts workspace is WorkspaceCommandWorkspace {
   if (!workspace || typeof workspace !== "object" || typeof (workspace as { startSession?: unknown }).startSession !== "function") {
-    throw new Error(message)
+    throw agentDiagnostics.AGENT_R0291({ message: message })
   }
 }
 
@@ -163,7 +164,7 @@ export async function executeWorkspaceCommand(
       timeout: options.timeout,
     })
     if (options.check && result.exitCode !== 0) {
-      throw Object.assign(new Error(`[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.`), result, { name: "BoxCommandError" })
+      throw Object.assign(agentDiagnostics.AGENT_R0292({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), result, { name: "BoxCommandError" })
     }
     return result
   }
@@ -171,7 +172,7 @@ export async function executeWorkspaceCommand(
   const session = await workspace.startSession()
   if (session.executionAuthority?.processes === "none") {
     await session.close()
-    throw new Error("[vitehub] Capability command execution requires a Workspace Session host that permits processes.")
+    throw agentDiagnostics.AGENT_R0293({ message: "[vitehub] Capability command execution requires a Workspace Session host that permits processes." })
   }
   let result
   try {
@@ -182,7 +183,7 @@ export async function executeWorkspaceCommand(
       timeout: options.timeout,
     })
     if (options.check && result.exitCode !== 0) {
-      throw Object.assign(new Error(`[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.`), {
+      throw Object.assign(agentDiagnostics.AGENT_R0294({ message: `[vitehub] Workspace command "${command}" exited with code ${result.exitCode}.` }), {
         command,
         exitCode: result.exitCode,
         name: "BoxCommandError",
@@ -241,9 +242,10 @@ export function workspaceCommandTools(
       name: toolName,
       async execute(input: unknown, execution?: AgentToolExecutionContext) {
         const value = input as WorkspaceCommandInput
-        if (!value || typeof value.command !== "string") throw new TypeError(`[vitehub] ${toolName} requires a command.`)
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Tool input must contain a string command before command policy validation.
+        if (!value || typeof value.command !== "string") throw agentDiagnostics.AGENT_R0295({ message: `[vitehub] ${toolName} requires a command.` })
         if (unrestricted) normalizeWorkspaceCommandEntries([value.command], `${toolName} command`)
-        else if (!commandNames.includes(value.command)) throw new Error(`[vitehub] Workspace command "${value.command}" is not allowed.`)
+        else if (!commandNames.includes(value.command)) throw agentDiagnostics.AGENT_R0296({ message: `[vitehub] Workspace command "${value.command}" is not allowed.` })
         const args = stringArray(value.args, "args")
         const cwd = normalizeCwd(value.cwd)
         const env = envRecord(value.env)

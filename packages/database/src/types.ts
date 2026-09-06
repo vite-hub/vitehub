@@ -1,4 +1,4 @@
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core/db"
 
 export type DrizzleCasing = "snake_case" | "camelCase"
 export type DatabaseDialect = "sqlite"

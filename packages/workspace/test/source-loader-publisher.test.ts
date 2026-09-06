@@ -1,12 +1,11 @@
 import { Buffer } from "node:buffer"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 
 import { createJiti } from "jiti"
-import { createMemoryStorage, setStorage } from "ocache"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceStoreAssetBundle, createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
@@ -17,12 +16,14 @@ import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
+import { materializeWorkspaceSources } from "../src/sources/materialization.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
-import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
+import type { RmOptions, WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
 const ghAuthToken = vi.hoisted(() => vi.fn<(...args: unknown[]) => string>(() => {
   throw new Error("missing gh")
@@ -49,7 +50,6 @@ afterEach(async () => {
     throw new Error("missing gh")
   })
   delete (globalThis as { __env__?: Record<string, unknown> }).__env__
-  setStorage(createMemoryStorage())
   resetWorkspaceAssetsRegistry()
   vi.unstubAllGlobals()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
@@ -94,9 +94,9 @@ function createTarGz(files: Record<string, string>) {
 }
 
 function stubGitHubSource(files: Record<string, string>, options: StubGitHubSourceOptions | number = 200) {
-  const apiStatus = typeof options === "number" ? options : options.apiStatus ?? 200
-  const archiveStatus = typeof options === "number" ? options : options.archiveStatus ?? 200
-  const defaultBranch = typeof options === "number" ? "main" : options.defaultBranch ?? "main"
+  const apiStatus = hasRuntimeType(options, "number") ? options : options.apiStatus ?? 200
+  const archiveStatus = hasRuntimeType(options, "number") ? options : options.archiveStatus ?? 200
+  const defaultBranch = hasRuntimeType(options, "number") ? "main" : options.defaultBranch ?? "main"
 
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
     const requestUrl = String(url)
@@ -156,10 +156,47 @@ function archiveRequestAuthorization() {
 }
 
 describe("sources, loaders, and publishers", () => {
+  it("pins one revision while syncing a mounted build source", async () => {
+    const root = await createRoot()
+    let resolution = 0
+    const seenRevisions: string[] = []
+
+    await syncWorkspaceDefinition({
+      name: "revision-pinning",
+      rootDir: root,
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async resolveRevision() {
+            return { id: `revision-${++resolution}`, immutable: true }
+          },
+          async prepare(ctx) {
+            seenRevisions.push(ctx.revision?.id ?? "missing")
+          },
+          async getKeys(ctx) {
+            seenRevisions.push(ctx.revision?.id ?? "missing")
+            return ["README.md"]
+          },
+          async getItem(key, ctx) {
+            seenRevisions.push(ctx.revision?.id ?? "missing")
+            return { content: ctx.revision?.id ?? "missing", key }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    expect(resolution).toBe(1)
+    expect(seenRevisions).toEqual(["revision-1", "revision-1", "revision-1"])
+  })
+
   it("keeps Vite out of statically bundled workspace runtime output", async () => {
     const output = await readFile(join(import.meta.dirname, "../dist/index.js"), "utf8")
+    const githubRuntimeChunks = (await readdir(join(import.meta.dirname, "../dist")))
+      .filter(file => /^github-.*\.js$/.test(file))
+    const githubRuntimeOutput = (await Promise.all(githubRuntimeChunks.map(async file => await readFile(join(import.meta.dirname, "../dist", file), "utf8")))).join("\n")
 
     expect(output).not.toContain('import("vite")')
+    expect(githubRuntimeOutput).not.toMatch(/\bimport\s*\(\s*(?:\/\*[\s\S]*?\*\/\s*)?["']vite["']/)
     expect(output).not.toContain("createRequire(import.meta.url)")
     expect(output).not.toContain("node-fetch-native")
     expect(output).not.toContain("node:http")
@@ -195,7 +232,7 @@ describe("sources, loaders, and publishers", () => {
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/tar.gz/latest-commit-sha"))).toBe(true)
   })
 
-  it("applies GitHub include and exclude filters to root-relative keys", async () => {
+  it("applies GitHub include and ignore filters to root-relative keys", async () => {
     stubGitHubSource({
       "dbt/models/marts/orders.sql": "select 1\n",
       "dbt/models/private/secret.sql": "select secret\n",
@@ -207,13 +244,96 @@ describe("sources, loaders, and publishers", () => {
       repo: "acme/app",
       root: "dbt",
       include: ["models/**/*.sql", "macros/**/*.sql"],
-      exclude: "models/private/**",
+      ignore: "models/private/**",
     })
 
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-filters" })).resolves.toEqual([
       "models/marts/orders.sql",
       "macros/date_spine.sql",
     ])
+  })
+
+  it("applies safe GitHub ignores by default and supports opting out", async () => {
+    stubGitHubSource({
+      ".env": "SECRET=value\n",
+      "README.md": "# Docs\n",
+      "coverage/report.json": "{}\n",
+      "node_modules/example/index.js": "export default true\n",
+      "public/logo.png": "image\n",
+    })
+
+    const filtered = github({ repo: "acme/app" })
+    await expect(filtered.getKeys({ rootDir: "", workspace: "github-default-ignores" })).resolves.toEqual(["README.md"])
+
+    const unfiltered = github({ ignore: false, repo: "acme/app" })
+    await expect(unfiltered.getKeys({ rootDir: "", workspace: "github-ignore-opt-out" })).resolves.toEqual([
+      ".env",
+      "README.md",
+      "coverage/report.json",
+      "node_modules/example/index.js",
+      "public/logo.png",
+    ])
+  })
+
+  it("invalidates cached inferred GitHub snapshots when the effective ignore policy changes", async () => {
+    const store = createMemoryWorkspaceStore()
+    const options = {
+      cache: { maxAge: 3600 },
+      repo: "acme/app",
+    } as const
+
+    await materializeWorkspaceSources({
+      name: "github-ignore-policy-cache",
+      sources: {
+        docs: {
+          cache: options.cache,
+          materialize: "lazy",
+          fingerprint: {
+            inferredSource: "github",
+            options,
+          },
+          async getKeys() {
+            return [".env", "README.md"]
+          },
+          async getItem(key: string) {
+            return { key, content: key === ".env" ? "SECRET=value\n" : "# Docs\n" }
+          },
+        },
+      },
+    }, store)
+    await expect(store.readFile("docs/.env")).resolves.toMatchObject({ content: "SECRET=value\n" })
+
+    stubGitHubSource({
+      ".env": "SECRET=updated\n",
+      "README.md": "# Updated docs\n",
+    })
+    await materializeWorkspaceSources({
+      name: "github-ignore-policy-cache",
+      sources: { docs: options },
+    }, store)
+
+    await expect(store.readFile("docs/.env")).resolves.toBeUndefined()
+    const updatedReadme = await store.readFile("docs/README.md")
+    expect(Buffer.from(updatedReadme?.content || "").toString("utf8")).toBe("# Updated docs\n")
+  })
+
+  it("removes unowned stale files from a complete mounted Source refresh", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("docs/stale.md", { content: "# Stale\n", path: "docs/stale.md" })
+
+    await materializeWorkspaceSources({
+      name: "unowned-stale-source-files",
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Current\n", key } },
+          async getKeys() { return ["current.md"] },
+          materialize: "startup",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("docs/stale.md")).resolves.toBeUndefined()
+    await expect(store.readFile("docs/current.md")).resolves.toMatchObject({ content: "# Current\n" })
   })
 
   it("resolves GitHub auth lazily from runtime env", async () => {
@@ -657,44 +777,6 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
-  it("renders named Markdown templates in Workspace Definitions", async () => {
-    const root = await createRoot()
-    const directory = join(root, "server", "agents", "review")
-    const templates = join(root, "server", "templates")
-    await mkdir(directory, { recursive: true })
-    await mkdir(templates, { recursive: true })
-    await writeFile(join(templates, "workspace.md"), "Workspace {{ context.name }}\n")
-    const registry = join(root, ".vitehub", "markdown-template", "templates.mjs")
-    await mkdir(join(root, ".vitehub", "markdown-template"), { recursive: true })
-    await writeFile(registry, [
-      `import { renderMarkdownTemplate } from "@vite-hub/markdown-template"`,
-      `export function renderTemplate(name, data) {`,
-      `  if (name !== "workspace") throw new TypeError("Unknown template")`,
-      `  return renderMarkdownTemplate("Workspace {{ context.name }}\\n", { data })`,
-      `}`,
-      ``,
-    ].join("\n"))
-    await writeFile(join(directory, "config.ts"), [
-      `import { renderTemplate } from "#vitehub/templates"`,
-      `export default { rootDir: await renderTemplate("workspace", { context: { name: "review" } }) }`,
-      ``,
-    ].join("\n"))
-
-    const definition = {
-      handler: join(directory, "config.ts"),
-      name: "review",
-      path: join(directory, "config.ts"),
-      source: "test",
-      sourceRootDir: directory,
-    }
-
-    await expect(loadDiscoveredWorkspaceDefinition(createWorkspaceDefinitionLoader(root, {
-      "@vite-hub/markdown-template": fileURLToPath(import.meta.resolve("@vite-hub/markdown-template")),
-    }), definition)).resolves.toMatchObject({
-      rootDir: "Workspace review",
-    })
-  })
-
   it("loads raw text re-exports from nested Workspace Definition modules", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
@@ -995,6 +1077,99 @@ describe("sources, loaders, and publishers", () => {
       mediaType: "text/markdown",
       metadata: { source: "docs" },
     })
+  })
+
+  it("cancels bundled build source probes", async () => {
+    let probing!: () => void
+    const probeStarted = new Promise<void>((resolve) => { probing = resolve })
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "docs/README.md": {
+          load: async () => "# Bundled Docs\n",
+          metadata: { source: "docs" },
+        },
+      }),
+    })
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({
+      name: "support",
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys(ctx) {
+            probing()
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(ctx.abortSignal?.reason)
+              if (ctx.abortSignal?.aborted) abort()
+              else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+            })
+            return []
+          },
+          async getItem() { throw new Error("unexpected item read") },
+        }),
+      },
+    }, createMemoryWorkspaceStore(), controller.signal)
+
+    await probeStarted
+    controller.abort(new Error("preparation stopped"))
+    await expect(syncing).rejects.toThrow("preparation stopped")
+  })
+
+  it("forwards cancellation through the default files loader", async () => {
+    let loading!: () => void
+    const loadingStarted = new Promise<void>((resolve) => { loading = resolve })
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({
+      name: "support",
+      sources: {
+        docs: custom({
+          async getKeys(ctx) {
+            loading()
+            await new Promise<void>((_resolve, reject) => {
+              const abort = () => reject(ctx.abortSignal?.reason)
+              if (ctx.abortSignal?.aborted) abort()
+              else ctx.abortSignal?.addEventListener("abort", abort, { once: true })
+            })
+            return []
+          },
+          async getItem() { throw new Error("unexpected item read") },
+        }),
+      },
+    }, createMemoryWorkspaceStore(), controller.signal)
+
+    await loadingStarted
+    controller.abort(new Error("preparation stopped"))
+    await expect(syncing).rejects.toThrow("preparation stopped")
+  })
+
+  it("waits for an accepted Store removal before cancellation settles", async () => {
+    const base = createMemoryWorkspaceStore()
+    await base.setMeta?.("workspace:build-sources", [{ key: "docs", mountPath: "docs" }])
+    let releaseRemoval!: () => void
+    const removalBlocked = new Promise<void>((resolve) => { releaseRemoval = resolve })
+    let removalStarted!: () => void
+    const removing = new Promise<void>((resolve) => { removalStarted = resolve })
+    const store: WorkspaceStore = new Proxy(base, {
+      get(target, property, receiver) {
+        if (property !== "rm") {
+          const value = Reflect.get(target, property, receiver)
+          return hasRuntimeType(value, "function") ? value.bind(target) : value
+        }
+        return async (path: string, options?: RmOptions) => {
+          removalStarted()
+          await removalBlocked
+          await base.rm(path, options)
+        }
+      },
+    })
+    const controller = new AbortController()
+    const syncing = syncWorkspaceDefinition({ name: "support" }, store, controller.signal)
+
+    await removing
+    controller.abort(new Error("preparation stopped"))
+    await expect(Promise.race([syncing.then(() => "settled", () => "settled"), Promise.resolve("pending")])).resolves.toBe("pending")
+    releaseRemoval()
+    await expect(syncing).rejects.toThrow("preparation stopped")
   })
 
   it("hydrates bundled runtime assets and loads unbundled build sources", async () => {
@@ -1309,6 +1484,55 @@ describe("sources, loaders, and publishers", () => {
     await expect(store.readFile("AGENTS.md")).resolves.toBeUndefined()
   })
 
+  it.each([
+    { name: "unchanged", previousMount: "", currentMount: "" },
+    { name: "removed", previousMount: "", currentMount: undefined },
+    { name: "moved from root to nested", previousMount: "", currentMount: "nested" },
+    { name: "moved from nested to root", previousMount: "nested", currentMount: "" },
+  ])("reconciles each root-mounted build source once when sources are $name", async ({ previousMount, currentMount }) => {
+    const store = createMemoryWorkspaceStore()
+    const sourceKeys = ["docs", "instructions", "notes"]
+    const createSources = (mount: string) => Object.fromEntries(sourceKeys.map(key => [key, custom({
+      mount: mount ? `${mount}/${key}` : "",
+      files: [
+        { path: `${key}.md`, content: `# ${key}\n`, metadata: { label: key } },
+        { path: `${key}-extra.md`, content: `# Extra ${key}\n`, metadata: { label: key } },
+      ],
+    })]))
+    const definition = { name: "root-build-source-reconciliation", sources: createSources(previousMount) }
+    const unrelated = { path: "unrelated.md", content: "Keep me\n", metadata: { label: "unrelated" } }
+    await store.writeFile(unrelated.path, unrelated)
+    await syncWorkspaceDefinition(definition, store)
+    const list = vi.spyOn(store, "list")
+    const readFile = vi.spyOn(store, "readFile")
+    const remove = vi.spyOn(store, "rm")
+    const currentSources = currentMount === undefined ? {} : createSources(currentMount)
+
+    await syncWorkspaceDefinition({ ...definition, sources: currentSources }, store)
+
+    expect(list.mock.calls.filter(([prefix]) => prefix === "")).toEqual(sourceKeys.map(() => ["", { recursive: true }]))
+    expect(readFile).not.toHaveBeenCalled()
+    if (!previousMount) {
+      expect(remove.mock.calls.filter(([, options]) => !options?.recursive).map(([path]) => path)).toEqual(
+        sourceKeys.flatMap(key => [`${key}-extra.md`, `${key}.md`]),
+      )
+    }
+    await expect(store.getMeta?.("workspace:build-sources")).resolves.toHaveLength(Object.keys(currentSources).length)
+    await expect(store.getMeta?.("workspace:build-sources")).resolves.toEqual(expect.arrayContaining(
+      Object.entries(currentSources).map(([key, source]) => ({ key, mountPath: source.mount })),
+    ))
+    const expectedFiles = [unrelated, ...currentMount === undefined ? [] : sourceKeys.flatMap(key => {
+      const prefix = currentMount ? `${currentMount}/${key}/` : ""
+      return [
+        { path: `${prefix}${key}.md`, content: `# ${key}\n`, metadata: { label: key, source: key } },
+        { path: `${prefix}${key}-extra.md`, content: `# Extra ${key}\n`, metadata: { label: key, source: key } },
+      ]
+    })]
+    const entries = await store.list("", { recursive: true })
+    expect(entries.filter(entry => entry.type === "file").map(entry => entry.path)).toEqual(expectedFiles.map(file => file.path).sort())
+    for (const file of expectedFiles) await expect(store.readFile(file.path)).resolves.toMatchObject(file)
+  })
+
   it("purges stale local build source files after store restarts", async () => {
     const root = await createRoot()
     const storeRoot = join(root, ".vitehub", "workspaces", "docs")
@@ -1530,15 +1754,8 @@ describe("sources, loaders, and publishers", () => {
   })
 
   it("rejects unsafe workspace asset paths", async () => {
-    const workspace = {
-      name: "unsafe",
-      async glob() {
-        return [{ path: "../escape.txt", type: "file" }]
-      },
-      async readFile() {
-        return "escape"
-      },
-    } as unknown as WorkspaceStore
+    const workspace = createMemoryWorkspaceStore()
+    workspace.glob = async () => [{ path: "../escape.txt", type: "file" }]
 
     await expect(collectWorkspaceStoreAssetBundle("unsafe", workspace)).rejects.toThrow("escapes the workspace root")
   })

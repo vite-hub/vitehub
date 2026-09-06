@@ -10,6 +10,7 @@ import {
 import { openRemoteBox, remoteBoxPlan, resolveRemoteEnvironment } from "./internal/remote.ts";
 import { markBuiltInBoxRuntime } from "./internal/runtime.ts";
 import type { RuntimeSession } from "./internal/session.ts";
+import { boxErrorDiagnostics } from "./error-diagnostics.ts"
 
 const asciiSdkPackage = "@asciidev/box-sdk";
 const defaultAsciiBaseUrl = "https://ascii.dev/api/box/v1";
@@ -82,7 +83,7 @@ export function createAsciiRuntime(
 ): BoxRuntime {
   const ttlSeconds = options.ttlSeconds ?? defaultAsciiTtlSeconds;
   if (!Number.isInteger(ttlSeconds) || ttlSeconds < 7200 || ttlSeconds > 2_592_000)
-    throw new TypeError("[vitehub] ASCII ttlSeconds must be an integer between 7200 and 2592000.");
+    throw boxErrorDiagnostics.BOX_R0001({ message: "[vitehub] ASCII ttlSeconds must be an integer between 7200 and 2592000." });
   return markBuiltInBoxRuntime({
     name: "ascii",
     async prepare(input) {
@@ -95,7 +96,7 @@ export function createAsciiRuntime(
       openOptions.signal?.throwIfAborted();
       const apiKey = options.apiKey ?? process.env.BOX_API_KEY;
       if (!apiKey)
-        throw new Error("[vitehub] The ASCII Box runtime requires apiKey or BOX_API_KEY.");
+        throw boxErrorDiagnostics.BOX_R0002({ message: "[vitehub] The ASCII Box runtime requires apiKey or BOX_API_KEY." });
       const client = await (dependencies.createClient ?? loadAsciiClient)({
         apiKey,
         baseUrl: options.baseUrl ?? process.env.BOX_BASE_URL ?? defaultAsciiBaseUrl,
@@ -183,9 +184,7 @@ async function loadAsciiClient(options: { apiKey: string; baseUrl: string }): Pr
       }),
     ) as unknown as AsciiClient;
   } catch (error) {
-    throw new Error(
-      `[vitehub] The ASCII Box runtime requires @asciidev/box-sdk: ${error instanceof Error ? error.message : error}`,
-    );
+    throw boxErrorDiagnostics.BOX_R0003({ message: `[vitehub] The ASCII Box runtime requires @asciidev/box-sdk: ${error instanceof Error ? error.message : error}` });
   }
 }
 
@@ -202,12 +201,12 @@ async function waitForAsciiBox(
     const { box } = await client.get({ boxId }, requestInit(provisioningSignal));
     if (["ready", "idle", "running"].includes(box.state) && box.ip) return box;
     if (box.state === "error")
-      throw new Error(`[vitehub] ASCII Box ${boxId} entered the error state.`);
+      throw boxErrorDiagnostics.BOX_R0004({ message: `[vitehub] ASCII Box ${boxId} entered the error state.` });
     if (box.state === "archived")
-      throw new Error(`[vitehub] ASCII Box ${boxId} was archived during provisioning.`);
+      throw boxErrorDiagnostics.BOX_R0005({ message: `[vitehub] ASCII Box ${boxId} was archived during provisioning.` });
     await abortableDelay(2_000, provisioningSignal);
   }
-  throw new Error(`[vitehub] ASCII Box ${boxId} did not become ready within five minutes.`);
+  throw boxErrorDiagnostics.BOX_R0006({ message: `[vitehub] ASCII Box ${boxId} did not become ready within five minutes.` });
 }
 
 async function readAsciiHostKeys(
@@ -231,7 +230,7 @@ async function readAsciiHostKeys(
     result.stdoutTruncated ||
     result.stderrTruncated
   ) {
-    throw new Error(`[vitehub] ASCII could not retrieve complete SSH host keys: ${result.stderr}`);
+    throw boxErrorDiagnostics.BOX_R0007({ message: `[vitehub] ASCII could not retrieve complete SSH host keys: ${result.stderr}` });
   }
   return parseAsciiSshHostKeys(result.stdout);
 }
@@ -252,9 +251,7 @@ async function connectAsciiSsh(
       await abortableDelay(2_000, signal);
     }
   }
-  throw new Error(
-    `[vitehub] ASCII SSH did not become ready: ${lastError instanceof Error ? lastError.message : lastError}`,
-  );
+  throw boxErrorDiagnostics.BOX_R0008({ message: `[vitehub] ASCII SSH did not become ready: ${lastError instanceof Error ? lastError.message : lastError}` });
 }
 
 async function probeAsciiTransport(session: RuntimeSession, signal: AbortSignal | undefined) {
@@ -270,7 +267,7 @@ async function probeAsciiTransport(session: RuntimeSession, signal: AbortSignal 
       actual.length !== expected.length ||
       actual.some((value, index) => value !== expected[index])
     ) {
-      throw new Error("[vitehub] ASCII SFTP binary probe failed.");
+      throw boxErrorDiagnostics.BOX_R0009({ message: "[vitehub] ASCII SFTP binary probe failed." });
     }
     const success = await session.run({
       abortSignal: signal,
@@ -278,16 +275,16 @@ async function probeAsciiTransport(session: RuntimeSession, signal: AbortSignal 
       workingDirectory: directory,
     });
     if (success.exitCode !== 0 || success.stdout !== "vitehub-ascii")
-      throw new Error("[vitehub] ASCII streamed command probe failed.");
+      throw boxErrorDiagnostics.BOX_R0010({ message: "[vitehub] ASCII streamed command probe failed." });
     const failure = await session.run({
       abortSignal: signal,
       command: "exit 37",
       workingDirectory: directory,
     });
     if (failure.exitCode !== 37)
-      throw new Error("[vitehub] ASCII command exit-status probe failed.");
+      throw boxErrorDiagnostics.BOX_R0011({ message: "[vitehub] ASCII command exit-status probe failed." });
     if (!session.spawn)
-      throw new Error("[vitehub] ASCII SSH transport does not support long-running processes.");
+      throw boxErrorDiagnostics.BOX_R0012({ message: "[vitehub] ASCII SSH transport does not support long-running processes." });
     const process = await session.spawn({
       abortSignal: signal,
       command: "sleep 3600",
@@ -384,7 +381,7 @@ async function removeAsciiBox(client: AsciiClient, boxId: string) {
       }
       await abortableDelay(500, removalSignal);
     }
-    removalError = new Error(`[vitehub] ASCII Box ${boxId} still exists after deletion.`);
+    removalError = boxErrorDiagnostics.BOX_R0013({ message: `[vitehub] ASCII Box ${boxId} still exists after deletion.` });
   } catch (error) {
     if (isNotFound(error)) return;
     removalError = error;
@@ -415,7 +412,7 @@ async function waitForArchived(client: AsciiClient, boxId: string, signal: Abort
     }
     await abortableDelay(500, signal);
   }
-  throw new Error(`[vitehub] ASCII Box ${boxId} was not archived after deletion failed.`);
+  throw boxErrorDiagnostics.BOX_R0014({ message: `[vitehub] ASCII Box ${boxId} was not archived after deletion failed.` });
 }
 
 function isNotFound(error: unknown) {
@@ -464,7 +461,7 @@ async function abortableDelay(milliseconds: number, signal: AbortSignal | undefi
 
 async function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string) {
   return await new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), milliseconds);
+    const timer = setTimeout(() => reject(boxErrorDiagnostics.BOX_R0015({ message: message })), milliseconds);
     void promise.then(
       (value) => {
         clearTimeout(timer);

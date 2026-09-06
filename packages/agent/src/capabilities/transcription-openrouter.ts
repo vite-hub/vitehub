@@ -3,6 +3,7 @@ import { audioExtensionFor } from "./transcribe.ts"
 
 import type { MaybePromise } from "../types.ts"
 import type { TranscriptionModel } from "ai"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type OpenRouterTranscriptionModel = Extract<TranscriptionModel, { specificationVersion: "v4" }>
 type AiSdk = typeof import("ai")
@@ -38,21 +39,21 @@ function responseHeaders(response: Response): Record<string, string> {
 function providerOptions(value: unknown): OpenRouterTranscriptionProviderOptions {
   if (value === undefined) return {}
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError("[vitehub] OpenRouter transcription provider options must be an object.")
+    throw agentDiagnostics.AGENT_R0247({ message: "[vitehub] OpenRouter transcription provider options must be an object." })
   }
   const options = value as Record<string, unknown>
   const unsupported = Object.keys(options).filter(key => !["language", "provider", "temperature"].includes(key))
   if (unsupported.length) {
-    throw new TypeError(`[vitehub] Unsupported OpenRouter transcription provider option: ${unsupported.join(", ")}.`)
+    throw agentDiagnostics.AGENT_R0248({ message: `[vitehub] Unsupported OpenRouter transcription provider option: ${unsupported.join(", ")}.` })
   }
   if (options.language !== undefined && !nonEmptyString(options.language)) {
-    throw new TypeError("[vitehub] OpenRouter transcription language must be a non-empty string.")
+    throw agentDiagnostics.AGENT_R0249({ message: "[vitehub] OpenRouter transcription language must be a non-empty string." })
   }
   if (options.temperature !== undefined && (typeof options.temperature !== "number" || !Number.isFinite(options.temperature) || options.temperature < 0 || options.temperature > 1)) {
-    throw new TypeError("[vitehub] OpenRouter transcription temperature must be between 0 and 1.")
+    throw agentDiagnostics.AGENT_R0250({ message: "[vitehub] OpenRouter transcription temperature must be between 0 and 1." })
   }
   if (options.provider !== undefined && (!options.provider || typeof options.provider !== "object" || Array.isArray(options.provider))) {
-    throw new TypeError("[vitehub] OpenRouter transcription provider routing options must be an object.")
+    throw agentDiagnostics.AGENT_R0251({ message: "[vitehub] OpenRouter transcription provider routing options must be an object." })
   }
   return options as OpenRouterTranscriptionProviderOptions
 }
@@ -67,13 +68,13 @@ async function resolveApiKey(value: OpenRouterTranscriptionModelOptions["apiKey"
 
 export function openRouterTranscriptionModel(options: OpenRouterTranscriptionModelOptions): OpenRouterTranscriptionModel {
   if (!options || typeof options !== "object") {
-    throw new TypeError("[vitehub] openRouterTranscriptionModel() requires options.")
+    throw agentDiagnostics.AGENT_R0252({ message: "[vitehub] openRouterTranscriptionModel() requires options." })
   }
   if (typeof options.apiKey !== "string" && typeof options.apiKey !== "function") {
-    throw new TypeError("[vitehub] openRouterTranscriptionModel({ apiKey }) requires a string or resolver.")
+    throw agentDiagnostics.AGENT_R0253({ message: "[vitehub] openRouterTranscriptionModel({ apiKey }) requires a string or resolver." })
   }
   if (!nonEmptyString(options.model)) {
-    throw new TypeError("[vitehub] openRouterTranscriptionModel({ model }) requires a non-empty model id.")
+    throw agentDiagnostics.AGENT_R0254({ message: "[vitehub] openRouterTranscriptionModel({ model }) requires a non-empty model id." })
   }
 
   return {
@@ -84,7 +85,7 @@ export function openRouterTranscriptionModel(options: OpenRouterTranscriptionMod
       const aiSdk = await loadAiSdk()
       const openrouter = providerOptions(input.providerOptions?.openrouter)
       const format = audioExtensionFor(input.mediaType, "")
-      if (!format) throw new TypeError(`[vitehub] OpenRouter transcription does not support ${input.mediaType}.`)
+      if (!format) throw agentDiagnostics.AGENT_R0255({ message: `[vitehub] OpenRouter transcription does not support ${input.mediaType}.` })
       const body = {
         input_audio: {
           data: aiSdk.convertDataContentToBase64String(input.audio),

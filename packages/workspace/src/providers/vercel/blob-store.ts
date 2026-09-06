@@ -1,7 +1,8 @@
 import { workspaceError } from "../../core/errors.ts"
-import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
+import { contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
+import * as bundledVercelBlob from "@vercel/blob"
 
 import type {
   DiffOptions,
@@ -18,6 +19,7 @@ import type {
   WorkspaceStat,
   WorkspaceStore,
 } from "../../core/types.ts"
+import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts"
 
 type BlobListItem = {
   key: string
@@ -75,7 +77,7 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
     },
     async download(key: string): Promise<Blob> {
       const result = await blob.get(key, { access, ...auth(options) })
-      if (!result || result.statusCode !== 200 || !result.stream) throw Object.assign(new Error("not found"), { code: "NotFound" })
+      if (!result || result.statusCode !== 200 || !result.stream) throw Object.assign(workspaceErrorDiagnostics.WORKSPACE_R0033({ message: "not found" }), { code: "NotFound" })
       return await new Response(result.stream, {
         headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined,
       }).blob()
@@ -112,32 +114,9 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
   }
 }
 
-const vercelBlobPeerSpecifier = "@vercel/blob"
-
 async function importVercelBlobPeer(): Promise<VercelBlobModule> {
-  try {
-    const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
-    if (testImport) return await testImport() as VercelBlobModule
-    return await import(vercelBlobPeerSpecifier) as VercelBlobModule
-  }
-  catch (error) {
-    handleVercelBlobImportError(error)
-  }
-}
-
-function handleVercelBlobImportError(error: unknown): never {
-  if (isMissingVercelBlobError(error)) {
-    throw workspaceError("[vitehub] @vercel/blob is required for the Vercel Blob Workspace Store. Package: @vercel/blob.", { cause: error })
-  }
-  throw error
-}
-
-function isMissingVercelBlobError(error: unknown) {
-  if (!(error instanceof Error)) return false
-  const code = (error as { code?: unknown }).code
-  if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") return false
-  return error.message.includes("Cannot find package '@vercel/blob'")
-    || error.message.includes("Cannot find module '@vercel/blob'")
+  const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
+  return testImport ? await testImport() as VercelBlobModule : bundledVercelBlob as VercelBlobModule
 }
 
 class VercelBlobWorkspaceStore implements WorkspaceStore {
@@ -195,10 +174,13 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     for (const blob of files) {
       const path = normalizeWorkspacePath(blob.key.slice(`${this.#fileKey("", { allowEmpty: true })}/`.length))
       if (!path) continue
+      if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue
-      if (!options.recursive && normalizedPrefix && path.slice(normalizedPrefix.length + 1).includes("/")) continue
-      if (!options.recursive && !normalizedPrefix && path.includes("/")) {
-        entries.set(path.split("/")[0]!, { path: path.split("/")[0]!, type: "directory" })
+      const relative = normalizedPrefix ? path.slice(normalizedPrefix.length + 1) : path
+      if (!options.recursive && relative.includes("/")) {
+        const child = relative.split("/")[0]!
+        const directory = normalizedPrefix ? `${normalizedPrefix}/${child}` : child
+        entries.set(directory, { path: directory, type: "directory" })
         continue
       }
 
@@ -213,6 +195,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
         const parts = path.split("/")
         for (let index = 1; index < parts.length; index++) {
           const dir = parts.slice(0, index).join("/")
+          if (isExcludedWorkspacePath(dir, options.exclude)) continue
           entries.set(dir, { path: dir, type: "directory" })
         }
       }

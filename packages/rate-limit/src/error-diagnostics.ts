@@ -1,0 +1,52 @@
+import { defineDiagnostics } from "nostics"
+
+const dynamicError = {
+  why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+}
+
+// Each code identifies one ViteHub failure site. Keep published codes stable.
+export const rateLimitErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
+  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics",
+  codes: {
+    RATE_LIMIT_R0001: dynamicError,
+    RATE_LIMIT_R0002: dynamicError,
+    RATE_LIMIT_R0003: dynamicError,
+    RATE_LIMIT_R0004: dynamicError,
+    RATE_LIMIT_R0005: dynamicError,
+    RATE_LIMIT_R0006: dynamicError,
+    RATE_LIMIT_R0007: dynamicError,
+    RATE_LIMIT_R0008: dynamicError,
+    RATE_LIMIT_R0009: dynamicError,
+    RATE_LIMIT_R0010: dynamicError,
+    RATE_LIMIT_R0011: dynamicError,
+    RATE_LIMIT_R0012: dynamicError,
+    RATE_LIMIT_R0013: dynamicError,
+    RATE_LIMIT_R0014: dynamicError,
+    RATE_LIMIT_R0015: dynamicError,
+    RATE_LIMIT_R0016: dynamicError,
+    RATE_LIMIT_R0017: dynamicError,
+    RATE_LIMIT_R0018: dynamicError,
+    RATE_LIMIT_R0019: dynamicError,
+    RATE_LIMIT_R0020: dynamicError,
+    RATE_LIMIT_R0021: dynamicError,
+    RATE_LIMIT_R0022: dynamicError,
+    RATE_LIMIT_R0023: dynamicError,
+    RATE_LIMIT_R0024: dynamicError,
+    RATE_LIMIT_R0025: dynamicError,
+    RATE_LIMIT_R0026: dynamicError,
+    RATE_LIMIT_R0027: dynamicError,
+    RATE_LIMIT_R0028: dynamicError,
+    RATE_LIMIT_R0029: dynamicError,
+    RATE_LIMIT_R0030: dynamicError,
+    RATE_LIMIT_R0031: dynamicError,
+    RATE_LIMIT_R0032: dynamicError,
+    RATE_LIMIT_R0033: dynamicError,
+    RATE_LIMIT_R0034: dynamicError,
+    RATE_LIMIT_R0035: dynamicError,
+    RATE_LIMIT_R0036: dynamicError,
+    RATE_LIMIT_B0001: dynamicError,
+    RATE_LIMIT_B0002: dynamicError,
+    RATE_LIMIT_B0003: dynamicError,
+    RATE_LIMIT_B0004: dynamicError,
+  },
+})

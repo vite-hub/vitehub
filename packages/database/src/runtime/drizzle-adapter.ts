@@ -5,6 +5,7 @@ import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy"
 import { resolveConfigValue } from "../config-value.ts"
 
 import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface D1PreparedStatement {
   bind: (...params: unknown[]) => {
@@ -66,7 +67,7 @@ function getD1HttpErrorDetail(...sources: Array<D1HttpErrorSource | undefined>) 
 
 function cloudflareD1HttpError(response: Response, label = "request", ...sources: Array<D1HttpErrorSource | undefined>) {
   const detail = getD1HttpErrorDetail(...sources)
-  return new Error(`[vitehub] Cloudflare D1 ${label} failed (${response.status})${detail ? `: ${detail}` : "."}`)
+  return databaseErrorDiagnostics.DATABASE_R0007({ message: `[vitehub] Cloudflare D1 ${label} failed (${response.status})${detail ? `: ${detail}` : "."}` })
 }
 
 function validateD1HttpUrl(value: string, name: string) {
@@ -75,7 +76,7 @@ function validateD1HttpUrl(value: string, name: string) {
     if (url.protocol === "http:" || url.protocol === "https:") return value
   }
   catch {}
-  throw new Error(`[vitehub] Cloudflare D1 database "${name}" requires cloudflare.http.url to be an HTTP(S) URL.`)
+  throw databaseErrorDiagnostics.DATABASE_R0008({ message: `[vitehub] Cloudflare D1 database "${name}" requires cloudflare.http.url to be an HTTP(S) URL.` })
 }
 
 function isD1HttpPayload(value: unknown): value is D1HttpPayload {
@@ -93,7 +94,7 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim()
     const token = process.env.CLOUDFLARE_API_TOKEN?.trim()
     if (!accountId || !token) {
-      throw new Error(`[vitehub] Cloudflare D1 database "${config.name}" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.`)
+      throw databaseErrorDiagnostics.DATABASE_R0009({ message: `[vitehub] Cloudflare D1 database "${config.name}" requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN when cloudflare.http is true.` })
     }
     return {
       token,
@@ -104,7 +105,7 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
   const token = resolveConfigValue(http.authToken)?.trim()
   const url = resolveConfigValue(http.url)?.trim()
   if (!token || !url) {
-    throw new Error(`[vitehub] Cloudflare D1 database "${config.name}" requires cloudflare.http.url and cloudflare.http.authToken at runtime.`)
+    throw databaseErrorDiagnostics.DATABASE_R0010({ message: `[vitehub] Cloudflare D1 database "${config.name}" requires cloudflare.http.url and cloudflare.http.authToken at runtime.` })
   }
   return { token, url: validateD1HttpUrl(url, config.name) }
 }
@@ -126,7 +127,7 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
     let payload: D1HttpPayload
     try {
       const value: unknown = await response.json()
-      if (!isD1HttpPayload(value)) throw new TypeError("Invalid D1 response")
+      if (!isD1HttpPayload(value)) throw databaseErrorDiagnostics.DATABASE_R0011({ message: "Invalid D1 response" })
       payload = value
     }
     catch {
@@ -137,7 +138,7 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
       throw cloudflareD1HttpError(response, "request", payload)
     }
     if (payload.result.length !== queries.length) {
-      throw new Error("[vitehub] Cloudflare D1 returned an unexpected query result count.")
+      throw databaseErrorDiagnostics.DATABASE_R0012({ message: "[vitehub] Cloudflare D1 returned an unexpected query result count." })
     }
 
     return payload.result.map((result, index) => {
@@ -199,7 +200,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
     if (config.cloudflare?.http) {
       const databaseId = resolveConfigValue(config.cloudflare.databaseId)?.trim()
       if (!databaseId) {
-        throw new Error(`[vitehub] Cloudflare D1 database "${config.name}" requires cloudflare.databaseId when cloudflare.http is configured.`)
+        throw databaseErrorDiagnostics.DATABASE_R0013({ message: `[vitehub] Cloudflare D1 database "${config.name}" requires cloudflare.databaseId when cloudflare.http is configured.` })
       }
       const http = resolveCloudflareD1HttpConnection(config, databaseId)!
       if (d1HttpInstance && d1HttpInstanceUrl === http.url && d1HttpInstanceToken === http.token) {
@@ -217,7 +218,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
 
     const url = resolveConfigValue(config.connection?.url)
     if (!url || (options.requireRemoteUrl && !isRemoteSqliteUrl(url))) {
-      throw new Error(options.missingConnectionMessage(config))
+      throw databaseErrorDiagnostics.DATABASE_R0014({ message: options.missingConnectionMessage(config) })
     }
 
     if (libsqlInstance && libsqlInstanceUrl === url) {

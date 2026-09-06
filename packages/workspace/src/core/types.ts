@@ -1,4 +1,4 @@
-import type { Source as SourcePackageSource } from "@vite-hub/source"
+import type { Source as SourcePackageSource, SourceContext as SourcePackageSourceContext, SourceRevision } from "@vite-hub/source"
 import type { FileSourceOptions as SourcePackageFileSourceOptions } from "@vite-hub/source/file"
 import type { GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 import type { GlobSourceOptions as SourcePackageGlobSourceOptions } from "@vite-hub/source/glob"
@@ -25,6 +25,7 @@ export interface WriteFileOptions {
 export type WorkspaceSessionWriteFileOptions = Omit<WriteFileOptions, "ifDigest" | "preservePath">
 
 export interface ListOptions {
+  exclude?: string[]
   recursive?: boolean
 }
 
@@ -144,31 +145,34 @@ export interface WorkspaceSessionOptions {
   abortSignal?: AbortSignal
   attach?: boolean
   host?: WorkspaceSessionHost
+  materializeSources?: false
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   target?: string
-  writeBack?: {
+  writeBack?: false | {
     exclude?: readonly string[]
   }
 }
 
 export interface WorkspaceSessionHostFileEntry {
+  executable?: boolean
   path: string
   size?: number
   type: "directory" | "file" | "symlink"
 }
 
 export interface WorkspaceSessionHostFiles {
-  exists(path: string): Promise<boolean>
-  list(path: string, options?: { recursive?: boolean }): Promise<readonly WorkspaceSessionHostFileEntry[]>
-  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>
-  read(path: string): Promise<Uint8Array | null>
-  remove(path: string, options?: { recursive?: boolean }): Promise<void>
-  write(path: string, content: Uint8Array): Promise<void>
+  exists(path: string, options?: { signal?: AbortSignal }): Promise<boolean>
+  list(path: string, options?: { exclude?: readonly string[], recursive?: boolean, signal?: AbortSignal }): Promise<readonly WorkspaceSessionHostFileEntry[]>
+  mkdir(path: string, options?: { recursive?: boolean, signal?: AbortSignal }): Promise<void>
+  read(path: string, options?: { signal?: AbortSignal }): Promise<Uint8Array | null>
+  remove(path: string, options?: { recursive?: boolean, signal?: AbortSignal }): Promise<void>
+  write(path: string, content: Uint8Array, options?: { signal?: AbortSignal }): Promise<void>
 }
 
 export interface WorkspaceSessionHost {
   readonly executionAuthority: ExecutionAuthority
+  readonly inspectionConcurrency?: number
   detachAbortSignal?(): void
   files: WorkspaceSessionHostFiles
   exec(
@@ -207,13 +211,13 @@ export interface WorkspaceSession {
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
-  diff(): Promise<WorkspaceDiff>
-  commit(options?: { message?: string }): Promise<void>
+  diff(options?: { abortSignal?: AbortSignal }): Promise<WorkspaceDiff>
+  commit(options?: { abortSignal?: AbortSignal, message?: string }): Promise<void>
   exec(command: string, args?: string[], options?: ExecOptions): Promise<ExecResult>
   tools?: {
     aiSdk?(): Promise<Record<string, unknown>>
   }
-  close(): Promise<void>
+  close(options?: { abortSignal?: AbortSignal }): Promise<void>
 }
 
 declare global {
@@ -312,7 +316,7 @@ export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
-  writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat>
+  writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat | undefined>
@@ -331,13 +335,9 @@ export interface SourceContextWorkspaceFiles {
   exists(path: string): Promise<boolean>
 }
 
-export interface SourceContext {
-  abortSignal?: AbortSignal
+export interface SourceContext extends SourcePackageSourceContext {
   mountPath?: string
-  rootDir: string
   selectedWorkspaceScope?: WorkspaceSelectedScope
-  source?: string
-  sourceRootDir?: string
   workspace: string
   workspaceFiles?: SourceContextWorkspaceFiles
 }
@@ -347,7 +347,7 @@ export type MaybePromise<T> = T | Promise<T>
 export interface WorkspaceSourceResolutionContextValueReader<TContextMap extends object = WorkspaceSourceResolutionContextMap> {
   entries(): IterableIterator<[string, unknown]>
   get<K extends Extract<keyof TContextMap, string>>(id: K): TContextMap[K] | undefined
-  get<T = unknown>(id: string): T | undefined
+  get(id: string): unknown
   has(id: string): boolean
   toJSON?(): Record<string, unknown>
 }
@@ -390,7 +390,7 @@ export type WorkspaceSourceResolver<
   TScopeName extends string = WorkspaceScopeName,
 > = (context: WorkspaceSourceResolutionContext<TContextMap, TScopeName>) => MaybePromise<WorkspaceSourceResolutionResult>
 
-export type WorkspaceMaterializeMode = "build" | "lazy" | "none"
+export type WorkspaceMaterializeMode = "build" | "startup" | "lazy" | "none"
 
 export type WorkspaceValidateMode = false | "request"
 
@@ -464,6 +464,8 @@ export type WorkspaceSourceRequestExecutor = (
 ) => MaybePromise<WorkspaceSourceRequestExecutionResult>
 
 export interface WorkspaceSource {
+  /** Stable provider name used for inspection and diagnostics. */
+  name?: string
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
@@ -472,13 +474,12 @@ export interface WorkspaceSource {
   probeKeys?: string[]
   fingerprint?: unknown
   resolve?: WorkspaceSourceResolver
+  resolveRevision?(ctx: SourceContext): Promise<SourceRevision | undefined>
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
   getItems?(ctx: SourceContext): Promise<WorkspaceSourceItem[]>
   getMeta?(key: string, ctx: SourceContext): Promise<Record<string, unknown> | undefined>
-  search?(query: WorkspaceSearchQuery, ctx: SourceContext): Promise<WorkspaceSearchHit[]>
-  watch?: unknown[]
 }
 
 export interface WorkspaceSourceSyncPolicy {
@@ -508,12 +509,14 @@ export type WorkspaceFileSourceInput<TKey extends string = string> =
 export interface WorkspaceFetchSourceRequestOptions {
   body?: unknown
   headers?: Record<string, string>
+  maxResponseBytes?: number
   method?: "GET" | "HEAD" | "POST"
   query?: Record<string, unknown>
   timeout?: number
 }
 
 export interface WorkspaceFetchSourceInput<TResponse = unknown, TOutput = TResponse> extends WorkspaceSourceBindingOptions {
+  maxResponseBytes?: number
   method?: "GET" | "HEAD" | "POST"
   path?: string
   request?: WorkspaceFetchSourceRequestOptions | (() => WorkspaceFetchSourceRequestOptions | Promise<WorkspaceFetchSourceRequestOptions>)
@@ -525,7 +528,10 @@ export interface WorkspaceFetchSourceInput<TResponse = unknown, TOutput = TRespo
 
 export type WorkspaceGlobSourceInput = SourcePackageGlobSourceOptions & WorkspaceSourceBindingOptions
 
-export type WorkspaceGitHubSourceInput = SourcePackageGitHubSourceOptions & WorkspaceSourceBindingOptions
+export type WorkspaceGitHubSourceInput =
+  Omit<SourcePackageGitHubSourceOptions, "ignore">
+  & { ignore?: false | string | readonly string[] }
+  & WorkspaceSourceBindingOptions
 
 export type WorkspaceMcpResourcesSourceInput<TKey extends string = string> =
   Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache"> & WorkspaceSourceBindingOptions
@@ -544,6 +550,7 @@ export interface WorkspaceLoaderSource extends WorkspaceSource {
 }
 
 export interface LoaderContext {
+  abortSignal?: AbortSignal
   workspace: string
   rootDir: string
   sourceRootDir?: string
@@ -562,6 +569,7 @@ export interface WorkspaceLoader {
 }
 
 export interface PublishContext {
+  abortSignal?: AbortSignal
   durable: boolean
   workspace: WorkspaceDefinition
   store: WorkspaceStore
@@ -716,30 +724,52 @@ export interface WorkspaceSourceSyncResult {
 }
 
 export interface WorkspaceSourceMaterializationStatus {
+  cacheStatus?: "bypassed" | "disabled" | "hit" | "miss"
+  counts?: WorkspaceSourceMaterializationCounts
+  durationMs?: number
   source: string
   mountPath: string
+  paths?: WorkspaceSourceMaterializationPathResult[]
+  provider?: string
   status: "lazy" | "updating" | "ready" | "error"
-  commit?: string
+  revision?: SourceRevision
   materializedAt?: string
   files?: number
   bytes?: number
   error?: string
 }
 
+export interface WorkspaceSourceMaterializationCounts {
+  added: number
+  removed: number
+  unchanged: number
+  updated: number
+}
+
+export interface WorkspaceSourceMaterializationPathResult {
+  path: string
+  status: "added" | "removed" | "unchanged" | "updated"
+}
+
 export interface WorkspaceMaterializeSourcesProgressEvent {
   bytes?: number
+  cacheStatus?: WorkspaceSourceMaterializationStatus["cacheStatus"]
+  counts?: WorkspaceSourceMaterializationCounts
   directories?: number
   durationMs?: number
   error?: string
   files?: number
   mountPath: string
   path: string
+  provider?: string
+  revision?: SourceRevision
   source: string
   status: "started" | "updating" | "completed" | "failed"
 }
 
 export interface WorkspaceMaterializeSourcesOptions {
   abortSignal?: AbortSignal
+  details?: "paths"
   onProgress?: (event: WorkspaceMaterializeSourcesProgressEvent) => void | Promise<void>
   sources?: string[]
   path?: string

@@ -34,6 +34,10 @@
       "types": "./dist/presets.d.ts",
       "import": "./dist/presets.js"
     },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "import": "./dist/provider.js"
+    },
     "./schema": {
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js"
@@ -63,7 +67,8 @@
     "test": "vp run -t @vite-hub/env#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/runtime": "workspace:*"
+    "@vite-hub/runtime": "workspace:*",
+    "nostics": "catalog:runtime"
   },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",

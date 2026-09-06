@@ -5,7 +5,8 @@ import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleErr
 import { executeRuntimeSchedule } from "./execute.ts"
 import { getRuntimeScheduleStore, getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 
-import type { RuntimeScheduleCreateInput, RuntimeScheduleRecord, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleTargetName } from "../types.ts"
+import type { RuntimeScheduleCreateInput, RuntimeScheduleRecord, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, RegisteredScheduleTargetName, ScheduleTargetInput } from "../types.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 const cronRange = {
   dayOfMonth: { max: 31, min: 1 },
@@ -28,11 +29,11 @@ const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "input", "tar
 
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {
-    throw new Error("not a number")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0007({ message: "not a number" })
   }
   const parsed = Number(value)
   if (!Number.isInteger(parsed) || parsed < range.min || parsed > range.max) {
-    throw new Error("out of range")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0008({ message: "out of range" })
   }
   return parsed
 }
@@ -40,12 +41,12 @@ function parseCronNumber(value: string, range: { min: number, max: number }): nu
 function validateCronPart(part: string, range: { min: number, max: number }): void {
   const [value, step, extra] = part.split("/")
   if (extra !== undefined || value === undefined || value.length === 0) {
-    throw new Error("invalid step")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0009({ message: "invalid step" })
   }
   if (step !== undefined) {
     const parsedStep = parseCronNumber(step, { max: range.max, min: 1 })
     if (parsedStep < 1) {
-      throw new Error("invalid step")
+      throw scheduleErrorDiagnostics.SCHEDULE_R0010({ message: "invalid step" })
     }
   }
   if (value === "*") {
@@ -54,7 +55,7 @@ function validateCronPart(part: string, range: { min: number, max: number }): vo
 
   const [start, end, extraRange] = value.split("-")
   if (extraRange !== undefined || start === undefined || start.length === 0) {
-    throw new Error("invalid range")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0011({ message: "invalid range" })
   }
   const parsedStart = parseCronNumber(start, range)
   if (end === undefined) {
@@ -63,7 +64,7 @@ function validateCronPart(part: string, range: { min: number, max: number }): vo
 
   const parsedEnd = parseCronNumber(end, range)
   if (parsedEnd < parsedStart) {
-    throw new Error("invalid range")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0012({ message: "invalid range" })
   }
 }
 
@@ -84,7 +85,7 @@ export function validateRuntimeScheduleCron(cron: unknown): void {
   try {
     fields.forEach((field, index) => {
       if (field.length === 0) {
-        throw new Error("empty field")
+        throw scheduleErrorDiagnostics.SCHEDULE_R0013({ message: "empty field" })
       }
       for (const part of field.split(",")) {
         validateCronPart(part, cronFieldRanges[index]!)
@@ -177,7 +178,7 @@ async function validateUpdateInput(input: RuntimeScheduleUpdateInput): Promise<v
   }
 }
 
-async function updateRuntimeSchedule<TTarget extends ScheduleTargetName, TInput>(id: string, input: RuntimeScheduleUpdateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
+async function updateRuntimeSchedule(id: string, input: RuntimeScheduleUpdateInput): Promise<RuntimeScheduleRecord> {
   assertRuntimeScheduleId(id)
   await validateUpdateInput(input)
   const updated = await getRuntimeScheduleStore().update(id, {
@@ -187,11 +188,11 @@ async function updateRuntimeSchedule<TTarget extends ScheduleTargetName, TInput>
   if (!updated) {
     throw createScheduleError("SCHEDULE_NOT_FOUND")
   }
-  return updated as RuntimeScheduleRecord<TInput>
+  return updated
 }
 
-export const schedules = {
-  async create<TTarget extends ScheduleTargetName, TInput = unknown>(input: RuntimeScheduleCreateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
+const dynamicSchedules = {
+  async create(input: RuntimeScheduleCreateInput): Promise<RuntimeScheduleRecord> {
     await validateCreateInput(input)
     const now = new Date()
     return await getRuntimeScheduleStore().create({
@@ -203,7 +204,7 @@ export const schedules = {
       target: input.target,
       ...(input.timeZone ? { timeZone: input.timeZone } : {}),
       updatedAt: now,
-    }) as RuntimeScheduleRecord<TInput>
+    })
   },
   async delete(id: string): Promise<boolean> {
     return await getRuntimeScheduleStore().delete(id)
@@ -232,7 +233,34 @@ export const schedules = {
   async run(id: string, options: { scheduledAt?: Date } = {}): Promise<ScheduleRunRecord> {
     return await executeRuntimeSchedule({ id, scheduledAt: options.scheduledAt })
   },
-  async update<TTarget extends ScheduleTargetName, TInput = unknown>(id: string, input: RuntimeScheduleUpdateInput<TTarget, TInput>): Promise<RuntimeScheduleRecord<TInput>> {
+  async update(id: string, input: RuntimeScheduleUpdateInput): Promise<RuntimeScheduleRecord> {
     return await updateRuntimeSchedule(id, input)
+  },
+}
+
+type TypedScheduleCreate<TTarget extends RegisteredScheduleTargetName> = RuntimeScheduleCreateInput<TTarget, NoInfer<ScheduleTargetInput<TTarget>>>
+type TypedScheduleUpdate<TTarget extends RegisteredScheduleTargetName> = RuntimeScheduleUpdateInput<TTarget, NoInfer<ScheduleTargetInput<TTarget>>> & { target: TTarget, input: NoInfer<ScheduleTargetInput<TTarget>> | undefined }
+type ScheduleSettingsUpdate = Omit<RuntimeScheduleUpdateInput, "input" | "target"> & { input?: never, target?: never }
+
+type ScheduleClient = Omit<typeof dynamicSchedules, "create" | "update"> & {
+  create: <TTarget extends RegisteredScheduleTargetName>(input: TypedScheduleCreate<TTarget>) => Promise<RuntimeScheduleRecord<ScheduleTargetInput<TTarget>>>
+  update: <TTarget extends RegisteredScheduleTargetName>(id: string, input: TypedScheduleUpdate<TTarget> | ScheduleSettingsUpdate) => Promise<RuntimeScheduleRecord>
+  dynamic: Pick<typeof dynamicSchedules, "create" | "update">
+}
+
+export const schedules: ScheduleClient = {
+  ...dynamicSchedules,
+  /** Operations on names or stored records that this build cannot type-check. */
+  dynamic: {
+    create: dynamicSchedules.create,
+    update: dynamicSchedules.update,
+  },
+  async create<TTarget extends RegisteredScheduleTargetName>(input: TypedScheduleCreate<TTarget>): Promise<RuntimeScheduleRecord<ScheduleTargetInput<TTarget>>> {
+    // SAFETY: The selected generated definition owns this input, and create returns the same payload stored in the new record.
+    return await dynamicSchedules.create(input) as RuntimeScheduleRecord<ScheduleTargetInput<TTarget>>
+  },
+  async update<TTarget extends RegisteredScheduleTargetName>(id: string, input: TypedScheduleUpdate<TTarget> | ScheduleSettingsUpdate): Promise<RuntimeScheduleRecord> {
+    // Existing records may contain input from an older definition. Keep reads unknown.
+    return await dynamicSchedules.update(id, input)
   },
 }

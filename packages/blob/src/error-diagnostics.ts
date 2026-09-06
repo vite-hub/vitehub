@@ -1,0 +1,51 @@
+import { defineDiagnostics } from "nostics"
+
+const dynamicError = {
+  why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+}
+
+// Each code identifies one ViteHub failure site. Keep published codes stable.
+export const blobErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
+  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics",
+  codes: {
+    BLOB_R0027: dynamicError,
+    BLOB_C0001: dynamicError,
+    BLOB_C0002: dynamicError,
+    BLOB_C0003: dynamicError,
+    BLOB_C0004: dynamicError,
+    BLOB_C0005: dynamicError,
+    BLOB_C0006: dynamicError,
+    BLOB_C0007: dynamicError,
+    BLOB_C0008: dynamicError,
+    BLOB_C0009: dynamicError,
+    BLOB_C0010: dynamicError,
+    BLOB_C0011: dynamicError,
+    BLOB_R0001: dynamicError,
+    BLOB_R0002: dynamicError,
+    BLOB_R0003: dynamicError,
+    BLOB_R0004: dynamicError,
+    BLOB_R0005: dynamicError,
+    BLOB_R0006: dynamicError,
+    BLOB_R0007: dynamicError,
+    BLOB_R0008: dynamicError,
+    BLOB_R0009: dynamicError,
+    BLOB_R0010: dynamicError,
+    BLOB_R0011: dynamicError,
+    BLOB_R0012: dynamicError,
+    BLOB_R0013: dynamicError,
+    BLOB_R0014: dynamicError,
+    BLOB_R0015: dynamicError,
+    BLOB_R0016: dynamicError,
+    BLOB_R0017: dynamicError,
+    BLOB_R0018: dynamicError,
+    BLOB_R0019: dynamicError,
+    BLOB_R0020: dynamicError,
+    BLOB_R0021: dynamicError,
+    BLOB_R0022: dynamicError,
+    BLOB_R0023: dynamicError,
+    BLOB_R0024: dynamicError,
+    BLOB_R0025: dynamicError,
+    BLOB_R0026: dynamicError,
+    BLOB_R0028: dynamicError,
+  },
+})

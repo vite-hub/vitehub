@@ -5,6 +5,7 @@ import type {
   AgentRuntimeConfig,
 } from "../types.ts"
 import type { LanguageModel } from "ai"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -30,7 +31,7 @@ export function gatewayModelDescriptor(model: AgentModelInput): AgentGatewayMode
 function unseal(value: AgentGatewayModel["apiKey"]): string | undefined {
   if (typeof value !== "object") return value
   if (typeof value.unseal !== "function") {
-    throw new TypeError("[vitehub] Agent model apiKey must be a string or sealed value.")
+    throw agentDiagnostics.AGENT_R0512({ message: "[vitehub] Agent model apiKey must be a string or sealed value." })
   }
   return value.unseal()
 }
@@ -42,7 +43,7 @@ function gatewayApiKey<TRuntimeConfig extends AgentRuntimeConfig>(
   if (value !== undefined) {
     const apiKey = unseal(value)
     if (!apiKey?.trim()) {
-      throw new TypeError("[vitehub] Agent model apiKey must be non-empty when provided.")
+      throw agentDiagnostics.AGENT_R0513({ message: "[vitehub] Agent model apiKey must be non-empty when provided." })
     }
     return apiKey
   }
@@ -59,7 +60,7 @@ export async function materializeAgentModel<TRuntimeConfig extends AgentRuntimeC
   if (!descriptor) return model as LanguageModel
   const id = descriptor.id.trim()
   if (!id) {
-    throw new TypeError("[vitehub] Agent model identifiers must be non-empty.")
+    throw agentDiagnostics.AGENT_R0514({ message: "[vitehub] Agent model identifiers must be non-empty." })
   }
   const { createGateway } = await import("@ai-sdk/gateway")
   const apiKey = gatewayApiKey(descriptor.apiKey, context)

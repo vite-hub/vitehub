@@ -7,14 +7,16 @@
         "dev": {
           "phases": {
             "configure": "vite.config.ts",
-            "define": "src/image-upload.ts"
+            "define": "src/image-upload.ts",
+            "run": "src/server.ts"
           },
           "supplementalFiles": ["package.json"]
         },
         "build": {
           "phases": {
             "configure": "vite.config.ts",
-            "define": "src/image-upload.ts"
+            "define": "src/image-upload.ts",
+            "run": "src/server.ts"
           },
           "supplementalFiles": ["package.json"]
         }

@@ -4,6 +4,7 @@ import { useWorkspace } from "./core/use.ts"
 
 import type { ReadonlyWorkspaceFacade } from "./core/use.ts"
 import type { WorkspaceName } from "./core/types.ts"
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface WorkspaceCollectionEmptyFilter {
   empty: true
@@ -135,11 +136,11 @@ async function digest(value: string): Promise<string> {
 async function readCollection<Name extends WorkspaceName>(options: WorkspaceCollectionOptions<Name>): Promise<LoadedCollection> {
   const workspace = typeof options.workspace === "string" ? useWorkspace(options.workspace) : await options.workspace
   const stat = await workspace.fs.stat(options.path as never)
-  if (stat.type !== "file") throw new TypeError(`Workspace collection ${options.path} must be a file.`)
+  if (stat.type !== "file") throw workspaceErrorDiagnostics.WORKSPACE_R0010({ message: `Workspace collection ${options.path} must be a file.` })
 
   const raw = await workspace.fs.readFile(options.path as never, { encoding: "utf8" })
   const parsed = JSON.parse(raw)
-  if (!Array.isArray(parsed)) throw new TypeError(`Workspace collection ${options.path} must contain a JSON array.`)
+  if (!Array.isArray(parsed)) throw workspaceErrorDiagnostics.WORKSPACE_R0011({ message: `Workspace collection ${options.path} must contain a JSON array.` })
   const contentDigest = stat.digest || await digest(raw)
   return { digest: contentDigest, items: parsed }
 }
@@ -191,10 +192,10 @@ function decodeCursor(cursor: string | undefined, expected: Omit<CollectionCurso
 function resolveLimit(query: WorkspaceCollectionQuery, options: WorkspaceCollectionOptions): number {
   const maxLimit = options.maxLimit ?? defaultMaxLimit
   const fallback = options.defaultLimit ?? defaultPageLimit
-  if (!Number.isSafeInteger(maxLimit) || maxLimit < 1) throw new TypeError("Workspace collection maxLimit must be a positive integer.")
-  if (!Number.isSafeInteger(fallback) || fallback < 1) throw new TypeError("Workspace collection defaultLimit must be a positive integer.")
+  if (!Number.isSafeInteger(maxLimit) || maxLimit < 1) throw workspaceErrorDiagnostics.WORKSPACE_R0012({ message: "Workspace collection maxLimit must be a positive integer." })
+  if (!Number.isSafeInteger(fallback) || fallback < 1) throw workspaceErrorDiagnostics.WORKSPACE_R0013({ message: "Workspace collection defaultLimit must be a positive integer." })
   if (query.limit !== undefined && (!Number.isSafeInteger(query.limit) || query.limit < 1)) {
-    throw new TypeError("Workspace collection limit must be a positive integer.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0014({ message: "Workspace collection limit must be a positive integer." })
   }
   return Math.min(query.limit ?? fallback, maxLimit)
 }

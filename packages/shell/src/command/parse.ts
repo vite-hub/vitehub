@@ -1,3 +1,4 @@
+import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 export function parseShellCommand(command: string): string[] {
   const words: string[] = []
   let current = ""
@@ -34,7 +35,7 @@ export function parseShellCommand(command: string): string[] {
   }
 
   if (escaped) current += "\\"
-  if (quote) throw new Error("unterminated quote")
+  if (quote) throw shellErrorDiagnostics.SHELL_R0003({ message: "unterminated quote" })
   if (current) words.push(current)
   return words
 }

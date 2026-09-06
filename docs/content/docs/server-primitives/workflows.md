@@ -2,6 +2,7 @@
 title: Workflows
 description: Start provider-tracked long-running work with run ids, durable state, and optional steps.
 navigation.order: 10
+navigation.group: Background work
 icon: i-lucide-workflow
 ---
 
@@ -291,3 +292,18 @@ Keep credentials and database URLs in Server Env. Hosted workflow providers may 
 - Use [Queue](/docs/server-primitives/queue) for simple background delivery.
 - Trigger recurring work with [Schedule](/docs/server-primitives/schedule).
 - Learn shared runtime events in [Runtime policy, approvals, and traces](/docs/concepts/runtime-policy-approvals-and-traces).
+
+
+## Required handle input
+
+A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
+
+```ts
+const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
+  await sendWelcomeEmail(payload.email)
+})
+await welcome.run({ email: "ada@example.com" })
+// welcome.run() is a type error.
+```
+
+This is a breaking type correction. Supply the required payload at each handle call. Named operational functions do not infer a handler from a string, and persisted run results remain unknown.

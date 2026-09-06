@@ -99,8 +99,8 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
     provider: "cloudflare",
     native: binding,
     binding,
-    async send(input) {
-      const normalized = normalizeQueueEnqueueInput(input)
+    async send(payload, options) {
+      const normalized = normalizeQueueEnqueueInput(payload, options)
       await runQueueProviderOperation("cloudflare", "send", () =>
         binding.send(normalized.payload, toSendOptions(normalized.options)))
       return {

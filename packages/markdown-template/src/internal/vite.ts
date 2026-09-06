@@ -1,7 +1,6 @@
+import { markdownTemplateErrorDiagnostics } from "../error-diagnostics.ts"
 export const markdownTemplateFileSuffix = ".template.md"
 export const markdownTemplateModuleQuery = "markdown-template"
-export const markdownTemplateRegistryId = "#vitehub/templates"
-export const markdownTemplateRegistryPath = ".vitehub/markdown-template/templates.mjs"
 export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 export function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
@@ -18,17 +17,13 @@ export interface BundledMarkdownTemplate {
   template: string
 }
 
-export interface BundledMarkdownTemplateCatalogEntry extends BundledMarkdownTemplate {
-  imports: Record<string, BundledMarkdownTemplate>
-}
-
 export function markdownTemplateMaterializationPath(templatePath: string): string {
   if (!templatePath.startsWith("./") || !templatePath.endsWith(markdownTemplateFileSuffix) || templatePath.includes("\\")) {
-    throw new TypeError(`[vitehub] Markdown materialization requires a relative ${markdownTemplateFileSuffix} path, received ${JSON.stringify(templatePath)}.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_B0001({ message: `[vitehub] Markdown materialization requires a relative ${markdownTemplateFileSuffix} path, received ${JSON.stringify(templatePath)}.` })
   }
   const segments = templatePath.slice(2).split("/")
   if (segments.some(segment => !segment || segment === "." || segment === "..")) {
-    throw new TypeError(`[vitehub] Markdown materialization paths cannot escape or contain ambiguous segments, received ${JSON.stringify(templatePath)}.`)
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_B0002({ message: `[vitehub] Markdown materialization paths cannot escape or contain ambiguous segments, received ${JSON.stringify(templatePath)}.` })
   }
   return templatePath.slice(2, -markdownTemplateFileSuffix.length) + ".md"
 }
@@ -93,23 +88,6 @@ export function renderMarkdownTemplateModule(template: string, sourceId?: string
   ].join("\n")
 }
 
-export function renderMarkdownTemplateCatalogModule(entries: Record<string, BundledMarkdownTemplateCatalogEntry>, runtimeSpecifier: string = markdownTemplateRuntimeSpecifier): string {
-  return [
-    `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(runtimeSpecifier)}`,
-    `const vitehubMarkdownTemplates = new Map(${JSON.stringify(Object.entries(entries))})`,
-    "export function renderTemplate(name, data = {}) {",
-    "  const entry = vitehubMarkdownTemplates.get(name)",
-    "  if (!entry) throw new TypeError(`[vitehub] Unknown Markdown template ${JSON.stringify(name)}.`)",
-    "  return vitehubRenderMarkdownTemplate(entry.template, {",
-    "    data,",
-    "    sourceId: entry.id,",
-    "    resolveImport: (specifier, importer) => entry.imports[`${importer}\\0${specifier}`],",
-    "  })",
-    "}",
-    "",
-  ].join("\n")
-}
-
 export async function bundleMarkdownTemplateImports(
   sourceId: string,
   load: (specifier: string, importer: string) => Promise<BundledMarkdownTemplate | undefined>,
@@ -122,7 +100,7 @@ export async function bundleMarkdownTemplateImports(
       const key = `${importer}\0${specifier}`
       if (imports[key]) continue
       const resolved = await load(specifier, importer)
-      if (!resolved) throw new Error(`[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)}.`)
+      if (!resolved) throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_B0003({ message: `[vitehub] Could not resolve Markdown template import ${JSON.stringify(specifier)} from ${JSON.stringify(importer)}.` })
       imports[key] = resolved
       if (visited.has(resolved.id)) continue
       visited.add(resolved.id)
@@ -140,21 +118,6 @@ export function renderMarkdownTemplateTypes(): string {
     `declare module "*${markdownTemplateFileSuffix}" {`,
     "  const render: (data?: Record<string, unknown>) => Promise<string>",
     "  export default render",
-    "}",
-    `declare module "*?${markdownTemplateModuleQuery}" {`,
-    "  const render: (data?: Record<string, unknown>) => Promise<string>",
-    "  export default render",
-    "}",
-    "",
-  ].join("\n")
-}
-
-export function renderMarkdownTemplateCatalogTypes(names: string[]): string {
-  const templateName = names.length ? names.map(name => JSON.stringify(name)).join(" | ") : "never"
-  return [
-    `declare module ${JSON.stringify(markdownTemplateRegistryId)} {`,
-    `  export type TemplateName = ${templateName}`,
-    "  export function renderTemplate(name: TemplateName, data?: Record<string, unknown>): Promise<string>",
     "}",
     "",
   ].join("\n")

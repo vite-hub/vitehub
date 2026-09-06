@@ -1,4 +1,5 @@
 import { toArray } from "@vite-hub/internal/arrays"
+import { isPlainObject } from "@vite-hub/internal/object"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedBlobStoreConfig } from "../types.ts"
@@ -9,7 +10,7 @@ type FilesInstance = Files<Adapter>
 type FoldedCursor = { index: number, providerCursor?: string }
 
 async function loadFiles(): Promise<FilesCtor> {
-  return (await importOptionalPeer<typeof import("files-sdk")>("files-sdk", "files")).Files
+  return (await importOptionalPeer(() => import("files-sdk"), "files-sdk", "files")).Files
 }
 
 function isNotFound(error: unknown): boolean {
@@ -21,17 +22,31 @@ function encodeFoldedCursor(value: FoldedCursor) {
   return Buffer.from(JSON.stringify(value)).toString("base64url")
 }
 
-function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
-  const decoded = Buffer.from(cursor || "", "base64url").toString("utf8")
-  const index = Number.parseInt(decoded || "0")
-  if (Number.isFinite(index)) {
-    return { index }
-  }
+function isNumber(value: unknown): value is number {
+  return Number(value) === value
+}
 
-  const parsed = JSON.parse(decoded) as Partial<FoldedCursor>
+function isString(value: unknown): value is string {
+  return String(value) === value
+}
+
+function decodeFoldedCursor(cursor: string | undefined): FoldedCursor {
+  if (!cursor) return { index: 0 }
+  const decoded = Buffer.from(cursor, "base64url").toString("utf8")
+  const parsed: unknown = JSON.parse(decoded)
+  if (!isPlainObject(parsed)) throw new TypeError("Invalid Blob cursor.")
+  const { index, providerCursor } = parsed
+  if (
+    !isNumber(index)
+    || !Number.isInteger(index)
+    || index < 0
+    || (providerCursor !== undefined && !isString(providerCursor))
+  ) {
+    throw new TypeError("Invalid Blob cursor.")
+  }
   return {
-    index: typeof parsed.index === "number" && Number.isFinite(parsed.index) ? parsed.index : 0,
-    providerCursor: parsed.providerCursor,
+    index,
+    providerCursor,
   }
 }
 
@@ -157,6 +172,10 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
               throw Object.assign(error, { code: "ENOTDIR" })
             }
             throw error
+          }
+
+          if (start > 0 && start >= result.items.length) {
+            throw new TypeError("Invalid Blob cursor.")
           }
 
           let consumed = start

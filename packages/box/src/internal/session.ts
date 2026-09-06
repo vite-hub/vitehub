@@ -1,3 +1,5 @@
+import { posix } from "node:path";
+
 import type {
   BoxExecOptions,
   BoxFileEntry,
@@ -5,6 +7,7 @@ import type {
   BoxRuntimeOpenOptions,
   BoxSession,
 } from "../index.ts";
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface RuntimeProcess {
   readonly pid?: number;
@@ -18,6 +21,7 @@ export interface RuntimeSession {
   readonly defaultWorkingDirectory: string;
   readonly description?: string;
   readonly id: string;
+  readonly inspectionConcurrency?: number;
   readonly ports?: readonly number[];
   destroy?(): Promise<void>;
   existsFile(options: { abortSignal?: AbortSignal; path: string }): Promise<boolean>;
@@ -86,6 +90,48 @@ export interface RuntimeSession {
   }): Promise<void>;
 }
 
+function isExcludedBoxPath(path: string, excluded: readonly string[]) {
+  const normalized = posix.normalize(path);
+  return excluded.some((item) => {
+    const excludedPath = posix.normalize(item);
+    return (
+      normalized === excludedPath ||
+      excludedPath === "/" ||
+      normalized.startsWith(`${excludedPath}/`)
+    );
+  });
+}
+
+async function listSessionFiles(
+  runtime: RuntimeSession,
+  path: string,
+  options: { exclude?: readonly string[], recursive?: boolean, signal?: AbortSignal } = {},
+) {
+  const excluded = options.exclude || [];
+  if (isExcludedBoxPath(path, excluded)) return [];
+  if (!options.recursive || !excluded.length) {
+    return (
+      await runtime.listFiles({ abortSignal: options.signal, path, recursive: options.recursive })
+    ).filter((entry) => !isExcludedBoxPath(entry.path, excluded));
+  }
+  const entries: BoxFileEntry[] = [];
+  const directories = [path];
+  for (let index = 0; index < directories.length; index++) {
+    const directory = directories[index]!;
+    if (isExcludedBoxPath(directory, excluded)) continue;
+    for (const entry of await runtime.listFiles({
+      abortSignal: options.signal,
+      path: directory,
+      recursive: false,
+    })) {
+      if (isExcludedBoxPath(entry.path, excluded)) continue;
+      entries.push(entry);
+      if (entry.type === "directory") directories.push(entry.path);
+    }
+  }
+  return entries.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 interface RuntimeCommandOptions {
   abortSignal?: AbortSignal;
   command: string;
@@ -103,7 +149,7 @@ export function createBoxSession(
   let closed = false;
 
   const assertOpen = () => {
-    if (closed) throw new Error("[vitehub] Box session is closed.");
+    if (closed) throw boxErrorDiagnostics.BOX_R0125({ message: "[vitehub] Box session is closed." });
   };
   const operationSignal = (signal?: AbortSignal, timeout?: number) => {
     assertOpen();
@@ -112,7 +158,7 @@ export function createBoxSession(
     );
     if (timeout !== undefined) {
       if (!Number.isFinite(timeout) || timeout <= 0)
-        throw new TypeError("[vitehub] Box command timeout must be a positive number.");
+        throw boxErrorDiagnostics.BOX_R0126({ message: "[vitehub] Box command timeout must be a positive number." });
       signals.push(AbortSignal.timeout(timeout));
     }
     const combined = signals.length === 0
@@ -135,11 +181,7 @@ export function createBoxSession(
         });
       },
       async list(path, options) {
-        return await runtime.listFiles({
-          abortSignal: operationSignal(options?.signal),
-          path,
-          recursive: options?.recursive,
-        });
+        return await listSessionFiles(runtime, path, { ...options, signal: operationSignal(options?.signal) });
       },
       async mkdir(path, options) {
         await runtime.makeDirectory({
@@ -182,11 +224,15 @@ export function createBoxSession(
       },
     },
     id: runtime.id,
+    ...(runtime.inspectionConcurrency === undefined
+      ? {}
+      : { inspectionConcurrency: runtime.inspectionConcurrency }),
     ...(runtime.getPortUrl
       ? {
           ports: {
             values: runtime.ports ?? [0],
             async expose(port: number, options?: { protocol?: "http" | "https" | "ws" }) {
+              operationSignal();
               assertPort(port);
               return new URL(await runtime.getPortUrl!({ port, protocol: options?.protocol }));
             },
@@ -249,9 +295,9 @@ function adaptProcess(process: RuntimeProcess): BoxProcess {
 
 function commandLine(command: string, args: readonly string[]) {
   if (!command || command.includes("\0"))
-    throw new TypeError("[vitehub] Box commands must be non-empty and cannot contain NUL.");
+    throw boxErrorDiagnostics.BOX_R0127({ message: "[vitehub] Box commands must be non-empty and cannot contain NUL." });
   if (args.some((argument) => argument.includes("\0")))
-    throw new TypeError("[vitehub] Box command arguments cannot contain NUL.");
+    throw boxErrorDiagnostics.BOX_R0128({ message: "[vitehub] Box command arguments cannot contain NUL." });
   return args.length === 0
     ? command
     : [shellQuote(command), ...args.map(shellQuote)].join(" ");
@@ -263,5 +309,5 @@ function shellQuote(value: string) {
 
 function assertPort(port: number) {
   if (!Number.isInteger(port) || port < 1 || port > 65_535)
-    throw new TypeError("[vitehub] Box ports must be integers between 1 and 65535.");
+    throw boxErrorDiagnostics.BOX_R0129({ message: "[vitehub] Box ports must be integers between 1 and 65535." });
 }

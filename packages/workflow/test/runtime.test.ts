@@ -2,10 +2,11 @@ import { existsSync } from "node:fs"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
@@ -55,12 +56,14 @@ const openWorkflowMock = vi.hoisted(() => {
             context: null,
             createdAt: new Date(),
             deadlineAt: null,
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             error: null as unknown,
             finishedAt: null,
             id,
             idempotencyKey: options?.idempotencyKey || null,
             input,
             namespaceId: "production",
+            // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
             output: null as unknown,
             parentStepAttemptId: null,
             parentStepAttemptNamespaceId: null,
@@ -116,6 +119,19 @@ const openWorkflowMock = vi.hoisted(() => {
   }
 })
 
+it("types handler-owned results and unknown named Workflow results honestly", () => {
+  const inline = createWorkflow<{ message: string }, { reply: string }>("typed-inline", async ({ payload }) => ({ reply: payload.message }))
+  const discovered = createWorkflow<{ message: string }>("typed-discovered")
+
+  expectTypeOf<Awaited<ReturnType<typeof inline.run>>["result"]>().toEqualTypeOf<{ reply: string } | undefined>()
+  expectTypeOf<Awaited<ReturnType<typeof inline.getRun>>["result"]>().toEqualTypeOf<unknown>()
+  expectTypeOf<Awaited<ReturnType<typeof discovered.run>>["result"]>().toEqualTypeOf<unknown>()
+  expectTypeOf<Awaited<ReturnType<typeof discovered.getRun>>["result"]>().toEqualTypeOf<unknown>()
+  expectTypeOf<Awaited<ReturnType<typeof runWorkflow<{ message: string }>>>["result"]>().toEqualTypeOf<unknown>()
+  expectTypeOf<Awaited<ReturnType<typeof getWorkflowRun>>["result"]>().toEqualTypeOf<unknown>()
+  expectTypeOf<Awaited<ReturnType<typeof cancelWorkflow>>["result"]>().toEqualTypeOf<unknown>()
+})
+
 type OpenWorkflowMockBackend = Awaited<ReturnType<typeof openWorkflowMock.connect>>
 
 vi.mock("openworkflow", () => ({
@@ -137,14 +153,18 @@ vi.mock("openworkflow/sqlite", () => ({
 function setOpenWorkflowMockImporter(): void {
   setOpenWorkflowImporter(async (specifier) => {
     if (specifier === "openworkflow") {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
     }
     if (specifier === "openworkflow/postgres") {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return { BackendPostgres: { connect: openWorkflowMock.connect } } as never
     }
     if (specifier === "openworkflow/sqlite") {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
     }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     return await import(specifier) as never
   })
 }
@@ -155,10 +175,12 @@ function interceptProcessSignals(): {
   on: ReturnType<typeof vi.spyOn>
 } {
   const listeners = new Map<string, () => void>()
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   const on = vi.spyOn(process, "on").mockImplementation(((event: string, listener: () => void) => {
     listeners.set(event, listener)
     return process
   }) as typeof process.on)
+  // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
   const off = vi.spyOn(process, "off").mockImplementation(((event: string, listener: () => void) => {
     if (listeners.get(event) === listener) listeners.delete(event)
     return process
@@ -222,7 +244,10 @@ describe("workflow runtime", () => {
     const error = await request.catch(error => error)
     expect(error).toBeInstanceOf(ViteHubError)
     expect(error).toMatchObject({
-      cause: new TypeError(`Vercel Workflow provider returned an invalid ${field}.`),
+      cause: expect.objectContaining({
+        code: "WORKFLOW_R0026",
+        message: `Vercel Workflow provider returned an invalid ${field}.`,
+      }),
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
       details: { operation, provider: "vercel" },
       message: "Workflow provider operation failed.",
@@ -280,7 +305,7 @@ describe("workflow runtime", () => {
       }),
     })
 
-    const workflow = createWorkflow<{ message: string }, { payload: { message: string } }>("welcome")
+    const workflow = createWorkflow<{ message: string }>("welcome")
     const run = await workflow.defer({ message: "hello" }, { id: "welcome-handle" })
 
     await vi.waitFor(async () => {
@@ -331,7 +356,7 @@ describe("workflow runtime", () => {
       }),
     })
 
-    const workflow = createWorkflow<{ accountId: string }, { payload: { accountId: string } }>("welcome", {
+    const workflow = createWorkflow<{ accountId: string }>("welcome", {
       id: ({ payload }) => ({ accountId: payload?.accountId }),
     })
     const run = await workflow.defer({ accountId: "acct_1" })
@@ -405,6 +430,7 @@ describe("workflow runtime", () => {
       "server/workflows/chat": async () => {
         const chat = createWorkflow("legacy-chat-name", inline)
         const helperWorkflow = createWorkflow("helper", helper)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { default: chat, helperWorkflow } as never
       },
     })
@@ -468,6 +494,7 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeRegistry({
       "server/workflows/chat": async () => {
         createWorkflow("helper", helper)
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return undefined as never
       },
     })
@@ -525,6 +552,7 @@ describe("workflow runtime", () => {
 
   it("wraps Cloudflare workflow handlers with provider steps", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const step = { do: stepDo } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
@@ -546,6 +574,7 @@ describe("workflow runtime", () => {
   })
 
   it("restores Cloudflare runtime context inside provider step callbacks", async () => {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const step = {
       do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await runWithActiveCloudflareEnv(undefined, run)),
     } as WorkflowProviderStep
@@ -560,6 +589,7 @@ describe("workflow runtime", () => {
           default: {
             handler: async () => ({
               active: getActiveCloudflareEnv()?.REQUEST_ID,
+              // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
               event: (getWorkflowRuntimeEvent() as { env?: { REQUEST_ID?: string } } | undefined)?.env?.REQUEST_ID,
             }),
           },
@@ -570,10 +600,12 @@ describe("workflow runtime", () => {
   })
 
   it("converts explicitly non-retryable Cloudflare workflow errors", async () => {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const original = Object.assign(new Error("invalid input"), { isRetryable: false as const })
     const converted = new Error("non-retryable: invalid input")
     const createNonRetryableError = vi.fn(() => converted)
     const stepSleep = vi.fn(async () => {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const step = {
       do: vi.fn(async (_name: string, _options: unknown, run: () => unknown) => {
         try {
@@ -663,6 +695,7 @@ describe("workflow runtime", () => {
 
   it("does not wrap generated folder workflows in a root provider step", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const step = { do: stepDo } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
@@ -720,6 +753,7 @@ describe("workflow runtime", () => {
           return { default: takeInlineWorkflowDefinition("agent")! }
         },
       },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       step: { do: stepDo } as WorkflowProviderStep,
     })).rejects.toBe(transient)
 
@@ -729,6 +763,7 @@ describe("workflow runtime", () => {
 
   it("runs inline folder workflows through generated step wrappers", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const step = { do: stepDo } as WorkflowProviderStep
 
     await expect(runCloudflareWorkflow({
@@ -836,6 +871,7 @@ describe("workflow runtime", () => {
     }))
     const config = {
       postgres: { url: "postgres://localhost/shared" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       provider: "openworkflow" as const,
     }
 
@@ -854,6 +890,7 @@ describe("workflow runtime", () => {
     const failure = new Error("database unavailable")
     const config = {
       postgres: { url: "postgres://localhost/retry" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       provider: "openworkflow" as const,
     }
     openWorkflowMock.connect.mockRejectedValueOnce(failure)
@@ -883,6 +920,7 @@ describe("workflow runtime", () => {
       provider: "openworkflow",
     })))
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const failure = await resetOpenWorkflowRuntime().catch(error => error) as AggregateError
     expect(failure).toBeInstanceOf(AggregateError)
     expect(failure.message).toBe("OpenWorkflow backend cleanup failed for multiple runtimes.")
@@ -930,6 +968,7 @@ describe("workflow runtime", () => {
       .mockResolvedValueOnce({ getWorkflowRun: vi.fn(), stop: newStop })
     const config = {
       postgres: { url: "postgres://localhost/reset-race" },
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       provider: "openworkflow" as const,
     }
 
@@ -1073,8 +1112,10 @@ describe("workflow runtime", () => {
     setOpenWorkflowImporter(async (specifier) => {
       if (specifier === "openworkflow") throw cause
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1110,10 +1151,13 @@ describe("workflow runtime", () => {
       }
     }
     setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1135,10 +1179,13 @@ describe("workflow runtime", () => {
       }
     }
     setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1161,10 +1208,13 @@ describe("workflow runtime", () => {
       }
     }
     setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1189,10 +1239,13 @@ describe("workflow runtime", () => {
       }
     }
     setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (specifier === "openworkflow") return { OpenWorkflow: RejectingOpenWorkflow } as never
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1212,17 +1265,28 @@ describe("workflow runtime", () => {
   it("recovers OpenWorkflow runs after a lost creation acknowledgement", async () => {
     const run = vi.fn()
       .mockRejectedValueOnce(new Error("creation acknowledgement lost"))
-      .mockResolvedValueOnce({ workflowRun: { id: "accepted-run", status: "pending" } })
+      .mockResolvedValueOnce({ workflowRun: {
+        error: null,
+        id: "accepted-run",
+        namespaceId: "default",
+        output: null,
+        status: "pending",
+        version: null,
+        workflowName: "welcome",
+      } })
     class RecoveringOpenWorkflow {
       defineWorkflow() {
         return { run }
       }
     }
     setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (specifier === "openworkflow") return { OpenWorkflow: RecoveringOpenWorkflow } as never
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1240,6 +1304,53 @@ describe("workflow runtime", () => {
     expect(run).toHaveBeenNthCalledWith(2, {}, { idempotencyKey: "source-run" })
   })
 
+  it.each([
+    { error: null, output: { text: "Already finished." }, status: "completed" as const },
+    { error: new Error("Already failed."), output: null, status: "failed" as const },
+    { error: null, output: null, providerStatus: "canceled", status: "cancelled" as const },
+  ])("preserves details from an already-$status OpenWorkflow run", async ({ error, output, providerStatus, status }) => {
+    class SettledOpenWorkflow {
+      defineWorkflow() {
+        return {
+          run: async () => ({
+            workflowRun: {
+              error,
+              id: "existing-run",
+              namespaceId: "production",
+              output,
+              status: providerStatus || status,
+              version: null,
+              workflowName: "welcome",
+            },
+          }),
+        }
+      }
+    }
+    setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      if (specifier === "openworkflow") return { OpenWorkflow: SettledOpenWorkflow } as never
+      if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      return await import(specifier) as never
+    })
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    const run = await runWorkflow("welcome", {}, { id: "existing-run" })
+
+    expect(run).toMatchObject({
+      ...(error ? { metadata: error } : { result: output }),
+      id: "existing-run",
+      provider: "openworkflow",
+      status,
+    })
+  })
+
   it("narrows malformed OpenWorkflow run results at the public boundary", async () => {
     const cause = new Error("provider-secret:run-result")
     class MalformedOpenWorkflow {
@@ -1254,10 +1365,13 @@ describe("workflow runtime", () => {
       }
     }
     setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (specifier === "openworkflow") return { OpenWorkflow: MalformedOpenWorkflow } as never
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1274,8 +1388,10 @@ describe("workflow runtime", () => {
   it("narrows OpenWorkflow get failures at the public boundary", async () => {
     const cause = new Error("provider-secret:get")
     setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (specifier === "openworkflow") return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return {
           BackendSqlite: {
             connect: () => ({
@@ -1285,6 +1401,7 @@ describe("workflow runtime", () => {
           },
         } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1301,8 +1418,10 @@ describe("workflow runtime", () => {
   it("narrows malformed OpenWorkflow get results at the public boundary", async () => {
     const cause = new Error("provider-secret:get-result")
     setOpenWorkflowImporter(async (specifier) => {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       if (specifier === "openworkflow") return { OpenWorkflow: openWorkflowMock.OpenWorkflow } as never
       if (specifier === "openworkflow/sqlite") {
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         return {
           BackendSqlite: {
             connect: () => ({
@@ -1316,6 +1435,7 @@ describe("workflow runtime", () => {
           },
         } as never
       }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       return await import(specifier) as never
     })
     setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
@@ -1338,7 +1458,10 @@ describe("workflow runtime", () => {
     const error = await runWorkflow("welcome", {}).catch(error => error)
 
     expect(error).not.toBeInstanceOf(ViteHubError)
-    expect(error).toEqual(new Error("OpenWorkflow SQLite storage requires a local SQLite file path, received \"https://provider.example/workflow.db\"."))
+    expect(error).toMatchObject({
+      code: "WORKFLOW_R0018",
+      message: "OpenWorkflow SQLite storage requires a local SQLite file path, received \"https://provider.example/workflow.db\".",
+    })
   })
 
   it("creates an OpenWorkflow worker from the runtime registry", async () => {
@@ -1357,6 +1480,143 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 3 })
     await worker.start()
     expect(worker.start).toHaveBeenCalled()
+  })
+
+  it("registers OpenWorkflow handlers created in another JavaScript realm", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    // SAFETY: Node's VM evaluates the exact async function literal owned by this test fixture.
+    const handler = runInNewContext("(async () => ({ ok: true }))") as () => Promise<{ ok: boolean }>
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler } }),
+    })
+
+    await createOpenWorkflowWorker()
+
+    expect(openWorkflowMock.definitions.has("welcome")).toBe(true)
+  })
+
+  it("closes a partially started OpenWorkflow worker and normalizes startup failures", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const cause = new Error("worker startup failed")
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => { throw cause }),
+      stop,
+    })
+
+    await expect(startOpenWorkflowWorker()).rejects.toMatchObject({
+      cause,
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation: "start", provider: "openworkflow" },
+    })
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("keeps startup and cleanup failures when an OpenWorkflow worker cannot start", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const startError = new Error("worker startup failed")
+    const stopError = new Error("worker cleanup failed")
+    openWorkflowMock.newWorker.mockReturnValueOnce({
+      options: undefined,
+      start: vi.fn(async () => { throw startError }),
+      stop: vi.fn(async () => { throw stopError }),
+    })
+
+    const error = await startOpenWorkflowWorker().catch(error => error)
+
+    expect(error).toMatchObject({
+      code: "WORKFLOW_PROVIDER_OPERATION_FAILED",
+      details: { operation: "start", provider: "openworkflow" },
+    })
+    expect(error.cause).toBeInstanceOf(AggregateError)
+    expect(error.cause.errors).toEqual([startError, stopError])
+  })
+
+  it("does not start and cleans up an OpenWorkflow worker for a pre-aborted signal", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const reason = new DOMException("cancelled", "AbortError")
+    controller.abort(reason)
+    const start = vi.fn(async () => {})
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({ options: undefined, start, stop })
+
+    await expect(startOpenWorkflowWorker({ signal: controller.signal })).rejects.toBe(reason)
+    expect(start).not.toHaveBeenCalled()
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("preserves an arbitrary abort reason while an OpenWorkflow worker starts", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const reason = new Error("cancelled")
+    const start = vi.fn(() => new Promise<void>(() => {}))
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({ options: undefined, start, stop })
+
+    const workerTask = startOpenWorkflowWorker({ signal: controller.signal })
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    controller.abort(reason)
+
+    await expect(workerTask).rejects.toBe(reason)
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("stops a partially started OpenWorkflow worker when startup is aborted", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const reason = new DOMException("cancelled", "AbortError")
+    const start = vi.fn(() => new Promise<void>(() => {}))
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({ options: undefined, start, stop })
+
+    const workerTask = startOpenWorkflowWorker({ signal: controller.signal })
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    controller.abort(reason)
+
+    await expect(workerTask).rejects.toBe(reason)
+    expect(stop).toHaveBeenCalledOnce()
+  })
+
+  it("stops an OpenWorkflow worker again when startup succeeds after abort cleanup", async () => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const controller = new AbortController()
+    const reason = new DOMException("cancelled", "AbortError")
+    let finishStart: (() => void) | undefined
+    const start = vi.fn(() => new Promise<void>((resolve) => { finishStart = resolve }))
+    const stop = vi.fn(async () => {})
+    openWorkflowMock.newWorker.mockReturnValueOnce({ options: undefined, start, stop })
+
+    const workerTask = startOpenWorkflowWorker({ signal: controller.signal })
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    controller.abort(reason)
+
+    await expect(workerTask).rejects.toBe(reason)
+    expect(stop).toHaveBeenCalledOnce()
+    finishStart?.()
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(2))
   })
 
   it("owns OpenWorkflow worker listeners until a cached public stop fails", async () => {
@@ -1582,6 +1842,7 @@ describe("workflow runtime", () => {
 
   it("does not recurse when an inline registry entry registers no definition", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     setWorkflowRuntimeRegistry({
       missing: async () => await runWorkflow("missing", {}),
     } as never)
@@ -1676,6 +1937,12 @@ describe("workflow runtime", () => {
       start: vi.fn(async () => run),
     }
     setVercelWorkflowRuntimeLoader(async () => runtime)
+    const settlementTasks: Promise<unknown>[] = []
+    const waitUntil = vi.fn()
+    enterWorkflowRuntimeEvent({
+      settled: (promise: PromiseLike<unknown>) => settlementTasks.push(Promise.resolve(promise)),
+      waitUntil,
+    })
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
@@ -1691,6 +1958,9 @@ describe("workflow runtime", () => {
 
     const pending = await runWorkflow("welcome", { message: "hello" })
     expect(pending).toMatchObject({ id: "wdk-1", provider: "vercel", status: "queued" })
+    expect(settlementTasks).toHaveLength(1)
+    expect(waitUntil).not.toHaveBeenCalled()
+    await expect(settlementTasks[0]).resolves.toBeUndefined()
     expect(runtime.start).toHaveBeenCalledWith(native, [{ name: "welcome", payload: { message: "hello" }, provider: "vercel" }])
 
     status = "completed"
@@ -1735,6 +2005,7 @@ describe("workflow runtime", () => {
   })
 
   it("rejects caller-assigned ids for native Vercel entries", async () => {
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     setVercelWorkflowRuntimeLoader(async () => ({
       getRun: vi.fn(),
       listSteps: vi.fn(async () => []),
@@ -1787,12 +2058,14 @@ describe("workflow runtime", () => {
 
   it("does not inspect unavailable properties on missing native Vercel runs", async () => {
     const native = Object.assign(async () => "native", { workflowId: "durable-welcome" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const run = {
       exists: Promise.resolve(false),
       get workflowName(): Promise<string> {
         throw new Error("missing run has no workflow name")
       },
     } as VercelRun
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     setVercelWorkflowRuntimeLoader(async () => ({
       getRun: () => run,
       listSteps: vi.fn(),
@@ -1810,6 +2083,7 @@ describe("workflow runtime", () => {
 
   it("narrows malformed and hostile Vercel results at the provider boundary", async () => {
     const native = Object.assign(async () => "native", { workflowId: "durable-welcome" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const createRun = (overrides: Record<string, unknown> = {}) => ({
       cancel: vi.fn(),
       completedAt: Promise.resolve(undefined),
@@ -1866,6 +2140,7 @@ describe("workflow runtime", () => {
     for (const [steps, field] of invalidSteps) {
       setVercelWorkflowRuntimeLoader(async () => ({
         getRun: () => createRun(),
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
         listSteps: async () => steps as never,
         resumeHook: vi.fn(),
         start: vi.fn(),
@@ -1876,6 +2151,7 @@ describe("workflow runtime", () => {
     const stepCause = new Error("provider-secret:step-result")
     setVercelWorkflowRuntimeLoader(async () => ({
       getRun: () => createRun(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       listSteps: async () => [new Proxy({}, { get: () => { throw stepCause } })] as never,
       resumeHook: vi.fn(),
       start: vi.fn(),
@@ -1889,6 +2165,7 @@ describe("workflow runtime", () => {
       getRun: vi.fn(),
       listSteps: vi.fn(),
       resumeHook: vi.fn(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       start: async () => ({ runId: 42 }) as never,
     }))
     await expectInvalidProviderResult(runWorkflow("welcome", {}), "start", "run ID")
@@ -1896,6 +2173,7 @@ describe("workflow runtime", () => {
     setVercelWorkflowRuntimeLoader(async () => ({
       getRun: vi.fn(),
       listSteps: vi.fn(),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       resumeHook: async () => ({ runId: 42 }) as never,
       start: vi.fn(),
     }))
@@ -1976,6 +2254,7 @@ describe("workflow runtime", () => {
     })
 
     const getRunCause = Object.assign(new Error("provider-secret:get-run"), { status: 502 })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     setVercelWorkflowRuntimeLoader(async () => ({
       getRun: () => { throw getRunCause },
       listSteps: vi.fn(),
@@ -2001,6 +2280,7 @@ describe("workflow runtime", () => {
     })
 
     const startCause = new Error("provider-secret:start")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     setVercelWorkflowRuntimeLoader(async () => ({
       getRun: vi.fn(),
       listSteps: vi.fn(),
@@ -2025,6 +2305,7 @@ describe("workflow runtime", () => {
     })
 
     const resumeCause = new Error("provider-secret:resume")
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     setVercelWorkflowRuntimeLoader(async () => ({
       getRun: vi.fn(),
       listSteps: vi.fn(),
@@ -2075,16 +2356,77 @@ describe("workflow runtime", () => {
   it("honors custom bindings for user Workflows with recovery-like names", async () => {
     const name = "vitehub-agent-invocation-recovery-user-defined"
     const createBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
+    const get = vi.fn(async () => ({ id: "custom-run", status: async () => "complete" }))
+    const generatedGet = vi.fn(async () => ({ id: "generated-run", status: async () => "failed" }))
     setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
     setWorkflowRuntimeRegistry({
       [name]: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
     enterWorkflowRuntimeEvent({
-      req: { runtime: { cloudflare: { env: { WORKFLOW_CUSTOM: { createBatch, get: vi.fn() } } } } },
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName(name)]: { createBatch: vi.fn(), get: generatedGet },
+        WORKFLOW_CUSTOM: { createBatch, get },
+      } } } },
     })
 
     await expect(runWorkflow(name, {}, { id: "custom-run" })).resolves.toMatchObject({ id: "custom-run" })
+    await expect(getWorkflowRun(name, "custom-run")).resolves.toMatchObject({ id: "custom-run", status: "completed" })
     expect(createBatch).toHaveBeenCalledOnce()
+    expect(get).toHaveBeenCalledOnce()
+    expect(generatedGet).not.toHaveBeenCalled()
+  })
+
+  it("inspects Cloudflare runs without evaluating their handler modules", async () => {
+    const name = "vitehub-agent-invocation-recovery-welcome"
+    const load = vi.fn(async () => { throw new Error("module startup failed") })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    Object.assign(load, { internalAgentInvocationRecovery: true as const })
+    const status = vi.fn(async () => "complete")
+    const generatedGet = vi.fn(async () => ({ id: "recovery-run", status }))
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({ [name]: load })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName(name)]: {
+          createBatch: vi.fn(),
+          get: generatedGet,
+        },
+        WORKFLOW_CUSTOM: { createBatch: vi.fn(), get: vi.fn(async () => ({ id: "custom-run", status })) },
+      } } } },
+    })
+
+    await expect(getWorkflowRun(name, "recovery-run")).resolves.toMatchObject({
+      id: "recovery-run",
+      provider: "cloudflare",
+      status: "completed",
+    })
+    expect(load).not.toHaveBeenCalled()
+    expect(generatedGet).toHaveBeenCalledOnce()
+  })
+
+  it("starts generated Cloudflare Agent Invocation recovery through its generated binding", async () => {
+    const name = "vitehub-agent-invocation-recovery-welcome"
+    const generatedCreateBatch = vi.fn(async () => [{ id: "recovery-run", status: async () => "queued" }])
+    const customCreateBatch = vi.fn(async () => [{ id: "custom-run", status: async () => "queued" }])
+    setWorkflowRuntimeConfig({ binding: "WORKFLOW_CUSTOM", provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({
+      [name]: Object.assign(async () => ({
+        // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+        internalAgentInvocationRecovery: true as const,
+        handler: async () => ({ ok: true }),
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      }), { internalAgentInvocationRecovery: true as const }),
+    })
+    enterWorkflowRuntimeEvent({
+      req: { runtime: { cloudflare: { env: {
+        [getCloudflareWorkflowBindingName(name)]: { createBatch: generatedCreateBatch, get: vi.fn() },
+        WORKFLOW_CUSTOM: { createBatch: customCreateBatch, get: vi.fn() },
+      } } } },
+    })
+
+    await expect(runWorkflow(name, {}, { id: "recovery-run" })).resolves.toMatchObject({ id: "recovery-run" })
+    expect(generatedCreateBatch).toHaveBeenCalledOnce()
+    expect(customCreateBatch).not.toHaveBeenCalled()
   })
 
   it("keeps an acknowledged Cloudflare start queued when status inspection is unavailable", async () => {
@@ -2137,6 +2479,7 @@ describe("workflow runtime", () => {
   it("rejects invalid workflow module shapes as missing definitions", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
     setWorkflowRuntimeRegistry({
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       welcome: async () => ({ named: { handler: async () => ({ ok: true }) } }) as never,
     })
 

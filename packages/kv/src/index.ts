@@ -5,6 +5,8 @@ export type {
   FsLiteKVStoreConfig,
   KVDriver,
   KVErrorDetails,
+  KVListOptions,
+  KVListPage,
   KVModuleOptions,
   KVOperation,
   KVResult,

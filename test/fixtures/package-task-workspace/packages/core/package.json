@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/core",
+  "scripts": {
+    "build": "node ../../task.mjs build @fixture/core",
+    "test": "node ../../task.mjs test @fixture/core"
+  }
+}

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface AgentDatabaseHandle {
   exec(statement: string): Promise<unknown>
@@ -13,9 +14,13 @@ interface AgentDatabaseEntry {
   }
 }
 
+export function defaultDatabaseNotConfiguredError(): Error {
+  return databaseErrorDiagnostics.DATABASE_R0016({ message: "[vitehub] Database \"default\" is not configured." })
+}
+
 function requireDatabase(databases: Record<string, AgentDatabaseEntry>, name: string) {
   const entry = databases[name]
-  if (!entry) throw new Error(`[vitehub] Database "${name}" is not configured.`)
+  if (!entry) throw databaseErrorDiagnostics.DATABASE_R0006({ message: `[vitehub] Database "${name}" is not configured.` })
   return entry
 }
 

@@ -9,13 +9,49 @@ import { promisify } from "node:util"
 
 import { build, copyPublicAssets, createNitro, prepare, prerender } from "nitropack/core"
 import { nitro } from "nitro/vite"
-import { createBuilder, resolveConfig } from "vite"
+import { createBuilder, resolveConfig, type Plugin, type PluginOption } from "vite"
 import { vitehub } from "vite-hub"
 import { expect, it } from "vitest"
 
 import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/provider-output.ts"
 
 const execFile = promisify(execFileCallback)
+
+function flattenPlugins(options: PluginOption[]): Plugin[] {
+  return options.flat(Number.POSITIVE_INFINITY).filter((plugin): plugin is Plugin => Boolean(plugin) && typeof plugin === "object")
+}
+
+it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
+  const workflow = flattenPlugins(vitehub({ agent: true, preset: "netlify" }))
+    .find(plugin => plugin.name === "@vite-hub/workflow/vite") as Plugin & {
+      vitehub?: { workflow?: { prepareScheduleRuntime?: () => Promise<unknown> } }
+    }
+
+  expect(workflow).toBeDefined()
+  ;(workflow.configResolved as (config: unknown) => void)({ plugins: [workflow], resolve: { alias: [] }, root: "/unused" })
+  await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+})
+
+it("disables Workflow in the Netlify consumer fixture", async () => {
+  const previousPreset = process.env.VITEHUB_PRESET
+  process.env.VITEHUB_PRESET = "netlify"
+  try {
+    const config = (await import("../../fixtures/consumer/vite-hub/vite.config.ts")).default
+    if (typeof config === "function" || config instanceof Promise) throw new TypeError("Expected an object Vite config.")
+    const plugins = Array.isArray(config.plugins) ? config.plugins.flat(Number.POSITIVE_INFINITY) : []
+    const names = plugins
+      .filter((plugin): plugin is Exclude<typeof plugin, false | null | undefined> => Boolean(plugin))
+      .map(plugin => typeof plugin === "object" && "name" in plugin ? plugin.name : undefined)
+
+    expect(names).toContain("@vite-hub/agent/vite")
+    expect(names).toContain("@vite-hub/schedule/vite")
+    expect(names).not.toContain("@vite-hub/workflow/vite")
+  }
+  finally {
+    if (previousPreset === undefined) delete process.env.VITEHUB_PRESET
+    else process.env.VITEHUB_PRESET = previousPreset
+  }
+})
 
 it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-netlify-output-"))
@@ -127,17 +163,19 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
   const manualBucket = { binding: "MANUAL_BUCKET", bucket_name: "manual-bucket" }
   const manualContainer = { class_name: "ManualContainer", name: "manual-container" }
   const manualRateLimit = { name: "MANUAL", namespace_id: "9", simple: { limit: 1, period: 10 } }
-  const previousDeploymentName = process.env.VITEHUB_DEPLOYMENT_NAME
   const previousProviderName = process.env.WRANGLER_CI_OVERRIDE_NAME
   try {
-    delete process.env.VITEHUB_DEPLOYMENT_NAME
     process.env.WRANGLER_CI_OVERRIDE_NAME = deploymentName
     await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/api"), { recursive: true })
     await mkdir(join(root, "server/queues"), { recursive: true })
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "package-default" }), "utf8")
     await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
-    await writeFile(join(root, "server/queues/image-optimization.ts"), "export default async () => undefined\n", "utf8")
+    await writeFile(join(root, "server/queues/image-optimization.ts"), [
+      'import { defineQueue } from "vite-hub/queue"',
+      'export default defineQueue<string>(async () => undefined)',
+      '',
+    ].join("\n"), "utf8")
     await writeFile(join(root, "server/api/upload.get.ts"), [
       "export default defineEventHandler(async (event) => {",
       '  const { requireRateLimit } = await import("vite-hub/rate-limit")',
@@ -149,7 +187,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     await writeFile(join(root, "server/api/queue.get.ts"), [
       "export default defineEventHandler(async () => {",
       '  const { deferQueue } = await import("vite-hub/queue")',
-      '  deferQueue("image-optimization", { payload: "queued" })',
+      '  deferQueue("image-optimization", "queued")',
       '  return "queued"',
       "})",
       "",
@@ -250,8 +288,6 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     expect(emittedSource).not.toContain("@vercel/queue")
     expect(existsSync(join(root, ".vercel/output"))).toBe(false)
   } finally {
-    if (typeof previousDeploymentName === "undefined") delete process.env.VITEHUB_DEPLOYMENT_NAME
-    else process.env.VITEHUB_DEPLOYMENT_NAME = previousDeploymentName
     if (typeof previousProviderName === "undefined") delete process.env.WRANGLER_CI_OVERRIDE_NAME
     else process.env.WRANGLER_CI_OVERRIDE_NAME = previousProviderName
     await rm(root, { force: true, recursive: true })
@@ -314,7 +350,8 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
   const root = await mkdtemp(join(tmpdir(), "vitehub-deno-native-update-"))
   const workspaceRoot = resolve(import.meta.dirname, "../..")
   const require = createRequire(join(workspaceRoot, "packages/internal/package.json"))
-  const sharpPackageJson = await realpath(require.resolve("sharp/package.json"))
+  const sharpEntry = await realpath(require.resolve("sharp"))
+  const sharpRoot = dirname(dirname(sharpEntry))
   const output = join(root, ".output")
   const remote = await mkdtemp(join(tmpdir(), "vitehub-deno-native-remote-"))
   const bin = join(root, "bin")
@@ -323,7 +360,7 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
   try {
     await mkdir(join(root, "node_modules"), { recursive: true })
     await mkdir(join(root, "server/api"), { recursive: true })
-    await symlink(dirname(sharpPackageJson), join(root, "node_modules/sharp"), "dir")
+    await symlink(sharpRoot, join(root, "node_modules/sharp"), "dir")
     await writeFile(join(root, "server/api/optimize.get.ts"), `import { createRequire } from "node:module"
 import { join } from "node:path"
 import sharp from "sharp"
@@ -367,8 +404,8 @@ export default defineEventHandler(async () => {
     await prerender(nitro)
     await build(nitro)
 
-    expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"))).toBe(true)
-    expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"))).toBe(true)
+    expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.4.node"))).toBe(true)
+    expect(existsSync(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.6"))).toBe(true)
     const entry = "server/index.mjs"
     expect(existsSync(join(output, entry))).toBe(true)
     expect(existsSync(join(output, "server/index.ts"))).toBe(true)
@@ -436,8 +473,8 @@ process.exit(result.status ?? 1)
     expect(invocations[0]!.slice(0, 3)).toEqual(["deploy", "create", "."])
     expect(invocations[1]!.slice(0, 2)).toEqual(["deploy", "."])
     for (const invocation of invocations) expect(invocation).toContain("--allow-node-modules")
-    expect(existsSync(join(remote, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"))).toBe(true)
-    expect(existsSync(join(remote, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"))).toBe(true)
+    expect(existsSync(join(remote, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64-0.35.4.node"))).toBe(true)
+    expect(existsSync(join(remote, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.18.6"))).toBe(true)
   } finally {
     try {
       await nitro?.close()

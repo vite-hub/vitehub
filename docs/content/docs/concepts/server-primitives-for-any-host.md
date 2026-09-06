@@ -3,6 +3,7 @@ title: Server primitives
 description: Build server-backed features with databases, queues, storage, and more while keeping your application portable across hosts.
 navigation.title: Overview
 navigation.order: 1
+navigation.group: Start here
 navigation.lanes: [server-primitives]
 icon: i-lucide-server
 ---

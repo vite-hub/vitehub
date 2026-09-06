@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
-import { createError } from "unemail"
 import { createEmail } from "../src/index.ts"
+import { emailProviderError } from "../src/provider.ts"
 import { email } from "../src/server.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
@@ -77,6 +77,63 @@ describe("createEmail", () => {
     expect(initialize).toHaveBeenCalledOnce()
   })
 
+  it("retries eager initialization after a transient failure", async () => {
+    const initialize = vi.fn()
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValue(undefined)
+    const client = createEmail({ driver: { ...fixtureDriver(), initialize } })
+
+    await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_PROVIDER_FAILED" })
+    await expect(client.send(message)).resolves.toEqual({ driver: "fixture", id: "provider-1" })
+    expect(initialize).toHaveBeenCalledTimes(2)
+  })
+
+  it("applies portable headers and preserves personalizations for the driver", async () => {
+    const driver = fixtureDriver()
+    const client = createEmail({ driver })
+
+    await client.send({
+      ...message,
+      personalizations: [
+        { customArgs: { campaign: "welcome" }, subject: "Personal welcome", to: "jane@example.com", variables: { name: "Jane" } },
+        { sendAt: "2026-08-10T15:00:00.000Z", to: "john@example.com", variables: { name: "John" } },
+      ],
+      unsubscribe: { mailto: "leave@example.com", url: "https://example.com/unsubscribe" },
+    })
+
+    const preparedMessage = vi.mocked(driver.send).mock.calls[0]![0]
+    expect(preparedMessage).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({
+        "List-Unsubscribe": "<https://example.com/unsubscribe>, <mailto:leave@example.com>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      }),
+      subject: message.subject,
+      to: message.to,
+    }))
+    expect(preparedMessage.personalizations).toEqual([
+      { customArgs: { campaign: "welcome" }, subject: "Personal welcome", to: "jane@example.com", variables: { name: "Jane" } },
+      { sendAt: "2026-08-10T15:00:00.000Z", to: "john@example.com", variables: { name: "John" } },
+    ])
+  })
+
+  it("serializes concurrent initialization for an eager driver", async () => {
+    let finishInitialization: (() => void) | undefined
+    const initialize = vi.fn(() => new Promise<void>((resolve) => {
+      finishInitialization = resolve
+    }))
+    const driver = fixtureDriver()
+    const client = createEmail({ driver: { ...driver, initialize } })
+
+    const first = client.send(message)
+    const second = client.send(message)
+    await vi.waitFor(() => expect(initialize).toHaveBeenCalledOnce())
+    expect(driver.send).not.toHaveBeenCalled()
+
+    finishInitialization!()
+    await Promise.all([first, second])
+    expect(driver.send).toHaveBeenCalledTimes(2)
+  })
+
   it.each([
     ["INVALID_OPTIONS", "EMAIL_NOT_CONFIGURED"],
     ["AUTH", "EMAIL_AUTHENTICATION"],
@@ -86,8 +143,8 @@ describe("createEmail", () => {
     ["PROVIDER", "EMAIL_PROVIDER_FAILED"],
     ["UNSUPPORTED", "EMAIL_PROVIDER_FAILED"],
     ["CANCELLED", "EMAIL_PROVIDER_FAILED"],
-  ] as const)("maps Unemail %s failures to %s", async (providerCode, code) => {
-    const cause = createError("fixture", providerCode, "provider unavailable")
+  ] as const)("maps provider %s failures to %s", async (providerCode, code) => {
+    const cause = emailProviderError("fixture", providerCode, "provider unavailable")
     const client = createEmail({
       driver: fixtureDriver(vi.fn(async () => ({ data: null, error: cause }))),
     })
@@ -98,6 +155,19 @@ describe("createEmail", () => {
       details: { driver: "fixture" },
       message: "[vitehub] Email delivery failed through fixture.",
     })
+  })
+
+  it("preserves the resolved driver on unsubscribe validation errors", async () => {
+    const send = vi.fn()
+    const client = createEmail({ driver: fixtureDriver(send) })
+
+    await expect(
+      client.send({ ...message, unsubscribe: { oneClick: true, url: "http://example.com" } }),
+    ).rejects.toMatchObject({
+      code: "EMAIL_NOT_CONFIGURED",
+      details: { driver: "fixture" },
+    })
+    expect(send).not.toHaveBeenCalled()
   })
 
   it("rejects a successful result without a provider message ID", async () => {
@@ -137,6 +207,13 @@ describe("createEmail", () => {
     })
 
     await expect(client.send(message)).rejects.toBe(error)
+  })
+
+  it("preserves structurally valid custom provider errors", async () => {
+    const cause = Object.assign(new Error("slow down"), { code: "RATE_LIMIT" as const, driver: "custom", retryable: true })
+    const client = createEmail({ driver: fixtureDriver(async () => ({ data: null, error: cause })) })
+
+    await expect(client.send(message)).rejects.toMatchObject({ code: "EMAIL_RATE_LIMITED", details: { driver: "custom" } })
   })
 })
 

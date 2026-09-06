@@ -1,6 +1,5 @@
 export interface SandboxTypeDefinition {
   handler: string
-  hasPayloadType: boolean
   kind: 'definition' | 'package-entry'
   name: string
 }
@@ -11,18 +10,15 @@ function createDefinitionContract(definition: SandboxTypeDefinition) {
     return `{ payload: Parameters<${module}['default']['run']>[0], result: Awaited<ReturnType<${module}['default']['run']>> }`
   }
 
-  const fallbackPayload = definition.hasPayloadType
-    ? `import(${JSON.stringify(definition.handler)}).SandboxPayload`
-    : 'unknown'
-  return `SandboxPackageContract<${module}['default'], ${fallbackPayload}>`
+  return `SandboxPackageContract<${module}['default']>`
 }
 
 export function createSandboxTypeTemplateContents(definitions: SandboxTypeDefinition[]) {
   return [
     `declare module '#vitehub-sandbox-registry' {`,
-    `  type SandboxPackageContract<TDefault, TFallbackPayload> = TDefault extends (...args: infer TArgs) => infer TResult`,
+    `  type SandboxPackageContract<TDefault extends (...args: any[]) => any> = TDefault extends (...args: infer TArgs) => infer TResult`,
     `    ? { payload: TArgs extends [] ? unknown : TArgs[0], result: Awaited<TResult> }`,
-    `    : { payload: TFallbackPayload, result: Awaited<TDefault> }`,
+    `    : never`,
     `  export interface SandboxDefinitionModules {`,
     ...definitions.map(definition => `    ${JSON.stringify(definition.name)}: ${createDefinitionContract(definition)},`),
     `  }`,

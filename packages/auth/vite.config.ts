@@ -3,6 +3,7 @@ import { defineConfig } from "vite-plus"
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
+    copy: [{ from: "src/host-declarations.d.ts", to: "dist" }],
     deps: {
       neverBundle: [
         "better-auth",
@@ -16,6 +17,17 @@ export default defineConfig({
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
+    plugins: [{
+      name: "auth-host-declarations",
+      generateBundle(_options, bundle) {
+        for (const file of ["agent.d.ts", "index.d.ts", "nuxt.d.ts", "server.d.ts", "vite.d.ts", "vue.d.ts"]) {
+          const chunk = bundle[file]
+          if (chunk?.type === "chunk") {
+            chunk.code = `/// <reference path="./host-declarations.d.ts" />\n${chunk.code}`
+          }
+        }
+      },
+    }],
     entry: [
       "src/agent.ts",
       "src/index.ts",

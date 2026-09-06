@@ -6,6 +6,7 @@ import type {
   MaybePromise,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export interface AgentDeliveryArtifactPublishInput {
   artifact: AgentDeliveryArtifact
@@ -36,7 +37,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function normalizeDeliveryArtifactPath(path: string, label = "Delivery artifact path"): string {
   const normalized = path.trim().replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+/g, "/")
   if (!normalized || normalized === "." || normalized.startsWith("/") || normalized.split("/").includes("..")) {
-    throw new Error(`[vitehub] ${label} must stay inside the workspace: "${path}".`)
+    throw agentDiagnostics.AGENT_R0399({ message: `[vitehub] ${label} must stay inside the workspace: "${path}".` })
   }
   return normalized
 }
@@ -133,7 +134,7 @@ export async function publishWorkspaceArtifacts<TRuntimeConfig extends AgentRunt
   artifacts: readonly AgentDeliveryArtifact[],
   options: PublishWorkspaceArtifactsOptions,
 ): Promise<PublishedAgentDeliveryArtifact[]> {
-  if (!context.workspace) throw new Error("[vitehub] publishWorkspaceArtifacts() requires an Agent delivery context with a Workspace.")
+  if (!context.workspace) throw agentDiagnostics.AGENT_R0400({ message: "[vitehub] publishWorkspaceArtifacts() requires an Agent delivery context with a Workspace." })
 
   const published: PublishedAgentDeliveryArtifact[] = []
   for (const artifact of artifacts) {

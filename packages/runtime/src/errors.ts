@@ -1,3 +1,4 @@
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 export type ViteHubErrorDetail =
   | boolean
   | null
@@ -36,7 +37,7 @@ const MAX_REQUEST_ID_LENGTH = 256
 const publicShapes = new WeakMap<object, ViteHubErrorShape>()
 
 function invalidPublicError(): never {
-  throw new TypeError("[vitehub] ViteHubError requires a valid public error contract.")
+  throw runtimeErrorDiagnostics.RUNTIME_R0006({ message: "[vitehub] ViteHubError requires a valid public error contract." })
 }
 
 function isArray(value: unknown): value is unknown[] {

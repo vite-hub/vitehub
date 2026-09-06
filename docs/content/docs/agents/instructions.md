@@ -135,6 +135,8 @@ Use this Skill only when the task needs browser evidence.
 
 ViteHub strips the wrapper directives before model execution and keeps their prose. A file that merely exists in the Workspace does not count as instruction coverage.
 
+A custom Capability that has no model-facing behavior can opt out of this warning with `instructionCoverage: false`. Runtime accounting and telemetry Capabilities should not force empty prose into the model prompt.
+
 ## Use the right instruction lifetime
 
 | Instruction source | Use it for |

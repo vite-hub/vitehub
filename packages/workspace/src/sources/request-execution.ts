@@ -8,12 +8,17 @@ import type {
   WorkspaceSourceRequestExecutionInput,
   WorkspaceSourceRequestExecutionResult,
 } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface WorkspaceSourceRequestExecutionTarget {
   executeSourceRequest(input: WorkspaceSourceRequestExecutionInput): Promise<WorkspaceSourceRequestExecutionResult>
 }
 
 const sourceRequestExecutions = new WeakMap<object, WorkspaceSourceRequestExecutionTarget>()
+
+function isWeakKey(value: unknown): value is object {
+  return Object(value) === value
+}
 
 export function attachWorkspaceSourceRequestExecution<T extends object>(
   target: T,
@@ -24,7 +29,8 @@ export function attachWorkspaceSourceRequestExecution<T extends object>(
   return target
 }
 
-export function getWorkspaceSourceRequestExecution(input: object): WorkspaceSourceRequestExecutionTarget | undefined {
+export function getWorkspaceSourceRequestExecution(input: unknown): WorkspaceSourceRequestExecutionTarget | undefined {
+  if (!isWeakKey(input)) return undefined
   return sourceRequestExecutions.get(input)
 }
 
@@ -48,14 +54,14 @@ export function createWorkspaceSourceRequestExecution(
       const matches = targetMatches.filter(source => source.requestDescriptor && requestShapeMatches(source.requestDescriptor, input))
 
       if (matches.length !== 1) {
-        throw new Error(matches.length > 1
+        throw workspaceErrorDiagnostics.WORKSPACE_R0063({ message: matches.length > 1
           ? "[vitehub] Source request is ambiguous; more than one visible Source matches this curl target."
-          : "[vitehub] Source request is not visible in the selected workspace scope or does not match a declared Source target.")
+          : "[vitehub] Source request is not visible in the selected workspace scope or does not match a declared Source target." })
       }
 
       const source = matches[0]!
       const executor = getWorkspaceSourceRequestExecutor(source.source)
-      if (!executor) throw new Error("[vitehub] Source request executor is unavailable.")
+      if (!executor) throw workspaceErrorDiagnostics.WORKSPACE_R0064({ message: "[vitehub] Source request executor is unavailable." })
       return await executor(input, createSourceContext(definition, {
         key: source.key,
         mountPath: source.mountPath,
@@ -97,13 +103,13 @@ function requestShapeMatches(descriptor: WorkspaceSourceRequestDescriptor, input
 
 function bodyShapeMatches(request: NonNullable<WorkspaceSourceRequestDescriptor["request"]> | undefined, input: WorkspaceSourceRequestExecutionInput): boolean {
   if (request?.bodySchema) return true
-  if (typeof request?.body !== "undefined") return jsonEqual(input.body, request.body)
-  return typeof input.body === "undefined"
+  if (request && "body" in request) return jsonEqual(input.body, request.body)
+  return input.body === undefined
 }
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
   const query: Record<string, unknown> = {}
-  for (const key of new Set([...url.searchParams.keys()])) {
+  for (const key of new Set(url.searchParams.keys())) {
     const values = url.searchParams.getAll(key)
     query[key] = values.length > 1 ? values : values[0]
   }

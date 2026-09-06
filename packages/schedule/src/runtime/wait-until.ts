@@ -11,7 +11,7 @@ export function createLocalWaitUntil(): LocalWaitUntil {
   return {
     async flush() {
       while (pending.size > 0) {
-        await Promise.allSettled([...pending])
+        await Promise.allSettled(pending)
       }
       if (failed) throw error
     },

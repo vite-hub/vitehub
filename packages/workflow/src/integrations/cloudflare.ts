@@ -1,6 +1,7 @@
 import { encodeNameHex } from "@vite-hub/internal/integrations/hex"
 
 import type { DiscoveredWorkflowDefinition } from "../types.ts"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 const cloudflareWorkflowNameMaxLength = 64
 
@@ -55,7 +56,7 @@ export function createCloudflareWorkflowBindings(
   }
   const configurable = definitions.filter(definition => definition.source !== "agent-workflow-recovery")
   if (configurable.length > 1 && options && (options.binding || options.name)) {
-    throw new TypeError("Cloudflare workflow binding and name overrides are only supported when one workflow is discovered.")
+    throw workflowErrorDiagnostics.WORKFLOW_R0001({ message: "Cloudflare workflow binding and name overrides are only supported when one workflow is discovered." })
   }
   return definitions.map(definition => ({
     binding: configurable.length === 1 && configurable[0] === definition && options ? options.binding || getCloudflareWorkflowBindingName(definition.name) : getCloudflareWorkflowBindingName(definition.name),

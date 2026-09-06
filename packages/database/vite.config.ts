@@ -12,6 +12,15 @@ export default defineConfig({
       neverBundle: ["vite", "esbuild", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
       onlyBundle: false,
     },
+    plugins: [{
+      name: "database-virtual-declarations",
+      generateBundle(_options, bundle) {
+        const chunk = bundle["virtual.d.ts"]
+        if (chunk?.type === "chunk") {
+          chunk.code = `/// <reference path="./virtual-module.d.ts" />\n${chunk.code}`
+        }
+      },
+    }],
     entry: [
       "src/index.ts",
       "src/cli.ts",
@@ -37,6 +46,10 @@ export default defineConfig({
           ...Object.fromEntries(
             Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-")),
           ),
+          "./virtual": {
+            types: "./dist/virtual.d.ts",
+            import: "./dist/virtual.js",
+          },
           "./runtime/cloudflare-env": "./dist/runtime/state.js",
         }
       },

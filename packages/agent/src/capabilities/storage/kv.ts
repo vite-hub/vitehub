@@ -16,6 +16,7 @@ import type {
   MaybePromise,
 } from "../../types.ts"
 import type { PrimitiveStorageCapabilityOptions } from "./shared.ts"
+import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export interface KVCapabilityOptions extends PrimitiveStorageCapabilityOptions {}
 
@@ -57,7 +58,7 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): Agent
       kv_read: createTool<KVReadInput>({
         description: "Read one KV value by exact key or list KV keys under a developer-provided prefix.",
         execute: ({ key, prefix }: KVReadInput = {}) => {
-          if (!hasExactlyOne(key, prefix)) throw new Error("[vitehub] kv_read requires exactly one of key or prefix.")
+          if (!hasExactlyOne(key, prefix)) throw agentDiagnostics.AGENT_R0224({ message: "[vitehub] kv_read requires exactly one of key or prefix." })
           if (typeof key === "string" && key.trim()) return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "get")(key))
           return storageValue<string[]>(method<(prefix: string) => MaybePromise<string[]>>(store, "kv", "keys")(assertString(prefix, "kv_read prefix")))
         },
@@ -72,7 +73,7 @@ function kvTools(mode: AgentCapabilityMode, options: KVCapabilityOptions): Agent
           assertString(key, "kv_edit key")
           if (operation === "put") return storageValue(method<(key: string, value: unknown) => MaybePromise<unknown>>(store, "kv", "set")(key, value))
           if (operation === "delete") return storageValue(method<(key: string) => MaybePromise<unknown>>(store, "kv", "del")(key))
-          throw new Error(`[vitehub] Unsupported kv_edit operation: ${String(operation)}`)
+          throw agentDiagnostics.AGENT_R0225({ message: `[vitehub] Unsupported kv_edit operation: ${String(operation)}` })
         },
         inputSchema: kvEditInputSchema,
         name: "kv_edit",

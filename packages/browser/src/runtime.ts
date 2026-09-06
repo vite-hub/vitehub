@@ -1,5 +1,5 @@
 import browserRegistry from "#vitehub/browser/registry"
-import runtimeConfig from "#vitehub/browser/runtime"
+import runtimeConfig, { loadCloudflarePlaywright } from "#vitehub/browser/runtime"
 
 import {
   browserDefinitionNotFoundError,
@@ -11,7 +11,10 @@ import { createBrowser } from "./client.ts"
 import { cdp } from "./controllers/cdp.ts"
 import { runBrowserAction, runBrowserContent } from "./actions.ts"
 import { attachCDPPage } from "./internal/cdp-page.ts"
-import { cloudflareBrowser } from "./providers/cloudflare.ts"
+import { importBrowserOptionalPeer } from "./internal/optional-peer.ts"
+import { createCloudflareBrowser } from "./internal/cloudflare-provider.ts"
+
+import type { CloudflarePlaywrightDriver } from "./internal/cloudflare-provider.ts"
 
 import type {
   BrowserAction,
@@ -36,6 +39,7 @@ import type {
   BrowserDefinitionResult,
   BrowserRegistryDefinition,
 } from "./registry-types.ts"
+import { browserErrorDiagnostics } from "./error-diagnostics.ts"
 
 const CONTROLLER_ATTACH_TIMEOUT_MS = 30_000
 
@@ -205,17 +209,22 @@ let configuredClient: BrowserClient<PlaywrightBrowserConnection> | undefined
 function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
   if (configuredClient) return configuredClient
   if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
+  const configuredLoader = loadCloudflarePlaywright
+    ?? (() => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"))
   configuredClient = createBrowser({
-    provider: cloudflareBrowser({
-      binding: runtimeConfig.binding,
-      engine: runtimeConfig.engine,
-    }),
+    provider: createCloudflareBrowser(
+      {
+        binding: runtimeConfig.binding,
+        engine: runtimeConfig.engine,
+      },
+      configuredLoader,
+    ),
   })
   return configuredClient
 }
 
 function isBrowserDefinition(value: unknown): value is BrowserDefinition {
-  return !!value && typeof value === "object" && typeof (value as BrowserDefinition).run === "function"
+  return !!value && typeof value === "object" && "run" in value && typeof value.run === "function"
 }
 
 async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition> {
@@ -224,7 +233,7 @@ async function resolveBrowserDefinition(name: string): Promise<BrowserDefinition
   const loaded = typeof entry === "function" ? await entry() : entry
   const definition = "default" in loaded && loaded.default ? loaded.default : loaded
   if (!isBrowserDefinition(definition)) {
-    throw new TypeError(`[vitehub:browser] Browser Definition ${JSON.stringify(name)} must default-export defineBrowser().`)
+    throw browserErrorDiagnostics.BROWSER_R0009({ message: `[vitehub:browser] Browser Definition ${JSON.stringify(name)} must default-export defineBrowser().` })
   }
   return definition
 }
@@ -233,7 +242,7 @@ export function defineBrowser<TInput = unknown, TResult = unknown>(
   run: BrowserDefinitionHandler<TInput, TResult>,
 ): BrowserDefinition<TInput, TResult> {
   if (typeof run !== "function") {
-    throw new TypeError("[vitehub:browser] defineBrowser() requires a Browser Definition handler.")
+    throw browserErrorDiagnostics.BROWSER_R0010({ message: "[vitehub:browser] defineBrowser() requires a Browser Definition handler." })
   }
   return { run }
 }

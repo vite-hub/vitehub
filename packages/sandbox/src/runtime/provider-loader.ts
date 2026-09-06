@@ -1,6 +1,7 @@
 import type { Box } from '@vite-hub/box'
 import type { SandboxDefinitionOptions, SandboxDefinitionProviderOptions } from '../module-types'
 import type { SandboxProvider } from '../module-types'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ResolvedSandboxBox {
   closeAfterRun?: boolean
@@ -21,6 +22,10 @@ export interface SandboxRuntimeProvider {
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>
 
+export function unsupportedHostedSandboxProviderError(provider: unknown): Error {
+  return sandboxErrorDiagnostics.SANDBOX_R0076({ message: `[vitehub] Unsupported sandbox provider for this hosted build: ${String(provider)}` })
+}
+
 export async function loadSandboxRuntimeProvider(provider: SandboxProvider): Promise<SandboxRuntimeProvider> {
   if (provider === 'cloudflare') {
     const { resolveCloudflareSandboxBox } = await dynamicImport<typeof import('./providers/cloudflare')>('./providers/cloudflare.js')
@@ -32,5 +37,5 @@ export async function loadSandboxRuntimeProvider(provider: SandboxProvider): Pro
     return { resolveSandboxBox: resolveVercelSandboxBox }
   }
 
-  throw new Error(`[vitehub] Unsupported sandbox provider: ${provider}`)
+  throw sandboxErrorDiagnostics.SANDBOX_R0068({ message: `[vitehub] Unsupported sandbox provider: ${provider}` })
 }

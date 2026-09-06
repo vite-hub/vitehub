@@ -1,6 +1,11 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
 import type { BlobErrorDetails, BlobOperation, BlobResult } from "./types.ts"
+import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+
+export function unknownBlobStoreError(name: string): Error {
+  return blobErrorDiagnostics.BLOB_R0028({ message: `Unknown Blob store "${name}".` })
+}
 
 export function blobError(
   code: "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED",

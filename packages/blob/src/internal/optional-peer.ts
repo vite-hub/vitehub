@@ -1,10 +1,11 @@
-export async function importOptionalPeer<T>(id: string, driver: string, installId = id): Promise<T> {
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+export async function importOptionalPeer<T>(load: () => Promise<T>, id: string, driver: string, installId = id): Promise<T> {
   try {
-    return await import(id) as T
+    return await load()
   }
   catch (error) {
     if (isMissingPeerError(error, id)) {
-      throw new Error(`The "${driver}" blob driver requires ${installId}. Install it with: pnpm add ${installId}`)
+      throw blobErrorDiagnostics.BLOB_R0012({ message: `The "${driver}" blob driver requires ${installId}. Install it with: pnpm add ${installId}` })
     }
     throw error
   }

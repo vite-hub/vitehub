@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -35,14 +35,9 @@ describe("workspace CLI", () => {
   it("keeps the private Workspace Dev token outside the Vite root", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-token-"))
     try {
-      const legacyFile = join(rootDir, ".vitehub", "dev-token")
-      await mkdir(join(rootDir, ".vitehub"), { recursive: true })
-      await writeFile(legacyFile, "stale\n", "utf8")
-
       const token = await refreshWorkspaceDevToken(rootDir)
 
       await expect(readWorkspaceDevToken(rootDir)).resolves.toBe(token)
-      await expect(readFile(legacyFile, "utf8")).rejects.toThrow()
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

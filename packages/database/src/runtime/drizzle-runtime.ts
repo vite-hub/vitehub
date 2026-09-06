@@ -12,6 +12,7 @@ import {
 } from "./drizzle-adapter.ts"
 
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 function resolveLocalSqliteUrl(url: string) {
   if (url === ":memory:" || isRemoteSqliteUrl(url)) {
@@ -34,11 +35,12 @@ interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>> {
 }
 
 function createMissingDatabaseProxy<TSchema extends Record<string, unknown>>(name: string) {
+  // SAFETY: This unavailable-database proxy throws on every property read; no incomplete database escapes through it.
   return new Proxy({} as RuntimeDrizzleDatabase<TSchema>, {
     get() {
-      throw new Error(name === "default"
+      throw databaseErrorDiagnostics.DATABASE_R0015({ message: name === "default"
         ? "[vitehub] `@vite-hub/database/drizzle` requires `hubDb()` and `database !== false`."
-        : `[vitehub] Database "${name}" is not configured.`)
+        : `[vitehub] Database "${name}" is not configured.` })
     },
   }) as RuntimeDrizzleDatabase<TSchema>
 }

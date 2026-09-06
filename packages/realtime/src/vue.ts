@@ -12,6 +12,7 @@ import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { createRealtimeEditorExtensions } from "./editor-extensions.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, isRetryableRealtimeCheckpointCode, messageWorkspaceChange, workspaceRoomId } from "./protocol.ts"
+import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
 
@@ -109,15 +110,15 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
   }
 
   async function checkpoint(): Promise<RealtimeCheckpoint> {
-    if (!enabled()) throw new Error("Realtime is disabled.")
+    if (!enabled()) throw realtimeErrorDiagnostics.REALTIME_R0009({ message: "Realtime is disabled." })
     checkpointRequests.value++
     try {
       const id = toValue(documentId)
-      if (!id) throw new Error("A realtime document is required before creating a checkpoint.")
+      if (!id) throw realtimeErrorDiagnostics.REALTIME_R0010({ message: "A realtime document is required before creating a checkpoint." })
       const room = id.split("/").map(encodeURIComponent).join("/")
       for (let attempt = 0; ; attempt++) {
         const current = document.value
-        if (!current) throw new Error("The realtime document is not connected.")
+        if (!current) throw realtimeErrorDiagnostics.REALTIME_R0011({ message: "The realtime document is not connected." })
         const response = await fetch(resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}/${room}?history=checkpoint`), {
           body: Uint8Array.from(Y.encodeStateAsUpdate(current)).buffer,
           method: "POST",
@@ -128,7 +129,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
           await new Promise(resolve => setTimeout(resolve, 50))
           continue
         }
-        throw Object.assign(new Error(data?.statusMessage || data?.message || "Could not create the realtime checkpoint."), {
+        throw Object.assign(realtimeErrorDiagnostics.REALTIME_R0012({ message: data?.statusMessage || data?.message || "Could not create the realtime checkpoint." }), {
           data,
           statusCode: response.status,
         })

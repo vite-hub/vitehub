@@ -2,6 +2,7 @@
 title: Node and self-hosted
 description: Use ViteHub Runtime Helpers in Node-shaped hosts without pretending every primitive has unified self-hosted output.
 navigation.order: 47
+navigation.group: Deployment hosts
 icon: i-lucide-server-cog
 ---
 
@@ -31,17 +32,22 @@ export async function saveSettings(settings: Record<string, unknown>) {
 ```
 
 ```ts [vite.config.ts]
-import { hubKv } from '@vite-hub/kv/vite'
+import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    hubKv(),
+    vitehub({
+      preset: 'node',
+      kv: {
+        driver: 'fs-lite',
+        base: '.vitehub/data/kv',
+      },
+    }),
+    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
+    nitro() as never,
   ],
-  kv: {
-    driver: 'fs-lite',
-    base: '.vitehub/data/kv',
-  },
 })
 ```
 

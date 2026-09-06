@@ -62,8 +62,8 @@ describe("Queue Nuxt integration", () => {
             },
           },
         },
-        handlers: [{ handler: ".vitehub/nitro/queue/middleware.ts", middleware: true, route: "/**" }],
-        plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"],
+        handlers: [{ handler: join(root, ".vitehub/nitro/queue/middleware.ts"), middleware: true, route: "/**" }],
+        plugins: [join(root, ".vitehub/nitro/queue/plugin.ts"), "server/plugin.ts"],
       })
 
       const directConfig = {
@@ -81,9 +81,11 @@ describe("Queue Nuxt integration", () => {
       const directNitro = directConfig.nitro as Record<string, unknown>
       expect(nitroConfig).toMatchObject({
         cloudflare: directNitro.cloudflare,
-        handlers: directNitro.handlers,
-        plugins: directNitro.plugins,
         rollupConfig: directNitro.rollupConfig,
+      })
+      expect(directNitro).toMatchObject({
+        handlers: [{ handler: ".vitehub/nitro/queue/middleware.ts", middleware: true, route: "/**" }],
+        plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"],
       })
 
       const generatedPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")

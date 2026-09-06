@@ -13,6 +13,20 @@ It exposes read tools by default and edit tools only in write mode.
 The Capability contributes `kv_read` for exact-key reads or prefix key listing.
 When configured with write mode, it also contributes `kv_edit` for putting or deleting one key.
 
+## Agent-visible tool contract
+
+These definitions are resolved from the real Capability during the docs build.
+
+### Read mode
+
+::agent-capability-tools{name="kv" variant="read"}
+::
+
+### Write mode
+
+::agent-capability-tools{name="kv" variant="write"}
+::
+
 ## Configure KV access
 
 Attach KV in read mode until the product needs model-facing writes.

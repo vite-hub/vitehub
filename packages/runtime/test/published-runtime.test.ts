@@ -1,9 +1,24 @@
 import { describe, expect, it } from "vitest"
 
 const distEntry = new URL("../dist/index.js", import.meta.url)
-const { ViteHubError } = await import(distEntry.href)
+const { formatRuntimeDiagnosticError, normalizeRuntimeDiagnosticError, ViteHubError } = await import(distEntry.href)
 
 describe("published ViteHubError runtime", () => {
+  it("exports diagnostic normalization and formatting for transported errors", () => {
+    const record = normalizeRuntimeDiagnosticError({
+      name: "SEARCH_INDEX_MISSING",
+      why: "Search index is missing.",
+      fix: "Create the search index.",
+      cause: { token: "private provider response" },
+      stack: "private stack",
+    })
+    expect(record).toMatchObject({ code: "SEARCH_INDEX_MISSING", fix: "Create the search index." })
+    const text = formatRuntimeDiagnosticError(record)
+    expect(text).toContain("[SEARCH_INDEX_MISSING] Search index is missing.")
+    expect(text).toContain("fix: Create the search index.")
+    expect(text).not.toContain("private")
+  })
+
   it("keeps its construction-time public shape after source and instance mutation", () => {
     const cause = new Error("private provider cause")
     const details = { nested: { provider: "fixture" } }

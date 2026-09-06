@@ -28,6 +28,7 @@ import type {
 } from "../../types.ts"
 import type { AttachmentPart } from "../../messages.ts"
 import type { PrimitiveStorageCapabilityOptions } from "./shared.ts"
+import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export interface BlobCapabilityOptions extends PrimitiveStorageCapabilityOptions {
   assetPaths?: boolean | string | readonly string[]
@@ -101,7 +102,7 @@ function normalizeAssetPath(path: string): string {
   const normalized = path.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").replace(/\/+/g, "/")
   const parts = normalized.split("/").filter(Boolean)
   if (!normalized || parts.some(part => part === "." || part === "..")) {
-    throw new TypeError(`[vitehub] Blob asset path must be a workspace-relative path: "${path}".`)
+    throw agentDiagnostics.AGENT_R0200({ message: `[vitehub] Blob asset path must be a workspace-relative path: "${path}".` })
   }
   return parts.join("/")
 }
@@ -156,13 +157,13 @@ function absoluteBlobArtifactUrl(value: unknown, request: Request | undefined): 
   const url = typeof value === "object" && value !== null && typeof (value as { url?: unknown }).url === "string"
     ? (value as { url: string }).url
     : undefined
-  if (!url) throw new Error("[vitehub] Blob asset publication requires Blob serving or a driver that returns a public URL.")
+  if (!url) throw agentDiagnostics.AGENT_R0201({ message: "[vitehub] Blob asset publication requires Blob serving or a driver that returns a public URL." })
   try {
     return new URL(url).href
   }
   catch {
     if (request) return new URL(url, request.url).href
-    throw new Error("[vitehub] Blob asset publication returned a relative URL without an Agent request URL.")
+    throw agentDiagnostics.AGENT_R0202({ message: "[vitehub] Blob asset publication returned a relative URL without an Agent request URL." })
   }
 }
 
@@ -222,7 +223,7 @@ async function publishReferencedAgentArtifacts(
 function normalizeListLimit(limit: unknown): number {
   if (limit === undefined) return defaultListLimit
   if (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1) {
-    throw new TypeError("[vitehub] list limit must be a positive number.")
+    throw agentDiagnostics.AGENT_R0203({ message: "[vitehub] list limit must be a positive number." })
   }
   return Math.min(Math.floor(limit), maxListLimit)
 }
@@ -233,7 +234,7 @@ async function resolveBlobPrimitive(context: AgentCapabilityContext) {
     return await loadAgentWorkflowBlobPrimitive()
   }
   catch (error) {
-    throw new Error(`[vitehub] Capability "blob" requires the blob primitive to be configured or @vite-hub/blob to be installed. ${error instanceof Error ? error.message : String(error)}`)
+    throw agentDiagnostics.AGENT_R0204({ message: `[vitehub] Capability "blob" requires the blob primitive to be configured or @vite-hub/blob to be installed. ${error instanceof Error ? error.message : String(error)}` })
   }
 }
 
@@ -245,9 +246,9 @@ async function readWorkspaceBlobBody(context: AgentCapabilityContext, path: stri
   const activeRead = await readActiveAgentWorkspaceFile(context.context, path)
   if (activeRead) {
     if (activeRead.body !== undefined) return activeRead.body
-    throw new Error(`[vitehub] blob_edit workspacePath was not found in the active Agent Workspace Session: "${path}".`)
+    throw agentDiagnostics.AGENT_R0205({ message: `[vitehub] blob_edit workspacePath was not found in the active Agent Workspace Session: "${path}".` })
   }
-  if (!context.fs?.readFile) throw new Error("[vitehub] blob_edit workspacePath requires a Workspace file system.")
+  if (!context.fs?.readFile) throw agentDiagnostics.AGENT_R0206({ message: "[vitehub] blob_edit workspacePath requires a Workspace file system." })
   return await context.fs.readFile(path as never, { encoding: "binary" })
 }
 
@@ -262,12 +263,12 @@ async function readInputAttachment(context: AgentCapabilityContext, id: string) 
   const matches = attachments.filter(part => part.id === id)
   if (matches.length !== 1) {
     const available = attachments.flatMap(part => part.id ? [part.id] : [])
-    throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} must identify one current input attachment.${available.length ? ` Available: ${available.join(", ")}.` : ""}`)
+    throw agentDiagnostics.AGENT_R0207({ message: `[vitehub] blob_edit attachmentId ${JSON.stringify(id)} must identify one current input attachment.${available.length ? ` Available: ${available.join(", ")}.` : ""}` })
   }
   const attachment = matches[0]!
   const body = await resolveAttachmentData(attachment)
   if (!isAttachmentData(body)) {
-    throw new Error(`[vitehub] blob_edit attachmentId ${JSON.stringify(id)} did not resolve to supported attachment data.`)
+    throw agentDiagnostics.AGENT_R0208({ message: `[vitehub] blob_edit attachmentId ${JSON.stringify(id)} did not resolve to supported attachment data.` })
   }
   return { body: typeof body === "string" ? attachmentStringBytes(body, attachment.mediaType) : body, mediaType: attachment.mediaType }
 }
@@ -287,7 +288,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             const scopedPrefix = assertString(prefix, "blob_read prefix")
             return storageValue(method<(options?: unknown) => MaybePromise<unknown>>(store, "blob", "list")({ cursor, folded, limit: normalizeListLimit(limit), prefix: scopedPrefix }))
           }
-          throw new Error(`[vitehub] Unsupported blob_read operation: ${String(operation)}`)
+          throw agentDiagnostics.AGENT_R0209({ message: `[vitehub] Unsupported blob_read operation: ${String(operation)}` })
         },
         inputSchema: blobReadInputSchema,
         name: "blob_read",
@@ -306,7 +307,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             const sourcePath = typeof workspacePath === "string" && workspacePath.trim() ? workspacePath : undefined
             const sourceAttachment = typeof attachmentId === "string" && attachmentId.trim() ? attachmentId : undefined
             const sources = Number(body !== undefined) + Number(Boolean(sourcePath)) + Number(Boolean(sourceAttachment))
-            if (sources > 1) throw new Error("[vitehub] blob_edit put accepts exactly one of attachmentId, body, or workspacePath.")
+            if (sources > 1) throw agentDiagnostics.AGENT_R0210({ message: "[vitehub] blob_edit put accepts exactly one of attachmentId, body, or workspacePath." })
             if (sourceAttachment) {
               const attachment = await readInputAttachment(context, sourceAttachment)
               return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(
@@ -318,7 +319,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             if (sourcePath) {
               return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, await readWorkspaceBlobBody(context, sourcePath), putOptions))
             }
-            if (body === undefined) throw new Error("[vitehub] blob_edit put requires attachmentId, body, or workspacePath.")
+            if (body === undefined) throw agentDiagnostics.AGENT_R0211({ message: "[vitehub] blob_edit put requires attachmentId, body, or workspacePath." })
             return storageValue(method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, body, putOptions))
           }
           if (operation === "delete") {
@@ -326,7 +327,7 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
             await storageValue(method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "del")(path))
             return { pathname: path, deleted: true }
           }
-          throw new Error(`[vitehub] Unsupported blob_edit operation: ${String(operation)}`)
+          throw agentDiagnostics.AGENT_R0212({ message: `[vitehub] Unsupported blob_edit operation: ${String(operation)}` })
         },
         inputSchema: blobEditInputSchema,
         name: "blob_edit",

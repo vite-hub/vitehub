@@ -4,6 +4,7 @@ import { runWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface CloudflareWorkflowEvent {
   id?: string
@@ -64,7 +65,7 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
   return await runWithActiveCloudflareEnv(env, async () => {
     const definition = await loadWorkflowDefinition(name)
     if (!definition) {
-      throw new Error(`Missing workflow definition: ${name}`)
+      throw workflowErrorDiagnostics.WORKFLOW_R0015({ message: `Missing workflow definition: ${name}` })
     }
 
     try {

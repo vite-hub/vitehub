@@ -4,6 +4,7 @@ import { runtimeValue } from "./cloudflare-runtime.ts"
 import { AwsClient } from "aws4fetch"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface R2ObjectLike {
   arrayBuffer?: () => Promise<ArrayBuffer>
@@ -32,7 +33,7 @@ export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig):
 function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {
   const binding = getOptionalBucket(options)
   if (!binding) {
-    throw new Error(`R2 binding "${options.binding}" not found`)
+    throw blobErrorDiagnostics.BLOB_R0001({ message: `R2 binding "${options.binding}" not found` })
   }
 
   return binding
@@ -71,7 +72,7 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   const secretAccessKey = runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY")
   const bucket = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
   if (!accountId || !accessKeyId || !secretAccessKey || !bucket) {
-    throw new Error("Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials.")
+    throw blobErrorDiagnostics.BLOB_R0002({ message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials." })
   }
 
   const headers: Record<string, string> = {}

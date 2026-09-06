@@ -1,0 +1,10 @@
+{
+  "name": "@vite-hub/env",
+  "dependencies": {
+    "@fixture/core": "workspace:*"
+  },
+  "scripts": {
+    "build": "node ../../task.mjs build @vite-hub/env",
+    "test": "node ../../task.mjs test @vite-hub/env"
+  }
+}

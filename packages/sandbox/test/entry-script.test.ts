@@ -56,13 +56,6 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
-  it("keeps top-level default results as a compatibility fallback", async () => {
-    const execution = await executePackageEntry("await Promise.resolve(); export default { ok: true }\n")
-
-    expect(execution.code).toBe(0)
-    expect(execution.output).toEqual({ ok: true, result: { ok: true } })
-  })
-
   it("calls the default function with payload and context", async () => {
     const execution = await executePackageEntry(
       "export default async function (payload, context) { return { payload, context } }\n",
@@ -252,15 +245,15 @@ describe("package entry result transport", () => {
   })
 
   it.each([
-    ["legacy defineSandbox export", "export default { run() {} }\n", "remove defineSandbox({ run })"],
-    ["missing default export", "export const value = true\n", "must default-export a result"],
-    ["symbol result", "export default Symbol('result')\n", "unsupported symbol"],
-    ["nested undefined", "export default { value: undefined }\n", "unsupported undefined"],
-    ["boxed bigint", "export default Object(1n)\n", "unsupported bigint"],
-    ["bigint result", "export default 1n\n", "unsupported bigint"],
+    ["object default export", "export default { run() {} }\n", "must default-export a function"],
+    ["missing default export", "export const value = true\n", "must default-export a function"],
+    ["symbol default export", "export default Symbol('result')\n", "must default-export a function"],
+    ["nested undefined", "export default () => ({ value: undefined })\n", "unsupported undefined"],
+    ["boxed bigint", "export default () => Object(1n)\n", "unsupported bigint"],
+    ["bigint result", "export default () => 1n\n", "unsupported bigint"],
     [
       "cyclic result",
-      "const value = {}; value.self = value; export default value\n",
+      "export default () => { const value = {}; value.self = value; return value }\n",
       "must be JSON-serializable",
     ],
   ])("rejects %s", async (_label, source, message) => {

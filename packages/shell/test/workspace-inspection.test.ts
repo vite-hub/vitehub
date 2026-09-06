@@ -496,7 +496,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 1,
-      stderr: expect.stringContaining("unknown predicate '-name'"),
+      stderr: expect.stringContaining("missing argument to `-name'"),
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
@@ -860,7 +860,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       stderr: expect.not.stringContaining("Workspace path is not mounted"),
-      stdout: "",
+      stdout: "# Docs\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | grep --regexp -r", {

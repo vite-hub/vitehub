@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -41,6 +42,18 @@ describe("listSourceFiles", () => {
 
     const files = listSourceFiles(root).map(file => file.replace(`${root}/`, ""))
     expect(files).toEqual(["a.ts", "b.ts", "nested/c.mjs"])
+  })
+
+  it("does not discover definitions from nested Git worktrees", async () => {
+    const root = await createTempDir("vitehub-internal-list-worktrees-")
+    const nestedWorktree = join(root, "unrelated-worktree")
+    await mkdir(nestedWorktree, { recursive: true })
+    await writeFile(join(root, "root.ts"), "", "utf8")
+    await writeFile(join(nestedWorktree, ".git"), "gitdir: /tmp/unrelated.git\n", "utf8")
+    await writeFile(join(nestedWorktree, "nested.ts"), "", "utf8")
+
+    const files = listSourceFiles(root).map(file => file.replace(`${root}/`, ""))
+    expect(files).toEqual(["root.ts"])
   })
 
   it("returns empty when root does not exist", () => {
@@ -94,29 +107,34 @@ describe("mergeDefinitions", () => {
 })
 
 describe("createRuntimeRegistryContents", () => {
-  it("creates a sync import map with relative paths", () => {
-    const registryFile = "/root/.vitehub/sandbox/registry.mjs"
+  it.each(["queue", "realtime", "sandbox", "schedule"])("renders and executes the %s owner registry", async (owner) => {
+    const root = await createTempDir(`vitehub-internal-${owner}-registry-`)
+    const registryFile = join(root, ".vitehub", owner, "registry.mjs")
+    const handler = join(root, "definitions", `${owner}.mjs`)
+    await mkdir(join(root, "definitions"), { recursive: true })
+    await writeFile(handler, `export default ${JSON.stringify(owner)}\n`, "utf8")
     const contents = createRuntimeRegistryContents(registryFile, [{
-      handler: "/root/server/sandboxes/release-notes.ts",
-      name: "release-notes",
-    }])
-    expect(contents).toContain('"release-notes": async () => import("../../server/sandboxes/release-notes.ts")')
-    expect(contents).toContain("export default registry")
-  })
-
-  it("creates workflow step registry entries that can wrap inline definitions", () => {
-    const registryFile = "/root/.vitehub/workflow/registry.mjs"
-    const contents = createRuntimeRegistryContents(registryFile, [{
-      handler: "/root/server/workflows/chat/index.ts",
-      name: "server/workflows/chat",
-      steps: ["/root/server/workflows/chat/01.reply.ts"],
+      handler,
+      name: owner,
     }])
 
-    expect(contents).toContain('import { takeInlineWorkflowDefinitionForModule } from "@vite-hub/workflow/runtime/state"')
-    expect(contents).toContain("const registryEntryCache = new Map()")
-    expect(contents).toContain('const cached = registryEntryCache.get("server/workflows/chat")')
-    expect(contents).toContain('takeInlineWorkflowDefinitionForModule("server/workflows/chat", index)')
-    expect(contents).toContain('registryEntryCache.set("server/workflows/chat", entry)')
+    expect(contents).toBe([
+      "",
+      "const registry = {",
+      `  ${JSON.stringify(owner)}: async () => import(${JSON.stringify(`../../definitions/${owner}.mjs`)}),`,
+      "}",
+      "",
+      "export default registry",
+      "",
+    ].join("\n"))
+    expect(contents).not.toContain("@vite-hub/workflow")
+
+    await mkdir(join(root, ".vitehub", owner), { recursive: true })
+    await writeFile(registryFile, contents, "utf8")
+    const generated = await import(`${pathToFileURL(registryFile).href}?owner=${owner}`)
+    // SAFETY: The generated fixture above exports this exact registry contract.
+    const registry = generated.default as Record<string, () => Promise<{ default: string }>>
+    await expect(registry[owner]!()).resolves.toMatchObject({ default: owner })
   })
 })
 

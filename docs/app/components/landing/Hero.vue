@@ -14,7 +14,7 @@ import AgentPlayground from "./AgentPlayground.vue"
         </h1>
         <p class="mt-7 max-w-[44ch] text-lg/8 text-muted text-pretty sm:text-xl/8">
           Bring any model or coding provider, compose your own Capabilities around a persistent Workspace,
-          and deploy the same Agent to any host.
+          and deploy the same Agent across supported hosts.
         </p>
 
         <LandingInstallCommand class="mt-9" />

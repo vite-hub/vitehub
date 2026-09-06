@@ -15,6 +15,7 @@ import type {
   MaybePromise,
 } from "@vite-hub/agent"
 import type { AuthenticationSessionSnapshot } from "./session.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -129,7 +130,7 @@ export function authenticated<
       } as AuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>
       if (options.map) {
         const invoker = await options.map(authenticatedContext)
-        if (!invoker) throw new TypeError("[vitehub] authenticated({ map }) must return an Agent Invoker.")
+        if (!invoker) throw authErrorDiagnostics.AUTH_R0001({ message: "[vitehub] authenticated({ map }) must return an Agent Invoker." })
         return invoker
       }
 
@@ -219,7 +220,7 @@ function defaultLabel(user: AuthenticatedUser, fallbackId = user.id): string {
 function normalizeMeta(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
   if (!value) return {}
   if (!isRecord(value)) {
-    throw new TypeError("[vitehub] authenticated({ meta }) must resolve to an object.")
+    throw authErrorDiagnostics.AUTH_R0002({ message: "[vitehub] authenticated({ meta }) must resolve to an object." })
   }
   return value
 }

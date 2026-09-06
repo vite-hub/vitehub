@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 
-import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, generateProviderOutputsWithinLock, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 import { discoverScheduleDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
@@ -33,6 +33,51 @@ afterAll(async () => {
 })
 
 describe("schedule provider output", () => {
+  it("does not publish Schedule output after finalization is canceled", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-canceled-")
+    const controller = new AbortController()
+    controller.abort(new Error("build canceled"))
+
+    await expect(generateProviderOutputsWithinLock({
+      clientOutDir: "dist/client",
+      rootDir,
+      signal: controller.signal,
+    })).rejects.toThrow("build canceled")
+    expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
+    expect(existsSync(join(rootDir, ".netlify", "functions-internal"))).toBe(false)
+    expect(existsSync(join(rootDir, ".cloudflare", "workers"))).toBe(false)
+  })
+
+  it("restores Cloudflare output when standalone Schedule generation fails later", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-rollback-")
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const netlifyRoot = createDefaultNetlifyOutputRoot(rootDir)
+    const vercelRoot = join(rootDir, ".vercel", "output")
+    const cloudflareWorker = join(cloudflareRoot, "index.js")
+    const cloudflareConfig = join(cloudflareRoot, "wrangler.json")
+    await Promise.all([
+      mkdir(cloudflareRoot, { recursive: true }),
+      mkdir(join(netlifyRoot, "functions"), { recursive: true }),
+      mkdir(join(vercelRoot, "config.json"), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(cloudflareWorker, "old worker\n"),
+      writeFile(cloudflareConfig, '{"main":"index.js"}\n'),
+      writeFile(join(netlifyRoot, "functions", "existing.mjs"), "old netlify\n"),
+      writeFile(join(vercelRoot, "existing.txt"), "old vercel\n"),
+    ])
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })).rejects.toThrow()
+
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toBe("old worker\n")
+    await expect(readFile(cloudflareConfig, "utf8").then(JSON.parse)).resolves.toEqual({ main: "index.js" })
+    await expect(readFile(join(netlifyRoot, "functions", "existing.mjs"), "utf8")).resolves.toBe("old netlify\n")
+    await expect(readFile(join(vercelRoot, "existing.txt"), "utf8")).resolves.toBe("old vercel\n")
+  })
+
   it("serializes Schedule output with other provider output writers", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-lock-")
     const configFile = join(rootDir, ".vercel", "output", "config.json")
@@ -247,6 +292,20 @@ describe("schedule provider output", () => {
 
   it("emits Deno cron provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-deno-output-")
+    const nestedScheduleDir = join(rootDir, "src", "foo")
+    const longScheduleName = "a".repeat(80)
+    await mkdir(nestedScheduleDir, { recursive: true })
+    for (const file of [
+      join(nestedScheduleDir, "bar.schedule.ts"),
+      join(rootDir, "src", "foo_2f_bar.schedule.ts"),
+      join(rootDir, "src", `${longScheduleName}.schedule.ts`),
+    ]) {
+      await writeFile(file, [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
+        "",
+      ].join("\n"), "utf8")
+    }
 
     await generateProviderOutputs({
       clientOutDir: "dist/client",
@@ -256,8 +315,121 @@ describe("schedule provider output", () => {
     const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
     const source = await readFile(denoCron, "utf8")
 
-    expect(source).toContain("Deno.cron(`vitehub:${name}`, cron")
+    expect(source).toContain("Deno.cron(cronName, cron")
+    const cronNames = [...source.matchAll(/"?cronName"?:\s*"([^"]+)"/g)].map(match => match[1])
+    expect(cronNames).toHaveLength(4)
+    expect(new Set(cronNames).size).toBe(cronNames.length)
+    expect(cronNames.every(name => name.length <= 64 && /^[a-z0-9 _-]+$/i.test(name))).toBe(true)
     expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
+    expect(source).not.toContain("./registry.mjs")
+    expect(source).toContain("handler: () => \"ok\"")
+  })
+
+  it("preserves published Deno cron output when closure bundling fails", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-output-failure-")
+    const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const publishedSource = await readFile(denoCron, "utf8")
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      runtimeImport: "./missing-runtime.mjs",
+    })).rejects.toThrow()
+
+    expect(await readFile(denoCron, "utf8")).toBe(publishedSource)
+    expect(existsSync(`${denoCron}.vitehub-input-tmp.mjs`)).toBe(false)
+    expect(existsSync(`${denoCron}.vitehub-tmp`)).toBe(false)
+  })
+
+  it("restores published Schedule sources when provider output generation fails", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-sources-rollback-")
+    const generatedDir = join(rootDir, ".vitehub", "schedule")
+    const retainedSourcesDir = join(rootDir, ".vitehub", "schedule-generations", "test", "sources")
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const publishedRegistry = await readFile(join(generatedDir, "registry.mjs"), "utf8")
+
+    await rm(join(rootDir, "src", "cleanup.schedule.ts"))
+    await Promise.all([
+      mkdir(retainedSourcesDir, { recursive: true }),
+      writeFile(join(rootDir, "src", "replacement.schedule.ts"), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'replacement' })",
+        "",
+      ].join("\n"), "utf8"),
+    ])
+
+    await expect(generateProviderOutputs({
+      clientOutDir: "dist/client",
+      retainedSourcesDir,
+      rootDir,
+      runtimeImport: "./missing-runtime.mjs",
+    })).rejects.toThrow()
+
+    await expect(readFile(join(generatedDir, "registry.mjs"), "utf8")).resolves.toBe(publishedRegistry)
+    expect(existsSync(join(generatedDir, "sources"))).toBe(false)
+  })
+
+  it("publishes retained Schedule sources to every provider output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deployed-sources-")
+    const retainedSourcesDir = join(rootDir, ".vitehub", "schedule-generations", "test", "sources")
+    const retainedHandler = join(retainedSourcesDir, "src", "cleanup.schedule.ts")
+    await mkdir(dirname(retainedHandler), { recursive: true })
+    await writeFile(retainedHandler, [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'retained' })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      definitions: [{ handler: retainedHandler, name: "cleanup" }],
+      retainedSourcesDir,
+      rootDir,
+      sourceRootDir: retainedSourcesDir,
+    })
+
+    const deployedSource = join(".vitehub", "schedule", "sources", "src", "cleanup.schedule.ts")
+    const vercelFunctionDir = join(rootDir, ".vercel/output/functions/api/vitehub/schedules/vercel/cleanup.func")
+    const netlifyRoot = createDefaultNetlifyOutputRoot(rootDir)
+    const netlifyFunction = join(netlifyRoot, "functions/vitehub-schedule-cleanup.mjs")
+    expect(existsSync(join(createDefaultCloudflareOutputRoot(rootDir), deployedSource))).toBe(true)
+    expect(existsSync(join(vercelFunctionDir, deployedSource))).toBe(true)
+    expect(existsSync(join(netlifyRoot, "schedule/sources/src/cleanup.schedule.ts"))).toBe(true)
+    await expect(readFile(netlifyFunction, "utf8")).resolves.toContain('includedFiles: ["../schedule/sources/**"]')
+  })
+
+  it("reconciles prior Cloudflare state while publishing retained Schedule sources", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-retained-state-")
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    const retainedSourcesDir = join(rootDir, ".vitehub", "schedule-generations", "test", "sources")
+    const retainedHandler = join(retainedSourcesDir, "src", "cleanup.schedule.ts")
+    await mkdir(dirname(retainedHandler), { recursive: true })
+    await writeFile(retainedHandler, "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'next' })\n", "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      definitions: [{ handler: retainedHandler, name: "cleanup" }],
+      retainedSourcesDir,
+      rootDir,
+      sourceRootDir: retainedSourcesDir,
+    })
+
+    const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const cloudflareConfig = join(cloudflareRoot, "wrangler.json")
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 1 * * *"])
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      definitions: [],
+      retainedSourcesDir,
+      rootDir,
+      sourceRootDir: retainedSourcesDir,
+    })
+
+    expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual([])
+    expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(false)
   })
 
   it("can route Deno cron provider wake output through a preset facade", async () => {
@@ -273,7 +445,7 @@ describe("schedule provider output", () => {
     const source = await readFile(denoCron, "utf8")
 
     expect(source).toContain('from "#app/schedule/runtime"')
-    expect(source).toContain('"cleanup": "0 0 * * *"')
+    expect(source).toContain('"cronName": "vitehub-0-cleanup"')
     expect(source).toContain("executeStaticSchedule")
   })
 
@@ -426,6 +598,17 @@ describe("schedule provider output", () => {
     expect(existsSync(join(cloudflareRoot, "index.js"))).toBe(false)
     await expect(readFile(configFile, "utf8")).resolves.toContain('"custom": "keep"')
     expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 1 * * *"])
+  })
+
+  it("preserves a peer Cloudflare worker when removing stale Schedule output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-peer-worker-")
+    const cloudflareWorker = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    await writeFile(cloudflareWorker, "peer worker\n", "utf8")
+
+    await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+    await expect(readFile(cloudflareWorker, "utf8")).resolves.toBe("peer worker\n")
   })
 
   it("preserves an existing Cloudflare trigger that matches a generated cron", async () => {
@@ -827,6 +1010,23 @@ describe("schedule provider output", () => {
 
     await expect(readFile(join(createDefaultCloudflareOutputRoot(rootDir), "index.js"), "utf8")).resolves.toContain("vite-alias-marker")
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")).resolves.toContain("vite-alias-marker")
+  })
+
+  it("preserves Cloudflare runtime imports in standalone output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-cloudflare-runtime-")
+    await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+      "import { EmailMessage } from 'cloudflare:email'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => EmailMessage })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      bundleExternal: ["cloudflare:email"],
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(rootDir), "index.js"), "utf8")).resolves.toContain("cloudflare:email")
   })
 
   it("rejects sanitized Vercel function path collisions", async () => {

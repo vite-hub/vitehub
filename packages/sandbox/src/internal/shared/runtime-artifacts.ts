@@ -22,12 +22,21 @@ export interface GeneratedArtifact {
   key: string
   filename: string
   contents?: string
-  getContents?: (artifacts: ReadonlyMap<string, EmittedArtifact>) => string | Promise<string>
+  getContents?: (
+    artifacts: ReadonlyMap<string, EmittedArtifact>,
+    location: GeneratedArtifactLocation,
+  ) => string | Promise<string>
+}
+
+export interface GeneratedArtifactLocation {
+  dst: string
+  stableDst: string
 }
 
 export interface EmittedArtifact extends GeneratedArtifact {
   contents: string
   dst: string
+  stableDst: string
 }
 
 export interface FeatureAliasRegistration {
@@ -45,6 +54,7 @@ export interface FeatureHandlerRegistration {
 
 export interface FeatureRuntimePlan {
   manifest: FeatureManifest
+  watchFiles?: string[]
   aliases?: FeatureAliasRegistration[]
   artifacts?: GeneratedArtifact[]
   handlers?: FeatureHandlerRegistration[]

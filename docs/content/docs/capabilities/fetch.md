@@ -42,6 +42,7 @@ export default defineAgent({
 
 ViteHub validates the configured tool map and creates internal Agent tools.
 At invocation time, each tool resolves the request, executes the HTTP call, parses the configured response type, and returns either the parsed data or a transformed output.
+Each request attempt times out after 30 seconds, and responses are limited to 5 MiB by default. Safe requests may retry once after a timeout. The size limit applies to decoded streamed bytes, so a missing or incorrect `Content-Length` cannot bypass it.
 
 ## Requirements
 
@@ -77,7 +78,8 @@ Run one invocation with invalid input when a schema is configured and verify the
 | `tools.*.request.headers` | `Record<string, string>` | none | Request headers. |
 | `tools.*.request.query` | `Record<string, unknown>` | none | Query parameters appended to the URL. |
 | `tools.*.request.body` | `unknown` | none | Request body. |
-| `tools.*.request.timeout` | `number` | none | Request timeout in milliseconds. |
+| `tools.*.request.timeout` | `number` | `30000` | Request and response-body timeout in milliseconds. |
+| `tools.*.request.maxResponseBytes` | `number` | `5242880` | Maximum decoded response size. Explicit limits must not exceed 25 MiB. |
 | `tools.*.inputSchema` | Standard Schema | none | Validates model tool input before request construction. |
 | `tools.*.schema` | Standard Schema | none | Validates parsed response data. |
 | `tools.*.responseType` | `"json" \| "text"` | `"json"` | Response parser. |

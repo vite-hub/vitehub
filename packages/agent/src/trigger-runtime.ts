@@ -29,6 +29,7 @@ import type {
 } from "./types.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 const agentTriggerContextKey = "agent.trigger"
 
@@ -82,10 +83,10 @@ function agentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig>(
 
 function assertTriggerName(name: unknown, owner: string): asserts name is string {
   if (typeof name !== "string" || !name.trim()) {
-    throw new TypeError(`[vitehub] ${owner} trigger names must be non-empty strings.`)
+    throw agentDiagnostics.AGENT_R0868({ message: `[vitehub] ${owner} trigger names must be non-empty strings.` })
   }
   if (!/^[a-z][a-z0-9-_]*$/i.test(name)) {
-    throw new TypeError(`[vitehub] ${owner} trigger "${name}" must be a stable local identifier.`)
+    throw agentDiagnostics.AGENT_R0869({ message: `[vitehub] ${owner} trigger "${name}" must be a stable local identifier.` })
   }
 }
 
@@ -163,7 +164,7 @@ export async function resolveAgentTriggers<
       assertTriggerName(name, `Channel "${channelId}"`)
       const id = `${channelId}.${name}` as const
       if (triggers[id]) {
-        throw new Error(`[vitehub] Duplicate Agent trigger "${id}" from Channel "${channelId}".`)
+        throw agentDiagnostics.AGENT_R0870({ message: `[vitehub] Duplicate Agent trigger "${id}" from Channel "${channelId}".` })
       }
       triggers[id] = {
         channelId,
@@ -260,7 +261,7 @@ async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
 }
 
-async function hmacSha256(secret: string, value: string): Promise<string> {
+async function hmacSha256(secret: string, value: ArrayBuffer): Promise<string> {
   const key = await globalThis.crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -268,7 +269,7 @@ async function hmacSha256(secret: string, value: string): Promise<string> {
     false,
     ["sign"],
   )
-  const signature = await globalThis.crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value))
+  const signature = await globalThis.crypto.subtle.sign("HMAC", key, value)
   return [...new Uint8Array(signature)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
@@ -286,6 +287,7 @@ function webhookVerificationError(message: string): AgentHttpError {
 }
 
 export interface AgentWebhookVerificationOptions {
+  rawBody?: Uint8Array
   requireSecretHeader?: boolean
 }
 
@@ -319,7 +321,16 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
   context?: AgentCallbackContext<TRuntimeConfig>,
   options: AgentWebhookVerificationOptions = {},
 ): Promise<AgentWebhookVerificationResult> {
-  const verificationContext = context ?? ({ runtime: "unknown" } as AgentCallbackContext<TRuntimeConfig>)
+  const values = new Map<string, unknown>()
+  const verificationContext = context ?? {
+    capabilities: {},
+    memo<T>(key: string, create: () => T): T {
+      if (!values.has(key)) values.set(key, create())
+      return values.get(key) as T
+    },
+    runtime: "unknown",
+    waitUntil: task => void Promise.resolve(task).catch(() => {}),
+  }
   const targeted = registrations
     .map(registration => ({
       headerValue: registration.secretHeader ? request.headers.get(registration.secretHeader) : null,
@@ -342,7 +353,8 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
     if (registration.signature === "github-sha256") {
-      const expected = `sha256=${await hmacSha256(secretToken, await request.clone().text())}`
+      const body = options.rawBody ? Uint8Array.from(options.rawBody).buffer : await request.clone().arrayBuffer()
+      const expected = `sha256=${await hmacSha256(secretToken, body)}`
       if (await constantTimeEqual(expected, headerValue)) {
         return { registration, verified: true }
       }
@@ -418,7 +430,7 @@ export async function resolveAgentTriggerInvocation<
   const triggers = await resolveAgentTriggers(agent, context)
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
-    throw new Error(`[vitehub] Agent trigger "${triggerId}" is not defined by this agent.`)
+    throw agentDiagnostics.AGENT_R0871({ message: `[vitehub] Agent trigger "${triggerId}" is not defined by this agent.` })
   }
   if (options?.verifyWebhook !== false && trigger.webhooks?.length && context.request) {
     await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context), {

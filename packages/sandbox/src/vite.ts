@@ -1,14 +1,25 @@
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { getHostingProvider } from '@vite-hub/internal/hosting'
-import { basename, dirname, normalize, relative } from 'pathe'
+import { isPlainObject, isPlainRecord } from '@vite-hub/internal/object'
+import { realpath } from 'node:fs/promises'
+import { basename, normalize, relative } from 'pathe'
 
 import { configureCloudflareSandboxNitro } from './cloudflare'
-import { sandboxProviderLoaderSpecifiers, sandboxRuntimeDependencyByProvider } from './feature'
+import {
+  sandboxProviderLoaderSpecifiers,
+  sandboxRuntimeDependencyByProvider,
+  sandboxRuntimeProviderSpecifiers,
+  sandboxRuntimeSpecifier,
+  sandboxRuntimeStateSpecifier,
+} from './feature'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
 import { prepareSandboxRuntime } from './internal/runtime-preparation'
 import type { Alias, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
 import type { DiscoveredSandboxDefinition } from './discovery'
 import type { AgentSandboxConfig } from './module-types'
+
+export { discoverSandboxDefinitions } from './discovery'
+export type { DiscoveredSandboxDefinition } from './discovery'
 
 export type SandboxPublicOptions = AgentSandboxConfig | false
 export type SandboxVitePlugin = Plugin & {
@@ -47,9 +58,7 @@ function mergeSandboxNitroProviderAliases(
   if (!Object.keys(providerAliases).length)
     return
 
-  const existing = nitro.alias && typeof nitro.alias === 'object' && !Array.isArray(nitro.alias)
-    ? nitro.alias as AliasMap
-    : {}
+  const existing = isPlainObject(nitro.alias) ? nitro.alias : {}
   nitro.alias = { ...existing, ...providerAliases }
 }
 
@@ -79,8 +88,11 @@ function sandboxProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './runtime/provider-loader', 'runtime/provider-loader.js')
 }
 
-function sandboxPackageRuntime() {
-  return dirname(resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './index', 'index.js'))
+const sandboxRuntimePackageAliases: AliasMap = {
+  [sandboxRuntimeProviderSpecifiers.cloudflare]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/cloudflare', 'runtime/providers/cloudflare.js'),
+  [sandboxRuntimeProviderSpecifiers.vercel]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/providers/vercel', 'runtime/providers/vercel.js'),
+  [sandboxRuntimeSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './index', 'index.js'),
+  [sandboxRuntimeStateSpecifier]: resolveFeatureRuntimePath(import.meta.url, SANDBOX_PACKAGE_ID, './runtime/state', 'runtime/state.js'),
 }
 
 function toSandboxAliasEntries(aliases: AliasMap): SandboxAlias[] {
@@ -133,6 +145,7 @@ function isSandboxDefinitionUpdate(
   file: string,
   definitions: DiscoveredSandboxDefinition[],
   generatedFiles: string[],
+  watchFiles: string[],
   rootDir: string | undefined,
 ) {
   const changedFile = normalize(file)
@@ -140,9 +153,13 @@ function isSandboxDefinitionUpdate(
     return true
   if (generatedFiles.some(file => normalize(file) === changedFile))
     return false
+  if (watchFiles.some(file => normalize(file) === changedFile))
+    return true
   if (isSandboxProjectManifestUpdate(changedFile, rootDir))
     return true
   if (isSandboxProjectFileUpdate(changedFile, rootDir))
+    return true
+  if (isLocalSourceFile(changedFile, rootDir))
     return true
   if (!isSandboxSourceFile(changedFile))
     return false
@@ -154,20 +171,39 @@ function isSandboxDefinitionUpdate(
 function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getModuleById: (id: string) => unknown, invalidateModule: (module: never) => void }) {
   for (const file of new Set(files.map(file => normalize(file)))) {
     const module = moduleGraph.getModuleById(file)
-    if (module)
+    if (module) {
+      // SAFETY: Vite returned this value from the same module graph that accepts it for invalidation.
       moduleGraph.invalidateModule(module as never)
+    }
   }
 }
 
+async function resolveGeneratedSandboxModuleIds(files: string[]) {
+  return Promise.all(files.map(async file => normalize(await realpath(file).catch(() => file))))
+}
+
+function publicSandboxOptions(options: AgentSandboxConfig & SandboxViteInternalOptions): SandboxPublicOptions {
+  // SAFETY: Removing the two package-private integration fields leaves the declared public Sandbox options.
+  return Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxPublicOptions
+}
+
+function mutableSandboxNitroTarget(value: unknown): Parameters<typeof configureCloudflareSandboxNitro>[0] {
+  // SAFETY: The caller first establishes Vite's Nitro config context before passing its Nitro value.
+  return value as Parameters<typeof configureCloudflareSandboxNitro>[0]
+}
+
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
+  // SAFETY: ViteHub adds these package-private integration fields before composing the Sandbox plugin.
   const internalOptions = options as SandboxPublicOptions & SandboxViteInternalOptions | undefined
-  const integrationOptions = options && typeof options === 'object'
-    ? Object.fromEntries(Object.entries(options).filter(([key]) => key !== 'providerImportAliases' && key !== 'providerImportSpecifier')) as SandboxPublicOptions
-    : options
+  const integrationOptions = internalOptions
+    ? publicSandboxOptions(internalOptions)
+    : internalOptions
   const mergeSandboxNoExternal = createNoExternalMerger('@vite-hub/sandbox')
   let generatedAliases: AliasMap = {}
   let generatedFiles: string[] = []
+  let watchFiles: string[] = []
   let definitions: DiscoveredSandboxDefinition[] = []
+  let rootDir: string | undefined
   let sandboxStateModule: string | undefined
   let rawConfig: Record<string, unknown> = {}
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
@@ -176,6 +212,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   let earlyNitroTarget: Record<string, unknown> | undefined
   let earlyNitroSnapshot: Record<string, unknown> | undefined
   let composedCloudflareEarly = false
+  let sandboxRuntimeRefresh = Promise.resolve()
   const sandboxNitroModule = (nitro: {
     hooks: { hook: (name: 'build:before', callback: () => void) => void }
     options: Record<string, unknown>
@@ -191,9 +228,12 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   }
 
   function cloneConfigValue<T>(value: T): T {
-    if (Array.isArray(value))
+    if (Array.isArray(value)) {
+      // SAFETY: Mapping an array recursively preserves the input array's generic structure.
       return value.map(cloneConfigValue) as T
-    if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    }
+    if (isPlainRecord(value) && Object.getPrototypeOf(value) === Object.prototype) {
+      // SAFETY: Reconstructing a plain record recursively preserves the input record's generic structure.
       return Object.fromEntries(
         Object.entries(value).map(([key, entry]) => [key, cloneConfigValue(entry)]),
       ) as T
@@ -213,20 +253,23 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     return prepared
   }
 
-  async function refreshSandboxRuntime() {
+  async function activateCurrentSandboxRuntime() {
     const prepared = await prepareCurrentSandboxRuntime()
     generatedAliases = prepared.aliases
     generatedFiles = prepared.files
+    watchFiles = prepared.watchFiles
     definitions = prepared.definitions
+    rootDir = prepared.rootDir
     if (internalOptions?.providerImportAliases && internalOptions.providerImportSpecifier) {
       const facade = generatedAliases[SANDBOX_PACKAGE_ID]
       if (facade) {
         internalOptions.providerImportAliases[internalOptions.providerImportSpecifier] = facade
-        internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID] = sandboxPackageRuntime()
+        Object.assign(internalOptions.providerImportAliases, sandboxRuntimePackageAliases)
       }
       else {
         delete internalOptions.providerImportAliases[internalOptions.providerImportSpecifier]
-        delete internalOptions.providerImportAliases[SANDBOX_PACKAGE_ID]
+        for (const specifier of Object.keys(sandboxRuntimePackageAliases))
+          delete internalOptions.providerImportAliases[specifier]
       }
       for (const specifier of sandboxProviderLoaderSpecifiers) {
         const providerLoader = generatedAliases[specifier]
@@ -239,16 +282,28 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     return prepared
   }
 
+  async function refreshSandboxRuntime(
+    transaction: (
+      refresh: () => ReturnType<typeof activateCurrentSandboxRuntime>,
+    ) => ReturnType<typeof activateCurrentSandboxRuntime> = refresh => refresh(),
+  ) {
+    const refresh = sandboxRuntimeRefresh.then(() => transaction(activateCurrentSandboxRuntime))
+    sandboxRuntimeRefresh = refresh.then(() => undefined, () => undefined)
+    return await refresh
+  }
+
   async function composeCloudflareSandbox(
     config: { nitro?: unknown, plugins?: unknown, root?: string },
     prepared: Awaited<ReturnType<typeof prepareCurrentSandboxRuntime>>,
+    finalizeWrangler = false,
   ) {
     if (!prepared.cloudflare || !hasNitroConfigContext(config) || getHostingProvider(prepared.hosting) !== 'cloudflare')
       return false
     config.nitro = await configureCloudflareSandboxNitro(
-      config.nitro as Parameters<typeof configureCloudflareSandboxNitro>[0],
-      typeof config.root === 'string' ? config.root : process.cwd(),
+      mutableSandboxNitroTarget(config.nitro),
+      prepared.rootDir,
       prepared.cloudflare,
+      finalizeWrangler,
     )
     return true
   }
@@ -258,16 +313,20 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
     enforce: 'pre',
     nitro: { name: '@vite-hub/sandbox/provider-runtime', setup: sandboxNitroModule },
     async config(config, env) {
+      // SAFETY: Vite's config hook provides the mutable record stored for later Sandbox preparation.
       rawConfig = config as Record<string, unknown>
       rawEnv = env
       const prepared = await prepareCurrentSandboxRuntime(false)
       generatedAliases = prepared.aliases
       generatedFiles = prepared.files
+      watchFiles = prepared.watchFiles
       definitions = prepared.definitions
+      rootDir = prepared.rootDir
       selectedProvider = prepared.provider
+      // SAFETY: Vite integrations may contribute Nitro config outside Vite's public UserConfig type.
       const nitro = (config as { nitro?: unknown }).nitro
-      if (nitro && typeof nitro === 'object') {
-        earlyNitroTarget = nitro as Record<string, unknown>
+      if (isPlainObject(nitro)) {
+        earlyNitroTarget = nitro
         earlyNitroSnapshot = cloneConfigValue(earlyNitroTarget)
       }
       composedCloudflareEarly = await composeCloudflareSandbox(config, prepared)
@@ -296,7 +355,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       resolvedConfig = config
       const prepared = await refreshSandboxRuntime()
       selectedProvider = prepared.provider
-      const composed = await composeCloudflareSandbox(config, prepared)
+      const composed = await composeCloudflareSandbox(config, prepared, true)
       if (!composed && composedCloudflareEarly && earlyNitroTarget && earlyNitroSnapshot) {
         for (const key of ['cloudflare', 'rollupConfig']) {
           if (key in earlyNitroSnapshot)
@@ -307,15 +366,21 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       }
     },
     async handleHotUpdate(context) {
-      if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, resolvedConfig?.root))
+      if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, watchFiles, rootDir))
         return
 
-      const previousFiles = [...generatedFiles, ...Object.values(generatedAliases)]
-      const prepared = await refreshSandboxRuntime()
-      selectedProvider = prepared.provider
-      if (resolvedConfig)
-        await composeCloudflareSandbox(resolvedConfig, prepared)
-      invalidateGeneratedSandboxModules([...previousFiles, ...generatedFiles, ...Object.values(generatedAliases)], context.server.moduleGraph)
+      await refreshSandboxRuntime(async (refresh) => {
+        const previousFiles = [...generatedFiles, ...Object.values(generatedAliases)]
+        const previousResolvedFiles = await resolveGeneratedSandboxModuleIds(previousFiles)
+        const prepared = await refresh()
+        selectedProvider = prepared.provider
+        if (resolvedConfig)
+          await composeCloudflareSandbox(resolvedConfig, prepared, true)
+        const currentFiles = [...generatedFiles, ...Object.values(generatedAliases)]
+        const currentResolvedFiles = await resolveGeneratedSandboxModuleIds(currentFiles)
+        invalidateGeneratedSandboxModules([...previousFiles, ...previousResolvedFiles, ...currentFiles, ...currentResolvedFiles], context.server.moduleGraph)
+        return prepared
+      })
     },
     configEnvironment(name, config) {
       const result = config.consumer === 'server'

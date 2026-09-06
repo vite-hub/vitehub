@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
@@ -11,6 +12,7 @@ export interface AgentWorkflowRuntimeLoaders {
 
 export interface AgentWorkflowCapabilityLoaders {
   blob?: () => Promise<unknown> | unknown
+  console?: () => Promise<unknown> | unknown
   db?: () => Promise<unknown> | unknown
 }
 
@@ -28,6 +30,26 @@ export function setAgentWorkflowCapabilityLoaders(loaders: AgentWorkflowCapabili
   workflowCapabilityLoaders = loaders
 }
 
+function getAgentWorkflowCapabilityLoader(name: string): (() => Promise<unknown> | unknown) | undefined {
+  switch (name) {
+    case "blob": return workflowCapabilityLoaders.blob
+    case "console": return workflowCapabilityLoaders.console
+    case "db": return workflowCapabilityLoaders.db
+    default: return undefined
+  }
+}
+
+export async function loadConfiguredAgentWorkflowCapabilities(
+  mask: Record<string, boolean> = {},
+): Promise<Record<string, unknown>> {
+  const entries = await Promise.all(Object.entries(mask).map(async ([name, enabled]) => {
+    if (!enabled) return [name, false] as const
+    const load = getAgentWorkflowCapabilityLoader(name)
+    return load ? [name, await load()] as const : undefined
+  }))
+  return Object.fromEntries(entries.filter((entry): entry is readonly [string, unknown] => entry !== undefined))
+}
+
 export function loadAgentWorkflowModule(): Promise<WorkflowModule> {
   return workflowRuntimeLoaders.workflow()
 }
@@ -39,11 +61,19 @@ export function loadAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeSt
 export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.blob) return await workflowCapabilityLoaders.blob()
   const packageName: string = "@vite-hub/blob"
+  // SAFETY: The official Blob package export is the primitive registered by generated Workflow hosts.
   return ((await import(/* @vite-ignore */ packageName)) as { blob: unknown }).blob
+}
+
+export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
+  const load = workflowCapabilityLoaders.console
+  if (!load) throw agentDiagnostics.AGENT_R0603({ message: "[vitehub] The Console Workflow capability requires a generated runtime loader." })
+  return await load()
 }
 
 export async function loadAgentWorkflowDatabasePrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.db) return await workflowCapabilityLoaders.db()
   const packageName: string = "@vite-hub/database/drizzle"
+  // SAFETY: The official Database package export is the primitive registered by generated Workflow hosts.
   return ((await import(/* @vite-ignore */ packageName)) as { agentDb: unknown }).agentDb
 }

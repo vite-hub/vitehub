@@ -6,6 +6,7 @@ import { HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 import * as awarenessProtocol from "y-protocols/awareness"
+import { Diagnostic } from "nostics"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
@@ -16,6 +17,12 @@ import type { RealtimeCheckpoint, RealtimeDefinition, RealtimeRegistry } from ".
 import { createRealtimeIdentity } from "./presence.ts"
 import { decodeWorkspaceChangePayload, encodeWorkspaceChange, maxAwarenessClients, messageAwareness, messageQueryAwareness, messageWorkspaceChange, readAwarenessClientIds, realtimeCheckpointRejectedCode, realtimeSyncPendingCode } from "./protocol.ts"
 import { createRealtimeEditorExtensions } from "./editor-extensions.ts"
+import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+
+export interface RealtimeHandler {
+  (event: unknown): Promise<unknown>
+  fetch(input: Request | URL | string): Promise<Response>
+}
 
 const routePrefix = "/api/_vitehub/realtime/"
 const maxMessageBytes = 1024 * 1024
@@ -118,7 +125,7 @@ export function claimAwarenessClientIds(owners: Map<number, object>, peer: objec
   )
   for (const client of clients) ownedClients.add(client)
   if (ownedClients.size > maxAwarenessClients) {
-    throw new TypeError("Peer owns too many awareness clients.")
+    throw realtimeErrorDiagnostics.REALTIME_R0003({ message: "Peer owns too many awareness clients." })
   }
   const claimed = clients.filter(client => !owners.has(client))
   for (const client of clients) owners.set(client, peer)
@@ -129,16 +136,17 @@ export function realtimeRoomKey(definitionName: string, documentId: string): str
   return JSON.stringify([definitionName, documentId])
 }
 
-class AwarenessOwnershipConflict extends TypeError {
+class AwarenessOwnershipConflict extends Diagnostic {
   constructor() {
-    super("Awareness client id is already owned by another peer.")
+    super({ code: "REALTIME_R0013", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: "Awareness client id is already owned by another peer." }, AwarenessOwnershipConflict)
+    this.name = "AwarenessOwnershipConflict"
   }
 }
 
 export function bindAwarenessIdentity(update: Uint8Array, identity: RealtimeIdentity): Uint8Array {
   return awarenessProtocol.modifyAwarenessUpdate(update, (state: unknown) => {
     if (state === null) return null
-    if (!state || typeof state !== "object" || Array.isArray(state)) throw new TypeError("Invalid awareness state.")
+    if (!state || typeof state !== "object" || Array.isArray(state)) throw realtimeErrorDiagnostics.REALTIME_R0004({ message: "Invalid awareness state." })
     return { ...state, user: identity }
   })
 }
@@ -230,7 +238,7 @@ export function applyRealtimeSyncMessage(data: Uint8Array, document: Y.Doc, orig
   apply(candidate)
   const stateBytes = Y.encodeStateAsUpdate(candidate).byteLength
   candidate.destroy()
-  if (stateBytes > maxStateBytes) throw new Error("Realtime document exceeds its 8 MiB room quota.")
+  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_R0005({ message: "Realtime document exceeds its 8 MiB room quota." })
   return apply(document)
 }
 
@@ -260,7 +268,7 @@ export function applyRealtimeAwarenessUpdate(
     : 0
   candidate.destroy()
   candidateDocument.destroy()
-  if (stateBytes > maxStateBytes) throw new Error("Realtime awareness exceeds its 8 MiB room quota.")
+  if (stateBytes > maxStateBytes) throw realtimeErrorDiagnostics.REALTIME_R0006({ message: "Realtime awareness exceeds its 8 MiB room quota." })
   awarenessProtocol.applyAwarenessUpdate(awareness, update, origin)
 }
 
@@ -288,8 +296,14 @@ export function restoreRealtimeDocument(markdown: string, baselineDigest: string
   const storedDigest = typeof stored?.baseline_digest === "string" ? stored.baseline_digest : undefined
   if (!update || storedDigest !== baselineDigest) return markdownToYDoc(markdown)
   const document = new Y.Doc()
-  Y.applyUpdate(document, update)
-  return document
+  try {
+    Y.applyUpdate(document, update)
+    return document
+  }
+  catch (error) {
+    document.destroy()
+    throw error
+  }
 }
 
 function canRestoreRealtimeDocument(baselineDigest: string | undefined, stored: Record<string, unknown> | undefined): boolean {
@@ -350,7 +364,7 @@ function parseRoomPath(url: string): { definitionName: string, documentId: strin
   }
   const documentId = documentParts.join("/")
   try {
-    if (normalizeSafeWorkspacePath(documentId) !== documentId) throw new Error()
+    if (normalizeSafeWorkspacePath(documentId) !== documentId) throw realtimeErrorDiagnostics.REALTIME_R0007()
   }
   catch {
     throw new HTTPError({ status: 400, message: "Realtime document paths must be safe Workspace paths." })
@@ -376,7 +390,7 @@ async function authorize(request: Request, required: boolean | undefined, event:
   return createRealtimeIdentity(session.user)
 }
 
-export function createRealtimeHandler(registry: RealtimeRegistry) {
+export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandler {
   const inactiveMemoryRoomKeys = new Set<string>()
   const memoryRoomKeys = new Set<string>()
   const rooms = new Map<string, Promise<Room>>()
@@ -490,38 +504,46 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
           : undefined
         const restoresStoredDocument = workspaceDocument && canRestoreRealtimeDocument(initial.baselineDigest, stored)
         const document = workspaceDocument ? restoreRealtimeDocument(initial.markdown, initial.baselineDigest, stored) : new Y.Doc()
-        const storedUpdates = restoresStoredDocument && sql
-          ? sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
-          : []
-        for (const row of storedUpdates) {
-          const update = storedUpdate(row.update_blob)
-          if (update) Y.applyUpdate(document, update)
-        }
-        assertRealtimeRoomStateQuota(document)
-        const awareness = new awarenessProtocol.Awareness(document)
-        awareness.setLocalState(null)
-        const value: Room = {
-          awareness,
-          awarenessClientOwners: new Map(),
-          baselineDigest: initial.baselineDigest,
-          channel: `vitehub:realtime:${key}`,
-          document,
-          durableReady: !!sql || !!initial.baselineDigest,
-          key,
-          mutated: false,
-          peers: new Set(),
-          persistedUpdates: storedUpdates.length,
-          sql: workspaceDocument ? sql : undefined,
-        }
-        value.document.on("update", (update: Uint8Array, origin: unknown) => {
-          value.mutated = true
-          persistRoomUpdate(value, update)
-          if (origin && typeof origin === "object" && "publish" in origin) {
-            (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
+        let awareness: awarenessProtocol.Awareness | undefined
+        try {
+          const storedUpdates = restoresStoredDocument && sql
+            ? sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+            : []
+          for (const row of storedUpdates) {
+            const update = storedUpdate(row.update_blob)
+            if (update) Y.applyUpdate(document, update)
           }
-        })
-        if (value.sql && !restoresStoredDocument) persistRoom(value)
-        return value
+          assertRealtimeRoomStateQuota(document)
+          awareness = new awarenessProtocol.Awareness(document)
+          awareness.setLocalState(null)
+          const value: Room = {
+            awareness,
+            awarenessClientOwners: new Map(),
+            baselineDigest: initial.baselineDigest,
+            channel: `vitehub:realtime:${key}`,
+            document,
+            durableReady: !!sql || !!initial.baselineDigest,
+            key,
+            mutated: false,
+            peers: new Set(),
+            persistedUpdates: storedUpdates.length,
+            sql: workspaceDocument ? sql : undefined,
+          }
+          value.document.on("update", (update: Uint8Array, origin: unknown) => {
+            value.mutated = true
+            persistRoomUpdate(value, update)
+            if (origin && typeof origin === "object" && "publish" in origin) {
+              (origin as WebSocketPeer).publish(value.channel, encodeSyncUpdate(update))
+            }
+          })
+          if (value.sql && !restoresStoredDocument) persistRoom(value)
+          return value
+        }
+        catch (error) {
+          awareness?.destroy()
+          document.destroy()
+          throw error
+        }
       })()
       rooms.set(key, room)
       room.catch(() => {
@@ -690,7 +712,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
         }
         try {
           const written = await readRealtimeWorkspaceDocument(workspace, workspace, path)
-          if (!written.baselineDigest) throw new Error("Realtime checkpoints require Workspace file digests.")
+          if (!written.baselineDigest) throw realtimeErrorDiagnostics.REALTIME_R0008({ message: "Realtime checkpoints require Workspace file digests." })
           pending = { content: written.markdown, digest: written.baselineDigest, message, path, state: Uint8Array.from(state), submittedDocument, workspace }
         }
         catch (error) {
@@ -982,11 +1004,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry) {
     }
   })
 
-  return defineEventHandler(async (event) => {
+  const handler = defineEventHandler(async (event) => {
     const forwarded = await forwardToCloudflareDurableObject(event)
     if (forwarded) return forwarded
     return event.req.headers.get("upgrade")?.toLowerCase() === "websocket"
       ? websocketHandler(event)
       : httpHandler(event)
   })
+  // SAFETY: H3 attaches a Fetch-compatible method to every defined event handler.
+  return handler as RealtimeHandler
 }

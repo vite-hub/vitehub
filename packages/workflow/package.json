@@ -52,6 +52,7 @@
     "defu": "catalog:unjs",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
+    "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {

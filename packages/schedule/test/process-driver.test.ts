@@ -95,7 +95,7 @@ describe("Process Schedule Wake Driver", () => {
           cron: "* * * * *",
           handler: async () => {
             await new Promise<void>(resolve => { releaseHandler = resolve })
-            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+            await schedules.dynamic.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
           },
           options: { allowRuntimeSchedules: true },
         }),

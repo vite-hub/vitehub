@@ -1,29 +1,37 @@
-import { access, copyFile, cp, mkdir, readFile, realpath, rm, stat } from "node:fs/promises"
+import { access, copyFile, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { createDefaultVercelOutputRoot } from "./deployment-output.ts"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 const runtimeExportConditions = new Set(["default", "import", "module", "node", "node-addons", "require"])
 let nodeFileTracePromise: Promise<typeof import("@vercel/nft").nodeFileTrace> | undefined
 
-export interface VercelFunctionRuntimePackage {
+export interface NodeRuntimePackage {
   includePeerDependencies?: boolean
   name: string
   optional?: boolean
   resolveFrom?: string
 }
 
+export type VercelFunctionRuntimePackage = NodeRuntimePackage
+
+interface NodeRuntimePackagesOptions {
+  outputNodeModules: string
+  packages: NodeRuntimePackage[]
+  rootDir: string
+}
+
 interface VercelFunctionRuntimePackagesOptions {
   outputRoot?: string
-  packages: VercelFunctionRuntimePackage[]
+  packages: VercelFunctionRuntimePackage[] | (() => VercelFunctionRuntimePackage[] | Promise<VercelFunctionRuntimePackage[]>)
   rootDir: string
   serverFunctionName?: string
+  signal?: AbortSignal
 }
 
 export async function copyVercelFunctionRuntimePackages(options: VercelFunctionRuntimePackagesOptions): Promise<void> {
-  if (!options.packages.length) return
-
   const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
   const serverFunctionName = options.serverFunctionName ?? "__server.func"
   const serverDir = resolve(outputRoot, "functions", serverFunctionName)
@@ -31,16 +39,79 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     await access(serverDir)
   }
   catch (error) {
+    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return
     throw error
   }
 
-  const copied = new Set<string>()
+  const packages = Array.isArray(options.packages) ? options.packages : await options.packages()
+  if (!packages.length) return
+
   const outputNodeModules = resolve(serverDir, "node_modules")
+  const stagingRoot = await mkdtemp(resolve(serverDir, ".vitehub-runtime-packages-"))
+  const stagedNodeModules = resolve(stagingRoot, "node_modules")
+  const previousNodeModules = resolve(stagingRoot, "previous-node_modules")
+  let movedPreviousOutput = false
+  let installedReplacement = false
+  let cleanupStagingRoot = true
+
+  try {
+    try {
+      await cp(outputNodeModules, stagedNodeModules, { recursive: true })
+    }
+    catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    await mkdir(stagedNodeModules, { recursive: true })
+
+    await copyNodeRuntimePackages({
+      outputNodeModules: stagedNodeModules,
+      packages,
+      rootDir: options.rootDir,
+    })
+    options.signal?.throwIfAborted()
+
+    try {
+      await rename(outputNodeModules, previousNodeModules)
+      movedPreviousOutput = true
+      cleanupStagingRoot = false
+    }
+    catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+
+    try {
+      options.signal?.throwIfAborted()
+      await rename(stagedNodeModules, outputNodeModules)
+      installedReplacement = true
+      options.signal?.throwIfAborted()
+      cleanupStagingRoot = true
+    }
+    catch (error) {
+      if (installedReplacement) await rm(outputNodeModules, { force: true, recursive: true })
+      if (movedPreviousOutput) {
+        await rename(previousNodeModules, outputNodeModules)
+      }
+      cleanupStagingRoot = true
+      throw error
+    }
+  }
+  finally {
+    if (cleanupStagingRoot) await rm(stagingRoot, { force: true, recursive: true })
+  }
+}
+
+export async function copyNodeRuntimePackages(options: NodeRuntimePackagesOptions): Promise<void> {
+  if (!options.packages.length) return
+
+  const copied = new Set<string>()
+  const expanded = new Set<string>()
   for (const runtimePackage of options.packages) {
     const resolveFrom = runtimePackage.resolveFrom ?? join(options.rootDir, "package.json")
     const resolver = createRequire(resolveFrom)
-    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), outputNodeModules, copied, runtimePackage)
+    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, expanded, runtimePackage)
   }
 }
 
@@ -50,17 +121,20 @@ async function copyPackageToNodeModules(
   fromDir: string,
   outputNodeModules: string,
   copied: Set<string>,
-  options: VercelFunctionRuntimePackage = { name },
+  expanded: Set<string>,
+  options: NodeRuntimePackage = { name },
 ): Promise<void> {
   const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
   if (!packageJsonPath) {
     if (options.optional) return
-    throw new Error(`Could not resolve package.json for ${name}.`)
+    throw internalErrorDiagnostics.INTERNAL_B0046({ message: `Could not resolve package.json for ${name}.` })
   }
 
   const resolvedPackageJsonPath = await realpath(packageJsonPath)
   const packageDir = dirname(resolvedPackageJsonPath)
-  const packageJson = JSON.parse(await readFile(resolvedPackageJsonPath, "utf8")) as {
+  const parsedPackageJson: unknown = JSON.parse(await readFile(resolvedPackageJsonPath, "utf8"))
+  // SAFETY: parsePackageJson establishes the object boundary; package metadata fields are optional and consumed defensively below.
+  const packageJson = parsePackageJson(parsedPackageJson, resolvedPackageJsonPath) as {
     dependencies?: Record<string, string>
     exports?: unknown
     main?: string
@@ -70,7 +144,6 @@ async function copyPackageToNodeModules(
     peerDependenciesMeta?: Record<string, { optional?: boolean }>
   }
   const packageKey = `${name}\0${resolvedPackageJsonPath}`
-
   if (!copied.has(packageKey)) {
     copied.add(packageKey)
     const targetDir = join(outputNodeModules, ...name.split("/"))
@@ -78,6 +151,10 @@ async function copyPackageToNodeModules(
     const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, resolvedPackageJsonPath, packageJson, targetDir)
     if (!copiedTrace) await copyPackageDirectory(packageDir, targetDir)
   }
+
+  const expansionKey = `${packageKey}\0${options.includePeerDependencies ? "peers" : "dependencies"}`
+  if (expanded.has(expansionKey)) return
+  expanded.add(expansionKey)
 
   const packageRequire = createRequire(resolvedPackageJsonPath)
   const dependencyNames = new Set(Object.keys(packageJson.dependencies || {}))
@@ -88,7 +165,7 @@ async function copyPackageToNodeModules(
   }
 
   for (const dependencyName of dependencyNames) {
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, {
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, expanded, {
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
     })
@@ -174,6 +251,7 @@ async function resolvePackageTraceEntries(
       else if (candidateStat.isDirectory()) return undefined
     }
     catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   }
@@ -182,6 +260,7 @@ async function resolvePackageTraceEntries(
 }
 
 function collectRuntimeExportTargets(exportsValue: unknown, condition?: string): Set<string> | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package export maps come from JSON, so this parser must inspect their runtime representation.
   if (typeof exportsValue === "string") {
     if (condition === "types") return new Set()
     if (exportsValue.includes("*")) return undefined
@@ -198,6 +277,7 @@ function collectRuntimeExportTargets(exportsValue: unknown, condition?: string):
     return targets
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package export maps come from JSON, so this parser must reject non-object runtime values.
   if (typeof exportsValue !== "object" || exportsValue === null) return new Set()
 
   const targets = new Set<string>()
@@ -234,10 +314,13 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
       const candidate = join(current, "package.json")
       try {
         await access(candidate)
-        const packageJson = JSON.parse(await readFile(candidate, "utf8")) as { name?: string }
+        const parsedPackageJson: unknown = JSON.parse(await readFile(candidate, "utf8"))
+        // SAFETY: parsePackageJson validates the object boundary before this narrower property view.
+        const packageJson = parsePackageJson(parsedPackageJson, candidate) as { name?: string }
         if (packageJson.name === name) return candidate
       }
       catch (error) {
+        // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       }
       current = dirname(current)
@@ -255,6 +338,7 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
       return candidate
     }
     catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
     current = dirname(current)
@@ -262,6 +346,16 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
 }
 
 function isPackageResolutionMiss(error: unknown): boolean {
+  // SAFETY: Node module resolution failures expose their stable error code through ErrnoException.
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
+}
+
+function parsePackageJson(value: unknown, path: string): Record<string, unknown> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON.parse returns an untrusted runtime value that must be checked at this boundary.
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw internalErrorDiagnostics.INTERNAL_B0047({ message: `Expected ${path} to contain a JSON object.` })
+  }
+  // SAFETY: The checks above establish a non-null, non-array object with string keys.
+  return value as Record<string, unknown>
 }

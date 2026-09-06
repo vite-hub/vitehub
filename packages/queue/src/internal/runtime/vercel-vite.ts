@@ -6,6 +6,7 @@ import { runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistr
 
 import type { QueueDefinitionRegistry, ResolvedQueueOptions } from "../../types.ts"
 import type { QueueRuntimeClientFactory } from "./state.ts"
+import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
 interface QueueVercelServerBaseOptions {
   app?: QueueApp
@@ -21,7 +22,7 @@ export type QueueVercelServer = (req: unknown, res: unknown) => unknown
 
 export function createQueueVercelServer(options: QueueVercelServerOptions): QueueVercelServer {
   if (options.queue !== false && !options.createClient) {
-    throw new TypeError("[vitehub] Enabled Vercel Queue output requires its generated client factory.")
+    throw queueErrorDiagnostics.QUEUE_R0008({ message: "[vitehub] Enabled Vercel Queue output requires its generated client factory." })
   }
 
   return createVercelHostedServer({

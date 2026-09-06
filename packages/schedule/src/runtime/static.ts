@@ -1,5 +1,6 @@
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunContext } from "../types.ts"
 import { createLocalWaitUntil } from "./wait-until.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ExecuteStaticScheduleOptions {
   cron: string
@@ -36,6 +37,15 @@ type LoadedScheduleModule = ScheduleRegistryDefinition | { default?: ScheduleReg
 export interface StaticScheduleRun extends ScheduleRunContext {
   cron: string
   scheduleId: string
+}
+
+export function missingScheduleDefinitionError(name: string): Error {
+  return scheduleErrorDiagnostics.SCHEDULE_R0034({ message: `Missing schedule definition: ${name}` })
+}
+
+export function normalizeScheduleRuntimeError(error: unknown): Error {
+  if (error instanceof Error) return error
+  return scheduleErrorDiagnostics.SCHEDULE_R0035({ cause: error, message: String(error) })
 }
 
 export function createStaticScheduleRun(
@@ -104,16 +114,16 @@ export async function executeCloudflareStaticSchedules(
 function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cron: string, scheduledAt: Date } {
   const cron = event.controller?.cron ?? event.cron
   if (!cron) {
-    throw new TypeError("[vitehub:schedule] Cloudflare scheduled event is missing a cron string.")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0027({ message: "[vitehub:schedule] Cloudflare scheduled event is missing a cron string." })
   }
   const scheduledTime = event.controller?.scheduledTime ?? event.scheduledTime
   const scheduledAt = scheduledTime instanceof Date
     ? scheduledTime
-    : typeof scheduledTime === "number" || typeof scheduledTime === "string"
-      ? new Date(scheduledTime)
-      : new Date()
+    : scheduledTime === undefined
+      ? new Date()
+      : new Date(scheduledTime)
   if (Number.isNaN(scheduledAt.getTime())) {
-    throw new TypeError("[vitehub:schedule] Cloudflare scheduled event has an invalid scheduledTime.")
+    throw scheduleErrorDiagnostics.SCHEDULE_R0028({ message: "[vitehub:schedule] Cloudflare scheduled event has an invalid scheduledTime." })
   }
   return { cron, scheduledAt }
 }
@@ -123,7 +133,8 @@ async function runWithCloudflareServerEnv<T>(
   callback: (waitUntil?: (promise: PromiseLike<unknown>) => void) => Promise<T>,
   hostWaitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<T> {
-  const globals = globalThis as { __env__?: Record<string, unknown> }
+  // SAFETY: Static Cloudflare execution owns the conventional global __env__ bridge for this callback.
+  const globals = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
   const hadGlobalEnv = Object.prototype.hasOwnProperty.call(globals, "__env__")
   const previousGlobalEnv = globals.__env__
   const env = readCloudflareEventEnv(event)
@@ -158,7 +169,7 @@ async function runWithCloudflareServerEnv<T>(
 
 async function flushPendingWork(pending: Set<Promise<unknown>>): Promise<void> {
   while (pending.size > 0) {
-    await Promise.allSettled([...pending])
+    await Promise.allSettled(pending)
   }
 }
 
@@ -172,7 +183,18 @@ function restoreGlobalEnv(
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
+  return Object(value) === value && !Array.isArray(value)
+}
+
+function isCallable(value: unknown): value is CallableFunction {
+  if (value === null || value === undefined || Object(value) !== value) return false
+  try {
+    Function.prototype.toString.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 // ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
@@ -196,8 +218,9 @@ function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise
     isRecord(runtimeCloudflare?.context) ? runtimeCloudflare.context : undefined,
   ]
   for (const owner of owners) {
-    if (typeof owner?.waitUntil === "function") {
-      return (owner.waitUntil as (promise: Promise<unknown>) => void).bind(owner)
+    const waitUntil = owner?.waitUntil
+    if (isCallable(waitUntil)) {
+      return promise => Reflect.apply(waitUntil, owner, [promise])
     }
   }
 }
@@ -217,6 +240,6 @@ function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<str
 }
 
 function unwrapScheduleDefinition(loaded: LoadedScheduleModule): ScheduleDefinition | undefined {
-  const definition = typeof loaded === "object" && loaded !== null && "default" in loaded ? loaded.default : loaded
+  const definition = "default" in loaded ? loaded.default : loaded
   return definition && "cron" in definition ? definition : undefined
 }

@@ -534,15 +534,6 @@ describe("instruction composition", () => {
     expect([...coverage.sources]).toEqual(["authored-source"])
   })
 
-  it("rejects legacy ambient instruction slots", async () => {
-    await expect(composeInstructionDocument("{{ workspace.sources }}"))
-      .rejects.toThrow("{{ workspace.sources }}\" is no longer supported")
-    await expect(composeInstructionDocument("{{ capabilities }}"))
-      .rejects.toThrow("{{ capabilities }}\" is no longer supported")
-    await expect(composeInstructionDocument("{{ capabilities.openapi }}"))
-      .rejects.toThrow("{{ capabilities.openapi }}\" is no longer supported")
-  })
-
   it("rejects unsafe expressions and non-scalar double bindings", async () => {
     await expect(composeInstructionDocument("::if{process.exit()}\nNo\n::"))
       .rejects.toThrow("Unsafe instruction condition")
@@ -550,7 +541,11 @@ describe("instruction composition", () => {
       workspace: { enabled: true },
     })).rejects.toThrow("Unsafe instruction condition")
     await expect(composeInstructionDocument("{{ context.customer }}", { context: { customer: { name: "Acme" } } }))
-      .rejects.toThrow("must resolve to a scalar")
+      .rejects.toMatchObject({
+        code: "AGENT_R0446",
+        message: expect.stringContaining("must resolve to a scalar"),
+        cause: expect.objectContaining({ code: "MARKDOWN_TEMPLATE_R0018" }),
+      })
     await expect(composeInstructionDocument("::if{context.enabled}\nEnabled\n::else{condition=\"context.admin\"}\nFallback\n::"))
       .rejects.toThrow("else block does not accept a condition")
     await expect(composeInstructionDocument("::if{context.enabled}\nEnabled"))

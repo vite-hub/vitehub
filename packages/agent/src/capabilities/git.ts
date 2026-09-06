@@ -13,6 +13,7 @@ import type {
 } from "../types.ts"
 import type { WorkspaceSession } from "@vite-hub/workspace"
 import type { JSONSchema7 } from "json-schema"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type GitCapabilityToolPolicy = AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 
@@ -95,9 +96,9 @@ function isGitSessionWorkspace(workspace: unknown): workspace is GitSessionWorks
 
 function parseGitCommand(command: string): string[] {
   const words = shellWords(command)
-  if (words[0] !== "git") throw new Error("[vitehub] git commands must start with `git`.")
-  if (!words[1]) throw new Error("[vitehub] git command requires a subcommand.")
-  if (words[1].startsWith("-")) throw new Error("[vitehub] git() does not accept global git flags. The tool cwd option provides repository scoping without `git -C`.")
+  if (words[0] !== "git") throw agentDiagnostics.AGENT_R0052({ message: "[vitehub] git commands must start with `git`." })
+  if (!words[1]) throw agentDiagnostics.AGENT_R0053({ message: "[vitehub] git command requires a subcommand." })
+  if (words[1].startsWith("-")) throw agentDiagnostics.AGENT_R0054({ message: "[vitehub] git() does not accept global git flags. The tool cwd option provides repository scoping without `git -C`." })
   return words.slice(1)
 }
 
@@ -127,7 +128,7 @@ function shellWords(command: string): string[] {
       continue
     }
     if (char === "|" || char === ";" || char === "<" || char === ">" || char === "&" || char === "\n") {
-      throw new Error("[vitehub] git() accepts one git command without shell composition.")
+      throw agentDiagnostics.AGENT_R0055({ message: "[vitehub] git() accepts one git command without shell composition." })
     }
     if (/\s/.test(char)) {
       if (current) {
@@ -140,7 +141,7 @@ function shellWords(command: string): string[] {
   }
 
   if (escaped) current += "\\"
-  if (quote) throw new Error("[vitehub] git() command has an unterminated quote.")
+  if (quote) throw agentDiagnostics.AGENT_R0056({ message: "[vitehub] git() command has an unterminated quote." })
   if (current) words.push(current)
   return words
 }
@@ -148,18 +149,18 @@ function shellWords(command: string): string[] {
 function assertGitRead(args: string[]): void {
   const subcommand = args[0]!
   if (blockedSubcommands.has(subcommand)) {
-    throw new Error(`[vitehub] git ${subcommand} is not available through git().`)
+    throw agentDiagnostics.AGENT_R0057({ message: `[vitehub] git ${subcommand} is not available through git().` })
   }
   if (!readSubcommands.has(subcommand)) {
-    throw new Error(`[vitehub] git ${subcommand} requires git({ mode: "write" }) or is not supported.`)
+    throw agentDiagnostics.AGENT_R0058({ message: `[vitehub] git ${subcommand} requires git({ mode: "write" }) or is not supported.` })
   }
   if (args.some(arg => arg === "--output" || arg.startsWith("--output="))) {
-    throw new Error("[vitehub] git read commands cannot write output files.")
+    throw agentDiagnostics.AGENT_R0059({ message: "[vitehub] git read commands cannot write output files." })
   }
   for (const arg of args.slice(1)) {
     const option = optionName(arg)
     if (blockedReadOptions.has(option) || arg === "-O" || arg.startsWith("-O")) {
-      throw new Error(`[vitehub] git ${subcommand} option ${option} is not available through the controlled git shell.`)
+      throw agentDiagnostics.AGENT_R0060({ message: `[vitehub] git ${subcommand} option ${option} is not available through the controlled git shell.` })
     }
     assertWorkspaceArg(arg)
   }
@@ -172,7 +173,7 @@ function assertGitWrite(args: string[]): void {
     return
   }
   if (subcommand === "fetch" && args.some(arg => arg.includes("://") || arg.startsWith("git@"))) {
-    throw new Error("[vitehub] git fetch only accepts configured remotes, not arbitrary remote URLs.")
+    throw agentDiagnostics.AGENT_R0061({ message: "[vitehub] git fetch only accepts configured remotes, not arbitrary remote URLs." })
   }
   if (subcommand === "fetch") assertGitFetch(args)
   if (subcommand === "checkout") assertNoBlockedOptions(args, blockedCheckoutOptions)
@@ -188,7 +189,7 @@ function assertWorkspaceArg(arg: string): void {
   const value = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : arg
   const normalized = value.replace(/\\/g, "/")
   if (normalized === ".." || normalized.startsWith("/") || normalized.startsWith("../") || normalized.startsWith("~/") || normalized.includes("/../")) {
-    throw new Error("[vitehub] git arguments must stay inside the workspace.")
+    throw agentDiagnostics.AGENT_R0062({ message: "[vitehub] git arguments must stay inside the workspace." })
   }
 }
 
@@ -196,7 +197,7 @@ function assertNoBlockedOptions(args: string[], blockedOptions: Set<string>): vo
   for (const arg of args.slice(1)) {
     const option = optionName(arg)
     if (blockedOptions.has(option) || blockedOptions.has(arg.slice(0, 2))) {
-      throw new Error(`[vitehub] git ${args[0]} option ${option} is not available through the controlled git shell.`)
+      throw agentDiagnostics.AGENT_R0063({ message: `[vitehub] git ${args[0]} option ${option} is not available through the controlled git shell.` })
     }
     assertWorkspaceArg(arg)
   }
@@ -206,14 +207,14 @@ function assertGitFetch(args: string[]): void {
   for (const arg of args.slice(1)) {
     const option = optionName(arg)
     if (blockedFetchOptions.has(option) || blockedFetchOptions.has(arg.slice(0, 2))) {
-      throw new Error(`[vitehub] git fetch option ${option} is not available through the controlled git shell.`)
+      throw agentDiagnostics.AGENT_R0064({ message: `[vitehub] git fetch option ${option} is not available through the controlled git shell.` })
     }
   }
   const [, ...refspecs] = fetchPositionals(args)
   for (const refspec of refspecs) {
     assertWorkspaceArg(refspec)
     if (refspec.startsWith("+") || refspec.includes(":")) {
-      throw new Error("[vitehub] git fetch cannot update local ref destinations through the controlled git shell.")
+      throw agentDiagnostics.AGENT_R0065({ message: "[vitehub] git fetch cannot update local ref destinations through the controlled git shell." })
     }
   }
 }
@@ -260,9 +261,9 @@ async function assertConfiguredFetchRemote(session: WorkspaceSession, cwd: strin
   const remote = fetchRemote(args)
   if (!remote) return
   const result = await session.exec("git", ["remote"], gitExecOptions(cwd, timeout))
-  if (result.exitCode !== 0) throw new Error(result.stderr || result.stdout || "[vitehub] git remote failed.")
+  if (result.exitCode !== 0) throw agentDiagnostics.AGENT_R0066({ message: result.stderr || result.stdout || "[vitehub] git remote failed." })
   if (!result.stdout.split(/\r?\n/).filter(Boolean).includes(remote)) {
-    throw new Error("[vitehub] git fetch only accepts configured remotes, not arbitrary remote URLs.")
+    throw agentDiagnostics.AGENT_R0067({ message: "[vitehub] git fetch only accepts configured remotes, not arbitrary remote URLs." })
   }
 }
 
@@ -270,7 +271,7 @@ function normalizeCwd(cwd: string | undefined): string {
   const stripped = (cwd || "").replace(/\\/g, "/").replace(/^\/workspace(?:\/|$)/, "")
   const parts = stripped.split("/").filter(Boolean)
   if (parts.some(part => part === "." || part === "..")) {
-    throw new Error("[vitehub] git cwd must stay inside the workspace.")
+    throw agentDiagnostics.AGENT_R0068({ message: "[vitehub] git cwd must stay inside the workspace." })
   }
   return parts.length ? `/workspace/${parts.join("/")}` : "/workspace"
 }
@@ -379,7 +380,7 @@ function pullRequestGitSetup(context: { context?: { get(key: string): unknown } 
   const baseRef = safeGitRef(base?.ref) || safeGitRef(pullRequest.baseRef)
   if (!repo || mount === undefined || !headRef) return
   const headSha = safeGitSha(head?.sha) || safeGitSha(pullRequest.headSha)
-  if (!headSha) throw new Error("[vitehub] GitHub pull request checkout requires an exact head SHA.")
+  if (!headSha) throw agentDiagnostics.AGENT_R0069({ message: "[vitehub] GitHub pull request checkout requires an exact head SHA." })
 
   return {
     ...(baseRef ? { baseRef: gitRemoteRef(baseRef) } : {}),
@@ -411,7 +412,7 @@ async function preparePullRequestGitSession(
   if (existing.exitCode === 0) {
     const head = await session.exec("git", ["rev-parse", "HEAD"], gitExecOptions(cwd, timeout))
     if (head.exitCode !== 0 || head.stdout.trim().toLowerCase() !== setup.headSha) {
-      throw new Error("[vitehub] existing pull request checkout does not match the expected SHA.")
+      throw agentDiagnostics.AGENT_R0070({ message: "[vitehub] existing pull request checkout does not match the expected SHA." })
     }
     return false
   }
@@ -444,7 +445,7 @@ async function preparePullRequestGitSession(
     VITEHUB_GIT_AUTH_HEADER: authHeader,
   }))
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr || result.stdout || "[vitehub] git could not prepare pull request checkout.")
+    throw agentDiagnostics.AGENT_R0071({ message: result.stderr || result.stdout || "[vitehub] git could not prepare pull request checkout." })
   }
   return true
 }
@@ -490,8 +491,8 @@ function limitOutput(output: string, maxOutputLength: number): { output: string,
 
 async function cleanWorkingTree(session: WorkspaceSession, cwd: string, timeout: number | undefined): Promise<void> {
   const result = await session.exec("git", ["status", "--porcelain"], gitExecOptions(cwd, timeout))
-  if (result.exitCode !== 0) throw new Error(result.stderr || result.stdout || "[vitehub] git status failed.")
-  if (result.stdout.trim()) throw new Error("[vitehub] git write commands require a clean working tree.")
+  if (result.exitCode !== 0) throw agentDiagnostics.AGENT_R0072({ message: result.stderr || result.stdout || "[vitehub] git status failed." })
+  if (result.stdout.trim()) throw agentDiagnostics.AGENT_R0073({ message: "[vitehub] git write commands require a clean working tree." })
 }
 
 function gitShellPolicy(policy: GitCapabilityToolPolicy, defaultCwd: string | undefined): GitCapabilityToolPolicy {
@@ -524,7 +525,7 @@ function gitTools(
   async function run(rawInput: unknown, write: boolean): Promise<GitCommandResult> {
     const input = normalizeGitToolInput(rawInput, defaultCwd)
     if (typeof input?.command !== "string" || !input.command.trim()) {
-      throw new Error("[vitehub] git command must be a non-empty string.")
+      throw agentDiagnostics.AGENT_R0074({ message: "[vitehub] git command must be a non-empty string." })
     }
     const args = parseGitCommand(input.command)
     write ? assertGitWrite(args) : assertGitRead(args)
@@ -596,7 +597,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
     return async (cwd) => {
       const workspace = context.workspace
       if (!isGitSessionWorkspace(workspace)) {
-        throw new Error("[vitehub] git() requires a git-capable workspace session.")
+        throw agentDiagnostics.AGENT_R0075({ message: "[vitehub] git() requires a git-capable workspace session." })
       }
       const state = sessionState(context)
       const workspacePath = gitSessionWorkspacePath(cwd, context)
@@ -622,7 +623,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       }
       const handle = await state.sessionPromises.get(key)
       if (!handle) {
-        throw new Error("[vitehub] git() requires a git-capable workspace session.")
+        throw agentDiagnostics.AGENT_R0076({ message: "[vitehub] git() requires a git-capable workspace session." })
       }
       return handle
     }

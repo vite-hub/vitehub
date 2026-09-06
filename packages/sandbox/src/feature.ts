@@ -1,28 +1,39 @@
+import { createImportPath } from '@vite-hub/internal/build/paths'
 import { deploymentPresetFromNitro } from '@vite-hub/internal/deployment'
 import { getSupportedHostingProvider } from '@vite-hub/internal/hosting'
-import { readFile } from 'node:fs/promises'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import { toTemplateSafeName } from './internal/shared/feature-definitions'
+import { createFileImportSpecifier } from './internal/shared/file-import-specifier'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
-import type { FeatureManifest, FeatureRuntimePlan, GeneratedArtifact } from './internal/shared/runtime-artifacts'
+import type {
+  FeatureManifest,
+  FeatureRuntimePlan,
+  GeneratedArtifact,
+} from './internal/shared/runtime-artifacts'
 import { bundleSandboxDefinition } from './bundle'
 import {
   defaultCloudflareSandboxBinding,
   defaultCloudflareSandboxClassName,
   defaultCloudflareSandboxMigrationTag,
 } from './cloudflare'
-import { extractSandboxDefinitionOptions } from './definition-options'
+import { extractSandboxDefinitionMetadata } from './definition-options'
 import { getSandboxFeatureProvider } from './module-types'
 import type { AgentSandboxConfig, SandboxDefinitionOptions } from './module-types'
-import { resolveSandboxProject, type SandboxProject } from './project'
+import { getSandboxProjectSourceFiles, resolveSandboxProject, type SandboxProject } from './project'
 import { createSandboxTypeTemplateContents } from './type-template'
-import { hasExportedType } from './internal/shared/discovered-definition/ast'
 import type { DiscoveredSandboxDefinition } from './discovery'
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const sandboxRuntimeDependencies = [
   '@cloudflare/sandbox',
   '@vercel/sandbox',
 ]
+export const sandboxRuntimeStateSpecifier = '@vite-hub/sandbox/runtime/state'
+export const sandboxRuntimeSpecifier = '@vite-hub/sandbox/_internal/runtime'
+export const sandboxRuntimeProviderSpecifiers = {
+  cloudflare: `${sandboxRuntimeSpecifier}/providers/cloudflare`,
+  vercel: `${sandboxRuntimeSpecifier}/providers/vercel`,
+} as const
 
 export const sandboxRuntimeDependencyByProvider = {
   cloudflare: '@cloudflare/sandbox',
@@ -82,11 +93,11 @@ export function createSandboxManifest(aliasPath: string, typeTemplate: string): 
   }
 }
 type SandboxDefinitionMetadata = {
-  hasPayloadType: boolean
   kind: DiscoveredSandboxDefinition['kind']
   name: string
   options?: SandboxDefinitionOptions
-  project: SandboxProject
+  project?: SandboxProject
+  projectMode?: boolean
 }
 
 type SandboxDefinitionCompilerOptions = Partial<DiscoveredDefinitionCompilerOptions> & {
@@ -101,39 +112,51 @@ function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinit
     return JSON.parse(JSON.stringify(options)) as SandboxDefinitionOptions
   }
   catch (error) {
-    throw new Error(`[vitehub] Sandbox definition "${name}" options must be JSON-serializable.`, {
+    throw sandboxErrorDiagnostics.SANDBOX_R0011({ message: `[vitehub] Sandbox definition "${name}" options must be JSON-serializable.`, ...{
       cause: error,
-    })
+    } })
   }
 }
 
 async function loadSandboxDefinitionMetadata(definitions: DiscoveredSandboxDefinition[], rootDir: string) {
   return await Promise.all(definitions.map(async (definition) => {
-    const project = await resolveSandboxProject(definition.handler, rootDir, {
-      readSandboxOptions: definition.kind === 'package-entry',
-    })
-    const source = definition.kind === 'package-entry'
-      ? await readFile(definition.handler, 'utf8')
-      : undefined
+    const sourceMetadata = definition.kind === 'package-entry'
+      ? undefined
+      : await extractSandboxDefinitionMetadata(definition.handler)
+    const project = sourceMetadata?.project === false
+      ? undefined
+      : await resolveSandboxProject(definition.handler, rootDir, {
+          readSandboxOptions: definition.kind === 'package-entry',
+        })
     return {
-      hasPayloadType: source ? hasExportedType(source, definition.handler, 'SandboxPayload') : false,
       kind: definition.kind,
       name: definition.name,
       options: definition.kind === 'package-entry'
-        ? project.options
-        : normalizeSandboxDefinitionOptions(definition.name, await extractSandboxDefinitionOptions(definition.handler)),
+        ? project?.options
+        : normalizeSandboxDefinitionOptions(definition.name, sourceMetadata?.options),
       project,
+      projectMode: sourceMetadata?.project,
     } satisfies SandboxDefinitionMetadata
   }))
 }
 
 function createSandboxRegistryContents(
-  definitions: Array<{ name: string, definitionModulePath: string }>,
+  file: string,
+  definitions: Array<{ name: string, definitionModulePath: string, stableDefinitionModulePath: string }>,
+  scope: string,
 ) {
+  const scopeSpecifier = createFileImportSpecifier(scope)
   return [
-    'const registry = {',
-    ...definitions.map(definition => `  ${JSON.stringify(definition.name)}: async () => import(${JSON.stringify(definition.definitionModulePath)}),`),
-    '}',
+    `import { createGeneratedSandboxRuntimeRegistry } from ${JSON.stringify(sandboxRuntimeStateSpecifier)}`,
+    '',
+    `const registry = createGeneratedSandboxRuntimeRegistry(${JSON.stringify(scopeSpecifier)}, {`,
+    ...definitions.map(definition => [
+      `  ${JSON.stringify(definition.name)}: {`,
+      `    load: async () => import(${JSON.stringify(createImportPath(file, definition.definitionModulePath))}),`,
+      `    stablePath: ${JSON.stringify(createFileImportSpecifier(definition.stableDefinitionModulePath))},`,
+      '  },',
+    ].join('\n')),
+    '})',
     'export default registry',
     '',
   ].join('\n')
@@ -143,18 +166,14 @@ export function createSandboxProviderLoaderContents(
   provider: SandboxProvider,
 ) {
   const providerExport = sandboxProviderRuntimeExport(provider)
-  const providerLoaderPath = resolveFeatureRuntimePath(
-    import.meta.url,
-    '@vite-hub/sandbox',
-    `./runtime/providers/${provider}`,
-    `runtime/providers/${provider}.js`,
-  )
+  const providerLoaderPath = sandboxRuntimeProviderSpecifiers[provider]
   return [
     `import { ${providerExport} as resolveSandboxBox } from ${JSON.stringify(providerLoaderPath)}`,
+    `import { unsupportedHostedSandboxProviderError } from ${JSON.stringify(sandboxRuntimeSpecifier)}`,
     '',
     'export async function loadSandboxRuntimeProvider(selectedProvider) {',
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
-    '    throw new Error(`[vitehub] Unsupported sandbox provider for this hosted build: ${selectedProvider}`)',
+    '    throw unsupportedHostedSandboxProviderError(selectedProvider)',
     '  return {',
     '    resolveSandboxBox,',
     '  }',
@@ -184,7 +203,7 @@ export function resolveSandboxFeatureConfig(sandboxConfig: AgentSandboxConfig, h
 
   const unsupportedHostedProvider = deploymentPresetFromNitro(hosting)
   if (unsupportedHostedProvider) {
-    throw new TypeError('[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandbox.provider` is required.')
+    throw sandboxErrorDiagnostics.SANDBOX_R0012({ message: '[vitehub] Sandbox hosting inference does not support ' + unsupportedHostedProvider + '. An explicit `sandbox.provider` is required.' })
   }
 
   return config
@@ -212,7 +231,7 @@ export async function createSandboxFeaturePlan(
   for (const definition of sandboxDefinitions) {
     const existing = definitionFileByName.get(definition.definitionFilename)
     if (existing) {
-      throw new Error(`[vitehub] Sandbox definitions "${existing}" and "${definition.name}" generate the same artifact path "${definition.definitionFilename}".`)
+      throw sandboxErrorDiagnostics.SANDBOX_R0013({ message: `[vitehub] Sandbox definitions "${existing}" and "${definition.name}" generate the same artifact path "${definition.definitionFilename}".` })
     }
     definitionFileByName.set(definition.definitionFilename, definition.name)
   }
@@ -222,10 +241,8 @@ export async function createSandboxFeaturePlan(
   )
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
   const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions.map((definition) => {
-    const metadata = metadataByName.get(definition.name)
     return {
       handler: definition.handler,
-      hasPayloadType: metadata?.hasPayloadType ?? false,
       kind: definition.kind,
       name: definition.name,
     }
@@ -250,6 +267,7 @@ export async function createSandboxFeaturePlan(
       const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath, {
         alias: bundleAlias,
         execution: metadata?.kind === 'package-entry' ? 'module' : 'definition',
+        includeProject: metadata?.projectMode,
         project: metadata?.project,
       })
       return `export default ${JSON.stringify({
@@ -270,6 +288,9 @@ export async function createSandboxFeaturePlan(
 
   return {
     manifest,
+    watchFiles: [...new Set(definitionMetadata.flatMap(metadata => metadata.project
+      ? getSandboxProjectSourceFiles(metadata.project)
+      : []))],
     aliases: [
       { key: '#vitehub-sandbox-registry', artifactKey: 'sandbox-registry' },
       ...createSandboxProviderLoaderAliases(providerLoaderTarget),
@@ -279,23 +300,24 @@ export async function createSandboxFeaturePlan(
       {
         key: 'sandbox-registry',
         filename: 'runtime/sandbox-registry.mjs',
-        getContents(emitted) {
-          return createSandboxRegistryContents(sandboxDefinitions.map((definition) => {
+        getContents(emitted, location) {
+          return createSandboxRegistryContents(location.dst, sandboxDefinitions.map((definition) => {
             const artifact = emitted.get(definition.definitionArtifactKey)
             if (!artifact)
-              throw new Error(`[vitehub] Missing generated sandbox definition module for "${definition.name}".`)
+              throw sandboxErrorDiagnostics.SANDBOX_R0014({ message: `[vitehub] Missing generated sandbox definition module for "${definition.name}".` })
             return {
               name: definition.name,
               definitionModulePath: artifact.dst,
+              stableDefinitionModulePath: artifact.stableDst,
             }
-          }))
+          }), paths.aliasPath)
         },
       },
       ...(providerLoaderTarget
         ? [{
             key: 'sandbox-provider-loader',
             filename: 'runtime/sandbox-provider-loader.mjs',
-            getContents: () => createSandboxProviderLoaderContents(providerLoaderTarget),
+            contents: createSandboxProviderLoaderContents(providerLoaderTarget),
           }]
         : []),
     ],

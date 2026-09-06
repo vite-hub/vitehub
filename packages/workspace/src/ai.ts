@@ -5,6 +5,7 @@ import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
 
@@ -294,7 +295,7 @@ function cleanWorkspaceShellPath(path: string) {
 
 function cleanMutationPath(path: string) {
   const normalized = cleanWorkspaceShellPath(path)
-  if (!normalized) throw new Error("[vitehub] Workspace root is not a valid mutation target.")
+  if (!normalized) throw workspaceErrorDiagnostics.WORKSPACE_R0001({ message: "[vitehub] Workspace root is not a valid mutation target." })
   return normalized
 }
 
@@ -595,11 +596,11 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   const writeEnabled = Object.values(resolved.write).some(Boolean)
 
   if (!resolved.commands.length && !resolved.materialize && !writeEnabled) {
-    throw new TypeError("[vitehub] createWorkspaceTools requires at least one enabled workspace operation.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0002({ message: "[vitehub] createWorkspaceTools requires at least one enabled workspace operation." })
   }
 
   if (writeEnabled && !isWorkspace(input)) {
-    throw new TypeError("[vitehub] Write operations require a mutable Workspace. A useWorkspace(name, { mode: \"write\" }).tools.write() call provides one.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0003({ message: "[vitehub] Write operations require a mutable Workspace. A useWorkspace(name, { mode: \"write\" }).tools.write() call provides one." })
   }
 
   const result: Record<string, Tool<any, any>> = {}

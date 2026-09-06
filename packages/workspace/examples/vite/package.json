@@ -3,11 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "vp build"
   },
   "dependencies": {
     "@vite-hub/workspace": "workspace:*",
     "h3": "catalog:unjs",
     "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "vite-plus": "catalog:tooling"
   }
 }

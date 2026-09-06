@@ -1,4 +1,4 @@
-import { readColocatedAgentFiles } from "@vite-hub/internal/build/colocated-agent-files"
+import { readColocatedAgentFiles, resolveColocatedAgentFilesRoot } from "@vite-hub/internal/build/colocated-agent-files"
 
 export interface EncodedColocatedAgentSkillSource {
   content: string
@@ -6,6 +6,10 @@ export interface EncodedColocatedAgentSkillSource {
   materialize: "build"
   mount: ""
   workspacePath: string
+}
+
+export function resolveColocatedAgentSkillsRoot(handler: string): string | undefined {
+  return resolveColocatedAgentFilesRoot(handler, "skills")
 }
 
 export function readColocatedAgentSkills(handler: string): Record<string, EncodedColocatedAgentSkillSource> | undefined {

@@ -60,6 +60,10 @@ Return only invocation-scoped behavior from the callback. Capabilities that cont
 
 ViteHub detects compatible Eve extension packages in a static Capability list and compiles their tools into a Capability. Install the extension, then use its existing factory and options:
 
+```bash
+pnpm add @github-tools/eve-extension
+```
+
 ```ts [server/agents/reviewer.ts]
 import github from '@github-tools/eve-extension'
 import { defineAgent } from 'vite-hub/agent'
@@ -72,9 +76,11 @@ export default defineAgent({
 })
 ```
 
-The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. The first bridge supports one mount per extension package, direct default-import factory calls, static and `session.started` tools, tool schemas and output conversion, and Eve's `always`, `never`, and `once` approval modes. ViteHub maps `session.started` to the start of each Agent Invocation and uses the invocation's `runId` as the Eve session ID, so every invocation resolves a fresh tool set without relying on process-local state. The built-in HTTP chat route persists pending approvals in its configured Chat state, reconstructs the authoritative tool call server-side, and consumes each response once under a session lock. Client-supplied chat history never creates approval authority. Unsupported dynamic events fail when ViteHub resolves the extension's tools for an Agent Invocation.
+`repositoryHost()` and `repositoryHostContext()` are no longer built in. Replace their GitHub tools with the extension above. GitHub Channel invocations still expose trusted pull request context through `pullRequest.read(invocation)` from `vite-hub/agent/channels`; ViteHub no longer creates a provider-neutral repository client or materialized repository context.
 
-This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getSkill()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Session authentication is unavailable and turn sequence metadata is not preserved. ViteHub Agent Invocations are not Eve durable sessions, so extensions that depend on one `session.started` resolution spanning several invocations are not supported yet.
+The Vite plugin reads the package's Eve manifest and fails the build when a declared contract version is unsupported. The bridge supports one mount per extension package, direct default-import factory calls, static tools, and dynamic tools with one `session.started` or `step.started` handler. It preserves tool schemas, output conversion, and Eve's `always`, `never`, and `once` approval modes. ViteHub maps the supported dynamic handler to Capability tool resolution at the start of each Agent Invocation and uses the invocation's `runId` as the Eve session ID, so every invocation resolves a fresh tool set without relying on process-local state. The built-in HTTP chat route persists pending approvals in its configured Chat state, reconstructs the authoritative tool call server-side, and consumes each response once under a session lock. Client-supplied chat history never creates approval authority. Unsupported dynamic events fail when ViteHub resolves the extension's tools for an Agent Invocation.
+
+This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getSkill()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Session authentication and turn sequence metadata are unavailable. A `step.started` handler resolves once per ViteHub Agent Invocation, not before every model step. ViteHub Agent Invocations are not Eve durable sessions, so extensions that depend on one `session.started` resolution spanning several invocations are not supported yet.
 
 ## What Capabilities can contribute
 

@@ -1,0 +1,32 @@
+diff --git a/dist/chunk-YYMLUMXS.js b/dist/chunk-YYMLUMXS.js
+index 34a1b3a6440b2781c8e76d084e06198fe876d847..5cdbe84ecf58261085dc1fd81e29c0177a751f26 100644
+--- a/dist/chunk-YYMLUMXS.js
++++ b/dist/chunk-YYMLUMXS.js
+@@ -3,7 +3,6 @@ import { isNodeProcess } from "is-node-process";
+ 
+ // src/multipart/helpers.ts
+ import isBuffer from "is-buffer";
+-import { Readable } from "stream";
+ var supportsNewBlobFromArrayBuffer = new Promise((resolve) => {
+   try {
+     const helloAsArrayBuffer = new Uint8Array([104, 101, 108, 108, 111]);
+@@ -25,7 +24,18 @@ async function toReadableStream(value) {
+     return value.stream();
+   }
+   if (isNodeJsReadableStream(value)) {
+-    return Readable.toWeb(value);
++    const iterator = value[Symbol.asyncIterator]();
++    return new ReadableStream({
++      async pull(controller) {
++        const result = await iterator.next();
++        if (result.done) controller.close();
++        else controller.enqueue(result.value instanceof Uint8Array ? new Uint8Array(result.value) : result.value);
++      },
++      async cancel(reason) {
++        value.destroy(reason);
++        await iterator.return?.();
++      }
++    });
+   }
+   let streamValue;
+   if (value instanceof ArrayBuffer) {

@@ -46,24 +46,25 @@
     "@tiptap/extension-image": "catalog:realtime",
     "@tiptap/extension-table": "catalog:realtime",
     "@tiptap/markdown": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
     "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
     "@vite-hub/auth": "workspace:*",
-    "@vite-hub/history": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "h3": "catalog:unjs",
     "lib0": "catalog:realtime",
     "marked": "catalog:realtime",
+    "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "y-protocols": "catalog:realtime",
     "y-websocket": "catalog:realtime",
     "yjs": "catalog:realtime"
   },
   "devDependencies": {
+    "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
-    "@tiptap/pm": "catalog:realtime",
     "@vite-hub/internal": "workspace:*",
-    "linkedom": "^0.18.12",
+    "linkedom": "^0.18.13",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -72,6 +73,7 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "@types/json-schema": "catalog:ai",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },

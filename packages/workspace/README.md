@@ -144,7 +144,43 @@ export default defineConfig({
 })
 ```
 
-Use named Workspace Source Binding helpers such as `file()` and `github()`. The lower-level Source registry lives in `@vite-hub/source`; install and import it directly only when you use that package's registry APIs.
+## Reuse a Source definition
+
+Bind a standalone Source definition when direct reads, Content, and Workspace
+need the same origin:
+
+```ts
+import { createSource } from "@vite-hub/source"
+import { glob } from "@vite-hub/source/glob"
+import { defineWorkspace } from "@vite-hub/workspace"
+
+const docs = glob({ cwd: "docs", include: "**/*.md" })
+const reader = createSource(docs)
+await reader.read("intro.md")
+
+export default defineWorkspace({
+  sources: {
+    docs: { source: docs, mount: "docs", materialize: "lazy" },
+  },
+})
+```
+
+The key `intro.md` appears at `docs/intro.md` in the Workspace. The binding owns
+placement, materialization, sync, and access rules. Source owns retrieval.
+Content also accepts the definition with `defineContent({ source: docs })` and
+opens a new reader for each refresh.
+
+Use Workspace helpers such as `file()` and `github()` when a definition only
+needs Workspace binding options. Existing bindings remain valid. For standalone
+custom loaders, replace the Source `custom()` helper with `defineSource()`.
+Workspace's `custom()` helper remains available.
+
+Workspace resolves a Source revision once before preparation and materialization.
+`materializeSources()` reports that generic revision in each Source status, and
+every key and item read in the lifecycle observes the same identity. Workspace
+search remains literal or regular-expression filesystem search over the visible
+tree; use Comark Content through `@vite-hub/content` for parsed-document
+navigation, query, cache, and ranked full-text search.
 
 ## Box sessions
 
@@ -153,6 +189,8 @@ Workspace definitions are runtime-free. To run generated code, open a [`@vite-hu
 GitHub-backed Workspaces pin the branch head before a hosted Session starts and materialize a full-tree Session from one revision archive. Repeated Sessions reuse that immutable archive while the revision is unchanged; scoped Sessions and stores without revision archives use the normal Workspace file API.
 
 Use `startSession({ attach: true, host })` only when another integration already owns the live materialized tree. Attached Sessions preserve that baseline without rematerializing the tree and roll back only their own uncommitted changes on close.
+
+Use `startSession({ host, writeBack: false })` for a private writable runtime that must never publish its changes. `diff()` and `commit()` are unavailable in this mode, and `close()` restores the authoritative Workspace without first scanning the runtime tree. Agent Definitions select this mode automatically for read-only Workspaces.
 
 ## MountX projection
 

@@ -12,7 +12,8 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/blob
+pnpm add @vite-hub/blob h3
+pnpm add -D vite
 ```
 
 Add the SDK required by the driver you configure.
@@ -89,6 +90,8 @@ export default defineConfig({
 
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
+Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
+
 ## Signed requests
 
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
@@ -115,7 +118,7 @@ await fetch(upload.url, {
 })
 ```
 
-Blob operations return `[error, value]`. Provider and storage failures use `ViteHubError` with a stable `BLOB_*` code, operation/store details, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities still throw because they are configuration or API misuse rather than an operational result.
+Blob operations return `[error, value]`. Provider and storage failures use `ViteHubError` with a stable `BLOB_*` code, operation/store details, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities throw Nostics diagnostics with package-owned `BLOB_C####`, `BLOB_B####`, or `BLOB_R####` codes. Catch these defects by code. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 
@@ -124,7 +127,7 @@ The returned headers are part of the request contract and must be sent unchanged
 Use `driver: "s3"` for production S3-compatible object storage. Use `driver: "minio"` for local or Docker Compose object storage, and use `driver: "cloudflare-r2"` for Cloudflare R2.
 
 ```sh
-pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 Cloudflare R2 HTTP fallback also requires:
@@ -154,7 +157,7 @@ Store S3 credentials in Server Env or the provider credential chain used by the 
 MinIO is the Docker-friendly S3-compatible path. Select it explicitly:
 
 ```sh
-pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
 ```ts

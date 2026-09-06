@@ -2,6 +2,7 @@ import { access, mkdir, writeFile } from "node:fs/promises"
 import { basename, dirname, relative, resolve } from "node:path"
 
 import type { DeploymentPlan } from "../deployment.ts"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface FinalizeDeploymentPlanOutputOptions {
   identity?: {
@@ -25,7 +26,7 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
       await access(entry)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      throw new Error("[vitehub] The " + JSON.stringify(options.plan.preset) + " preset did not emit its required entry: " + entry + ".")
+      throw internalErrorDiagnostics.INTERNAL_B0040({ message: "[vitehub] The " + JSON.stringify(options.plan.preset) + " preset did not emit its required entry: " + entry + "." })
     }
   }
   const manifest = {

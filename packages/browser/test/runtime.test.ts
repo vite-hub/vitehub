@@ -5,11 +5,12 @@ import {
   executeBrowserDefinition,
   runBrowser,
 } from "../src/runtime.ts"
+import { loadCloudflarePlaywright as unconfiguredCloudflarePlaywright } from "../src/internal/runtime/unconfigured.ts"
 
 import type { BrowserClient } from "../src/types.ts"
 
 const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
-vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig }))
+vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig, loadCloudflarePlaywright: undefined }))
 
 const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
 
@@ -19,6 +20,10 @@ afterEach(() => {
 })
 
 describe("Browser Definitions", () => {
+  it("exports the optional driver loader from the unconfigured runtime fallback", () => {
+    expect(unconfiguredCloudflarePlaywright).toBeUndefined()
+  })
+
   it("reports an unconfigured runtime before opening a default binding", async () => {
     runtimeConfig.provider = undefined
     const definition = defineBrowser(async (_input, { browser }) => {

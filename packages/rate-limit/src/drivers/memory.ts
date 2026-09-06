@@ -1,4 +1,5 @@
 import type { RateLimitDriver } from "../types.ts"
+import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface MemoryEntry {
   count: number
@@ -21,7 +22,7 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
   const entries = new Map<string, MemoryEntry>()
   const maxEntries = options.maxEntries ?? defaultMaxEntries
   if (!Number.isInteger(maxEntries) || maxEntries <= 0) {
-    throw new TypeError("[vitehub] Memory Rate Limit driver maxEntries must be a positive integer.")
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0007({ message: "[vitehub] Memory Rate Limit driver maxEntries must be a positive integer." })
   }
   const now = options.now ?? Date.now
 
@@ -47,7 +48,7 @@ export function memoryRateLimitDriver(options: MemoryRateLimitDriverOptions = {}
       const resetAt = Math.floor(timestamp / input.windowMs) * input.windowMs + input.windowMs
       const current = entries.get(key)
       if (!current && entries.size >= maxEntries) {
-        throw new Error(`[vitehub] Memory Rate Limit driver reached maxEntries (${maxEntries}) while active counters remain.`)
+        throw rateLimitErrorDiagnostics.RATE_LIMIT_R0008({ message: `[vitehub] Memory Rate Limit driver reached maxEntries (${maxEntries}) while active counters remain.` })
       }
       const entry = current && current.resetAt > timestamp ? current : { count: 0, resetAt }
       if (entry.count >= input.limit) {

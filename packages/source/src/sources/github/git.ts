@@ -5,6 +5,7 @@ import { normalizeSourcePath } from "../../core/path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 
 import type { GitHubFile } from "./types.ts"
+import { sourceErrorDiagnostics } from "../../error-diagnostics.ts"
 
 interface GitOptions {
   env?: NodeJS.ProcessEnv
@@ -90,7 +91,7 @@ async function runGit(args: string[], options: GitOptions = {}): Promise<Uint8Ar
         return
       }
       const command = args[0] === "-C" ? args[2] : args[0]
-      reject(new Error(`git ${command || "command"} exited with ${code ?? "an unknown status"}.`))
+      reject(sourceErrorDiagnostics.SOURCE_R0019({ message: `git ${command || "command"} exited with ${code ?? "an unknown status"}.` }))
     })
   })
 }
@@ -146,7 +147,7 @@ async function readGitArchiveFiles<TKey extends string>(
       const key = input.keyForRepoPath(entry.path)
       if (!key || !input.shouldInclude(key)) return
       if (isGitLfsPointer(entry.content)) {
-        throw new Error("git archive contained a Git LFS pointer; use the GitHub archive instead.")
+        throw sourceErrorDiagnostics.SOURCE_R0020({ message: "git archive contained a Git LFS pointer; use the GitHub archive instead." })
       }
       return {
         content: entry.content,

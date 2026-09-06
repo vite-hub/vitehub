@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "node:path"
 import { deployedChannelWebhookUrl, loadChannelTargets, type LoadedChannelTarget } from "./channel-sync-cli.ts"
 import { agentChannelHistoryHeader } from "./channel-history.ts"
 import { agentChannelSyncProviderHeader } from "./channel-sync.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface ChannelHistoryCliContext {
   cwd: string
@@ -48,7 +49,7 @@ function parseArgs(args: string[]): ParsedChannelHistoryArgs {
     if (arg === "-h" || arg === "--help") parsed.help = true
     else if (["--agent", "--channel", "--output", "--stage", "--thread", "--url", "--webhook"].includes(arg)) {
       const value = args[++index]
-      if (!value || value.startsWith("--")) throw new TypeError(`${arg} requires a value.`)
+      if (!value || value.startsWith("--")) throw agentDiagnostics.AGENT_R0521({ message: `${arg} requires a value.` })
       if (arg === "--agent") parsed.agent = value
       else if (arg === "--channel") parsed.channel = value
       else if (arg === "--output") parsed.output = value
@@ -57,7 +58,7 @@ function parseArgs(args: string[]): ParsedChannelHistoryArgs {
       else if (arg === "--webhook") parsed.webhook = value
       else parsed.origin = value
     }
-    else throw new TypeError(`Unknown channels history option: ${arg}`)
+    else throw agentDiagnostics.AGENT_R0522({ message: `Unknown channels history option: ${arg}` })
   }
   return parsed
 }
@@ -65,7 +66,7 @@ function parseArgs(args: string[]): ParsedChannelHistoryArgs {
 function normalizedOrigin(value: string): string {
   const url = new URL(value)
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new TypeError("--url must be an HTTPS origin without credentials, a path, query, or fragment.")
+    throw agentDiagnostics.AGENT_R0523({ message: "--url must be an HTTPS origin without credentials, a path, query, or fragment." })
   }
   return url.origin
 }
@@ -73,7 +74,7 @@ function normalizedOrigin(value: string): string {
 function historyHeaders(target: LoadedChannelTarget, body: string): Headers {
   const registration = target.registration
   if (!registration?.secretHeader || !registration.secretToken) {
-    throw new Error(`Channel ${target.agent}/${target.channel} needs a configured webhook secret before history can be exported.`)
+    throw agentDiagnostics.AGENT_R0524({ message: `Channel ${target.agent}/${target.channel} needs a configured webhook secret before history can be exported.` })
   }
   const value = registration.signature === "github-sha256"
     ? `sha256=${createHmac("sha256", registration.secretToken).update(body).digest("hex")}`
@@ -95,10 +96,10 @@ async function verifyHistoryDeployment(url: string, provider: string, fetchImpl:
     })
   }
   catch {
-    throw new Error("Channel history deployment preflight request failed.")
+    throw agentDiagnostics.AGENT_R0525({ message: "Channel history deployment preflight request failed." })
   }
   if (!response.ok || response.headers.get(agentChannelSyncProviderHeader) !== provider) {
-    throw new Error(`Channel history deployment preflight failed; expected ${agentChannelSyncProviderHeader}: ${provider}.`)
+    throw agentDiagnostics.AGENT_R0526({ message: `Channel history deployment preflight failed; expected ${agentChannelSyncProviderHeader}: ${provider}.` })
   }
 }
 
@@ -160,9 +161,9 @@ export async function runAgentChannelHistoryCli(
       writeUsage(context)
       return 0
     }
-    if (!parsed.stage) throw new TypeError("channels history requires --stage <name>.")
-    if (!parsed.origin) throw new TypeError("channels history requires --url <https-origin>.")
-    if (!parsed.output) throw new TypeError("channels history requires --output <directory>.")
+    if (!parsed.stage) throw agentDiagnostics.AGENT_R0527({ message: "channels history requires --stage <name>." })
+    if (!parsed.origin) throw agentDiagnostics.AGENT_R0528({ message: "channels history requires --url <https-origin>." })
+    if (!parsed.output) throw agentDiagnostics.AGENT_R0529({ message: "channels history requires --output <directory>." })
     const targets = await (options.loadTargets || loadChannelTargets)({
       agent: parsed.agent,
       channel: parsed.channel,
@@ -172,17 +173,17 @@ export async function runAgentChannelHistoryCli(
       rootDir: options.rootDir || context.rootDir,
       stage: parsed.stage,
     })
-    if (targets.length !== 1) throw new Error(`channels history requires exactly one matching Channel; found ${targets.length}.`)
+    if (targets.length !== 1) throw agentDiagnostics.AGENT_R0530({ message: `channels history requires exactly one matching Channel; found ${targets.length}.` })
     const target = targets[0]!
     const threadId = parsed.threadId || target.defaultThreadId
-    if (!threadId) throw new Error(`Channel ${target.agent}/${target.channel} requires --thread <id>.`)
+    if (!threadId) throw agentDiagnostics.AGENT_R0531({ message: `Channel ${target.agent}/${target.channel} requires --thread <id>.` })
     const url = deployedChannelWebhookUrl(target, normalizedOrigin(parsed.origin))
-    if (!url) throw new Error(`Channel ${target.agent}/${target.channel} has no deployed webhook route.`)
+    if (!url) throw agentDiagnostics.AGENT_R0532({ message: `Channel ${target.agent}/${target.channel} has no deployed webhook route.` })
     const body = JSON.stringify({ threadId })
     const outputDir = resolve(context.cwd, parsed.output)
     await mkdir(dirname(outputDir), { recursive: true })
     await access(outputDir).then(
-      () => { throw new Error(`Channel history output already exists: ${outputDir}`) },
+      () => { throw agentDiagnostics.AGENT_R0533({ message: `Channel history output already exists: ${outputDir}` }) },
       () => undefined,
     )
     const stagingDir = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}-`))
@@ -198,7 +199,7 @@ export async function runAgentChannelHistoryCli(
       })
       if (!response.ok) {
         const detail = await response.text().catch(() => "")
-        throw new Error(`Channel history export failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}.`)
+        throw agentDiagnostics.AGENT_R0534({ message: `Channel history export failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}.` })
       }
       const history = await response.json()
       const materialized = await materializeHistory(history, join(stagingDir, "media"), { value: 0 })

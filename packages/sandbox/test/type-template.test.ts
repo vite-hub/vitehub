@@ -15,45 +15,40 @@ import { describe, expect, it } from "vitest"
 import { createSandboxTypeTemplateContents } from "../src/type-template.ts"
 
 describe("createSandboxTypeTemplateContents", () => {
-  it("generates callable package contracts with non-function fallbacks", () => {
+  it("generates callable package contracts", () => {
     const contents = createSandboxTypeTemplateContents([
       {
         handler: "/app/server/sandboxes/typed/index.ts",
-        hasPayloadType: true,
         kind: "package-entry",
         name: "typed",
       },
       {
         handler: "/app/server/sandboxes/untyped/index.ts",
-        hasPayloadType: false,
         kind: "package-entry",
         name: "untyped",
       },
     ])
 
-    expect(contents).toContain("type SandboxPackageContract<TDefault, TFallbackPayload>")
-    expect(contents).toContain('"typed": SandboxPackageContract<typeof import("/app/server/sandboxes/typed/index.ts")[\'default\'], import("/app/server/sandboxes/typed/index.ts").SandboxPayload>')
-    expect(contents).toContain('"untyped": SandboxPackageContract<typeof import("/app/server/sandboxes/untyped/index.ts")[\'default\'], unknown>')
+    expect(contents).toContain("type SandboxPackageContract<TDefault extends (...args: any[]) => any>")
+    expect(contents).toContain('"typed": SandboxPackageContract<typeof import("/app/server/sandboxes/typed/index.ts")[\'default\']>')
+    expect(contents).toContain('"untyped": SandboxPackageContract<typeof import("/app/server/sandboxes/untyped/index.ts")[\'default\']>')
   })
 
-  it("type-checks inferred function payloads, results, and fallbacks", async () => {
+  it("type-checks inferred function payloads and results", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-types-"))
     try {
       const callable = join(root, "callable.ts")
       const zeroArgument = join(root, "zero-argument.ts")
-      const legacy = join(root, "legacy.ts")
       const generated = join(root, "sandbox.d.ts")
       const assertions = join(root, "assertions.ts")
       const stubs = join(root, "stubs.d.ts")
       await Promise.all([
         writeFile(callable, "export default async function (payload: { image: Blob }) { return { size: payload.image.size } }\n"),
         writeFile(zeroArgument, "export default async function () { return 'ready' as const }\n"),
-        writeFile(legacy, "export interface SandboxPayload { value: string }; export default { length: 1 }\n"),
         writeFile(stubs, "declare module '@vite-hub/sandbox' { export interface SandboxDefinitionBundle {} export interface SandboxDefinitionOptions {} }\n"),
         writeFile(generated, createSandboxTypeTemplateContents([
-          { handler: callable, hasPayloadType: false, kind: "package-entry", name: "callable" },
-          { handler: zeroArgument, hasPayloadType: false, kind: "package-entry", name: "zero-argument" },
-          { handler: legacy, hasPayloadType: true, kind: "package-entry", name: "legacy" },
+          { handler: callable, kind: "package-entry", name: "callable" },
+          { handler: zeroArgument, kind: "package-entry", name: "zero-argument" },
         ])),
         writeFile(assertions, [
           `type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false`,
@@ -63,9 +58,7 @@ describe("createSandboxTypeTemplateContents", () => {
           `type CallableResult = Assert<Equal<Definitions["callable"]["result"], { size: number }>>`,
           `type ZeroArgumentPayload = Assert<Equal<Definitions["zero-argument"]["payload"], unknown>>`,
           `type ZeroArgumentResult = Assert<Equal<Definitions["zero-argument"]["result"], "ready">>`,
-          `type LegacyPayload = Assert<Equal<Definitions["legacy"]["payload"], import(${JSON.stringify(legacy)}).SandboxPayload>>`,
-          `type LegacyResult = Assert<Equal<Definitions["legacy"]["result"], { length: number }>>`,
-          `export type Assertions = CallablePayload | CallableResult | ZeroArgumentPayload | ZeroArgumentResult | LegacyPayload | LegacyResult`,
+          `export type Assertions = CallablePayload | CallableResult | ZeroArgumentPayload | ZeroArgumentResult`,
           ``,
         ].join("\n")),
       ])
@@ -80,7 +73,7 @@ describe("createSandboxTypeTemplateContents", () => {
           strict: true,
           target: ScriptTarget.ES2023,
         },
-        rootNames: [assertions, callable, generated, legacy, stubs, zeroArgument],
+        rootNames: [assertions, callable, generated, stubs, zeroArgument],
       })
       expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
     }

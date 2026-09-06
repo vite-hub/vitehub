@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/interrupt",
+  "scripts": {
+    "build": "node ../../task.mjs build @fixture/interrupt",
+    "test": "node ../../task.mjs test @fixture/interrupt"
+  }
+}

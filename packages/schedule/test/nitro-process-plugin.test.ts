@@ -7,6 +7,7 @@ import { transform } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { hubSchedule } from "../src/vite.ts"
+import { normalizeScheduleRuntimeError } from "../src/runtime/static.ts"
 
 interface RuntimeController {
   close: () => Promise<void> | void
@@ -23,6 +24,7 @@ interface PluginHarness {
   createProcessScheduleWakeDriver: () => () => void
   definePlugin: <T>(plugin: T) => T
   installScheduleRuntime: (options: RuntimeInstallOptions) => Promise<RuntimeController>
+  normalizeScheduleRuntimeError: typeof normalizeScheduleRuntimeError
 }
 
 interface NitroAppHarness {
@@ -60,7 +62,7 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
 
   const generated = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
   const imports = [
-    "const { createKVRuntimeScheduleStore, createKVScheduleRunStore, createProcessScheduleWakeDriver, definePlugin, installScheduleRuntime } = globalThis.__vitehubSchedulePluginHarness",
+    "const { createKVRuntimeScheduleStore, createKVScheduleRunStore, createProcessScheduleWakeDriver, definePlugin, installScheduleRuntime, normalizeScheduleRuntimeError } = globalThis.__vitehubSchedulePluginHarness",
     "const runtimeScheduleRegistry = {}",
     "const staticScheduleRegistry = {}",
   ].join("\n")
@@ -78,6 +80,7 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
     createProcessScheduleWakeDriver: () => () => {},
     definePlugin: plugin => plugin,
     installScheduleRuntime,
+    normalizeScheduleRuntimeError,
   }
 
   const module = await import(`${pathToFileURL(pluginFile).href}?${Date.now()}-${Math.random()}`) as {

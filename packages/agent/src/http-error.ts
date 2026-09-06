@@ -1,18 +1,19 @@
 import {
   getViteHubErrorShape,
 } from "@vite-hub/runtime"
+import { Diagnostic } from "nostics"
 
 import {
   readAgentErrorProperty,
   toAgentPublicError,
 } from "./agent-error.ts"
 
-export class AgentHttpError extends Error {
+export class AgentHttpError extends Diagnostic {
   readonly status: number
   readonly statusCode: number
 
   constructor(statusCode: number, message: string) {
-    super(message)
+    super({ code: "AGENT_R0891", docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics", why: message }, AgentHttpError)
     this.name = "AgentHttpError"
     this.status = statusCode
     this.statusCode = statusCode

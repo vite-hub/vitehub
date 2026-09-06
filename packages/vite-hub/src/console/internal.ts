@@ -1,0 +1,573 @@
+import type { AgentInvocations } from "@vite-hub/agent"
+import type { BlobStorage } from "@vite-hub/blob"
+import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
+import type { KVStorage } from "@vite-hub/kv"
+import type { ConsoleDefinitionCatalog } from "./runtime/definitions.ts"
+import type { ConsoleSectionId } from "./runtime/sections.ts"
+
+export const consoleDefinitionsKey: unique symbol = Symbol.for("vitehub.console.definitions")
+export const consoleDefinitionsRegistryKey: unique symbol = Symbol.for("vitehub.console.definitions.registry")
+export const consoleDefinitionsRootKey: unique symbol = Symbol.for("vitehub.console.definitions.root")
+export const consoleDatabaseKey: unique symbol = Symbol.for("vitehub.console.database")
+export const consoleDatabaseRegistryKey: unique symbol = Symbol.for("vitehub.console.database.registry")
+export const consoleDatabaseRootKey: unique symbol = Symbol.for("vitehub.console.database.root")
+export const consoleInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations")
+export const consoleInvocationsFallbackKey: unique symbol = Symbol.for("vitehub.console.invocations.fallback")
+export const consoleInvocationsRootKey: unique symbol = Symbol.for("vitehub.console.invocations.root")
+export const consoleInvocationsIdentityKey: unique symbol = Symbol.for("vitehub.console.invocations.identity")
+export const consoleInvocationsIdentityRootKey: unique symbol = Symbol.for("vitehub.console.invocations.identity-root")
+export const consoleInvocationsBindingKey: unique symbol = Symbol.for("vitehub.console.invocations.binding")
+export const consoleInvocationsBindingRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.bindings")
+export const consoleInvocationsBindingRootRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.binding-roots")
+export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.registry")
+export const consoleBlobKey: unique symbol = Symbol.for("vitehub.console.blob")
+export const consoleBlobRegistryKey: unique symbol = Symbol.for("vitehub.console.blob.registry")
+export const consoleBlobRootKey: unique symbol = Symbol.for("vitehub.console.blob.root")
+export const consoleKVKey: unique symbol = Symbol.for("vitehub.console.kv")
+export const consoleKVRegistryKey: unique symbol = Symbol.for("vitehub.console.kv.registry")
+export const consoleKVRootKey: unique symbol = Symbol.for("vitehub.console.kv.root")
+export const consoleInvocationsRootIdentityRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.root-identities")
+export const consoleInvocationsRevisionRegistryKey: unique symbol = Symbol.for("vitehub.console.invocations.revisions")
+export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleInvocationsRootKey
+export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
+export const consoleProjectNameKey: unique symbol = Symbol.for("vitehub.console.project-name")
+export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
+export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
+
+type ConsoleInvocationsByRoot = {
+  delete(key: string): boolean
+  get(key: string): AgentInvocations | undefined
+  set(key: string, value: AgentInvocations): unknown
+  readonly size: number
+}
+
+type ConsoleDefinitionsByRoot = {
+  get(key: string): ConsoleDefinitionCatalog | undefined
+  set(key: string, value: ConsoleDefinitionCatalog): unknown
+  readonly size: number
+}
+
+export interface ConsoleKVInspection {
+  storage: KVStorage
+  stores: readonly string[]
+}
+
+export interface ConsoleDatabaseInspection {
+  databases: Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
+  names: readonly string[]
+}
+
+export interface ConsoleBlobInspection {
+  storage: BlobStorage
+  stores: readonly string[]
+}
+
+type ConsoleBlobByRoot = {
+  get(key: string): ConsoleBlobInspection | undefined
+  set(key: string, value: ConsoleBlobInspection): unknown
+  readonly size: number
+}
+
+type ConsoleKVByRoot = {
+  get(key: string): ConsoleKVInspection | undefined
+  set(key: string, value: ConsoleKVInspection): unknown
+  readonly size: number
+}
+
+type ConsoleDatabaseByRoot = {
+  get(key: string): ConsoleDatabaseInspection | undefined
+  set(key: string, value: ConsoleDatabaseInspection): unknown
+  readonly size: number
+}
+
+type ConsoleInvocationRegistry = Record<
+  symbol,
+  AgentInvocations | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleDefinitionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleSectionsByRoot | undefined
+>
+
+type ConsoleInvocationIdentitiesByRoot = {
+  delete(key: string): boolean
+  entries(): IterableIterator<[string, string]>
+  get(key: string): string | undefined
+  set(key: string, value: string): unknown
+  values(): IterableIterator<string>
+}
+
+interface ConsoleSectionRegistration {
+  projectName?: string
+  sections: readonly ConsoleSectionId[]
+}
+
+type ConsoleSectionsByRoot = {
+  get(key: string): ConsoleSectionRegistration | undefined
+  set(key: string, value: ConsoleSectionRegistration): unknown
+  readonly size: number
+  values(): IterableIterator<ConsoleSectionRegistration>
+}
+
+export type ConsoleInvocationScope = {
+  process?: unknown
+  [consoleInvocationsBindingKey]?: string
+  [consoleBlobKey]?: ConsoleBlobInspection
+  [consoleBlobRegistryKey]?: ConsoleBlobByRoot
+  [consoleBlobRootKey]?: string
+  [consoleDatabaseKey]?: ConsoleDatabaseInspection
+  [consoleDatabaseRegistryKey]?: ConsoleDatabaseByRoot
+  [consoleDatabaseRootKey]?: string
+  [consoleDefinitionsKey]?: ConsoleDefinitionCatalog
+  [consoleDefinitionsRegistryKey]?: ConsoleDefinitionsByRoot
+  [consoleDefinitionsRootKey]?: string
+  [consoleInvocationsKey]?: AgentInvocations
+  [consoleInvocationsIdentityKey]?: string
+  [consoleInvocationsIdentityRootKey]?: string
+  [consoleInvocationsRootKey]?: string
+  [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
+  [consoleKVKey]?: ConsoleKVInspection
+  [consoleKVRegistryKey]?: ConsoleKVByRoot
+  [consoleKVRootKey]?: string
+  [consoleProjectRootKey]?: string
+  [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
+  [consoleSectionsKey]?: readonly ConsoleSectionId[]
+  [consoleProjectNameKey]?: string
+  [consoleSectionsRootKey]?: string
+  [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
+}
+
+function defaultConsoleInvocationScope(): ConsoleInvocationScope {
+  // SAFETY: ConsoleInvocationScope adds only optional symbol-keyed state to the global object.
+  return globalThis as ConsoleInvocationScope
+}
+
+export function createConsoleInvocationsIdentity(
+  projectRoot: string,
+  fixture?: string,
+  revision?: string,
+  runtimeBinding?: string,
+): string {
+  if (!fixture) return `sqlite:${projectRoot}`
+  const identity = `fixture:${projectRoot}:${fixture}${runtimeBinding ? `:${runtimeBinding}` : ""}`
+  return revision ? `${identity}:${revision}` : identity
+}
+
+export function resolveConsoleInvocationsRevision(
+  identity: string,
+  scope: ConsoleInvocationScope = globalThis,
+): string | undefined {
+  const registry = processRegistry(scope)
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const revisions = registry?.[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  return revisions?.get(identity)
+}
+
+export function resolveConsoleInvocationsByIdentity(
+  identity: string,
+  scope: ConsoleInvocationScope = globalThis,
+): AgentInvocations | undefined {
+  const registry = processRegistry(scope)
+  const registered = invocationsByRoot(registry?.[consoleInvocationsRegistryKey])
+  return registered?.get(identity)
+    ?? (scope[consoleInvocationsIdentityKey] === identity ? scope[consoleInvocationsKey] : undefined)
+}
+
+function invocationsByRoot(value: unknown): ConsoleInvocationsByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleInvocationsByRoot member before use.
+  const registry = value as Partial<ConsoleInvocationsByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  return typeof registry.get === "function"
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+    && typeof registry.delete === "function"
+    && typeof registry.set === "function"
+    && Number.isInteger(registry.size)
+    // SAFETY: The preceding checks validate every ConsoleInvocationsByRoot member.
+    ? registry as ConsoleInvocationsByRoot
+    : undefined
+}
+
+function definitionsByRoot(value: unknown): ConsoleDefinitionsByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleDefinitionsByRoot member before use.
+  const registry = value as Partial<ConsoleDefinitionsByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
+  // SAFETY: The preceding checks validate every ConsoleDefinitionsByRoot member.
+  return registry as ConsoleDefinitionsByRoot
+}
+
+function blobByRoot(value: unknown): ConsoleBlobByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleBlobByRoot member before use.
+  const registry = value as Partial<ConsoleBlobByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
+  // SAFETY: The preceding checks validate every ConsoleBlobByRoot member.
+  return registry as ConsoleBlobByRoot
+}
+
+function kvByRoot(value: unknown): ConsoleKVByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleKVByRoot member before use.
+  const registry = value as Partial<ConsoleKVByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
+  // SAFETY: The preceding checks validate every ConsoleKVByRoot member.
+  return registry as ConsoleKVByRoot
+}
+
+function databaseByRoot(value: unknown): ConsoleDatabaseByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleDatabaseByRoot member before use.
+  const registry = value as Partial<ConsoleDatabaseByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  if (typeof registry.get !== "function" || typeof registry.set !== "function" || !Number.isInteger(registry.size)) return
+  // SAFETY: The preceding checks validate every ConsoleDatabaseByRoot member.
+  return registry as ConsoleDatabaseByRoot
+}
+
+function sectionsByRoot(value: unknown): ConsoleSectionsByRoot | undefined {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Registry values cross Vite SSR realms, so realm-local prototypes cannot establish this boundary.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return
+  // SAFETY: The structural checks below validate every ConsoleSectionsByRoot member before use.
+  const registry = value as Partial<ConsoleSectionsByRoot>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Callable members are the realm-independent registry contract.
+  return typeof registry.get === "function" && typeof registry.set === "function" && Number.isInteger(registry.size)
+    ? // SAFETY: The preceding checks validate every ConsoleSectionsByRoot member.
+      registry as ConsoleSectionsByRoot
+    : undefined
+}
+
+function retireConsoleInvocationsIdentity(registry: ConsoleInvocationRegistry, identity: string): boolean {
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  if (bindings && [...bindings.values()].includes(identity)) return false
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const roots = registry[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  if (roots && [...roots.values()].includes(identity)) return false
+  invocationsByRoot(registry[consoleInvocationsRegistryKey])?.delete(identity)
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const revisions = registry[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  revisions?.delete(identity)
+  return true
+}
+
+function processRegistry(scope: ConsoleInvocationScope): ConsoleInvocationRegistry | undefined {
+  // Vite SSR module runners isolate globalThis but retain the host Node process object.
+  if (!scope.process || (typeof scope.process !== "object" && typeof scope.process !== "function")) return
+  // SAFETY: ConsoleInvocationRegistry uses only optional symbol keys on the shared process object.
+  return scope.process as ConsoleInvocationRegistry
+}
+
+export function bindConsoleInvocationsIdentity(
+  binding: string,
+  identity: string,
+  projectRoot: string,
+  scope: ConsoleInvocationScope = globalThis,
+): void {
+  const registry = processRegistry(scope)
+  if (!registry) return
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+    ?? new Map<string, string>()
+  const previousIdentity = bindings.get(binding)
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindingRoots = registry[consoleInvocationsBindingRootRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+    ?? new Map<string, string>()
+  bindings.set(binding, identity)
+  bindingRoots.set(binding, projectRoot)
+  registry[consoleInvocationsBindingRegistryKey] = bindings
+  registry[consoleInvocationsBindingRootRegistryKey] = bindingRoots
+  if (previousIdentity && previousIdentity !== identity) {
+    retireConsoleInvocationsIdentity(registry, previousIdentity)
+  }
+}
+
+export function releaseConsoleInvocationsBinding(
+  binding: string,
+  scope: ConsoleInvocationScope = globalThis,
+): void {
+  const registry = processRegistry(scope)
+  if (!registry) return
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindings = registry[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  const identity = bindings?.get(binding)
+  if (!identity) return
+  bindings?.delete(binding)
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindingRoots = registry[consoleInvocationsBindingRootRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  const projectRoot = bindingRoots?.get(binding)
+  bindingRoots?.delete(binding)
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const roots = registry[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  if (projectRoot && roots?.get(projectRoot) === identity) {
+    let survivingIdentity: string | undefined
+    for (const [candidateBinding, candidateRoot] of bindingRoots?.entries() ?? []) {
+      if (candidateRoot === projectRoot) survivingIdentity = bindings?.get(candidateBinding)
+    }
+    if (survivingIdentity) roots.set(projectRoot, survivingIdentity)
+    else roots.delete(projectRoot)
+  }
+  const journals = invocationsByRoot(registry[consoleInvocationsRegistryKey])
+  const releasedInvocations = journals?.get(identity)
+  if (!retireConsoleInvocationsIdentity(registry, identity)) return
+  const survivingIdentity = projectRoot ? roots?.get(projectRoot) : undefined
+  const survivingInvocations = survivingIdentity ? journals?.get(survivingIdentity) : undefined
+  if (releasedInvocations && registry[consoleInvocationsKey] === releasedInvocations) {
+    if (survivingInvocations) registry[consoleInvocationsKey] = survivingInvocations
+    else delete registry[consoleInvocationsKey]
+  }
+  if (scope[consoleInvocationsIdentityKey] !== identity) return
+  if (survivingIdentity && survivingInvocations && projectRoot) {
+    scope[consoleInvocationsKey] = survivingInvocations
+    scope[consoleInvocationsIdentityKey] = survivingIdentity
+    scope[consoleInvocationsIdentityRootKey] = projectRoot
+    return
+  }
+  delete scope[consoleInvocationsKey]
+  delete scope[consoleInvocationsIdentityKey]
+  delete scope[consoleInvocationsIdentityRootKey]
+  if (scope[consoleInvocationsRootKey] === projectRoot) delete scope[consoleInvocationsRootKey]
+}
+
+export function resolveConsoleInvocations(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): AgentInvocations | undefined {
+  const root = scope[consoleInvocationsRootKey]
+  const registry = processRegistry(scope)
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  const identities = registry?.[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  const registered = invocationsByRoot(registry?.[consoleInvocationsRegistryKey])
+  const scopeOwnsRoot = scope[consoleInvocationsIdentityRootKey] === root
+  const scopeIdentity = scopeOwnsRoot
+    ? scope[consoleInvocationsIdentityKey]
+    : undefined
+  // SAFETY: bindConsoleInvocationsIdentity is the only writer for this process registry key.
+  const bindings = registry?.[consoleInvocationsBindingRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+  const boundIdentity = scopeOwnsRoot && scope[consoleInvocationsBindingKey]
+    ? bindings?.get(scope[consoleInvocationsBindingKey])
+    : undefined
+  const boundInvocations = boundIdentity ? registered?.get(boundIdentity) : undefined
+  const identity = root
+    ? scopeIdentity && registered?.get(scopeIdentity) ? scopeIdentity : identities?.get(root) ?? root
+    : scope[consoleInvocationsIdentityKey]
+  if (root) {
+    if (boundInvocations) return boundInvocations
+    return scopeIdentity
+      ? scope[consoleInvocationsKey] ?? registered?.get(scopeIdentity)
+      : registered?.get(identity ?? root)
+  }
+  if (!root && registered && registered.size > 1) {
+    return scope[consoleInvocationsKey]
+  }
+  // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+  return processRegistry(scope)?.[consoleInvocationsKey] as AgentInvocations | undefined
+    ?? scope[consoleInvocationsKey]
+}
+
+export function installConsoleInvocationFallback(
+  invocations: AgentInvocations,
+  projectRoot: string,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+  identity: string = projectRoot,
+  revision?: string,
+): void {
+  scope[consoleInvocationsKey] = invocations
+  scope[consoleInvocationsRootKey] = projectRoot
+  scope[consoleInvocationsIdentityKey] = identity
+  scope[consoleInvocationsIdentityRootKey] = projectRoot
+  const registry = processRegistry(scope)
+  if (registry) {
+    const journals = invocationsByRoot(registry[consoleInvocationsRegistryKey])
+      ?? new Map<string, AgentInvocations>()
+    journals.set(identity, invocations)
+    registry[consoleInvocationsRegistryKey] = journals
+    // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+    const identities = registry[consoleInvocationsRootIdentityRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+      ?? new Map<string, string>()
+    identities.set(projectRoot, identity)
+    registry[consoleInvocationsRootIdentityRegistryKey] = identities
+    if (revision) {
+      // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
+      const revisions = registry[consoleInvocationsRevisionRegistryKey] as ConsoleInvocationIdentitiesByRoot | undefined
+        ?? new Map<string, string>()
+      revisions.set(identity, revision)
+      registry[consoleInvocationsRevisionRegistryKey] = revisions
+    }
+    registry[consoleInvocationsKey] = invocations
+  }
+}
+
+export function installConsoleDefinitionScope(
+  projectRoot: string,
+  catalog: ConsoleDefinitionCatalog,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleDefinitionCatalog {
+  scope[consoleDefinitionsRootKey] = projectRoot
+  scope[consoleDefinitionsKey] = catalog
+  const registry = processRegistry(scope)
+  if (registry) {
+    const catalogs = definitionsByRoot(registry[consoleDefinitionsRegistryKey]) ?? new Map<string, ConsoleDefinitionCatalog>()
+    catalogs.set(projectRoot, catalog)
+    registry[consoleDefinitionsRegistryKey] = catalogs
+    registry[consoleDefinitionsKey] = catalog
+  }
+  return catalog
+}
+
+export function resolveConsoleDefinitions(
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleDefinitionCatalog | undefined {
+  const root = scope[consoleDefinitionsRootKey]
+  const registered = definitionsByRoot(processRegistry(scope)?.[consoleDefinitionsRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleDefinitionsKey]
+  if (registered && registered.size > 1) return scope[consoleDefinitionsKey]
+  // SAFETY: installConsoleDefinitionScope is the only writer for this process registry key.
+  return (processRegistry(scope)?.[consoleDefinitionsKey] as ConsoleDefinitionCatalog | undefined)
+    ?? scope[consoleDefinitionsKey]
+}
+
+export function installConsoleBlobScope(
+  projectRoot: string,
+  inspection: ConsoleBlobInspection,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleBlobInspection {
+  scope[consoleBlobRootKey] = projectRoot
+  scope[consoleBlobKey] = inspection
+  const registry = processRegistry(scope)
+  if (registry) {
+    const inspections = blobByRoot(registry[consoleBlobRegistryKey]) ?? new Map<string, ConsoleBlobInspection>()
+    inspections.set(projectRoot, inspection)
+    registry[consoleBlobRegistryKey] = inspections
+    registry[consoleBlobKey] = inspection
+  }
+  return inspection
+}
+
+export function resolveConsoleBlob(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleBlobInspection | undefined {
+  const root = scope[consoleBlobRootKey]
+  const registered = blobByRoot(processRegistry(scope)?.[consoleBlobRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleBlobKey]
+  if (registered && registered.size > 1) return scope[consoleBlobKey]
+  // SAFETY: installConsoleBlobScope is the only writer for this process registry key.
+  return (processRegistry(scope)?.[consoleBlobKey] as ConsoleBlobInspection | undefined) ?? scope[consoleBlobKey]
+}
+
+export function installConsoleKVScope(
+  projectRoot: string,
+  inspection: ConsoleKVInspection,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleKVInspection {
+  scope[consoleKVRootKey] = projectRoot
+  scope[consoleKVKey] = inspection
+  const registry = processRegistry(scope)
+  if (registry) {
+    const inspections = kvByRoot(registry[consoleKVRegistryKey]) ?? new Map<string, ConsoleKVInspection>()
+    inspections.set(projectRoot, inspection)
+    registry[consoleKVRegistryKey] = inspections
+    registry[consoleKVKey] = inspection
+  }
+  return inspection
+}
+
+export function resolveConsoleKV(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleKVInspection | undefined {
+  const root = scope[consoleKVRootKey]
+  const registered = kvByRoot(processRegistry(scope)?.[consoleKVRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleKVKey]
+  if (registered && registered.size > 1) return scope[consoleKVKey]
+  // SAFETY: installConsoleKVScope is the only writer for this process registry key.
+  return (processRegistry(scope)?.[consoleKVKey] as ConsoleKVInspection | undefined) ?? scope[consoleKVKey]
+}
+
+export function installConsoleDatabaseScope(
+  projectRoot: string,
+  inspection: ConsoleDatabaseInspection,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): ConsoleDatabaseInspection {
+  scope[consoleDatabaseRootKey] = projectRoot
+  scope[consoleDatabaseKey] = inspection
+  const registry = processRegistry(scope)
+  if (registry) {
+    const inspections = databaseByRoot(registry[consoleDatabaseRegistryKey]) ?? new Map<string, ConsoleDatabaseInspection>()
+    inspections.set(projectRoot, inspection)
+    registry[consoleDatabaseRegistryKey] = inspections
+    registry[consoleDatabaseKey] = inspection
+  }
+  return inspection
+}
+
+export function resolveConsoleDatabase(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleDatabaseInspection | undefined {
+  const root = scope[consoleDatabaseRootKey]
+  const registered = databaseByRoot(processRegistry(scope)?.[consoleDatabaseRegistryKey])
+  if (root) return registered?.get(root) ?? scope[consoleDatabaseKey]
+  if (registered && registered.size > 1) return scope[consoleDatabaseKey]
+  // SAFETY: installConsoleDatabaseScope is the only writer for this process registry key.
+  return (processRegistry(scope)?.[consoleDatabaseKey] as ConsoleDatabaseInspection | undefined) ?? scope[consoleDatabaseKey]
+}
+
+export function installConsoleSectionScope(
+  projectRoot: string,
+  sections: readonly ConsoleSectionId[],
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): readonly ConsoleSectionId[] {
+  const installed = [...new Set(sections)]
+  scope[consoleSectionsRootKey] = projectRoot
+  scope[consoleSectionsKey] = installed
+  const registry = processRegistry(scope)
+  if (registry) {
+    const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
+    const projectName = sectionsRegistry.get(projectRoot)?.projectName
+    sectionsRegistry.set(projectRoot, { ...(projectName ? { projectName } : {}), sections: installed })
+    registry[consoleSectionsRegistryKey] = sectionsRegistry
+    registry[consoleSectionsKey] = installed
+  }
+  return installed
+}
+
+export function installConsoleProjectNameScope(
+  projectRoot: string,
+  projectName: string,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): string {
+  scope[consoleSectionsRootKey] = projectRoot
+  scope[consoleProjectNameKey] = projectName
+  const registry = processRegistry(scope)
+  if (registry) {
+    const sectionsRegistry = sectionsByRoot(registry[consoleSectionsRegistryKey]) ?? new Map<string, ConsoleSectionRegistration>()
+    const sections = sectionsRegistry.get(projectRoot)?.sections ?? scope[consoleSectionsKey] ?? []
+    sectionsRegistry.set(projectRoot, { projectName, sections })
+    registry[consoleSectionsRegistryKey] = sectionsRegistry
+  }
+  return projectName
+}
+
+export function resolveConsoleSections(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): readonly ConsoleSectionId[] {
+  const root = scope[consoleSectionsRootKey]
+  const registry = processRegistry(scope)
+  const registered = sectionsByRoot(registry?.[consoleSectionsRegistryKey])
+  if (root) return registered?.get(root)?.sections ?? scope[consoleSectionsKey] ?? []
+  if (registered && registered.size > 1) return scope[consoleSectionsKey] ?? []
+  // SAFETY: installConsoleSectionScope is the only writer for this process registry key.
+  return (registry?.[consoleSectionsKey] as readonly ConsoleSectionId[] | undefined) ?? scope[consoleSectionsKey] ?? []
+}
+
+export function resolveConsoleProjectName(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
+  const root = scope[consoleSectionsRootKey]
+  const registered = sectionsByRoot(processRegistry(scope)?.[consoleSectionsRegistryKey])
+  if (root) return registered?.get(root)?.projectName ?? scope[consoleProjectNameKey]
+  if (registered && registered.size > 1) return scope[consoleProjectNameKey]
+  return registered?.values().next().value?.projectName ?? scope[consoleProjectNameKey]
+}
+
+export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
+  return scope[consoleInvocationsRootKey]
+}
+
+export function resolveConsoleInvocationsRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
+  return scope[consoleInvocationsRootKey]
+}
+
+export function resolveConsoleInvocationsIdentity(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
+  return scope[consoleInvocationsIdentityKey] ?? scope[consoleInvocationsRootKey]
+}

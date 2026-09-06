@@ -1,9 +1,10 @@
 import { defineChannel } from "./definition.ts"
 
 import type { ChannelClient, ChannelConnectorMap, ChannelDefinition, ChannelSendOptions, ChannelSendResult } from "./types.ts"
+import { channelsErrorDiagnostics } from "./error-diagnostics.ts"
 
 function channelError(message: string): Error {
-  return new Error(`[vitehub] ${message}`)
+  return channelsErrorDiagnostics.CHANNELS_R0001({ message: `[vitehub] ${message}` })
 }
 
 function logDelivery(event: string, deliveryId: string, channel: string, connector: string, extra: Record<string, unknown> = {}): void {

@@ -1,14 +1,81 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import {
   hasNitroConfigContext,
   resolveNitroVercelFunctionName,
   resolveViteHubGeneratedRoot,
+  resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it("continues project discovery above a repository-local temporary directory", async () => {
+    const previousTemporaryDirectories = {
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+      TMPDIR: process.env.TMPDIR,
+    }
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-project-root-boundary-"))
+    const temporaryRoot = join(projectRoot, ".tmp")
+    const nestedRoot = join(temporaryRoot, "fixture")
+    try {
+      await mkdir(nestedRoot, { recursive: true })
+      await writeFile(join(projectRoot, "package.json"), '{"private":true}\n')
+      process.env.TEMP = temporaryRoot
+      process.env.TMP = temporaryRoot
+      process.env.TMPDIR = temporaryRoot
+
+      expect(resolveViteHubProjectRoot(nestedRoot)).toBe(projectRoot)
+      expect(resolveViteHubProjectRoot(nestedRoot, { projectRoot })).toBe(projectRoot)
+    }
+    finally {
+      for (const [name, value] of Object.entries(previousTemporaryDirectories)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps ordinary app packages at their nearest project marker", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-app-project-root-"))
+    const appRoot = join(projectRoot, "app")
+    try {
+      await mkdir(appRoot)
+      await Promise.all([
+        writeFile(join(projectRoot, "package.json"), '{"private":true}\n'),
+        writeFile(join(appRoot, "package.json"), '{"private":true}\n'),
+      ])
+
+      expect(resolveViteHubProjectRoot(appRoot)).toBe(appRoot)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("prefers a parent with ViteHub directories for app roots", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-app-parent-root-"))
+    const appRoot = join(projectRoot, "app")
+    try {
+      await mkdir(appRoot)
+      await Promise.all([
+        mkdir(join(projectRoot, "server", "agents"), { recursive: true }),
+        writeFile(join(appRoot, "package.json"), '{"private":true}\n'),
+      ])
+
+      expect(resolveViteHubProjectRoot(appRoot)).toBe(projectRoot)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
   it("resolves the shared generated-artifact root", () => {
     expect(resolveViteHubGeneratedRoot({ root: "/app" })).toBe("/app/.vitehub")
     expect(resolveViteHubGeneratedRoot({

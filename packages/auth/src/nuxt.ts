@@ -7,6 +7,7 @@ import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth } from "./vite.ts
 
 import type { AuthModuleOptions } from "./types.ts"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface AuthNuxtModuleOptions {
   auth?: AuthModuleOptions
@@ -51,7 +52,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   const envPlugin = existingEnvPlugin || (options.env === false ? undefined : hubEnv(options.env))
   const envProjectRoot = envPlugin?.api.resolveProjectRoot(viteRoot) || configuredEnvProjectRoot
   if (options.env !== false && options.env?.projectRoot && existingEnvPlugin && envProjectRoot !== configuredEnvProjectRoot) {
-    throw new TypeError("`@vite-hub/auth/nuxt` env.projectRoot must match the installed `@vite-hub/env/vite` plugin.")
+    throw authErrorDiagnostics.AUTH_B0001({ message: "`@vite-hub/auth/nuxt` env.projectRoot must match the installed `@vite-hub/env/vite` plugin." })
   }
   if (options.env !== false && !existingEnvPlugin) {
     nuxt.options.vite.plugins.push(envPlugin!)

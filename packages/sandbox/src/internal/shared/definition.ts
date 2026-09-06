@@ -1,8 +1,9 @@
+import { sandboxErrorDiagnostics } from "../../error-diagnostics.ts"
 export type DefinitionHandler = (...args: never[]) => unknown
 
 export function assertDefinitionHandler(functionName: string, handler: unknown, label: string): asserts handler is DefinitionHandler {
   if (typeof handler !== 'function') {
-    throw new TypeError(`[vitehub] \`${functionName}()\` requires a ${label} as the first argument.`)
+    throw sandboxErrorDiagnostics.SANDBOX_C0010({ message: `[vitehub] \`${functionName}()\` requires a ${label} as the first argument.` })
   }
 }
 
@@ -14,7 +15,7 @@ export function validateDefinitionOptions<T>(functionName: string, options: unkn
   if (typeof options === 'undefined')
     return undefined
   if (!options || typeof options !== 'object' || Array.isArray(options))
-    throw new TypeError(`[vitehub] \`${functionName}()\` accepts one options object.`)
+    throw sandboxErrorDiagnostics.SANDBOX_C0011({ message: `[vitehub] \`${functionName}()\` accepts one options object.` })
 
   const invalidKeys = Object.keys(options).filter((key) => {
     if (config.allowedKeys)
@@ -23,9 +24,7 @@ export function validateDefinitionOptions<T>(functionName: string, options: unkn
   })
 
   if (invalidKeys.length) {
-    throw new TypeError(
-      `[vitehub] \`${functionName}()\` ${config.invalidKeysMessage}. Unsupported keys: ${invalidKeys.join(', ')}.`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_C0012({ message: `[vitehub] \`${functionName}()\` ${config.invalidKeysMessage}. Unsupported keys: ${invalidKeys.join(', ')}.` })
   }
 
   return options as T

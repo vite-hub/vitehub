@@ -2,6 +2,7 @@
 title: Config options
 description: Reference the main ViteHub Integration Options and where provider choices belong.
 navigation.order: 55
+navigation.group: Setup
 icon: i-lucide-sliders-horizontal
 ---
 
@@ -12,7 +13,7 @@ Provider Selection belongs in Integration Options when it changes generated outp
 
 `vitehub()` requires exactly one built-in `preset`: `cloudflare`, `netlify`, `vercel`, `deno`, or `node`. The selection is the single source for host identity, runtime, Nitro output, packaging, and built-in Blob, Queue, Rate Limit, and Sandbox adapters. Conflicting Nitro or hosting environment selections fail configuration.
 
-`name` is ViteHub's logical deployment identity. `VITEHUB_DEPLOYMENT_NAME` remains a compatibility input below explicit `name`. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`, which the Cloudflare preset resolves below both explicit ViteHub inputs and above the nearest `package.json` name and Vite root directory name. A differing explicit ViteHub identity fails because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, or store options still win. This fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue. The generated deployment manifest records the resolved identity and its source.
+`name` is ViteHub's logical deployment identity. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`, which the Cloudflare preset resolves below explicit `name` and above the nearest `package.json` name and Vite root directory name. A differing explicit ViteHub identity fails because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, or store options still win. This fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue. The generated deployment manifest records the resolved identity and its source.
 
 | Import | Public type | Placement | Defaults |
 | --- | --- | --- | --- |
@@ -34,9 +35,10 @@ The root `vitehub()` facade enables Agent, Blob, Browser, Channels, Database, KV
 | Blob | `BlobModuleOptions` | `blob` config key or `hubBlob(options)` | Omission or `false` disables Blob in `vitehub()`; `true` enables the selected preset's store, and an options object enables and configures it. Driver literals include `fs`, `cloudflare-r2`, `netlify-blobs`, `vercel-blob`, `minio`, `s3`, `gcs`, `azure`, and other exported Blob drivers. Defaults: Cloudflare hosting selects `cloudflare-r2` binding `BLOB`; Netlify hosting selects `netlify-blobs`; `BLOB_READ_WRITE_TOKEN` or Vercel hosting selects `vercel-blob` with `access: "public"`; otherwise the integration selects `fs` at `.vitehub/data/blob`. MinIO defaults to bucket `vitehub-blob`, endpoint `http://localhost:9000`, region `us-east-1`, and `forcePathStyle: true`. |
 | Browser | `BrowserModuleOptions` | `browser` config key or `hubBrowser(options)` | Omission or `false` disables Browser in `vitehub()`; `true` enables Cloudflare Browser Run actions with binding `BROWSER`, `{ binding }` changes the binding name, and `remote: true` connects local Wrangler development to the hosted service. Browser Definitions currently require the Cloudflare preset. The root integration and direct standalone `hubBrowser()` output generate the binding and required compatibility fields while preserving unrelated Wrangler fields. |
 | Channels | `ChannelsVitePluginOptions` | `channels` config key or `hubChannels(options)` | Omission or `false` disables Channel discovery in `vitehub()`; `true` discovers `server/channels/<path>.ts` and `<path>.channel.ts`. `projectRoot` changes where ViteHub looks for those files. Connectors and provider credentials belong in the Channel Definition. |
+| Console | `boolean \| ConsoleOptions` | `console` config key in `vitehub()` | Omission or `false` registers no Console page, Devframe transport, plugin, or assets. `true` mounts the complete read-only [Console](/docs/development/console) during development. Production builds require `{ access: 'auth' }` with a callback-backed Auth policy for `/_vitehub/**`, or `{ exposure: 'host-managed' }` to acknowledge equivalent host middleware. The Agent Console uses the shared invocation journal configured on discovered Agent Definitions. Without one, it falls back to local SQLite at `.vitehub/data/console.sqlite`. |
 | Database | `DBModulePublicOptions` | `database` config key or `hubDb(options)` | Omission or `false` disables Database in `vitehub()`; `true` enables inferred defaults, and an options object enables and configures it. `projectRoot` sets the Database discovery, generated-artifact, and provisioning root; relative paths resolve from the Vite root in Vite and the Nuxt `rootDir` in Nuxt. Integration options are `cli.generate` and `cli.migrate`, each disableable with `false`. `connection` supplies a hosted libSQL default for Vercel and other hosted output. Cloudflare D1 runtime fields are `driver: "d1"`, `binding`, `databaseId`, `previewDatabaseId`, `databaseName`, `migrationsTable`, and `local.filename`. Database Definitions own tables and may override integration connection values. |
-| Email | `EmailVitePluginOptions` | `email` config key or `hubEmail(options)` | `driver` is required for explicit options and selects an exact `unemail/driver/*` subpath; `options` accepts serializable literals and runtime Env declarations. Omission disables Email in `vitehub()`. The root package also accepts `email: true` on Cloudflare and rejects it on other presets. Markdown under `server/emails/**/*.md` is discovered recursively and exposed through typed `#vitehub/emails/<name>` renderer imports. |
-| Env | `EnvIntegrationOptions` and `EnvViteConfigOptions` | `hubEnv(options)` plus Vite `env` config | `diagnostics`: `off`, `summary`, `trace`; default `summary`. `prefix` changes inferred environment variable names. `projectRoot` changes generated file placement. Vite `env.public`, `env.define`, and `env.server` own Public Env, build define values, and Server Env declarations. |
+| Email | `EmailVitePluginOptions` | `email` config key or `hubEmail(options)` | `driver` is `resend` or `cloudflare-email`; `options` accepts serializable literals and runtime Env declarations. Omission disables Email in `vitehub()`. The root package also accepts `email: true` on Cloudflare and rejects it on other presets. Markdown under `server/emails/**/*.md` is discovered recursively and exposed through typed `#vitehub/emails/<name>` renderer imports. |
+| Env | `EnvIntegrationOptions` and `EnvViteConfigOptions` | `env` config key, `hubEnv(options)`, plus Vite `env` config | `diagnostics`: `off`, `summary`, `trace`; default `summary`. `prefix` changes inferred environment variable names. `projectRoot` changes generated file placement. `providers` maps read-only runtime provider names to application modules. Vite `env.public`, `env.define`, and `env.server` own Public Env, build define values, and Server Env declarations. |
 | KV | `KVModuleOptions` | `kv` config key or `hubKv(options)` | Accepts `false`, one store config, or `{ stores }` with `stores.default`. Driver literals are `fs-lite`, `cloudflare-kv-binding`, `deno-kv`, and `upstash`. Defaults: Deno hosting selects `deno-kv`; Upstash env selects `upstash`; Vercel hosting selects `upstash`; Cloudflare hosting selects `cloudflare-kv-binding` binding `KV`; otherwise `fs-lite` at `.vitehub/data/kv`. |
 | Queue | `QueueModuleOptions` | `queue` config key or `hubQueue(options)` | `false` disables the integration. When active, `provider` is `cloudflare` or `vercel`; Cloudflare hosting selects `cloudflare`, and other supported hosts select `vercel`. Netlify does not infer a provider. Shared `cache` belongs here. Cloudflare uses `binding`; Vercel uses `region`. Queue concurrency and retry behaviour belong to Queue Definition or enqueue options. |
 | Rate Limit | `RateLimitVitePluginOptions` | `rateLimit` config key or `hubRateLimit(options)` | `provider`: `auto`, `cloudflare`, or `memory`; default `auto`. Auto selects memory for Vite serve and Cloudflare for a known Cloudflare production host. Cloudflare requires a deployment-unique `namespace`. `projectRoot` and `scanDirs` are source-collection escape hatches. Handler-local `requireRateLimit()` calls own static limits, windows, enforcement guarantees, and failure behavior. |
@@ -93,13 +95,20 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node", env: { diagnostics: 'summary' } })],
+  plugins: [vitehub({
+    preset: "node",
+    env: {
+      diagnostics: 'summary',
+      providers: { credentials: './server/env/credentials.ts' },
+    },
+  })],
   env: {
     public: {
-      appName: env({ default: 'Acme' }),
+      appName: env({ default: 'Acme', mode: 'build' }),
     },
     server: {
       apiToken: env({ secret: true, source: env.source('API_TOKEN') }),
+      githubToken: env({ secret: true, source: env.provider('credentials', 'github/token') }),
     },
   },
 })

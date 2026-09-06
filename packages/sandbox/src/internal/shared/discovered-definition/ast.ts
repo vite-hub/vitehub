@@ -1,16 +1,35 @@
 import { createRequire } from 'node:module'
 
+import { join as joinPath } from 'pathe'
 import type { Import } from 'unimport'
 import type ts from 'typescript'
 
 const require = createRequire(import.meta.url)
-const typescript = require('typescript') as typeof import('typescript')
+const typescript: typeof import('typescript') = require('typescript')
+const filesystemModuleSpecifiers = new Set([
+  'child_process',
+  'fs',
+  'fs/promises',
+  'node:child_process',
+  'node:fs',
+  'node:fs/promises',
+  'node:sqlite',
+  'node:worker_threads',
+  'worker_threads',
+])
+const pathModuleSpecifiers = new Set(['node:path', 'node:path/posix', 'path', 'path/posix'])
+
+export interface FilesystemPathReference {
+  path?: string
+  relativeTo: 'module' | 'working-directory'
+}
 
 export function resolveImportLocalName(entry: Import) {
   return entry.as || entry.name
 }
 
 function getScriptKind(id: string) {
+  // SAFETY: older supported TypeScript releases may omit the MTS and CTS enum members.
   const scriptKind = typescript.ScriptKind as typeof typescript.ScriptKind & {
     MTS?: typeof typescript.ScriptKind.TS
     CTS?: typeof typescript.ScriptKind.TS
@@ -119,6 +138,344 @@ export function hasNonLiteralDynamicImport(source: string, id: string) {
   return collectRuntimeModuleSpecifiers(source, id).hasNonLiteralDynamicImport
 }
 
+export function findFilesystemPathReferences(source: string, id: string): FilesystemPathReference[] {
+  const sourceFile = createSourceFile(id, source)
+  const directBindings = new Set<string>()
+  const directBindingOperations = new Map<string, string>()
+  const namespaceBindings = new Set<string>()
+  const pathFunctionBindings = new Set<string>()
+  const pathNamespaceBindings = new Set<string>()
+  const requireBindings = new Set(['require'])
+  const createRequireBindings = new Set<string>()
+  const variableInitializers = new Map<string, ts.Expression>()
+  const ambiguousVariables = new Set<string>()
+  const references: FilesystemPathReference[] = []
+
+  function filesystemRequireSpecifier(expression: ts.Expression | undefined): string | undefined {
+    if (expression && (typescript.isPropertyAccessExpression(expression) || typescript.isElementAccessExpression(expression)))
+      return filesystemRequireSpecifier(expression.expression)
+    const loader = expression && typescript.isCallExpression(expression) ? expression.expression : undefined
+    const isFilesystemLoader = loader && (
+      (typescript.isIdentifier(loader) && requireBindings.has(loader.text))
+      || (typescript.isPropertyAccessExpression(loader)
+        && typescript.isIdentifier(loader.expression)
+        && loader.expression.text === 'process'
+        && loader.name.text === 'getBuiltinModule')
+    )
+    if (!expression
+      || !typescript.isCallExpression(expression)
+      || !isFilesystemLoader) {
+      return
+    }
+    const [specifier] = expression.arguments
+    return specifier
+      && typescript.isStringLiteralLike(specifier)
+      && filesystemModuleSpecifiers.has(specifier.text)
+      ? specifier.text
+      : undefined
+  }
+
+  function addCommonJSBinding(name: ts.BindingName) {
+    if (typescript.isIdentifier(name)) {
+      directBindings.add(name.text)
+      namespaceBindings.add(name.text)
+      return
+    }
+    for (const element of name.elements) {
+      if (!typescript.isOmittedExpression(element)) addCommonJSBinding(element.name)
+    }
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (typescript.isImportDeclaration(statement)
+      && typescript.isStringLiteralLike(statement.moduleSpecifier)
+      && (statement.moduleSpecifier.text === 'node:module' || statement.moduleSpecifier.text === 'module')
+      && !statement.importClause?.isTypeOnly) {
+      const bindings = statement.importClause?.namedBindings
+      if (bindings && typescript.isNamedImports(bindings)) {
+        for (const binding of bindings.elements) {
+          if (!binding.isTypeOnly && (binding.propertyName?.text ?? binding.name.text) === 'createRequire')
+            createRequireBindings.add(binding.name.text)
+        }
+      }
+    }
+    if (typescript.isImportEqualsDeclaration(statement)
+      && !statement.isTypeOnly
+      && typescript.isExternalModuleReference(statement.moduleReference)
+      && statement.moduleReference.expression
+      && typescript.isStringLiteralLike(statement.moduleReference.expression)
+      && filesystemModuleSpecifiers.has(statement.moduleReference.expression.text)) {
+      namespaceBindings.add(statement.name.text)
+      continue
+    }
+    if (!typescript.isImportDeclaration(statement)
+      || !typescript.isStringLiteralLike(statement.moduleSpecifier)
+      || !filesystemModuleSpecifiers.has(statement.moduleSpecifier.text)
+      || statement.importClause?.isTypeOnly) {
+      continue
+    }
+    const clause = statement.importClause
+    if (clause?.name)
+      namespaceBindings.add(clause.name.text)
+    const bindings = clause?.namedBindings
+    if (bindings && typescript.isNamespaceImport(bindings))
+      namespaceBindings.add(bindings.name.text)
+    else if (bindings && typescript.isNamedImports(bindings)) {
+      for (const binding of bindings.elements) {
+        if (!binding.isTypeOnly) {
+          directBindings.add(binding.name.text)
+          directBindingOperations.set(binding.name.text, binding.propertyName?.text ?? binding.name.text)
+          // Named imports can themselves expose an object API, for example
+          // `import { promises as fs } from "node:fs"`.
+          namespaceBindings.add(binding.name.text)
+        }
+      }
+    }
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (!typescript.isImportDeclaration(statement)
+      || !typescript.isStringLiteralLike(statement.moduleSpecifier)
+      || !pathModuleSpecifiers.has(statement.moduleSpecifier.text)
+      || statement.importClause?.isTypeOnly) {
+      continue
+    }
+    const clause = statement.importClause
+    if (clause?.name)
+      pathNamespaceBindings.add(clause.name.text)
+    const bindings = clause?.namedBindings
+    if (bindings && typescript.isNamespaceImport(bindings))
+      pathNamespaceBindings.add(bindings.name.text)
+    else if (bindings && typescript.isNamedImports(bindings)) {
+      for (const binding of bindings.elements) {
+        const importedName = binding.propertyName?.text ?? binding.name.text
+        if (!binding.isTypeOnly && (importedName === 'join' || importedName === 'resolve'))
+          pathFunctionBindings.add(binding.name.text)
+      }
+    }
+  }
+
+  function collectCommonJSBindings(node: ts.Node) {
+    if (typescript.isVariableDeclaration(node)) {
+      if (typescript.isIdentifier(node.name)
+        && node.initializer
+        && typescript.isCallExpression(node.initializer)
+        && typescript.isIdentifier(node.initializer.expression)
+        && createRequireBindings.has(node.initializer.expression.text)) {
+        requireBindings.add(node.name.text)
+      }
+      if (node.initializer
+        && typescript.isIdentifier(node.name)
+        && typescript.isVariableDeclarationList(node.parent)
+        && (node.parent.flags & typescript.NodeFlags.Const)) {
+        if (variableInitializers.has(node.name.text)) {
+          variableInitializers.delete(node.name.text)
+          ambiguousVariables.add(node.name.text)
+        }
+        else if (!ambiguousVariables.has(node.name.text)) {
+          variableInitializers.set(node.name.text, node.initializer)
+        }
+      }
+      if (filesystemRequireSpecifier(node.initializer))
+        addCommonJSBinding(node.name)
+    }
+    typescript.forEachChild(node, collectCommonJSBindings)
+  }
+
+  collectCommonJSBindings(sourceFile)
+
+  function filesystemOperation(expression: ts.Expression): string | undefined {
+    if (typescript.isIdentifier(expression))
+      return directBindingOperations.get(expression.text) ?? (directBindings.has(expression.text) ? expression.text : undefined)
+    const root = propertyAccessRoot(expression)
+    if (typescript.isIdentifier(root.current) && namespaceBindings.has(root.current.text))
+      return root.properties.at(-1)
+    if (filesystemRequireSpecifier(expression))
+      return root.properties.at(-1)
+  }
+
+  function derivedFilesystemOperation(expression: ts.Expression): string | undefined {
+    const value = unwrapExpression(expression)
+    const directOperation = filesystemOperation(value)
+    if (directOperation)
+      return directOperation
+    if (!typescript.isCallExpression(value) || filesystemOperation(value.expression))
+      return
+    const operations = new Set(
+      value.arguments
+        .map(derivedFilesystemOperation)
+        .filter((operation): operation is string => Boolean(operation)),
+    )
+    if (operations.size === 1)
+      return [...operations][0]
+    return operations.size ? 'wrapped-filesystem-operation' : undefined
+  }
+
+  let foundWrappedBinding = true
+  while (foundWrappedBinding) {
+    foundWrappedBinding = false
+    for (const [name, initializer] of variableInitializers) {
+      if (directBindings.has(name))
+        continue
+      const operation = derivedFilesystemOperation(initializer)
+      if (!operation)
+        continue
+      directBindings.add(name)
+      directBindingOperations.set(name, operation)
+      foundWrappedBinding = true
+    }
+  }
+
+  function isPathFunction(expression: ts.Expression) {
+    if (typescript.isIdentifier(expression))
+      return pathFunctionBindings.has(expression.text)
+    const root = propertyAccessRoot(expression)
+    return typescript.isIdentifier(root.current)
+      && pathNamespaceBindings.has(root.current.text)
+      && ['join', 'resolve'].includes(root.properties.at(-1) || '')
+  }
+
+  function unwrapExpression(expression: ts.Expression): ts.Expression {
+    if (typescript.isAwaitExpression(expression)
+      || typescript.isParenthesizedExpression(expression)
+      || typescript.isAsExpression(expression)
+      || typescript.isTypeAssertionExpression(expression)
+      || typescript.isNonNullExpression(expression)
+      || typescript.isSatisfiesExpression(expression)) {
+      return unwrapExpression(expression.expression)
+    }
+    return expression
+  }
+
+  function isTrackedFilesystemBindingUse(node: ts.Identifier) {
+    if (typescript.isImportSpecifier(node.parent)
+      || typescript.isImportClause(node.parent)
+      || typescript.isNamespaceImport(node.parent)
+      || typescript.isImportEqualsDeclaration(node.parent)) {
+      return true
+    }
+    let invokedExpression: ts.Expression = node
+    while ((typescript.isPropertyAccessExpression(invokedExpression.parent)
+      || typescript.isElementAccessExpression(invokedExpression.parent))
+      && invokedExpression.parent.expression === invokedExpression) {
+      invokedExpression = invokedExpression.parent
+    }
+    if ((typescript.isCallExpression(invokedExpression.parent) || typescript.isNewExpression(invokedExpression.parent))
+      && invokedExpression.parent.expression === invokedExpression
+      && filesystemOperation(invokedExpression)) {
+      return true
+    }
+    let current: ts.Node = node
+    while (current.parent && !typescript.isVariableDeclaration(current.parent))
+      current = current.parent
+    if (!current.parent
+      || !typescript.isVariableDeclaration(current.parent)
+      || current.parent.initializer !== current
+      || !typescript.isIdentifier(current.parent.name)) {
+      return false
+    }
+    return directBindings.has(current.parent.name.text)
+      && Boolean(derivedFilesystemOperation(current.parent.initializer))
+  }
+
+  type ResolvedPath = FilesystemPathReference | 'runtime' | undefined
+
+  function resolveFilesystemPath(argument: ts.Expression | undefined, seen = new Set<string>()): ResolvedPath {
+    if (!argument)
+      return
+    const expression = unwrapExpression(argument)
+    if (typescript.isStringLiteralLike(expression))
+      return { path: expression.text, relativeTo: 'working-directory' }
+    if (typescript.isIdentifier(expression)) {
+      if (seen.has(expression.text))
+        return
+      const initializer = variableInitializers.get(expression.text)
+      if (!initializer)
+        return
+      return resolveFilesystemPath(initializer, new Set(seen).add(expression.text))
+    }
+    if (typescript.isNewExpression(expression)
+      && typescript.isIdentifier(expression.expression)
+      && expression.expression.text === 'URL') {
+      const [path, base] = expression.arguments || []
+      if (path
+        && typescript.isStringLiteralLike(path)
+        && base
+        && typescript.isPropertyAccessExpression(base)
+        && base.name.text === 'url'
+        && typescript.isMetaProperty(base.expression)
+        && base.expression.keywordToken === typescript.SyntaxKind.ImportKeyword) {
+        return { path: path.text, relativeTo: 'module' }
+      }
+      return
+    }
+    if (!typescript.isCallExpression(expression))
+      return
+    if (filesystemOperation(expression.expression) === 'mkdtemp')
+      return 'runtime'
+    if (!isPathFunction(expression.expression))
+      return
+    const paths = expression.arguments.map(value => resolveFilesystemPath(value, seen))
+    if (!paths.length)
+      return
+    const resolvedPaths: FilesystemPathReference[] = []
+    for (const path of paths) {
+      if (path === 'runtime')
+        return 'runtime'
+      if (!path || path.relativeTo !== 'working-directory' || path.path === undefined)
+        return
+      resolvedPaths.push(path)
+    }
+    return {
+      path: joinPath(...resolvedPaths.map(path => path.path!)),
+      relativeTo: 'working-directory',
+    }
+  }
+
+  function visit(node: ts.Node) {
+    if (typescript.isIdentifier(node)
+      && (directBindings.has(node.text) || namespaceBindings.has(node.text))
+      && !isTrackedFilesystemBindingUse(node)) {
+      // Once a filesystem function escapes into an object, array, callback,
+      // or another value we do not model, its eventual path is unknown.
+      references.push({ relativeTo: 'working-directory' })
+    }
+    if (typescript.isCallExpression(node)
+      && node.expression.kind === typescript.SyntaxKind.ImportKeyword
+      && node.arguments[0]
+      && typescript.isStringLiteralLike(node.arguments[0])
+      && filesystemModuleSpecifiers.has(node.arguments[0].text)) {
+      // Dynamic-import bindings can flow through await, promises, and
+      // destructuring. Preserve the project when a Definition loads a
+      // filesystem module this way unless a future analysis proves its paths.
+      references.push({ relativeTo: 'working-directory' })
+    }
+    if (typescript.isCallExpression(node) || typescript.isNewExpression(node)) {
+      const operation = filesystemOperation(node.expression)
+      if (operation) {
+        const hasChildProcessArguments = ['execFile', 'execFileSync', 'fork', 'spawn', 'spawnSync'].includes(operation)
+          && Boolean(node.arguments && node.arguments.length > 1)
+        const reference = operation === 'exec' || operation === 'execSync'
+          ? undefined
+          : resolveFilesystemPath(node.arguments?.[0])
+        // mkdtemp creates a new runtime directory; its prefix cannot identify
+        // an existing project asset that needs to be retained.
+        if (operation !== 'mkdtemp' && reference !== 'runtime') {
+          references.push(hasChildProcessArguments ? {
+            relativeTo: 'working-directory',
+          } : reference ?? {
+            relativeTo: 'working-directory',
+          })
+        }
+      }
+    }
+    typescript.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  return references
+}
+
 function propertyAccessRoot(expression: ts.Expression) {
   const properties: string[] = []
   let current = expression
@@ -199,10 +556,9 @@ function isExecutableIdentifierReference(node: ts.Identifier) {
     typescript.isContinueStatement(parent)
   )
     return false
-  const namedParent = parent as ts.Node & { name?: ts.Node }
-  if (!typescript.isShorthandPropertyAssignment(parent) && namedParent.name === node) return false
-  const propertyParent = parent as ts.Node & { propertyName?: ts.Node }
-  return propertyParent.propertyName !== node
+  if (!typescript.isShorthandPropertyAssignment(parent) && 'name' in parent && parent.name === node)
+    return false
+  return !('propertyName' in parent) || parent.propertyName !== node
 }
 
 export function findExecutableCommonJSModuleSpecifiers(sources: ReadonlyMap<string, string>) {

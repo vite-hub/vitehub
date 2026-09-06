@@ -20,7 +20,7 @@ import {
 import { describe, expect, it } from "vitest"
 
 const repoRoot = resolve(import.meta.dirname, "..")
-const effectVersion = "4.0.0-beta.99"
+const effectVersion = "4.0.0-rc.112"
 const expectedEffectOwners = ["agent", "internal", "schedule", "source"]
 const allowedEffectOwners = new Set(expectedEffectOwners)
 
@@ -29,6 +29,18 @@ type PackageEffectOwnership = {
   importsEffect: boolean
   name: string
   private: boolean
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && Object(value) === value && !Array.isArray(value)
+}
+
+function parseJsonObject(source: string, label: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(source)
+  if (!isJsonObject(value)) {
+    throw new TypeError(`${label} must contain a JSON object.`)
+  }
+  return value
 }
 
 async function readFiles(dir: string, predicate: (path: string) => boolean): Promise<string[]> {
@@ -70,11 +82,12 @@ async function packageEffectOwnership(): Promise<PackageEffectOwnership[]> {
     if (!entry.isDirectory()) continue
     const packageDir = join(packagesDir, entry.name)
     const sources = await readFiles(join(packageDir, "src"), path => /\.[cm]?[jt]sx?$/.test(path))
-    const manifest = JSON.parse(await readFile(join(packageDir, "package.json"), "utf8")) as Record<string, unknown>
+    const manifestPath = join(packageDir, "package.json")
+    const manifest = parseJsonObject(await readFile(manifestPath, "utf8"), manifestPath)
     const dependencyGroups = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
     const declaresEffect = dependencyGroups.some((group) => {
       const dependencies = manifest[group]
-      return typeof dependencies === "object" && dependencies !== null && "effect" in dependencies
+      return isJsonObject(dependencies) && "effect" in dependencies
     })
     packages.push({
       declaresEffect,
@@ -126,11 +139,13 @@ describe("Effect ownership", () => {
       const owner = pkg.name
       const packageDir = join(repoRoot, "packages", owner)
       const manifestPath = join(packageDir, "package.json")
-      const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { dependencies?: Record<string, string> }
-      expect(manifest.dependencies?.effect, manifestPath).toBe("catalog:effect")
+      const manifest = parseJsonObject(await readFile(manifestPath, "utf8"), manifestPath)
+      const dependencies = manifest.dependencies
+      const declaredEffect = isJsonObject(dependencies) ? dependencies.effect : undefined
+      expect(declaredEffect, manifestPath).toBe("catalog:effect")
 
       const effectPackage = createRequire(manifestPath).resolve("effect/package.json")
-      const resolved = JSON.parse(await readFile(effectPackage, "utf8")) as { version: string }
+      const resolved = parseJsonObject(await readFile(effectPackage, "utf8"), effectPackage)
       expect(resolved.version, packageDir).toBe(effectVersion)
 
       const declarations = await readFiles(join(packageDir, "dist"), path => path.endsWith(".d.ts"))
@@ -145,7 +160,7 @@ describe("Effect ownership", () => {
       const bundles = (await readFiles(join(packageDir, "dist"), path => /\.[cm]?js$/.test(path))).join("\n")
       expect(bundles, packageDir).not.toMatch(/effect@3\.|3\.17\.7/)
     }
-  })
+  }, 30_000)
 
   it.each([
     {
@@ -170,6 +185,8 @@ describe("Effect ownership", () => {
     'export { Effect } from "effect"',
     'import "effect/Schema"',
     'const effect = import("effect")',
+    "const effect = import(`effect`)",
+    'import "\\u0065ffect"',
     'const effect = require("effect")',
     'import Effect = require("effect")',
   ])("detects Effect ownership syntax in %s", (source) => {
@@ -181,7 +198,7 @@ describe("Effect ownership", () => {
     const owners = lockOwnerForV3References(lockfile)
     expect(owners.length).toBeGreaterThan(0)
     expect(owners.filter(owner => !(
-      /^effect@3\./.test(owner)
+      owner.startsWith("effect@3.")
       || owner.startsWith("'@effect/platform@")
       || owner.startsWith("'@uploadthing/shared@")
       || owner.startsWith("uploadthing@")

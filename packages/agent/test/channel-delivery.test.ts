@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver } from "../src/internal/channel-delivery.ts"
 
 import type { Lock, StateAdapter } from "chat"
 
@@ -51,7 +51,7 @@ function stateAdapter(): StateAdapter {
   const values = new Map<string, unknown>()
   const lists = new Map<string, unknown[]>()
   const locks = new Set<string>()
-  return {
+  const adapter: unknown = {
     acquireLock: async (key: string) => {
       if (locks.has(key)) return null
       locks.add(key)
@@ -63,8 +63,8 @@ function stateAdapter(): StateAdapter {
     },
     connect: async () => undefined,
     extendLock: async (lock: Lock) => locks.has(lock.threadId),
-    get: async (key: string) => (values.get(key) as never) ?? null,
-    getList: async (key: string) => [...(lists.get(key) || [])] as never,
+    get: async (key: string) => values.get(key) ?? null,
+    getList: async (key: string) => [...(lists.get(key) || [])],
     delete: async (key: string) => void values.delete(key),
     releaseLock: async (lock: Lock) => void locks.delete(lock.threadId),
     set: async (key: string, value: unknown) => void values.set(key, value),
@@ -73,10 +73,98 @@ function stateAdapter(): StateAdapter {
       values.set(key, value)
       return true
     },
-  } as unknown as StateAdapter
+  }
+  // SAFETY: This in-memory test adapter implements the State methods exercised by the delivery journal fixtures.
+  return adapter as StateAdapter
 }
 
 describe("Agent Channel delivery journal", () => {
+  it("normalizes omitted Workflow capabilities before resuming delivery", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      channelId: "telegram",
+      provider: "telegram",
+      scope: "chat:support:telegram",
+      sourceId: "workflow-normalized-capabilities",
+    })
+    detachAgentChannelDelivery(delivery)
+    const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
+    setAgentChannelDeliveryWorkflowResolver(async (_agent, context) => {
+      expect(context.capabilities).toEqual({})
+      return await resumeAgentChannelDelivery(state, delivery.delivery.id)
+    })
+
+    try {
+      // SAFETY: This fixture exercises only Workflow context normalization and does not read the Agent definition.
+      await expect(runAgentWorkflowDefinition({} as never, {
+        id: "workflow-normalized-capabilities",
+        name: "support",
+        payload: {
+          input: {
+            context: {
+              "vitehub.channelDelivery": {
+                channelId: "telegram",
+                deliveryId: delivery.delivery.id,
+                provider: "telegram",
+                state: "chat",
+              },
+            },
+          },
+          requestUrl: "https://example.com",
+        },
+        provider: "cloudflare",
+      }, async (_agent, context) => {
+        expect(context.capabilities).toEqual({})
+        return "completed"
+      })).resolves.toBe("completed")
+    }
+    finally {
+      setAgentChannelDeliveryWorkflowResolver(async () => undefined)
+      info.mockRestore()
+    }
+  })
+
+  it.each(["persisted", "missing", "error"] as const)("checks durable Workflow ownership before an active tracker: %s", async (result) => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const active = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      channelId: "telegram",
+      provider: "telegram",
+      scope: "chat:support:telegram",
+      sourceId: `workflow-active-${result}`,
+    })
+    const persisted = { ...active, claimed: true, event: vi.fn(active.event) }
+    const failure = new Error("Durable ownership unavailable")
+    const resolve = vi.fn(async () => {
+      if (result === "error") throw failure
+      return result === "persisted" ? persisted : undefined
+    })
+    setAgentChannelDeliveryWorkflowResolver(resolve)
+    try {
+      const resumed = resumeWorkflowAgentChannelDelivery({}, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {
+        channelId: "telegram",
+        deliveryId: active.delivery.id,
+        provider: "telegram",
+        state: "chat",
+      })
+      if (result === "error") await expect(resumed).rejects.toBe(failure)
+      else await expect(resumed).resolves.toBe(result === "persisted" ? persisted : active)
+      expect(resolve).toHaveBeenCalledOnce()
+    }
+    finally {
+      detachAgentChannelDelivery(active)
+      setAgentChannelDeliveryWorkflowResolver(async () => undefined)
+      info.mockRestore()
+    }
+  })
+
   it("resumes Workflow custody through the installed host State owner", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
     const state = stateAdapter()
@@ -92,6 +180,7 @@ describe("Agent Channel delivery journal", () => {
     setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: () => state }))
 
     try {
+      // SAFETY: This fixture supplies the runtime fields read by the Workflow delivery resolver.
       const resumed = await resumeWorkflowAgentChannelDelivery({}, {
         request: new Request("https://example.com"),
         runtime: "unknown",
@@ -473,6 +562,36 @@ describe("Agent Channel delivery journal", () => {
     await expect(delivery.event({ type: "completed" })).rejects.toThrow("state unavailable")
 
     expect(activeAgentChannelDelivery(delivery.delivery.id)).toBeUndefined()
+    error.mockRestore()
+    info.mockRestore()
+  })
+
+  it("does not duplicate terminal evidence when a committed write reports failure", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined)
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const state = stateAdapter()
+    const delivery = await openAgentChannelDelivery(state, {
+      agentName: "support",
+      provider: "github",
+      scope: "webhook:support",
+      sourceId: "ambiguous-terminal-write",
+    })
+    const appendToList = state.appendToList.bind(state)
+    let reportFailure = true
+    state.appendToList = async (key, value, options) => {
+      await appendToList(key, value, options)
+      if (reportFailure && key.endsWith(":events")) {
+        reportFailure = false
+        throw new Error("response unavailable")
+      }
+    }
+
+    await expect(delivery.event({ runId: "run-1", type: "completed" })).rejects.toThrow("response unavailable")
+    await expect(delivery.event({ runId: "run-1", type: "completed" })).resolves.toMatchObject({ runId: "run-1", type: "completed" })
+
+    const deliveries = await readAgentChannelDeliveries(state)
+    expect(deliveries).toEqual([expect.objectContaining({ status: "completed" })])
+    expect(deliveries[0]?.events.filter((event) => event.runId === "run-1" && event.type === "completed")).toHaveLength(1)
     error.mockRestore()
     info.mockRestore()
   })

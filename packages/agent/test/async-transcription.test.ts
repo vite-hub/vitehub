@@ -118,8 +118,8 @@ describe("createTranscription", () => {
   })
 
   it("rejects hostile provider identifiers before they reach public details", () => {
-    expect(() => createTranscription({ driver: fixtureDriver({ name: "https://user:token@example.com" }) })).toThrow(TypeError)
-    expect(() => transcriptionError("CUSTOM" as never)).toThrow(TypeError)
+    expect(() => createTranscription({ driver: fixtureDriver({ name: "https://user:token@example.com" }) })).toThrowError(expect.objectContaining({ code: "AGENT_R0258" }))
+    expect(() => transcriptionError("CUSTOM" as never)).toThrowError(expect.objectContaining({ code: "AGENT_R0256" }))
     expect(transcriptionError("TRANSCRIPTION_PROVIDER_FAILED", {
       provider: "https://user:token@example.com",
     }).toJSON()).toEqual({

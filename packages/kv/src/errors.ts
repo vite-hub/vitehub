@@ -1,6 +1,23 @@
 import { ViteHubError } from "@vite-hub/runtime"
 
 import type { KVErrorDetails, KVOperation, KVResult } from "./types.ts"
+import { kvErrorDiagnostics } from "./error-diagnostics.ts"
+
+export function unknownKVStoreError(name: string): Error {
+  return kvErrorDiagnostics.KV_R0015({ message: `[vitehub] Unknown KV store "${name}".` })
+}
+
+export function unsupportedCloudflareKVGetAndDeleteError(): Error {
+  return kvErrorDiagnostics.KV_R0016({ message: "[vitehub] Cloudflare KV does not support atomic operations. Use Upstash." })
+}
+
+export function unsupportedCloudflareKVIncrementError(): Error {
+  return kvErrorDiagnostics.KV_R0017({ message: "[vitehub] Cloudflare KV does not support atomic operations. Use Upstash." })
+}
+
+export function invalidKVListLimitError(): Error {
+  return kvErrorDiagnostics.KV_R0018({ message: "`limit` must be a positive integer." })
+}
 
 export function kvError(
   operation: KVOperation,

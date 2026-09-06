@@ -1,4 +1,5 @@
 import { createBlobStorage } from "../storage.ts"
+import { Diagnostic } from "nostics"
 import { blobResult } from "../errors.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
@@ -6,8 +7,14 @@ import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } fro
 import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
 
 import type { BlobDriverAdapter, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
-class UnknownBlobStoreError extends Error {}
+class UnknownBlobStoreError extends Diagnostic {
+  constructor(message: string) {
+    super({ code: "BLOB_R0027", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, UnknownBlobStoreError)
+    this.name = "UnknownBlobStoreError"
+  }
+}
 
 const driverModules = {
   akamai: "akamai",
@@ -111,7 +118,7 @@ async function resolveStorage(name = "default") {
 
   const config = await getBlobRuntimeConfig()
   if (!config) {
-    throw new Error("Blob runtime is disabled.")
+    throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
   }
 
   const stores = config.stores || { default: config.store }

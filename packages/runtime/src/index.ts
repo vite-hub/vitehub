@@ -1,4 +1,22 @@
+import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { ViteHubError } from "./errors.ts"
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+
+export {
+  formatRuntimeDiagnosticError,
+  normalizeRuntimeDiagnosticError,
+  type RuntimeDiagnosticError,
+  type RuntimeDiagnosticErrorOptions,
+  type RuntimeDiagnosticEvent,
+  type RuntimeDiagnosticLevel,
+  type RuntimeDiagnosticReporter,
+  type RuntimeResourceInspector,
+  type RuntimeResourceObservation,
+  type RuntimeResourceScope,
+  type RuntimeResourceSnapshot,
+  type RuntimeResourceSupport,
+  type RuntimeResourceUnit,
+} from "./diagnostics.ts"
 
 export {
   getViteHubErrorShape,
@@ -43,30 +61,32 @@ export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
 }) satisfies ExecutionAuthority
 
 export function isExecutionAuthority(value: unknown): value is ExecutionAuthority {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false
+  if (!value || !hasRuntimeType(value, "object") || Array.isArray(value)) return false
+  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
   const authority = value as Record<string, unknown>
   const filesystem = authority.filesystem
-  if (!filesystem || typeof filesystem !== "object" || Array.isArray(filesystem)) return false
+  if (!filesystem || !hasRuntimeType(filesystem, "object") || Array.isArray(filesystem)) return false
+  // SAFETY: Runtime Capability normalization establishes the asserted host contract.
   const files = filesystem as Record<string, unknown>
-  return typeof authority.credentials === "string"
+  return hasRuntimeType(authority.credentials, "string")
     && ["ambient", "none", "provisioned", "unknown"].includes(authority.credentials)
-    && typeof authority.environment === "string"
+    && hasRuntimeType(authority.environment, "string")
     && ["ambient", "none", "selected", "unknown"].includes(authority.environment)
-    && typeof files.access === "string"
+    && hasRuntimeType(files.access, "string")
     && ["none", "read-only", "read-write", "unknown"].includes(files.access)
-    && typeof files.scope === "string"
+    && hasRuntimeType(files.scope, "string")
     && ["host", "none", "sandbox", "unknown", "workspace"].includes(files.scope)
-    && typeof authority.isolation === "string"
+    && hasRuntimeType(authority.isolation, "string")
     && ["container", "microvm", "none", "process", "unknown"].includes(authority.isolation)
-    && typeof authority.network === "string"
+    && hasRuntimeType(authority.network, "string")
     && ["none", "restricted", "unrestricted", "unknown"].includes(authority.network)
-    && typeof authority.processes === "string"
+    && hasRuntimeType(authority.processes, "string")
     && ["arbitrary", "none", "restricted", "unknown"].includes(authority.processes)
 }
 
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
   if (!isExecutionAuthority(value)) {
-    throw new TypeError("[vitehub] Invalid execution authority descriptor.")
+    throw runtimeErrorDiagnostics.RUNTIME_R0007({ message: "[vitehub] Invalid execution authority descriptor." })
   }
   if (
     hasCanonicalFrozenProperties(value, ["credentials", "environment", "filesystem", "isolation", "network", "processes"])
@@ -85,11 +105,12 @@ export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority 
   })
 }
 
-function hasCanonicalFrozenProperties(value: object, keys: readonly string[]): boolean {
+function hasCanonicalFrozenProperties(value: unknown, keys: readonly string[]): boolean {
+  if (!isRuntimeObject(value)) return false
   const prototype = Object.getPrototypeOf(value)
   if (!Object.isFrozen(value) || (prototype !== Object.prototype && prototype !== null)) return false
   const ownKeys = Reflect.ownKeys(value)
-  if (ownKeys.length !== keys.length || ownKeys.some(key => typeof key !== "string" || !keys.includes(key))) return false
+  if (ownKeys.length !== keys.length || ownKeys.some(key => !hasRuntimeType(key, "string") || !keys.includes(key))) return false
   return keys.every((key) => {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     return descriptor !== undefined && "value" in descriptor && descriptor.enumerable
@@ -109,13 +130,31 @@ export interface TraceContext {
   sampled?: boolean
 }
 
+export type TraceActivityOwner = "agent" | "vitehub"
+export type TraceActivityPhase = "delivery" | "execution" | "setup" | "teardown"
+
+export interface TraceActivityContext {
+  owner: TraceActivityOwner
+  phase: TraceActivityPhase
+}
+
+export type TracePayloadVisibility = "private" | "public" | "redacted" | "summary"
+
+export type TraceEventPayload =
+  | { value: unknown, visibility: "public" }
+  | { summary: string, visibility: "summary" }
+  | { visibility: "redacted" }
+  | { visibility: "private" }
+
 export type TraceEventContentPolicy = "content" | "metadata"
-export type TraceRunStatus = "completed" | "failed" | "running"
+export type TraceRunStatus = "cancelled" | "completed" | "failed" | "running"
 export type TraceStepStatus = "completed" | "failed" | "running"
 
 export interface TraceEvent {
+  activity?: TraceActivityContext
   attributes?: Record<string, unknown>
   name: string
+  payload?: TraceEventPayload
   timestamp?: Date | string
   trace?: TraceContext
   type: "approval" | "capability" | "error" | "lifecycle" | "policy" | "run"
@@ -161,11 +200,28 @@ export interface TraceRunView {
 export interface OpenTelemetrySpanView {
   attributes?: Record<string, unknown>
   endTime?: string
+  events?: OpenTelemetrySpanEventView[]
   name: string
   parentSpanId?: string
   spanId: string
   startTime: string
-  status: { code: "ERROR" | "OK", message?: string }
+  status: { code: "ERROR" | "OK" | "UNSET", message?: string }
+  traceId: string
+}
+
+export interface OpenTelemetrySpanEventView {
+  attributes?: Record<string, unknown>
+  name: string
+  time: string
+}
+
+export interface OpenTelemetryLogRecordView {
+  attributes?: Record<string, unknown>
+  eventName: string
+  severityNumber?: number
+  severityText?: string
+  spanId: string
+  time: string
   traceId: string
 }
 
@@ -197,11 +253,9 @@ export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
 
 export type ExecutionContext<TRuntimeConfig = Record<string, unknown>> =
   RuntimeHostContext<TRuntimeConfig> & {
+    capabilities: RuntimeCapabilities
     runtimeConfig: TRuntimeConfig
   }
-
-export type ResolvedRuntimeHostContext<TRuntimeConfig = Record<string, unknown>> =
-  ExecutionContext<TRuntimeConfig>
 
 export interface CapabilityHandle<TKind extends string = string, TValue = unknown> {
   kind: TKind
@@ -278,22 +332,24 @@ const contentAttributeKeys = new Set([
   "messages",
   "output",
   "payload",
+  "progress",
   "prompt",
   "raw",
   "request",
   "response",
   "result",
   "text",
+  "title",
 ])
 
-function isContentAttributeKey(key: string): boolean {
+export function isTraceContentAttributeKey(key: string): boolean {
   if (key === "error.message") return false
   if (contentAttributeKeys.has(key)) return true
   return key.split(".").some((part, index) => index > 0 && contentAttributeKeys.has(part))
 }
 
 function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (!value || typeof value !== "object") return value
+  if (!value || !hasRuntimeType(value, "object")) return value
   if (seen.has(value)) return "[Circular]"
   seen.add(value)
   if (Array.isArray(value)) {
@@ -302,8 +358,16 @@ function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
     return next
   }
   const omitted: string[] = []
-  const next = Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
-    if (isContentAttributeKey(key)) {
+  let entries: [string, unknown][]
+  try {
+    entries = Object.entries(value)
+  }
+  catch {
+    seen.delete(value)
+    return undefined
+  }
+  const next = Object.fromEntries(entries.flatMap(([key, child]) => {
+    if (isTraceContentAttributeKey(key)) {
       omitted.push(key)
       return []
     }
@@ -316,7 +380,7 @@ function metadataValue(value: unknown, seen = new WeakSet<object>()): unknown {
 
 function timestamp(value: Date | string | undefined): string {
   if (value instanceof Date) return value.toISOString()
-  if (typeof value === "string") return value
+  if (hasRuntimeType(value, "string")) return value
   return new Date().toISOString()
 }
 
@@ -324,7 +388,7 @@ function metadataAttributes(attributes: Record<string, unknown> | undefined): Re
   if (!attributes) return undefined
   const omitted: string[] = []
   const next = Object.fromEntries(Object.entries(attributes).flatMap(([key, value]) => {
-    if (isContentAttributeKey(key)) {
+    if (isTraceContentAttributeKey(key)) {
       omitted.push(key)
       return []
     }
@@ -334,10 +398,380 @@ function metadataAttributes(attributes: Record<string, unknown> | undefined): Re
   return Object.keys(next).length ? next : undefined
 }
 
+function normalizedTraceActivity(activity: TraceActivityContext | undefined): TraceActivityContext | undefined {
+  if (!activity || !hasRuntimeType(activity, "object")) return
+  try {
+    if (Array.isArray(activity)) return
+    const owner = Object.getOwnPropertyDescriptor(activity, "owner")
+    const phase = Object.getOwnPropertyDescriptor(activity, "phase")
+    if (!owner || !("value" in owner) || !phase || !("value" in phase)) return
+    if (owner.value !== "agent" && owner.value !== "vitehub") return
+    if (!["delivery", "execution", "setup", "teardown"].includes(phase.value)) return
+    return { owner: owner.value, phase: phase.value }
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedMapEntries(value: unknown): Array<[unknown, unknown]> | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Array.from(Map.prototype.entries.call(value))
+  }
+  catch {
+    return
+  }
+}
+
+function reflectedSetValues(value: unknown): unknown[] | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    return Array.from(Set.prototype.values.call(value))
+  }
+  catch {
+    return
+  }
+}
+
+function isCryptoKey(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const CryptoKeyConstructor = Object.getOwnPropertyDescriptor(globalThis, "CryptoKey")?.value
+  return hasRuntimeType(CryptoKeyConstructor, "function") && value instanceof CryptoKeyConstructor
+}
+
+function isWebAssemblyModule(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const namespace = Object.getOwnPropertyDescriptor(globalThis, "WebAssembly")?.value
+  const constructor = hasRuntimeType(namespace, "object")
+    ? Object.getOwnPropertyDescriptor(namespace, "Module")?.value
+    : undefined
+  return hasRuntimeType(constructor, "function") && value instanceof constructor
+}
+
+function isSharedArrayBuffer(value: unknown): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  const constructor = Object.getOwnPropertyDescriptor(globalThis, "SharedArrayBuffer")?.value
+  if (hasRuntimeType(constructor, "function") && value instanceof constructor) return true
+  return Object.prototype.toString.call(value) === "[object SharedArrayBuffer]"
+}
+
+function containsSharedArrayBuffer(value: unknown, seen = new Set<object>()): boolean {
+  if (!value || !hasRuntimeType(value, "object")) return false
+  if (isSharedArrayBuffer(value)) return true
+  // SAFETY: The runtime guard below verifies this optional host constructor before instantiation checks.
+  const WebAssemblyMemory = (globalThis as typeof globalThis & {
+    WebAssembly?: { Memory?: abstract new (...args: never[]) => { buffer: ArrayBufferLike } }
+  }).WebAssembly?.Memory
+  if (WebAssemblyMemory && value instanceof WebAssemblyMemory) {
+    return isSharedArrayBuffer(value.buffer)
+  }
+  if (seen.has(value)) return false
+  seen.add(value)
+  if (ArrayBuffer.isView(value)) return containsSharedArrayBuffer(value.buffer, seen)
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
+    return mapEntries.some(([key, entry]) => containsSharedArrayBuffer(key, seen) || containsSharedArrayBuffer(entry, seen))
+  }
+  const setValues = reflectedSetValues(value)
+  if (setValues) return setValues.some(entry => containsSharedArrayBuffer(entry, seen))
+  return Reflect.ownKeys(value).some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && "value" in descriptor && containsSharedArrayBuffer(descriptor.value, seen)
+  })
+}
+
+function reflectedRegExpState(value: unknown): { flags: string, lastIndex: number, source: string } | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  try {
+    const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")?.get?.call(value)
+    const flags = Object.getOwnPropertyDescriptor(RegExp.prototype, "flags")?.get?.call(value)
+    const lastIndex = Reflect.get(value, "lastIndex")
+    if (!hasRuntimeType(source, "string") || !hasRuntimeType(flags, "string") || !hasRuntimeType(lastIndex, "number")) return
+    return { flags, lastIndex, source }
+  }
+  catch {
+    return
+  }
+}
+
+interface ReflectedBlobState {
+  intrinsicSymbols: ReadonlySet<symbol>
+  lastModified?: number
+  name?: string
+  size: number
+  type: string
+}
+
+function reflectedBlobState(value: unknown): ReflectedBlobState | undefined {
+  const BlobConstructor = globalThis.Blob
+  if (!hasRuntimeType(BlobConstructor, "function") || !(value instanceof BlobConstructor)) return
+  try {
+    const FileConstructor = globalThis.File
+    const file = hasRuntimeType(FileConstructor, "function") && value instanceof FileConstructor ? value : undefined
+    const intrinsic = file ? new FileConstructor([], "") : new BlobConstructor([])
+    const size = Object.getOwnPropertyDescriptor(BlobConstructor.prototype, "size")?.get?.call(value)
+    const type = Object.getOwnPropertyDescriptor(BlobConstructor.prototype, "type")?.get?.call(value)
+    if (!hasRuntimeType(size, "number") || !hasRuntimeType(type, "string")) return
+    const state: ReflectedBlobState = {
+      intrinsicSymbols: new Set(Reflect.ownKeys(intrinsic).filter((key): key is symbol =>
+        hasRuntimeType(key, "symbol") && Object.getOwnPropertyDescriptor(intrinsic, key)?.enumerable === true
+      )),
+      size,
+      type,
+    }
+    if (file) {
+      const lastModified = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "lastModified")?.get?.call(file)
+      const name = Object.getOwnPropertyDescriptor(FileConstructor.prototype, "name")?.get?.call(file)
+      if (!hasRuntimeType(lastModified, "number") || !hasRuntimeType(name, "string")) return
+      state.lastModified = lastModified
+      state.name = name
+    }
+    return state
+  }
+  catch {
+    return
+  }
+}
+
+function containsUnsafeStructuredCloneState(value: unknown, seen = new Set<object>()): boolean {
+  if (!value || !hasRuntimeType(value, "object") || seen.has(value)) return false
+  if (isCryptoKey(value) || isWebAssemblyModule(value)) return true
+  seen.add(value)
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (!descriptor?.enumerable) continue
+    if (!("value" in descriptor) || containsUnsafeStructuredCloneState(descriptor.value, seen)) return true
+  }
+  for (const key of ["cause", "errors"] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    if (descriptor && (!("value" in descriptor) || containsUnsafeStructuredCloneState(descriptor.value, seen))) return true
+  }
+  const mapEntries = reflectedMapEntries(value)
+  if (mapEntries) {
+    for (const [key, entry] of mapEntries) {
+      if (containsUnsafeStructuredCloneState(key, seen) || containsUnsafeStructuredCloneState(entry, seen)) return true
+    }
+  }
+  else {
+    const setValues = reflectedSetValues(value)
+    if (setValues) {
+      for (const entry of setValues) {
+        if (containsUnsafeStructuredCloneState(entry, seen)) return true
+      }
+    }
+  }
+  return false
+}
+
+function preservesEnumerableFields(source: unknown, snapshot: unknown, seen = new Map<object, object>()): boolean {
+  if (!source || !hasRuntimeType(source, "object")) return true
+  if (!snapshot || !hasRuntimeType(snapshot, "object")) return false
+  if (seen.has(source)) return seen.get(source) === snapshot
+  seen.set(source, snapshot)
+
+  if (ArrayBuffer.isView(source)
+    && (!ArrayBuffer.isView(snapshot)
+      || Object.getPrototypeOf(source) !== Object.getPrototypeOf(snapshot)
+      || source.byteLength !== snapshot.byteLength)) return false
+  if (source instanceof Date && (!(snapshot instanceof Date) || !Object.is(source.getTime(), snapshot.getTime()))) return false
+  const sourceRegExp = reflectedRegExpState(source)
+  if (sourceRegExp) {
+    const snapshotRegExp = reflectedRegExpState(snapshot)
+    if (!snapshotRegExp
+      || sourceRegExp.source !== snapshotRegExp.source
+      || sourceRegExp.flags !== snapshotRegExp.flags
+      || sourceRegExp.lastIndex !== snapshotRegExp.lastIndex) return false
+  }
+  const sourceBlob = reflectedBlobState(source)
+  if (sourceBlob) {
+    const snapshotBlob = reflectedBlobState(snapshot)
+    if (!snapshotBlob
+      || sourceBlob.size !== snapshotBlob.size
+      || sourceBlob.type !== snapshotBlob.type
+      || sourceBlob.name !== snapshotBlob.name
+      || sourceBlob.lastModified !== snapshotBlob.lastModified) return false
+  }
+  const sourceAggregateErrors = Object.getOwnPropertyDescriptor(source, "errors")
+  if (sourceAggregateErrors && "value" in sourceAggregateErrors) {
+    const snapshotAggregateErrors = Object.getOwnPropertyDescriptor(snapshot, "errors")
+    if (!snapshotAggregateErrors
+      || !("value" in snapshotAggregateErrors)
+      || !preservesEnumerableFields(sourceAggregateErrors.value, snapshotAggregateErrors.value, seen)) return false
+  }
+  if (source instanceof AggregateError) {
+    if (!(snapshot instanceof AggregateError)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || !preservesEnumerableFields(source.errors, snapshot.errors, seen)
+      || !preservesEnumerableFields(source.cause, snapshot.cause, seen)) return false
+  }
+  else if (source instanceof DOMException) {
+    if (!(snapshot instanceof DOMException)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || source.code !== snapshot.code) return false
+  }
+  else if (source instanceof Error) {
+    if (!(snapshot instanceof Error)
+      || source.name !== snapshot.name
+      || source.message !== snapshot.message
+      || !preservesEnumerableFields(source.cause, snapshot.cause, seen)) return false
+  }
+
+  for (const key of Reflect.ownKeys(source)) {
+    const sourceDescriptor = Object.getOwnPropertyDescriptor(source, key)
+    if (!sourceDescriptor?.enumerable) continue
+    if (hasRuntimeType(key, "symbol")) {
+      if (sourceBlob?.intrinsicSymbols.has(key)) continue
+      return false
+    }
+    if (!("value" in sourceDescriptor)) return false
+    const snapshotDescriptor = Object.getOwnPropertyDescriptor(snapshot, key)
+    if (!snapshotDescriptor || !("value" in snapshotDescriptor)) return false
+    if (!preservesEnumerableFields(sourceDescriptor.value, snapshotDescriptor.value, seen)) return false
+  }
+  const sourceMapEntries = reflectedMapEntries(source)
+  if (sourceMapEntries) {
+    const snapshotEntries = reflectedMapEntries(snapshot)
+    if (!snapshotEntries || sourceMapEntries.length !== snapshotEntries.length) return false
+    return sourceMapEntries.every(([key, value], index) => {
+      const snapshotEntry = snapshotEntries[index]
+      return snapshotEntry !== undefined
+        && preservesEnumerableFields(key, snapshotEntry[0], seen)
+        && preservesEnumerableFields(value, snapshotEntry[1], seen)
+    })
+  }
+  const sourceSetValues = reflectedSetValues(source)
+  if (sourceSetValues) {
+    const snapshotValues = reflectedSetValues(snapshot)
+    if (!snapshotValues || sourceSetValues.length !== snapshotValues.length) return false
+    return sourceSetValues.every((value, index) => preservesEnumerableFields(value, snapshotValues[index], seen))
+  }
+  return true
+}
+
+function normalizedTracePayload(payload: TraceEventPayload | undefined): TraceEventPayload | undefined {
+  if (payload === undefined) return
+  if (!payload || !hasRuntimeType(payload, "object")) return { visibility: "private" }
+  try {
+    if (Array.isArray(payload)) return { visibility: "private" }
+    const visibility = Object.getOwnPropertyDescriptor(payload, "visibility")
+    if (!visibility || !("value" in visibility)) return { visibility: "private" }
+    if (visibility.value === "public") {
+      const value = Object.getOwnPropertyDescriptor(payload, "value")
+      if (value && "value" in value && !containsUnsafeStructuredCloneState(value.value)) {
+        const snapshot = structuredClone(value.value)
+        if (preservesEnumerableFields(value.value, snapshot) && !containsSharedArrayBuffer(snapshot)) {
+          return { value: snapshot, visibility: "public" }
+        }
+      }
+    }
+    if (visibility.value === "summary") {
+      const summary = Object.getOwnPropertyDescriptor(payload, "summary")
+      if (summary && "value" in summary && hasRuntimeType(summary.value, "string")) {
+        return { summary: summary.value, visibility: "summary" }
+      }
+    }
+    if (visibility.value === "redacted") return { visibility: "redacted" }
+  }
+  catch {
+    return { visibility: "private" }
+  }
+  return { visibility: "private" }
+}
+
+function traceEventAttributes(
+  event: Pick<TraceEvent, "activity" | "attributes" | "payload">,
+  content: TraceEventContentPolicy,
+  normalized = false,
+): Record<string, unknown> | undefined {
+  const activity = normalized ? event.activity : normalizedTraceActivity(event.activity)
+  const payload = normalized ? event.payload : normalizedTracePayload(event.payload)
+  let source: Record<string, unknown> = {}
+  const skippedMetadataContent = new Set<string>()
+  try {
+    for (const key of Reflect.ownKeys(event.attributes || {})) {
+      if (!hasRuntimeType(key, "string")) continue
+      const descriptor = Object.getOwnPropertyDescriptor(event.attributes!, key)
+      if (descriptor?.enumerable && "value" in descriptor) source[key] = descriptor.value
+      else if (content === "metadata" && descriptor?.enumerable && isTraceContentAttributeKey(key)) {
+        skippedMetadataContent.add(key)
+      }
+    }
+  }
+  catch {
+    source = {}
+  }
+  delete source["vitehub.activity.owner"]
+  delete source["vitehub.activity.phase"]
+  delete source["vitehub.payload.summary"]
+  delete source["vitehub.payload.value"]
+  delete source["vitehub.payload.visibility"]
+  try {
+    if (Array.isArray(source["content.omitted"])) {
+      const omitted = source["content.omitted"].filter(key => hasRuntimeType(key, "string") && ![
+        "vitehub.activity.owner",
+        "vitehub.activity.phase",
+        "vitehub.payload.summary",
+        "vitehub.payload.value",
+        "vitehub.payload.visibility",
+      ].includes(key))
+      if (omitted.length) source["content.omitted"] = omitted
+      else delete source["content.omitted"]
+    }
+  }
+  catch {
+    delete source["content.omitted"]
+  }
+  if (skippedMetadataContent.size) {
+    const omitted = new Set(Array.isArray(source["content.omitted"]) ? source["content.omitted"] : [])
+    for (const key of skippedMetadataContent) omitted.add(key)
+    source["content.omitted"] = [...omitted]
+  }
+  const attributes = content === "metadata" ? metadataAttributes(source) : source
+  const next: Record<string, unknown> = { ...attributes }
+  if (activity) {
+    next["vitehub.activity.owner"] = activity.owner
+    next["vitehub.activity.phase"] = activity.phase
+  }
+  if (payload) {
+    next["vitehub.payload.visibility"] = payload.visibility
+    if (payload.visibility === "public") next["vitehub.payload.value"] = payload.value
+    if (payload.visibility === "summary") next["vitehub.payload.summary"] = payload.summary
+  }
+  return Object.keys(next).length ? next : undefined
+}
+
+function aggregateTraceAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!attributes) return undefined
+  const next = { ...attributes }
+  delete next["vitehub.activity.owner"]
+  delete next["vitehub.activity.phase"]
+  delete next["vitehub.payload.summary"]
+  delete next["vitehub.payload.value"]
+  delete next["vitehub.payload.visibility"]
+  return Object.keys(next).length ? next : undefined
+}
+
+function stepTraceAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!attributes) return undefined
+  const next = { ...attributes }
+  delete next["vitehub.activity.owner"]
+  delete next["vitehub.activity.phase"]
+  return Object.keys(next).length ? next : undefined
+}
+
 function normalizeTraceEvent(event: TraceEvent, sequence: number, content: TraceEventContentPolicy): TraceEventLogEntry {
+  const { activity: rawActivity, attributes: _attributes, payload: rawPayload, ...rest } = event
+  const activity = normalizedTraceActivity(rawActivity)
+  const payload = normalizedTracePayload(rawPayload)
+  const attributes = traceEventAttributes({ activity, attributes: event.attributes, payload }, content, true)
   return {
-    ...event,
-    ...(content === "metadata" ? { attributes: metadataAttributes(event.attributes) } : {}),
+    ...rest,
+    ...(activity ? { activity } : {}),
+    ...(attributes ? { attributes } : {}),
+    ...(payload ? { payload } : {}),
     sequence,
     timestamp: timestamp(event.timestamp),
   }
@@ -356,15 +790,33 @@ export async function emitTraceEvent<TContext extends RuntimeHostContext<any>>(
 export function createTraceEventLog(options: TraceEventLogOptions = {}): TraceEventLog {
   const content = options.content || "metadata"
   const entries: TraceEventLogEntry[] = []
+  const cloneAttributes = (attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+    if (!attributes) return undefined
+    return { ...attributes }
+  }
+  const cloneEntry = (entry: TraceEventLogEntry): TraceEventLogEntry => {
+    const publicValue = entry.attributes?.["vitehub.payload.value"]
+    const cloneable = structuredClone({ activity: entry.activity, payload: entry.payload, publicValue })
+    const attributes = cloneAttributes(entry.attributes)
+    if (attributes && "vitehub.payload.value" in attributes) {
+      attributes["vitehub.payload.value"] = cloneable.publicValue
+    }
+    return {
+      ...entry,
+      ...(cloneable.activity ? { activity: cloneable.activity } : {}),
+      ...(attributes ? { attributes } : {}),
+      ...(cloneable.payload ? { payload: cloneable.payload } : {}),
+    }
+  }
   return {
     async append(event) {
       const entry = normalizeTraceEvent(event, entries.length + 1, content)
       entries.push(entry)
-      await options.onEntry?.(entry)
-      return entry
+      await options.onEntry?.(cloneEntry(entry))
+      return cloneEntry(entry)
     },
     entries() {
-      return entries.slice()
+      return entries.map(cloneEntry)
     },
   }
 }
@@ -381,7 +833,7 @@ function durationMs(startTime: string, endTime: string | undefined): number | un
 }
 
 function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+  return values.find((value): value is string => hasRuntimeType(value, "string") && value.length > 0)
 }
 
 function runId(event: TraceEventLogEntry): string {
@@ -398,15 +850,30 @@ function stepId(event: TraceEventLogEntry): string | undefined {
 }
 
 function stepStatus(event: TraceEventLogEntry): TraceStepStatus {
-  return event.type === "error" || event.name.endsWith(".error") ? "failed" : event.name.endsWith(".start") || event.name.endsWith(".request") ? "running" : "completed"
+  return event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
+    ? "failed"
+    : /\.(?:output|progress|request|start|started|summary|updated)$/.test(event.name)
+      ? "running"
+      : "completed"
 }
 
 function isTraceRunFinish(event: TraceEventLogEntry): boolean {
-  return event.name === "agent.invocation.finish" || event.name === "run.finish"
+  return event.name === "agent.invocation.cancelled" || event.name === "agent.invocation.finish" || event.name === "run.finish"
 }
 
 function isTraceRunError(event: TraceEventLogEntry): boolean {
-  return event.name === "agent.invocation.error" || event.name === "agent.stream.error" || event.name === "run.error"
+  return event.name === "agent.invocation.error"
+    || (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true)
+    || event.name === "run.error"
+}
+
+function isTraceRunTerminal(event: TraceEventLogEntry): boolean {
+  return isTraceRunFinish(event) || isTraceRunError(event)
+}
+
+function isTraceRunFailureEvidence(event: TraceEventLogEntry): boolean {
+  return event.name === "run.error"
+    || (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true)
 }
 
 export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {
@@ -427,11 +894,11 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
       const status = stepStatus(event)
       if (!existing) {
         steps.set(id, {
-          attributes: event.attributes,
+          attributes: stepTraceAttributes(event.attributes),
           endTime: status === "running" ? undefined : event.timestamp,
           events: [event],
           id,
-          name: event.name.replace(/\.(start|finish|end|error|request|decision|recorded)$/, ""),
+          name: event.name.replace(/\.(start|started|progress|finish|completed|failed|cancelled|end|error|request|decision|recorded)$/, ""),
           startTime: event.timestamp,
           status,
           type: event.type,
@@ -439,7 +906,13 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
         continue
       }
       existing.events.push(event)
-      existing.attributes = { ...existing.attributes, ...event.attributes }
+      const attributes = { ...existing.attributes }
+      if (event.attributes?.["vitehub.payload.visibility"] !== undefined) {
+        delete attributes["vitehub.payload.summary"]
+        delete attributes["vitehub.payload.value"]
+        delete attributes["vitehub.payload.visibility"]
+      }
+      existing.attributes = stepTraceAttributes({ ...attributes, ...event.attributes })
       if (status !== "running") {
         existing.endTime = event.timestamp
         existing.status = status
@@ -447,12 +920,15 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
       }
     }
 
-    const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
-    const status: TraceRunStatus = sorted.some(event => (event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] !== true) || event.name === "run.error")
+    const terminal = sorted.slice().reverse().find(isTraceRunTerminal)
+    const failed = sorted.some(isTraceRunFailureEvidence)
+    const status: TraceRunStatus = failed || (terminal && isTraceRunError(terminal))
       ? "failed"
+      : terminal?.name === "agent.invocation.cancelled"
+        ? "cancelled"
       : terminal
-        ? isTraceRunError(terminal) ? "failed" : "completed"
-        : "running"
+        ? "completed"
+      : "running"
     const endTime = status === "running" ? undefined : terminal?.timestamp
     return {
       durationMs: durationMs(first.timestamp, endTime),
@@ -499,17 +975,88 @@ function openTelemetryId(value: string, length: 16 | 32): string {
   return /^0+$/.test(id) ? `1${id.slice(1)}` : id
 }
 
+export function traceEventsToOpenTelemetryLogRecords(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetryLogRecordView[] {
+  const entries = [...events]
+  return deriveTraceRuns(entries).flatMap((run) => {
+    const spanId = openTelemetryId(traceRunSpanId(run), 16)
+    const traceId = openTelemetryId(traceRunTraceId(run), 32)
+    return run.events.map((event) => {
+      const id = stepId(event)
+      const attributes = traceEventAttributes(event, options.content === "metadata" ? "metadata" : "content")
+      const error = event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
+      return {
+        attributes: {
+          ...attributes,
+          "vitehub.event.sequence": event.sequence,
+          "vitehub.event.type": event.type,
+          "vitehub.run.id": run.id,
+          ...(id ? { "vitehub.step.id": id } : {}),
+        },
+        eventName: event.name,
+        ...(error ? { severityNumber: 17, severityText: "ERROR" } : {}),
+        spanId: id ? openTelemetryId(`${spanId}:${id}`, 16) : spanId,
+        time: event.timestamp,
+        traceId,
+      }
+    })
+  })
+}
+
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>, options: OpenTelemetrySpanViewOptions = {}): OpenTelemetrySpanView[] {
-  const entries = [...events].map(entry => options.content === "metadata"
-    ? { ...entry, attributes: metadataAttributes(entry.attributes) }
-    : entry)
+  const maxEntries = 1024
+  const firstEntries = maxEntries / 2
+  const tailEntries = maxEntries / 2
+  const entriesByRun = new Map<string, {
+    count: number
+    first: Array<{ entry: TraceEventLogEntry, index: number }>
+    tail: Array<{ entry: TraceEventLogEntry, index: number } | undefined>
+    failure?: { entry: TraceEventLogEntry, index: number }
+    terminal?: { entry: TraceEventLogEntry, index: number }
+  }>()
+  for (const entry of events) {
+    const id = runId(entry)
+    let run = entriesByRun.get(id)
+    if (!run) {
+      run = { count: 0, first: [], tail: Array.from({ length: tailEntries }) }
+      entriesByRun.set(id, run)
+    }
+    const indexed = { entry, index: run.count }
+    if (run.count < firstEntries) run.first.push(indexed)
+    else run.tail[(run.count - firstEntries) % tailEntries] = indexed
+    if (isTraceRunFailureEvidence(entry)) run.failure = indexed
+    if (isTraceRunTerminal(entry)) run.terminal = indexed
+    run.count += 1
+  }
+  const boundedEntries = [...entriesByRun.values()].flatMap((run) => {
+    const tail = run.tail.filter(entry => entry !== undefined).sort((left, right) => left.index - right.index)
+    const evidence = [run.failure, run.terminal].filter(entry => entry !== undefined)
+    const indexed = run.count <= maxEntries
+      ? [...run.first, ...tail]
+      : [...run.first, ...tail.slice(evidence.length), ...evidence]
+    const entries = [...new Map(indexed.map(value => [value.index, value])).values()]
+      .sort((left, right) => left.index - right.index)
+      .map(value => value.entry)
+    if (run.count <= maxEntries) return entries
+    return entries.map((entry, index) => index === 0
+      ? { ...entry, attributes: { ...entry.attributes, "vitehub.trace.originalEventCount": run.count, "vitehub.trace.truncated": true } }
+      : entry)
+  })
+  const entries = boundedEntries.map(entry => ({
+    ...entry,
+    attributes: traceEventAttributes(entry, options.content === "metadata" ? "metadata" : "content"),
+  }))
   return deriveTraceRuns(entries).flatMap((run) => {
     const rawParentSpanId = traceRunParentId(run)
     const rawTraceId = traceRunTraceId(run)
     const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
     const spanId = openTelemetryId(traceRunSpanId(run), 16)
     const traceId = openTelemetryId(rawTraceId, 32)
-    const attributes = Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {}))
+    const attributes = aggregateTraceAttributes(Object.assign({}, ...run.events.filter(event => !stepId(event)).map(event => event.attributes || {})))
+    const spanEvents = (events: TraceEventLogEntry[]): OpenTelemetrySpanEventView[] => events.map(event => ({
+      ...(event.attributes ? { attributes: event.attributes } : {}),
+      name: event.name,
+      time: event.timestamp,
+    }))
     const errorMessage = firstString(...run.events.slice().reverse().map(event => event.attributes?.["error.message"]))
     return [
       {
@@ -520,30 +1067,37 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
           "vitehub.trace.id": rawTraceId,
         },
         endTime: run.endTime,
+        events: spanEvents(run.events.filter(event => !stepId(event))),
         name: "vitehub.run",
         ...(parentSpanId ? { parentSpanId } : {}),
         spanId,
         startTime: run.startTime,
         status: {
-          code: run.status === "failed" ? "ERROR" : "OK",
+          code: run.status === "failed" ? "ERROR" : run.status === "completed" ? "OK" : "UNSET",
           ...(run.status === "failed" && errorMessage ? { message: errorMessage } : {}),
         },
         traceId,
       } satisfies OpenTelemetrySpanView,
       ...run.steps.map(step => ({
         attributes: {
-          ...step.attributes,
+          ...aggregateTraceAttributes(step.attributes),
           "vitehub.run.id": run.id,
           "vitehub.step.id": step.id,
         },
         endTime: step.endTime || run.endTime,
+        events: spanEvents(step.events),
         name: step.name,
         parentSpanId: spanId,
         spanId: openTelemetryId(`${spanId}:${step.id}`, 16),
         startTime: step.startTime,
+        // SAFETY: Runtime Capability normalization establishes the asserted host contract.
         status: {
-          code: step.status === "failed" || (!step.endTime && run.status === "failed") ? "ERROR" : "OK",
-          ...(typeof step.attributes?.["error.message"] === "string" ? { message: step.attributes["error.message"] } : {}),
+          code: step.status === "failed" || (!step.endTime && run.status === "failed")
+            ? "ERROR"
+            : step.endTime || run.status === "completed"
+              ? "OK"
+              : "UNSET",
+          ...(hasRuntimeType(step.attributes?.["error.message"], "string") ? { message: step.attributes["error.message"] } : {}),
         } as const,
         traceId,
       })),
@@ -562,38 +1116,66 @@ export interface LeaseStore {
   acquire(key: string, options?: { owner?: string, ttl?: number }): MaybePromise<Lease>
 }
 
-export function createExecutionContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
-  context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
-  return resolveExecutionContext(context)
-}
+type NormalizedRuntimeConfig<TConfig> = Exclude<TConfig, null | undefined> extends Record<string, unknown>
+  ? Record<string, unknown>
+  : Exclude<TConfig, null | undefined> | Record<string, unknown>
 
-export function resolveExecutionContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
+type RuntimeConfigOf<TContext extends RuntimeHostContext<any>> = "runtimeConfig" extends keyof TContext
+  ? undefined extends TContext["runtimeConfig"]
+    ? NormalizedRuntimeConfig<TContext["runtimeConfig"]>
+    : null extends TContext["runtimeConfig"]
+      ? NormalizedRuntimeConfig<TContext["runtimeConfig"]>
+    : TContext["runtimeConfig"]
+  : Record<string, unknown>
+
+type RuntimeCapabilitiesOf<TContext extends RuntimeHostContext<any>> = "capabilities" extends keyof TContext
+  ? undefined extends TContext["capabilities"]
+    ? RuntimeCapabilities
+    : TContext["capabilities"]
+  : RuntimeCapabilities
+
+type CreatedExecutionContext<TContext extends RuntimeHostContext<any>> = TContext extends unknown
+  ? Omit<TContext, "capabilities" | "runtimeConfig"> & {
+      capabilities: RuntimeCapabilitiesOf<TContext>
+      runtimeConfig: RuntimeConfigOf<TContext>
+    }
+  : never
+
+export function createExecutionContext<TContext extends RuntimeHostContext<any>>(
   context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
+): CreatedExecutionContext<TContext> {
+  // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
+  const capabilities = (context.capabilities ?? {}) as RuntimeCapabilitiesOf<TContext>
+  // SAFETY: The nullish fallbacks match the conditional field types in CreatedExecutionContext.
+  const runtimeConfig = (context.runtimeConfig ?? {}) as RuntimeConfigOf<TContext>
+
+  // SAFETY: Each union variant is reconstructed with the normalized fields described by CreatedExecutionContext.
   return {
     ...context,
-    capabilities: context.capabilities || {},
-    runtimeConfig: (context.runtimeConfig || {}) as TRuntimeConfig,
-  }
+    capabilities,
+    runtimeConfig,
+  } as CreatedExecutionContext<TContext>
 }
 
-export function resolveRuntimeContext<
-  TRuntimeConfig = Record<string, unknown>,
-  TContext extends RuntimeHostContext<TRuntimeConfig> = RuntimeHostContext<TRuntimeConfig>,
->(
-  context: TContext,
-): TContext & ExecutionContext<TRuntimeConfig> {
-  return {
-    ...context,
-    runtimeConfig: (context.runtimeConfig || {}) as TRuntimeConfig,
-  }
+export type RuntimeContextInput = Omit<RuntimeHostContext<unknown>, "flushWaitUntil" | "memo" | "waitUntil"> & {
+  memo?: RuntimeHostContext["memo"]
+  waitUntil?: RuntimeWaitUntil
+}
+
+export type CreatedRuntimeContext<TContext extends RuntimeContextInput> = CreatedExecutionContext<
+  TContext & RuntimeWaitUntilController & { memo: RuntimeHostContext["memo"] }
+>
+
+/** Create one operation's context. Without a host waitUntil, drain work before returning. */
+export function createRuntimeContext<const TContext extends RuntimeContextInput>(input: TContext): CreatedRuntimeContext<TContext> {
+  const values = new Map<string, unknown>()
+  const memo: RuntimeHostContext["memo"] = input.memo ?? ((key, create) => {
+    if (!values.has(key)) values.set(key, create())
+    // SAFETY: The creator and returned value share the type associated with this memo key.
+    return values.get(key) as never
+  })
+  const controller = createRuntimeWaitUntilController({ forward: input.waitUntil?.bind(input) })
+  return createExecutionContext({ ...input, ...controller, memo })
 }
 
 export function defineCapability<TKind extends string, TValue>(
@@ -614,11 +1196,25 @@ export function createRuntimeWaitUntilController(options: {
   const pending: Promise<unknown>[] = []
   return {
     async flushWaitUntil() {
+      let error: unknown
+      let failed = false
       while (pending.length > 0) {
-        await Promise.all(pending.splice(0))
+        await Promise.all(pending.splice(0).map(async task => {
+          try {
+            await task
+          }
+          catch (reason) {
+            if (failed) return
+            error = reason
+            failed = true
+          }
+        }))
       }
+      if (failed) throw error
     },
     waitUntil(task) {
+      // Observe rejection now. The original task stays queued so flushWaitUntil can report it.
+      void task.catch(() => {})
       pending.push(task)
       options.forward?.(task)
     },
@@ -626,10 +1222,11 @@ export function createRuntimeWaitUntilController(options: {
 }
 
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
-  return typeof value === "object"
+  return hasRuntimeType(value, "object")
     && value !== null
     && "kind" in value
-    && typeof (value as { kind?: unknown }).kind === "string"
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    && hasRuntimeType((value as { kind?: unknown }).kind, "string")
     && "value" in value
 }
 
@@ -637,10 +1234,10 @@ export function hasCapability(context: RuntimeHostContext, name: string): boolea
   return !!context.capabilities && name in context.capabilities
 }
 
-export function getCapability<TKind extends string = string, TValue = unknown>(
-  context: RuntimeHostContext,
+export function getCapability(
+  context: RuntimeHostContext<any>,
   name: string,
-): CapabilityHandle<TKind, TValue> {
+): CapabilityHandle {
   const value = context.capabilities?.[name]
   if (value === undefined) {
     throw new ViteHubError("CAPABILITY_NOT_FOUND", `[vitehub:runtime] Capability "${name}" was not found.`, {
@@ -648,18 +1245,19 @@ export function getCapability<TKind extends string = string, TValue = unknown>(
     })
   }
   if (isCapabilityHandle(value)) {
-    return value as CapabilityHandle<TKind, TValue>
+    return value
   }
-  return defineCapability(name as TKind, value as TValue, { name })
+  return defineCapability(name, value, { name })
 }
 
 export function isResolvable<T, TContext extends RuntimeHostContext<any>>(
   value: MaybeResolvable<T, TContext>,
 ): value is Resolvable<T, TContext> {
-  return typeof value === "object"
+  return hasRuntimeType(value, "object")
     && value !== null
     && "resolve" in value
-    && typeof (value as { resolve?: unknown }).resolve === "function"
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
+    && hasRuntimeType((value as { resolve?: unknown }).resolve, "function")
 }
 
 export async function resolveRuntimeValue<T, TContext extends RuntimeHostContext<any>>(
@@ -670,7 +1268,8 @@ export async function resolveRuntimeValue<T, TContext extends RuntimeHostContext
     return await value.resolve(context)
   }
 
-  if (typeof value === "function") {
+  if (hasRuntimeType(value, "function")) {
+    // SAFETY: Runtime Capability normalization establishes the asserted host contract.
     return await (value as (context: TContext) => MaybePromise<T>)(context)
   }
 
@@ -682,5 +1281,8 @@ export async function resolveCapabilityPolicy(
   context: PolicyContext,
 ): Promise<PolicyDecision> {
   if (!policy) return "allow"
-  return typeof policy === "function" ? await policy(context) : policy
+  return hasRuntimeType(policy, "function") ? await policy(context) : policy
 }
+
+export { createWorkTracker } from "./work.ts"
+export type { WorkCheckpoint, WorkCheckpointStore, WorkOutcome, WorkTracker } from "./work.ts"

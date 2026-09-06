@@ -1,3 +1,4 @@
+import { envErrorDiagnostics } from "./error-diagnostics.ts"
 export interface StandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
   value: T
@@ -32,13 +33,13 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
   if (isStandardSchema(schema)) {
     const result = schema["~standard"].validate(value)
     if (isPromiseLike(result)) {
-      throw new Error(`[vitehub] ${label} uses an async schema. Env validation currently requires sync schemas.`)
+      throw envErrorDiagnostics.ENV_R0014({ message: `[vitehub] ${label} uses an async schema. Env validation currently requires sync schemas.` })
     }
     if ("issues" in result && result.issues && result.issues.length > 0) {
-      throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(result.issues)}`)
+      throw envErrorDiagnostics.ENV_R0015({ message: `[vitehub] Invalid ${label}: ${formatIssues(result.issues)}` })
     }
     if (!("value" in result)) {
-      throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(result.issues)}`)
+      throw envErrorDiagnostics.ENV_R0016({ message: `[vitehub] Invalid ${label}: ${formatIssues(result.issues)}` })
     }
     return result.value
   }
@@ -46,7 +47,7 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
   if (isZodLike(schema) && typeof schema.safeParse === "function") {
     const result = schema.safeParse(value)
     if (!result.success) {
-      throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(result.error)}`)
+      throw envErrorDiagnostics.ENV_R0017({ message: `[vitehub] Invalid ${label}: ${formatIssues(result.error)}` })
     }
     return result.data
   }
@@ -56,7 +57,7 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
       return schema.parse(value)
     }
     catch (error) {
-      throw new Error(`[vitehub] Invalid ${label}: ${formatIssues(error)}`)
+      throw envErrorDiagnostics.ENV_R0018({ message: `[vitehub] Invalid ${label}: ${formatIssues(error)}` })
     }
   }
 

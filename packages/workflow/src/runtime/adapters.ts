@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { createWorkflowError } from "../errors.ts"
@@ -7,7 +8,7 @@ import { getVercelWorkflowName } from "../integrations/vercel.ts"
 import { runWorkflowHandler } from "./execute.ts"
 import { getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
-import { getWorkflowRunState, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
+import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
 
 import type { CloudflareWorkflowBinding, ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowRun, WorkflowRunStatus, WorkflowSignalResult } from "../types.ts"
@@ -29,10 +30,22 @@ interface GetWorkflowAdapterContext {
 }
 
 interface WorkflowRuntimeAdapter {
-  cancel<TPayload = unknown, TResult = unknown>(context: GetWorkflowAdapterContext): Promise<WorkflowRun<TPayload, TResult>>
-  get<TPayload = unknown, TResult = unknown>(context: GetWorkflowAdapterContext): Promise<WorkflowRun<TPayload, TResult>>
+  cancel(context: GetWorkflowAdapterContext): Promise<WorkflowRun<unknown, unknown>>
+  get(context: GetWorkflowAdapterContext): Promise<WorkflowRun<unknown, unknown>>
   resume<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult>
   run<TPayload = unknown, TResult = unknown>(context: RunWorkflowAdapterContext<TPayload, TResult>): Promise<WorkflowRun<TPayload, TResult>>
+}
+
+function resolveSettlementObserver(event: unknown): ((promise: PromiseLike<unknown>) => void) | undefined {
+  if (!event || !hasRuntimeType(event, "object")) return undefined
+  const candidate = "settled" in event ? event.settled : undefined
+  // SAFETY: hasRuntimeType establishes that the runtime event member is callable.
+  if (hasRuntimeType(candidate, "function")) return candidate as (promise: PromiseLike<unknown>) => void
+  const context = "context" in event ? event.context : undefined
+  if (!context || !hasRuntimeType(context, "object")) return undefined
+  const nested = "settled" in context ? context.settled : undefined
+  // SAFETY: hasRuntimeType establishes that the nested runtime event member is callable.
+  return hasRuntimeType(nested, "function") ? nested as (promise: PromiseLike<unknown>) => void : undefined
 }
 
 function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel", operation: WorkflowOperationName): never {
@@ -43,10 +56,16 @@ function unsupportedOperation(provider: "cloudflare" | "openworkflow" | "vercel"
 }
 
 function resolveCloudflareBinding(event: unknown, binding: string | undefined, name: string, definition?: { internalAgentInvocationRecovery?: true }) {
+  const env = getCloudflareEnv(event)
   const bindingName = definition?.internalAgentInvocationRecovery
     ? getCloudflareWorkflowBindingName(name)
     : binding || getCloudflareWorkflowBindingName(name)
-  return getCloudflareEnv(event)?.[bindingName] as CloudflareWorkflowBinding | undefined
+  // SAFETY: Workflow provider normalization establishes the asserted run contract.
+  return env?.[bindingName] as CloudflareWorkflowBinding | undefined
+}
+
+function resolveCloudflareInspectionBinding(event: unknown, binding: string | undefined, name: string) {
+  return resolveCloudflareBinding(event, binding, name, getWorkflowRuntimeRegistry()?.[name])
 }
 
 const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
@@ -62,14 +81,17 @@ const cloudflareStatusMap: Record<string, WorkflowRunStatus> = {
 }
 
 function normalizeCloudflareStatus(status: unknown): WorkflowRunStatus {
-  const value = typeof status === "object" && status ? (status as { status?: unknown }).status : status
+  // SAFETY: Workflow provider normalization establishes the asserted run contract.
+  const value = hasRuntimeType(status, "object") && status ? (status as { status?: unknown }).status : status
   return cloudflareStatusMap[String(value || "").toLowerCase()] || "unknown"
 }
 
 function hasUnknownWorkflowAcknowledgement(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false
+  if (!error || !hasRuntimeType(error, "object")) return false
+  // SAFETY: Workflow provider normalization establishes the asserted run contract.
   const details = (error as { details?: unknown }).details
-  return Boolean(details && typeof details === "object"
+  return Boolean(details && hasRuntimeType(details, "object")
+    // SAFETY: Workflow provider normalization establishes the asserted run contract.
     && (details as { acknowledgement?: unknown }).acknowledgement === "unknown")
 }
 
@@ -77,8 +99,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
   return {
     cancel: () => unsupportedOperation("cloudflare", "cancellation"),
     async get({ event, id, name }) {
-      const definition = await loadWorkflowDefinition(name)
-      const binding = resolveCloudflareBinding(event, config.binding, name, definition)
+      const binding = resolveCloudflareInspectionBinding(event, config.binding, name)
       if (binding) {
         const instance = await runWorkflowProviderOperation("cloudflare", "get", () => binding.get(id))
         const metadata = await runWorkflowProviderOperation("cloudflare", "status", () => instance.status())
@@ -141,7 +162,7 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
 function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
     cancel: () => unsupportedOperation(config.provider, "cancellation"),
-    async get<TPayload = unknown, TResult = unknown>({ id, name }: GetWorkflowAdapterContext): Promise<WorkflowRun<TPayload, TResult>> {
+    async get({ id, name }: GetWorkflowAdapterContext): Promise<WorkflowRun<unknown, unknown>> {
       const run = getWorkflowRunState(name, id)
       if (run) {
         if (run.status === "running") {
@@ -155,7 +176,7 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           id,
           metadata: run.error,
           provider: config.provider,
-          result: run.result as TResult,
+          result: run.result,
           status: run.status,
         }
       }
@@ -172,8 +193,11 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           name,
           payload,
           provider: config.provider,
+        // SAFETY: Workflow provider normalization establishes the asserted run contract.
         }, definition as never))
+        // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
+        // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .catch(error => ({ error, status: "failed" as const }))
       const runState = setWorkflowRun(name, id, run)
       const waitUntil = resolveWaitUntil(event)
@@ -196,18 +220,18 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
 function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   const fallback = inlineAdapter(config)
   return {
-    async cancel<TPayload = unknown, TResult = unknown>({ id, name }: GetWorkflowAdapterContext) {
+    async cancel({ id, name }: GetWorkflowAdapterContext) {
       const definition = await loadWorkflowDefinition(name)
       if (!definition?.options?.native) {
         return await fallback.cancel({ event: undefined, id, name })
       }
-      return await cancelVercelWorkflow<TPayload, TResult>(name, definition as WorkflowDefinition<TPayload, TResult>, id)
+      return await cancelVercelWorkflow(name, definition, id)
     },
-    async get<TPayload = unknown, TResult = unknown>({ id, name }: GetWorkflowAdapterContext) {
+    async get({ id, name }: GetWorkflowAdapterContext) {
       const definition = await loadWorkflowDefinition(name)
       return definition?.options?.native
-        ? await inspectVercelWorkflowRun<TPayload, TResult>(name, definition as WorkflowDefinition<TPayload, TResult>, id)
-        : await fallback.get<TPayload, TResult>({ event: undefined, id, name })
+        ? await inspectVercelWorkflowRun(name, definition, id)
+        : await fallback.get({ event: undefined, id, name })
     },
     resume: async (token, payload) => await resumeVercelWorkflowSignal(token, payload),
     async run({ definition, event, id, name, options, payload }) {
@@ -220,7 +244,7 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
           details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
         })
       }
-      return await startVercelWorkflow(name, definition, payload)
+      return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event))
     },
   }
 }

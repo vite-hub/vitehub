@@ -15,6 +15,20 @@ When configured with write mode, it also contributes `blob_edit` for putting or 
 `blob_edit` can upload inline content, a current input attachment through `attachmentId`, or a Workspace file through `workspacePath`.
 For Provider Agents, `assetPaths` also turns final-answer Markdown references into published delivery artifacts.
 
+## Agent-visible tool contract
+
+These definitions are resolved from the real Capability during the docs build.
+
+### Read mode
+
+::agent-capability-tools{name="blob" variant="read"}
+::
+
+### Write mode
+
+::agent-capability-tools{name="blob" variant="write"}
+::
+
 ## Configure Blob access
 
 Attach Blob in read mode until the Agent needs to write objects.

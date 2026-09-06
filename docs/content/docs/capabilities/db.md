@@ -14,6 +14,20 @@ Cloudflare and Vercel hosted Agent routes receive the Database primitive automat
 The Capability contributes `db_query` for one read-only SQL statement and `db_schema` for schema inspection.
 When data or schema write modes allow it, it also contributes `db_exec` for one mutation statement with a rationale.
 
+## Agent-visible tool contract
+
+These definitions are resolved from the real Capability during the docs build. They are the names, descriptions, and JSON Schemas supplied to the Agent model.
+
+### Read mode
+
+::agent-capability-tools{name="db" variant="read"}
+::
+
+### Data and schema write mode
+
+::agent-capability-tools{name="db" variant="write"}
+::
+
 ## Configure database access
 
 Attach DB in read mode until the Agent needs guarded mutations.

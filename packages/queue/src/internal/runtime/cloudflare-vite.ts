@@ -11,6 +11,7 @@ import type { QueueApp } from "../../runtime/_app.ts"
 import { loadQueueDefinition, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "./state.ts"
 
 import type { CloudflareQueueMessageBatch, QueueDefinitionRegistry, ResolvedQueueOptions } from "../../types.ts"
+import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
 export type CloudflareWorkerApp = QueueApp
 
@@ -32,7 +33,7 @@ function createRegistryDefinitionNames(registry: QueueDefinitionRegistry | undef
   for (const name of Object.keys(registry)) {
     const physicalName = getCloudflareQueueName(name, namePrefix)
     if (definitions[physicalName]) {
-      throw new Error(`Queue names ${JSON.stringify(definitions[physicalName])} and ${JSON.stringify(name)} collide after Cloudflare resource name derivation.`)
+      throw queueErrorDiagnostics.QUEUE_R0004({ message: `Queue names ${JSON.stringify(definitions[physicalName])} and ${JSON.stringify(name)} collide after Cloudflare resource name derivation.` })
     }
     definitions[physicalName] = name
   }
@@ -79,11 +80,11 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
             ? undefined
             : getCloudflareQueueDefinitionName(batch.queue, queueConfig.namePrefix))
         if (!definitionName) {
-          throw new Error(`[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} is not mapped to a Queue Definition.`)
+          throw queueErrorDiagnostics.QUEUE_R0005({ message: `[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} is not mapped to a Queue Definition.` })
         }
         const definition = await loadQueueDefinition(definitionName)
         if (!definition) {
-          throw new Error(`[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} maps to unknown Queue Definition ${JSON.stringify(definitionName)}.`)
+          throw queueErrorDiagnostics.QUEUE_R0006({ message: `[vitehub] Cloudflare queue ${JSON.stringify(batch.queue)} maps to unknown Queue Definition ${JSON.stringify(definitionName)}.` })
         }
 
         await createCloudflareQueueBatchHandler({

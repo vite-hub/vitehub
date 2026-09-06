@@ -1,3 +1,4 @@
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 export type DeploymentPreset = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
 
 export type DeploymentHost = "cloudflare" | "deno-deploy" | "netlify" | "self-hosted" | "vercel"
@@ -122,17 +123,19 @@ const plans = {
 export function resolveDeploymentPlan(preset: DeploymentPreset): DeploymentPlan {
   const plan = plans[preset]
   if (!plan) {
-    throw new TypeError(`Unknown ViteHub deployment preset: ${JSON.stringify(preset)}.`)
+    throw internalErrorDiagnostics.INTERNAL_R0001({ message: `Unknown ViteHub deployment preset: ${JSON.stringify(preset)}.` })
   }
   return plan
+}
+
+export function normalizeNitroPreset(value: string): string {
+  return value.trim().toLowerCase().replaceAll("_", "-")
 }
 
 export function assertDeploymentService(plan: DeploymentPlan, service: DeploymentService): void {
   const policy = plan.services[service]
   if (policy.supported) return
-  throw new Error(
-    `[vitehub] The ${JSON.stringify(plan.preset)} preset cannot provide ${service}. ${policy.reason} Configure an explicit portable implementation through the owner package or disable this capability.`,
-  )
+  throw internalErrorDiagnostics.INTERNAL_R0002({ message: `[vitehub] The ${JSON.stringify(plan.preset)} preset cannot provide ${service}. ${policy.reason} Configure an explicit portable implementation through the owner package or disable this capability.` })
 }
 
 export function deploymentPresetFromNitro(value?: string | null): DeploymentPreset | undefined {

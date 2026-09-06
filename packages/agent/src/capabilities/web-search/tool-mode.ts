@@ -6,6 +6,7 @@ import type {
   WebSearchToolInput,
 } from "./types.ts"
 import { resolveWebSearchProvider } from "./credentials.ts"
+import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 interface AskwebModule {
   create: (name: string, config?: { apiKey?: string, baseURL?: string }) => {
@@ -35,13 +36,13 @@ const readInputKeys = new Set([
 function assertKnownInput(input: Record<string, unknown>, allowed: Set<string>, toolName: string) {
   const unsupported = Object.keys(input).filter(key => !allowed.has(key))
   if (unsupported.length) {
-    throw new TypeError(`[vitehub] ${toolName} does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+    throw agentDiagnostics.AGENT_R0272({ message: `[vitehub] ${toolName} does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
   }
 }
 
 function requireObject(input: unknown, toolName: string): Record<string, unknown> {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new TypeError(`[vitehub] ${toolName} input must be an object.`)
+    throw agentDiagnostics.AGENT_R0273({ message: `[vitehub] ${toolName} input must be an object.` })
   }
   return input as Record<string, unknown>
 }
@@ -52,7 +53,7 @@ async function loadAskweb(): Promise<AskwebModule> {
     return await import(/* @vite-ignore */ specifier) as AskwebModule
   }
   catch (error) {
-    throw new Error("[vitehub] webSearch({ mode: \"tool\" }) requires askweb to be installed by the application. Install askweb@0.2.0 or use webSearch({ mode: \"model\" }).", { cause: error })
+    throw agentDiagnostics.AGENT_R0274({ message: "[vitehub] webSearch({ mode: \"tool\" }) requires askweb to be installed by the application. Install askweb@0.2.0 or use webSearch({ mode: \"model\" }).", cause: error })
   }
 }
 
@@ -60,7 +61,7 @@ function normalizeSearchInput(input: unknown): { options: WebSearchOptions, quer
   const value = requireObject(input, "web_search") as WebSearchToolInput & Record<string, unknown>
   assertKnownInput(value, searchInputKeys, "web_search")
   if (typeof value.query !== "string" || !value.query.trim()) {
-    throw new TypeError("[vitehub] web_search requires a non-empty query.")
+    throw agentDiagnostics.AGENT_R0275({ message: "[vitehub] web_search requires a non-empty query." })
   }
   return {
     options: {
@@ -76,7 +77,7 @@ function normalizeReadInput(input: unknown): WebReadToolInput {
   const value = requireObject(input, "web_read") as WebReadToolInput & Record<string, unknown>
   assertKnownInput(value, readInputKeys, "web_read")
   if (typeof value.url !== "string" || !value.url.trim()) {
-    throw new TypeError("[vitehub] web_read requires a non-empty url.")
+    throw agentDiagnostics.AGENT_R0276({ message: "[vitehub] web_read requires a non-empty url." })
   }
   return value
 }

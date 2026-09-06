@@ -9,6 +9,7 @@ import type {
   TranscriptionWord,
 } from "./transcription.ts"
 import type { MaybePromise } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 type ElevenLabsModel = "scribe_v1" | "scribe_v2"
@@ -58,12 +59,13 @@ function nonEmptyString(value: unknown): value is string {
 }
 
 function assertOptions(options: ElevenLabsScribeOptions): void {
-  if (!options || typeof options !== "object") throw new TypeError("[vitehub] elevenLabsScribe() requires options.")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Public driver options are validated before reading credentials.
+  if (!options || typeof options !== "object") throw agentDiagnostics.AGENT_R0244({ message: "[vitehub] elevenLabsScribe() requires options." })
   if (typeof options.apiKey !== "string" && typeof options.apiKey !== "function") {
-    throw new TypeError("[vitehub] elevenLabsScribe({ apiKey }) requires a string or resolver.")
+    throw agentDiagnostics.AGENT_R0245({ message: "[vitehub] elevenLabsScribe({ apiKey }) requires a string or resolver." })
   }
   if (!nonEmptyString(options.webhookId)) {
-    throw new TypeError("[vitehub] elevenLabsScribe({ webhookId }) requires a non-empty webhook id.")
+    throw agentDiagnostics.AGENT_R0246({ message: "[vitehub] elevenLabsScribe({ webhookId }) requires a non-empty webhook id." })
   }
 }
 

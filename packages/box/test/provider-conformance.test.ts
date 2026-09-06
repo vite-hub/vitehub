@@ -41,12 +41,36 @@ for (const provider of [cloudflareFixture, vercelFixture]) {
 
       await session.files.mkdir("/workspace/nested", { recursive: true });
       await session.files.write("/workspace/nested/data.bin", new Uint8Array([1, 2, 3]));
+      await session.files.write("/workspace/z.bin", new Uint8Array([5]));
+      await session.files.mkdir("/workspace/excluded/deep", { recursive: true });
+      await session.files.write("/workspace/excluded/deep/private.bin", new Uint8Array([4]));
       expect(await session.files.exists("/workspace/nested/data.bin")).toBe(true);
       expect(await session.files.list("/workspace", { recursive: true })).toContainEqual({
         path: "/workspace/nested/data.bin",
         size: 3,
         type: "file",
       });
+      const listsBeforeExclusion = fixture.machine.lists.length;
+      const listedWithExclusion = await session.files.list("/workspace", {
+        exclude: ["/workspace/excluded"],
+        recursive: true,
+      });
+      expect(listedWithExclusion).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: expect.stringContaining("excluded") }),
+        ]),
+      );
+      expect(listedWithExclusion.map((entry) => entry.path)).toEqual(
+        listedWithExclusion.map((entry) => entry.path).toSorted(),
+      );
+      expect(fixture.machine.lists.slice(listsBeforeExclusion)).not.toContain(
+        "/workspace/excluded",
+      );
+      const listsBeforeRootExclusion = fixture.machine.lists.length;
+      await expect(
+        session.files.list("/workspace", { exclude: ["/"], recursive: true }),
+      ).resolves.toEqual([]);
+      expect(fixture.machine.lists).toHaveLength(listsBeforeRootExclusion);
       await session.files.move?.(
         "/workspace/nested/data.bin",
         "/workspace/nested/moved.bin",
@@ -281,6 +305,7 @@ function command(stdout: string): VercelSandboxCommand {
 class VirtualMachine {
   readonly directories = new Set(["/", "/home", "/workspace"]);
   readonly files = new Map<string, Uint8Array>();
+  readonly lists: string[] = [];
   spawnCwd: string | undefined;
   stops = 0;
 
@@ -299,6 +324,7 @@ class VirtualMachine {
 
   list(path: string, recursive = false) {
     const root = normalize(path);
+    this.lists.push(root);
     const directories: BoxFileEntry[] = [...this.directories]
       .filter((entry) => entry !== root && isChild(entry, root, recursive))
       .map((entry) => ({ path: entry, type: "directory" }));

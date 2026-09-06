@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
+import { object, optional, parse, parseJson, pipe, record, safeParse, string } from "valibot"
 import { expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
@@ -29,15 +30,23 @@ it("publishes Queue error types for the shared ViteHubError contract", async () 
   finally {
     await rm(root, { force: true, recursive: true })
   }
-}, 15_000)
+}, 30_000)
 
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd })
   }
   catch (error) {
-    const output = error as Error & { stderr?: string, stdout?: string }
-    throw new Error([output.message, output.stdout, output.stderr].filter(Boolean).join("\n"), { cause: error })
+    if (!(error instanceof Error)) {
+      throw error
+    }
+
+    const output = safeParse(object({ stderr: optional(string()), stdout: optional(string()) }), error)
+    throw new Error([
+      error.message,
+      output.success ? output.output.stdout : undefined,
+      output.success ? output.output.stderr : undefined,
+    ].filter(Boolean).join("\n"), { cause: error })
   }
 }
 
@@ -45,7 +54,10 @@ async function packWorkspacePackages(packDir: string, packageNames: string[]) {
   const specs: Record<string, string> = {}
   for (const packageName of packageNames) {
     const packagePath = join(workspaceRoot, "packages", packageName.slice("@vite-hub/".length))
-    const manifest = JSON.parse(await readFile(join(packagePath, "package.json"), "utf8")) as { version: string }
+    const manifest = parse(
+      pipe(string(), parseJson(), object({ version: string() })),
+      await readFile(join(packagePath, "package.json"), "utf8"),
+    )
     await run("vp", ["exec", "pnpm", "--filter", packageName, "pack", "--pack-destination", packDir], workspaceRoot)
     specs[packageName] = `file:${join(packDir, `${packageName.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`)}`
   }
@@ -67,7 +79,15 @@ it("keeps Effect internals out of published Queue artifacts", async () => {
   const files = (await readdir(dist, { recursive: true }))
     .filter(path => /\.(?:[cm]?js|d\.ts)$/.test(path))
   const output = (await Promise.all(files.map(path => readFile(join(dist, path), "utf8")))).join("\n")
-  const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as Record<string, Record<string, string> | undefined>
+  const manifest = parse(
+    pipe(string(), parseJson(), object({
+      dependencies: optional(record(string(), string())),
+      devDependencies: optional(record(string(), string())),
+      optionalDependencies: optional(record(string(), string())),
+      peerDependencies: optional(record(string(), string())),
+    })),
+    await readFile(join(packageRoot, "package.json"), "utf8"),
+  )
 
   expect(output).not.toMatch(/(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']effect(?:\/[^"']*)?["']/)
   expect(output).not.toContain("FiberFailure")

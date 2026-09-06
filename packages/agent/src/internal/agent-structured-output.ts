@@ -4,6 +4,7 @@ import { toAgentRunResult } from "../agent-output.ts"
 
 import type { AgentOutputDefinition } from "../types.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 const agentOutputErrorMessages = {
   AGENT_OUTPUT_INVALID_JSON: "[vitehub] Agent output is not valid JSON.",
@@ -14,7 +15,7 @@ type AgentOutputValidationErrorCode = keyof typeof agentOutputErrorMessages
 
 function agentOutputValidationError(code: AgentOutputValidationErrorCode, options?: ErrorOptions) {
   if (typeof code !== "string" || !Object.hasOwn(agentOutputErrorMessages, code)) {
-    throw new TypeError("[vitehub] Agent output errors require a known code.")
+    throw agentDiagnostics.AGENT_R0515({ message: "[vitehub] Agent output errors require a known code." })
   }
   return new ViteHubError(code, agentOutputErrorMessages[code], { cause: readErrorCause(options) })
 }
@@ -105,13 +106,13 @@ function inspectValidation<T>(
   try {
     const issues = validation.issues
     if (issues !== undefined) {
-      if (!Array.isArray(issues)) throw new TypeError("[vitehub] Standard Schema returned invalid issues.")
+      if (!Array.isArray(issues)) throw agentDiagnostics.AGENT_R0516({ message: "[vitehub] Standard Schema returned invalid issues." })
       if (issues.length > 0) {
         if (allowIssues) return
-        throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID", { cause: new Error(formatIssues(issues)) })
+        throw agentOutputValidationError("AGENT_OUTPUT_SCHEMA_INVALID", { cause: agentDiagnostics.AGENT_R0517({ message: formatIssues(issues) }) })
       }
     }
-    if (!("value" in validation)) throw new TypeError("[vitehub] Standard Schema returned no value.")
+    if (!("value" in validation)) throw agentDiagnostics.AGENT_R0518({ message: "[vitehub] Standard Schema returned no value." })
     return { value: validation.value }
   }
   catch (cause) {

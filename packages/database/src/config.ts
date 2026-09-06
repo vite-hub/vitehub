@@ -24,6 +24,7 @@ import type {
   ResolvedDBViteConfig,
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
+import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { resolveConfigValue } from "./config-value.ts"
 
@@ -194,7 +195,7 @@ function readDefinitionConnectionConfig(file: string) {
 function createDatabaseDefinition(source: string, file: string, name: string, mode: "default" | "named"): DiscoveredDatabaseDefinition {
   const configuredName = readStringValue(readDefinitionObjectBody(file), "name")?.trim() || "default"
   if (configuredName !== name) {
-    throw new Error(`[vitehub] Database definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its discovered identity.`)
+    throw databaseErrorDiagnostics.DATABASE_C0001({ message: `[vitehub] Database definition "${file}" must set \`name: ${JSON.stringify(name)}\` to match its discovered identity.` })
   }
   return {
     handler: file,
@@ -247,10 +248,10 @@ export function discoverDatabaseDefinitions(rootDir: string, options: { serverDi
   const hasDefault = definitions.some(definition => definition.mode === "default")
   const hasNamed = definitions.some(definition => definition.mode === "named")
   if (hasDefault && hasNamed) {
-    throw new Error("[vitehub] Database definitions must use either one default database or all named databases, not both.")
+    throw databaseErrorDiagnostics.DATABASE_C0002({ message: "[vitehub] Database definitions must use either one default database or all named databases, not both." })
   }
   if (definitions.filter(definition => definition.mode === "default").length > 1) {
-    throw new Error("[vitehub] Only one default database definition is allowed.")
+    throw databaseErrorDiagnostics.DATABASE_C0003({ message: "[vitehub] Only one default database definition is allowed." })
   }
   return definitions.sort((left, right) => left.name.localeCompare(right.name))
 }

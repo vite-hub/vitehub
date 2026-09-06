@@ -9,91 +9,122 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ci:
     name: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-      - uses: denoland/setup-deno@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          deno-version: 2.9.3
-
-      - name: Fallow dead-code
-        shell: bash
-        run: |
-          report="$(mktemp)"
-          set +e
-          vp run fallow:dead-code | tee "$report"
-          status=${PIPESTATUS[0]}
-          set -e
-          {
-            echo "## Fallow Dead Code"
-            echo
-            cat "$report"
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit "$status"
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
 
       - name: Knip catalog
         run: vp run knip:catalog
 
       - run: vp run lint
+      - run: vp run doctor:typescript
+        env:
+          VITE_DOCTOR_SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before || 'HEAD^' }}
       - run: vp run typecheck
+
+      - name: Fast contracts
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          vp run build
+          vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts
+
+      - run: vp run examples:verify
+      - name: Docs links
+        run: vp run --filter vitehub-docs test:links
+
+  contract-tests:
+    name: contract tests
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
       - run: vp run test:contracts
+
+  package-tests:
+    name: package tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
       - run: vp run test
+
+  consumer-contracts:
+    name: consumer contracts (${{ matrix.shard }})
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard:
+          - 1/3
+          - 2/3
+          - 3/3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup-deno
+      - run: vp run test:consumer --shard=${{ matrix.shard }}
+
+  windows-agent-credentials:
+    name: agent credentials (windows)
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+
+      - name: Build Agent test dependencies
+        run: vp run -t @vite-hub/agent#build
+
+      - name: Codex credential ACLs
+        shell: bash
+        working-directory: packages/agent
+        run: vp test test/provider-agent.test.ts -t "restricts Codex credential home ACLs on Windows"
 
   docs:
     name: docs
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
       - run: vp run --filter vitehub-docs test
       - run: vp run docs:build
+      - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle
-        working-directory: docs
-        run: vp dlx "wrangler@4.112.0" deploy --dry-run --config .output/server/wrangler.json
+        run: ./.github/ci-tools/node_modules/.bin/wrangler deploy --dry-run --config docs/.output/server/wrangler.json
 
-  consumer:
-    name: consumer
+  verify-providers:
+    name: verify providers
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - run: vp run test:consumer
-
-  verify-cloudflare:
-    name: verify (cloudflare)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - run: vp run build
-      - run: vp run playground:vite:build:local --provider cloudflare
-      - name: Provider Output Contract
-        run: vp run test:output:cloudflare
-      - name: Local Provider Run
-        run: vp run e2e:local --provider cloudflare
-
-  verify-vercel:
-    name: verify (vercel)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     services:
       redis:
         image: redis:7-alpine
         ports:
           - 6379:6379
       srh:
-        image: hiett/serverless-redis-http:latest
+        image: hiett/serverless-redis-http@sha256:65128347949bca511e448fd7238780d624573d74c22b79155a7563db19e9b678 # 0.0.10
         env:
           SRH_MODE: env
           SRH_TOKEN: local-srh-token
@@ -101,31 +132,26 @@ jobs:
         ports:
           - 8079:80
       sqld:
-        image: ghcr.io/tursodatabase/libsql-server:latest
+        image: ghcr.io/tursodatabase/libsql-server@sha256:6dd3eb276d9d3604e4a48ac4a999a2e267814732d57d7e94c04ba71482333a67 # revision d6c75af (2026-08-23)
         ports:
           - 8080:8080
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
-      - run: vp run build
-      - run: vp run playground:vite:build:local --provider vercel
-      - name: Provider Output Contract
+      - name: Cloudflare output contract
+        run: vp run test:output:cloudflare
+      - name: Cloudflare local run
+        run: vp run e2e:local --provider cloudflare
+      - name: Vercel output contract
         run: vp run test:output:vercel
-      - name: Local Provider Run
+      - name: Vercel local run
         run: vp run e2e:local --provider vercel
         env:
           KV_REST_API_TOKEN: local-srh-token
           KV_REST_API_URL: http://127.0.0.1:8079
           TURSO_DATABASE_URL: http://127.0.0.1:8080
-
-  verify-netlify:
-    name: verify (netlify)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup
-
-      - run: npm install -g netlify-cli@23.15.1
-      - run: vp run e2e:netlify
+      - name: Install Netlify CLI
+        run: npm install -g netlify-cli@23.15.1
+      - name: Netlify end-to-end
+        run: vp run e2e:netlify

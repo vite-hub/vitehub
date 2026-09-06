@@ -15,6 +15,7 @@ afterEach(async () => {
 
 describe("workflow definitions", () => {
   it("validates handlers", () => {
+    // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
     expect(() => defineWorkflow(undefined as never)).toThrow(/requires a workflow handler/)
     expect(defineWorkflow(async () => ({ ok: true })).handler).toEqual(expect.any(Function))
   })
@@ -27,6 +28,7 @@ describe("workflow definitions", () => {
       handler,
       options: { native },
     })
+    // SAFETY: The test intentionally crosses the public type boundary to verify runtime input validation.
     expect(() => defineWorkflow(handler, { native: "invalid" as never })).toThrow(/native entry/)
   })
 
@@ -60,6 +62,34 @@ describe("workflow definitions", () => {
           join(rootDir, "server", "workflows", "import-products", "02.load.ts"),
         ],
       }),
+    ])
+  })
+
+  it("does not discover Workflow or Agent Workflow definitions from nested Git worktrees", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nested-worktree-"))
+    tempDirs.push(rootDir)
+    const workflowDir = join(rootDir, "server", "workflows", "daily")
+    const workflowWorktree = join(rootDir, "server", "workflows", "unrelated-worktree")
+    const agentDir = join(rootDir, "server", "agents", "support")
+    const agentWorktree = join(rootDir, "server", "agents", "unrelated-worktree")
+    await Promise.all([
+      mkdir(workflowDir, { recursive: true }),
+      mkdir(workflowWorktree, { recursive: true }),
+      mkdir(agentDir, { recursive: true }),
+      mkdir(agentWorktree, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(workflowDir, "01.run.ts"), "export default null\n", "utf8"),
+      writeFile(join(workflowWorktree, ".git"), "gitdir: /tmp/workflow.git\n", "utf8"),
+      writeFile(join(workflowWorktree, "index.ts"), "export default null\n", "utf8"),
+      writeFile(join(agentDir, "agent.ts"), "export default defineAgent({ runtime: workflow() })\n", "utf8"),
+      writeFile(join(agentWorktree, ".git"), "gitdir: /tmp/agent.git\n", "utf8"),
+      writeFile(join(agentWorktree, "agent.ts"), "export default defineAgent({ runtime: workflow() })\n", "utf8"),
+    ])
+
+    expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
+      expect.objectContaining({ name: "daily", source: "server-workflows" }),
+      expect.objectContaining({ name: "support", source: "agent-workflow" }),
     ])
   })
 
@@ -100,6 +130,7 @@ describe("workflow definitions", () => {
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "team", source: "agent-workflow" }),
+      expect.objectContaining({ name: "team/config", source: "agent-workflow" }),
       expect.objectContaining({ name: "team/review", source: "agent-workflow" }),
     ])
   })

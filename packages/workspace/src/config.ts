@@ -9,6 +9,7 @@ import type {
   WorkspaceModuleOptions,
 } from "./core/types.ts"
 import type { WorkspaceResolutionInput } from "./storage/provider.ts"
+import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 const workspaceConfigKeys = new Set([
   "assets",
@@ -34,13 +35,13 @@ export function normalizeWorkspaceOptions(
 ): false | ResolvedWorkspaceModuleOptions {
   if (options === false) return false
   if (typeof options !== "undefined" && !isPlainObject(options)) {
-    throw new TypeError("`workspace` must be a plain object.")
+    throw workspaceErrorDiagnostics.WORKSPACE_C0001({ message: "`workspace` must be a plain object." })
   }
 
   const resolvedOptions = (options || {}) as WorkspaceModuleOptions
   const unsupported = Object.keys(resolvedOptions).filter(key => !workspaceConfigKeys.has(key))
   if (unsupported.length) {
-    throw new TypeError(`[vitehub] workspace config does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_C0002({ message: `[vitehub] workspace config does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
   }
 
   const rootDir = input.rootDir || process.cwd()

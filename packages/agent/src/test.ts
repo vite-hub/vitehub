@@ -30,6 +30,7 @@ import type {
 } from "./index.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { TraceEventLog, TraceRunView } from "@vite-hub/runtime"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 export { createAgentRuntimeContext }
 
@@ -392,7 +393,7 @@ export function createAgentTestRunner<
           if (options.workspace) {
             workspaceInspectionGuardrails += countWorkspaceInspectionGuardrails(step)
             if (workspaceInspectionGuardrails >= 4) {
-              throw new Error("[vitehub] Agent stopped after repeated workspace inspection guardrails. The requested evidence appears unavailable in the mounted workspace sources.")
+              throw agentDiagnostics.AGENT_R0867({ message: "[vitehub] Agent stopped after repeated workspace inspection guardrails. The requested evidence appears unavailable in the mounted workspace sources." })
             }
           }
         },

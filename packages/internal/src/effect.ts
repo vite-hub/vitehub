@@ -1,4 +1,5 @@
 import { Cause, Data, Effect, Exit, Ref, Scope } from "effect"
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 
 export class EffectBoundaryFailure extends Data.TaggedError("EffectBoundaryFailure")<{
   readonly cause: unknown
@@ -17,7 +18,7 @@ interface CloseScopeOptions {
 export function createEffectBoundary(options: EffectBoundaryOptions) {
   function interruptionError(signal?: AbortSignal): unknown {
     if (signal?.aborted && signal.reason !== undefined) return signal.reason
-    const error = new Error(options.interruptionMessage)
+    const error = internalErrorDiagnostics.INTERNAL_R0003({ message: options.interruptionMessage })
     error.name = "AbortError"
     return error
   }

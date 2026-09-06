@@ -1,0 +1,77 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+@source "../components";
+
+:root {
+  color-scheme: light;
+  --ui-bg: #fdfdfd;
+  --ui-bg-muted: #fafafa;
+  --ui-bg-elevated: #f4f4f5;
+  --ui-bg-accented: #e4e4e7;
+  --ui-border: #e4e4e7;
+  --ui-border-muted: #f4f4f5;
+  --ui-border-accented: #d4d4d8;
+  --ui-text: #27272a;
+  --ui-text-muted: #71717a;
+  --ui-text-dimmed: #a1a1aa;
+  --ui-text-highlighted: #18181b;
+  background: var(--ui-bg);
+  color: var(--ui-text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.dark {
+  color-scheme: dark;
+  --ui-bg: #0a0a0a;
+  --ui-bg-muted: #101010;
+  --ui-bg-elevated: rgb(255 255 255 / 4%);
+  --ui-bg-accented: rgb(255 255 255 / 7%);
+  --ui-border: rgb(255 255 255 / 6%);
+  --ui-border-muted: rgb(255 255 255 / 4%);
+  --ui-border-accented: rgb(255 255 255 / 10%);
+  --ui-text: #f4f4f5;
+  --ui-text-muted: #a1a1aa;
+  --ui-text-dimmed: #71717a;
+  --ui-text-highlighted: #fafafa;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --ui-bg: #0a0a0a;
+    --ui-bg-muted: #101010;
+    --ui-bg-elevated: rgb(255 255 255 / 4%);
+    --ui-bg-accented: rgb(255 255 255 / 7%);
+    --ui-border: rgb(255 255 255 / 6%);
+    --ui-border-muted: rgb(255 255 255 / 4%);
+    --ui-border-accented: rgb(255 255 255 / 10%);
+    --ui-text: #f4f4f5;
+    --ui-text-muted: #a1a1aa;
+    --ui-text-dimmed: #71717a;
+    --ui-text-highlighted: #fafafa;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  min-width: 320px;
+  overflow: hidden;
+}
+
+body {
+  background: var(--ui-bg);
+  color: var(--ui-text);
+  min-height: 100vh;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}

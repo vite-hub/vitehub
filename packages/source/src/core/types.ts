@@ -9,6 +9,7 @@ export type ReadSourceResult<TOptions extends ReadSourceOptions | undefined = un
 
 export interface SourceContext {
   abortSignal?: AbortSignal
+  revision?: SourceRevision
   rootDir: string
   sourceRootDir?: string
   source?: string
@@ -19,26 +20,16 @@ export interface SourceCacheOptions {
   maxAge?: number
 }
 
-export interface SourceSearchQuery {
-  pattern: string
-  cwd?: string
-  paths?: string[]
-  regex?: boolean
-  caseSensitive?: boolean
-  limit?: number
-}
-
-export interface SourceSearchHit {
-  path: string
-  line: number
-  column: number
-  text: string
+export interface SourceRevision {
+  id: string
+  immutable: boolean
+  ref?: string
 }
 
 export interface SourceItem<
   TKey extends string = string,
   TData = unknown,
-  TMetadata extends object = Record<string, unknown>,
+  TMetadata extends object = object,
 > {
   key: TKey
   path?: string
@@ -51,18 +42,17 @@ export interface SourceItem<
 export interface Source<
   TKey extends string = string,
   TData = unknown,
-  TMetadata extends object = Record<string, unknown>,
+  TMetadata extends object = object,
 > {
   name: string
   cache?: false | SourceCacheOptions
   fingerprint?: unknown
+  resolveRevision?(ctx: SourceContext): Promise<SourceRevision | undefined>
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<TKey[]>
   getItem(key: TKey, ctx: SourceContext): Promise<SourceItem<TKey, TData, TMetadata>>
   getItems?(ctx: SourceContext): Promise<SourceItem<TKey, TData, TMetadata>[]>
   getMeta?(key: TKey, ctx: SourceContext): Promise<TMetadata | undefined>
-  search?(query: SourceSearchQuery, ctx: SourceContext): Promise<SourceSearchHit[]>
-  watch?: unknown[]
 }
 
 export interface SourceListEntry<TKey extends string = string> {
@@ -76,32 +66,65 @@ declare global {
 
 export interface SourceMap extends ViteHubSourceMap {}
 
-type SourceKeyOf<TSource> = TSource extends Source<infer TKey, any, any> ? TKey : string
-type SourceDataOf<TSource> = TSource extends Source<any, infer TData, any> ? TData : unknown
-type SourceMetadataOf<TSource> = TSource extends Source<any, any, infer TMetadata> ? TMetadata : Record<string, unknown>
-type RegisteredSource<TName extends SourceName> =
-  TName extends keyof ViteHubSourceMap ? ViteHubSourceMap[TName] : Source
+/** Resolve an optional registered name to its loader definition. */
+export type RegisteredSource<TName extends SourceName> =
+  TName extends keyof ViteHubSourceMap
+    ? ViteHubSourceMap[TName] extends Source ? ViteHubSourceMap[TName] : never
+    : Source
 
 export type SourceName = [keyof ViteHubSourceMap] extends [never] ? string : Extract<keyof ViteHubSourceMap, string>
 
-export type SourceKey<TName extends SourceName = SourceName> =
-  Extract<SourceKeyOf<RegisteredSource<TName>>, string>
+type SourceKeyFunction<TSource extends Source> =
+  TSource extends unknown ? (key: Parameters<TSource["getItem"]>[0]) => void : never
 
-export type SourceData<TName extends SourceName = SourceName> =
-  SourceDataOf<RegisteredSource<TName>>
+/** Keys accepted by every possible definition variant. */
+export type SourceKey<TSource extends Source = Source> =
+  SourceKeyFunction<TSource> extends (key: infer TKey) => void ? Extract<TKey, string> : never
+export type SourceEntry<TSource extends Source = Source> = Awaited<ReturnType<TSource["getItem"]>>
+type ItemData<TItem> = TItem extends { data?: infer TData } ? TData : never
+type ItemMetadata<TItem> = TItem extends { metadata?: infer TMetadata } ? TMetadata : never
 
-export type SourceMetadata<TName extends SourceName = SourceName> =
-  SourceMetadataOf<RegisteredSource<TName>>
+export type SourceData<TSource extends Source = Source> = ItemData<SourceEntry<TSource>>
+export type SourceMetadata<TSource extends Source = Source> = ItemMetadata<SourceEntry<TSource>>
 
-export interface SourceReader<TName extends SourceName = SourceName> {
-  keys(): Promise<SourceKey<TName>[]>
-  get(key: SourceKey<TName>): Promise<SourceItem<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>>>
-  items(): Promise<Array<SourceItem<SourceKey<TName>, SourceData<TName>, SourceMetadata<TName>>>>
-  read<TOptions extends ReadSourceOptions | undefined = undefined>(
-    key: SourceKey<TName>,
-    options?: TOptions
-  ): Promise<ReadSourceResult<TOptions>>
-  meta(key: SourceKey<TName>): Promise<SourceMetadata<TName> | undefined>
-  exists(key: SourceKey<TName>): Promise<boolean>
-  list(prefix?: SourceKey<TName> | (string & {}) | ""): Promise<SourceListEntry<SourceKey<TName>>[]>
+type SourceMeta<TSource extends Source> = TSource extends unknown
+  ? "getMeta" extends keyof TSource
+    ? Awaited<ReturnType<NonNullable<TSource["getMeta"]>>> | (undefined extends TSource["getMeta"] ? undefined : never)
+    : undefined
+  : never
+
+type SourceEntries<TSource extends Source> = TSource extends unknown
+  ? "getItems" extends keyof TSource
+    ? Awaited<ReturnType<NonNullable<TSource["getItems"]>>> | (undefined extends TSource["getItems"] ? SourceEntry<TSource>[] : never)
+    : SourceEntry<TSource>[]
+  : never
+
+export interface SourceFile<TKey extends string = string, TMetadata extends object = Record<string, unknown>>
+  extends SourceItem<TKey, unknown, TMetadata> {
+  content: SourceContent
 }
+
+/** File loaders guarantee readable content for every item. */
+export interface FileSource<TKey extends string = string, TMetadata extends object = Record<string, unknown>>
+  extends Source<TKey, unknown, TMetadata> {
+  getItem(key: TKey, ctx: SourceContext): Promise<SourceFile<TKey, TMetadata>>
+  getItems?(ctx: SourceContext): Promise<SourceFile<TKey, TMetadata>[]>
+}
+
+interface SourceFileMethods<TKey extends string> {
+  read<TOptions extends ReadSourceOptions | undefined = undefined>(
+    key: TKey,
+    options?: TOptions,
+  ): Promise<ReadSourceResult<TOptions>>
+  list(prefix?: string): Promise<SourceListEntry[]>
+}
+
+/** A reader owns one revision and preparation attempt. Create another reader to refresh. */
+export type SourceReader<TSource extends Source = Source> = {
+  revision(): Promise<SourceRevision | undefined>
+  keys(): Promise<Awaited<ReturnType<TSource["getKeys"]>>>
+  get(key: SourceKey<TSource>): Promise<SourceEntry<TSource>>
+  items(): Promise<SourceEntries<TSource>>
+  meta(key: SourceKey<TSource>): Promise<SourceMeta<TSource>>
+  exists(key: SourceKey<TSource>): Promise<boolean>
+} & (SourceEntry<TSource> extends { content: SourceContent } ? SourceFileMethods<SourceKey<TSource>> : object)

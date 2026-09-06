@@ -11,6 +11,7 @@ import { getActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/intern
 import { build } from "esbuild"
 
 import { createDbCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
+import { defaultDatabaseNotConfiguredError } from "../src/runtime/agent.ts"
 
 const defaultSchema = {
   notes: sqliteTable("notes", {
@@ -32,6 +33,13 @@ const runtimeState = {
 }
 
 const execFileAsync = promisify(execFile)
+
+it("identifies a missing generated default database", () => {
+  expect(defaultDatabaseNotConfiguredError()).toMatchObject({
+    code: "DATABASE_R0016",
+    message: "[vitehub] Database \"default\" is not configured.",
+  })
+})
 
 function createFakeD1Binding() {
   return {

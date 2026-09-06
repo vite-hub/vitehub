@@ -23,6 +23,7 @@ afterEach(async () => {
 function capabilityContext(): AgentCapabilityContext {
   const messages = () => []
   return {
+    capabilities: {},
     actor: { id: "test" },
     context: {} as never,
     fs: {} as never,
@@ -801,6 +802,42 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it.each([
+    `defineAgent(settings("installation-token"))`,
+    `defineAgent({ ...settings("installation-token"), workspace: {} })`,
+    `defineAgent(options)`,
+  ])("rejects an Eve extension hidden behind dynamic Agent Definition options: %s", async definition => {
+    await expect(transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        const settings = token => ({ capabilities: [github({ token })] })
+        const options = settings("installation-token")
+        export default ${definition}
+      `,
+      parseAst,
+      async specifier => specifier === "@github-tools/eve-extension",
+    )).rejects.toThrow("must be mounted in a top-level static capabilities array")
+  })
+
+  it("keeps shadowed dynamic option factories unrelated to the top-level factory", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        const settings = token => ({ capabilities: [github({ token })] })
+        {
+          const settings = () => ({ metadata: { safe: true } })
+          defineAgent(settings())
+        }
+      `,
+      parseAst,
+      async specifier => specifier === "@github-tools/eve-extension",
+    )
+
+    expect(transformed).toBeUndefined()
+  })
+
   it("keeps static block bindings scoped to the block", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `
@@ -892,6 +929,25 @@ describe("Eve extension capabilities", () => {
       parseAst,
       async () => true,
     )).rejects.toThrow("cannot be referenced outside its static Capability mount")
+  })
+
+  it("ignores the imported side of an aliased non-extension import", async () => {
+    const transformed = await transformEveExtensionCapabilities(
+      `
+        import { defineAgent } from "@vite-hub/agent"
+        import github from "@github-tools/eve-extension"
+        import { github as githubChannel } from "@vite-hub/agent/channels"
+        export default defineAgent({
+          capabilities: [github()],
+          channels: { github: githubChannel({ activity: true }) },
+        })
+      `,
+      parseAst,
+      async source => source === "@github-tools/eve-extension",
+    )
+
+    expect(transformed).toContain("__vitehubEveExtensionCapability(")
+    expect(transformed).toContain("githubChannel({ activity: true })")
   })
 
   it("rejects extension factory references inside mount config", async () => {
@@ -1113,5 +1169,53 @@ describe("Eve extension capabilities", () => {
     expect(firstTools.test__run!.description).toBe("run-1")
     expect(secondTools.test__run!.description).toBe("run-2")
     await expect(secondTools.test__run!.execute?.({}, { toolCallId: "call-1" } as never)).resolves.toBe("run-2")
+  })
+
+  it("maps Eve step.started tools to each Agent Invocation", async () => {
+    const started = vi.fn((event: { type: string }, context: { session: { id: string } }) => ({
+      run: {
+        description: `${event.type}:${context.session.id}`,
+        execute: async () => context.session.id,
+      },
+    }))
+    const capability = await eveExtensionCapability(
+      "test-extension",
+      "test",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({
+        dynamic: {
+          events: { "step.started": started },
+          kind: "eve:dynamic",
+        },
+      }),
+    )
+    const context = capabilityContext()
+    context.run = { runId: "run-1", threadId: "session-1" }
+
+    const tools = await (capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(context)
+
+    expect(started).toHaveBeenCalledOnce()
+    expect(tools.test__run!.description).toBe("step.started:run-1")
+    await expect(tools.test__run!.execute?.({}, { toolCallId: "call-1" } as never)).resolves.toBe("run-1")
+  })
+
+  it("rejects dynamic tools with several active lifecycle handlers", async () => {
+    const capability = await eveExtensionCapability(
+      "test-extension",
+      "test",
+      async () => ({ default: () => ({ [Symbol.for("eve.mounted-extension")]: true }) }),
+      async () => ({
+        dynamic: {
+          events: {
+            "session.started": () => undefined,
+            "step.started": () => undefined,
+          },
+          kind: "eve:dynamic",
+        },
+      }),
+    )
+
+    await expect((capability.tools as (context: AgentCapabilityContext) => Promise<Record<string, AgentToolDefinition>>)(capabilityContext()))
+      .rejects.toThrow("uses unsupported events: session.started, step.started")
   })
 })

@@ -16,15 +16,53 @@ describe("examples catalog", () => {
     expect(sitemap).toContain('{ path: "/examples" }');
   });
 
-  it("keeps projects pending until their source is publishable", () => {
+  it("publishes available examples while retaining future candidates", () => {
     expect(examples).toEqual([
       expect.objectContaining({
         name: "Drop",
         kind: "project",
+        status: "published",
+        action: {
+          kind: "source",
+          label: "View source",
+          to: "https://github.com/vite-hub/drop",
+        },
+        builtWith: ["Blob", "Queue", "Rate Limit", "Sandbox", "Schedule"],
+      }),
+      expect.objectContaining({
+        name: "Calories",
+        kind: "template",
+        status: "published",
+        action: {
+          kind: "use",
+          label: "Use template",
+          to: "https://github.com/vite-hub/calories/generate",
+        },
+        startPath: "server/agents/calories/agent.ts",
+      }),
+      expect.objectContaining({
+        name: "My Pull Requests",
+        kind: "template",
+        status: "published",
+        action: {
+          kind: "use",
+          label: "Use template",
+          to: "https://github.com/vite-hub/my-pull-requests/generate",
+        },
+        startPath: "app/pages/index.vue",
+      }),
+      expect.objectContaining({
+        name: "Nuxt Agent",
+        kind: "template",
         status: "pending",
-        action: { kind: "source", label: "Source unavailable" },
-        builtWith: ["Blob", "Queue", "Rate Limit"],
-        publicationNote: "Pending an explicit license.",
+        action: {
+          kind: "use",
+          label: "Template unavailable",
+        },
+        publicationNote:
+          "Pending an explicit license and Node 24 support for local and Vercel runtimes.",
+        builtWith: ["Agent Definitions", "MCP", "Workspaces", "Channels", "Rate Limit", "Workflow"],
+        startPath: "server/agents/nuxt/agent.ts",
       }),
       expect.objectContaining({
         name: "Babysitter",
@@ -42,7 +80,7 @@ describe("examples catalog", () => {
     type Template = Extract<Example, { kind: "template" }>;
 
     expectTypeOf<Project["action"]["kind"]>().toEqualTypeOf<"source">();
-    expectTypeOf<PublishedProject["license"]>().toEqualTypeOf<string>();
+    expectTypeOf<PublishedProject["action"]["to"]>().toEqualTypeOf<string>();
     expectTypeOf<Template["action"]["kind"]>().toEqualTypeOf<"use">();
     expectTypeOf<Template["startPath"]>().toEqualTypeOf<string>();
   });

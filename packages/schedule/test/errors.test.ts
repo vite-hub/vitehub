@@ -22,7 +22,7 @@ describe("Schedule errors", () => {
 
   it.each([
     [() => validateRuntimeScheduleCron("private-cron-value"), "SCHEDULE_INVALID_CRON"],
-    [() => schedules.create({ cron: "0 9 * * *", privateSecretField: "secret", target: "report" } as never), "SCHEDULE_INVALID_INPUT"],
+    [() => schedules.dynamic.create({ cron: "0 9 * * *", privateSecretField: "secret", target: "report" } as never), "SCHEDULE_INVALID_INPUT"],
     [() => schedules.run({ token: "private-id-value" } as never), "SCHEDULE_INVALID_ID"],
   ])("returns ViteHubError code %s", async (run, code) => {
     const error = await Promise.resolve().then(run).then(() => undefined, cause => cause)

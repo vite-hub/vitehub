@@ -2,6 +2,7 @@
 title: Schedule
 description: Declare static cron schedules and manage recurring Runtime Schedules for eligible targets.
 navigation.order: 11
+navigation.group: Background work
 icon: i-lucide-calendar-clock
 ---
 
@@ -138,6 +139,8 @@ Cron expressions use the Schedule Time Base, currently UTC. The discovered file 
 | `cron` | `string` | Yes | Five-field UTC cron expression for the Static Schedule Definition. |
 | `handler` | `ScheduleHandler` | Yes | Function called with Schedule Run Context. |
 | `allowRuntimeSchedules` | `boolean` | No | Allows Runtime Schedules to target this definition. |
+
+Write `allowRuntimeSchedules` as a literal `true` or `false` in the directly exported definition. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting a runtime target.
 
 `ScheduleRunContext` includes `id`, `scheduledAt`, `waitUntil`, optional `attemptId`, optional `runId`, optional Runtime Schedule id, optional Runtime Schedule target, and optional Runtime Schedule `input`.
 
@@ -277,3 +280,27 @@ Static Schedule Definitions and Provider Wake output remain UTC. Runtime Schedul
 - Use [Queue](/docs/server-primitives/queue) when a provider-supported enqueue delay is enough.
 - Use [Workflows](/docs/server-primitives/workflows) for durable orchestration.
 - Learn trigger language in [Channels API](/docs/concepts/channels-api).
+
+
+## Definition-owned target inputs
+
+The Vite Integration writes `.vitehub/schedule.d.ts`. Include it in your TypeScript project. The Nuxt Integration includes it automatically. The generated `ScheduleTargetRegistry` maps eligible names to their definitions. `schedules.create()` checks input against the selected target:
+
+```ts
+const record = await schedules.create({
+  target: "daily-report",
+  cron: "0 9 * * *",
+  input: { prompt: "Summarize yesterday" },
+})
+await schedules.update(record.id, {
+  target: "daily-report",
+  input: { prompt: "Summarize this week" },
+})
+await schedules.update(record.id, { enabled: false })
+```
+
+When an update changes `input`, also supply `target`. When an update changes `target`, supply the new input or `input: undefined` to clear it. An ID alone does not identify a definition type. Stored records can outlive a deployment, so `get()`, `list()`, and `update()` return unknown input. Handler input remains optional; targets must handle records with no input.
+
+Use `schedules.dynamic.create()` and `schedules.dynamic.update()` when names or stored input come from external data. The dynamic methods validate target eligibility and Schedule fields. They do not validate a target's business input. Validate that data in the application and again in a target that reads durable records.
+
+This is a breaking change: include the generated declarations for typed application calls, and move operational calls with unknown names to `schedules.dynamic`. There is no permissive string overload on typed creation.

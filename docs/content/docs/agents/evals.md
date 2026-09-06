@@ -133,3 +133,5 @@ Useful one-run flags are `--watch`, `--threshold <score>`, `--output <path>`, `-
 Prefer assertions about the behavior that matters: grounded answers, expected tool use, refusal when evidence is missing, Capability finish effects, and regressions in usage or latency. Read normalized usage from `observation.usage` and the finalized trace from `observation.trace`.
 
 Keep provider credentials, model selection, permissions, and runtime selection on the Agent Definition. An eval owns scenarios and scores; duplicating runtime setup produces a different system than the application runs.
+
+Inline Workspaces infer their Source root from the Eval file directory, including when `agent` is an explicit Agent Definition or an async factory. If that directory contains a `workspace/` directory, ViteHub uses it. Set `workspace.sourceRootDir` when an imported Agent needs Sources from another directory. Named Workspaces keep their registered configuration.

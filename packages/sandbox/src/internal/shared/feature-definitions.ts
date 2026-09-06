@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { basename, join, relative, sep } from 'pathe'
+import { sandboxErrorDiagnostics } from "../../error-diagnostics.ts"
 
 export interface ScannedDefinition {
   name: string
@@ -240,7 +241,7 @@ export function assertNoDuplicateDefinitionNames(feature: string, definitions: P
   for (const definition of definitions) {
     const existing = seen.get(definition.name)
     if (existing) {
-      throw new Error(`[vitehub] Duplicate ${feature} definition "${definition.name}" found in:\n- ${existing}\n- ${definition._meta.sourcePath}`)
+      throw sandboxErrorDiagnostics.SANDBOX_R0049({ message: `[vitehub] Duplicate ${feature} definition "${definition.name}" found in:\n- ${existing}\n- ${definition._meta.sourcePath}` })
     }
     seen.set(definition.name, definition._meta.sourcePath)
   }

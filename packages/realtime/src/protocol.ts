@@ -2,6 +2,7 @@ import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"
 
 import type { RealtimeWorkspaceChange } from "./types.ts"
+import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const messageWorkspaceChange = 4
 export const messageAwareness = 1
@@ -51,7 +52,7 @@ export function encodeWorkspaceChange(change: RealtimeWorkspaceChange): Uint8Arr
 export function readAwarenessClientIds(update: Uint8Array): number[] {
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)
-  if (length > maxAwarenessClients) throw new TypeError("Awareness update contains too many clients.")
+  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_R0002({ message: "Awareness update contains too many clients." })
   const clients: number[] = []
   for (let index = 0; index < length; index++) {
     clients.push(decoding.readVarUint(decoder))

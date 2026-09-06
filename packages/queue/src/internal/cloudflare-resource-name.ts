@@ -1,4 +1,5 @@
 import { encodeQueueNameHex } from "./hex.ts"
+import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 const cloudflareQueueNamePrefix = "queue--"
 const cloudflareQueueNamePattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i
@@ -10,7 +11,7 @@ const digestLength = 32
 function digestCloudflareQueueName(name: string, namePrefix: string): string {
   const crypto = globalThis.process?.getBuiltinModule("node:crypto")
   if (!crypto) {
-    throw new Error("Cloudflare queue name derivation requires the Node.js crypto module.")
+    throw queueErrorDiagnostics.QUEUE_R0001({ message: "Cloudflare queue name derivation requires the Node.js crypto module." })
   }
   return crypto.hash("sha256", JSON.stringify(["vitehub", "cloudflare", "queue", 1, namePrefix, name]), "hex").slice(0, digestLength)
 }
@@ -40,7 +41,7 @@ function createBoundedCloudflareQueueName(name: string, namePrefix: string): str
 export function getCloudflareQueueName(name: string, namePrefix = ""): string {
   const queueName = `${namePrefix}${cloudflareQueueNamePrefix}${encodeQueueNameHex(name)}`
   if (!cloudflareQueueNamePattern.test(queueName)) {
-    throw new TypeError(`Cloudflare queue name ${JSON.stringify(queueName)} must contain only letters, numbers, and dashes, and must start and end with a letter or number.`)
+    throw queueErrorDiagnostics.QUEUE_R0002({ message: `Cloudflare queue name ${JSON.stringify(queueName)} must contain only letters, numbers, and dashes, and must start and end with a letter or number.` })
   }
   return queueName.length <= maxCloudflareQueueNameLength
     ? queueName

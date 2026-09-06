@@ -2,6 +2,7 @@ import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 
 import type { DiscoveredAuthDefinition } from "./types.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 const authDefinitionExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 
@@ -23,10 +24,10 @@ function authDefinitionCandidates(rootDir: string, serverDirs = [resolve(rootDir
 export function discoverAuthDefinitions(rootDir: string, options: { serverDirs?: string[] } = {}): DiscoveredAuthDefinition[] {
   const definitions = authDefinitionCandidates(rootDir, options.serverDirs).filter(definition => existsSync(definition.handler))
   if (definitions.length > 1) {
-    throw new Error([
+    throw authErrorDiagnostics.AUTH_R0003({ message: [
       "[vitehub] Only one Auth Definition is allowed. Found:",
       ...definitions.map(definition => `  - ${definition.handler}`),
-    ].join("\n"))
+    ].join("\n") })
   }
   return definitions
 }

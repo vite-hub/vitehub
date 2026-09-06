@@ -7,6 +7,8 @@ import { getAuthenticationSession } from "./session.ts"
 
 import type {
   AuthAccessConfiguration,
+  AuthAccessAuthorizationContext,
+  AuthAccessRoute,
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
   AuthDefinitionResolver,
@@ -18,6 +20,7 @@ import type {
   AuthSignInConfiguration,
   ViteHubAuth,
 } from "./types.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
 
@@ -207,7 +210,7 @@ function getAuthRuntimeState(): AuthRuntimeState {
 
 function resolveDefaultDefinition(): AuthDefinition {
   if (!discoveredDefinition) {
-    throw new Error("[vitehub] No Auth Definition was discovered. Add `server/auth.ts` or `server.auth.ts`.")
+    throw authErrorDiagnostics.AUTH_R0005({ message: "[vitehub] No Auth Definition was discovered. Add `server/auth.ts` or `server.auth.ts`." })
   }
   return discoveredDefinition
 }
@@ -319,10 +322,10 @@ export async function assertAuthOrigin(
   event?: unknown,
 ): Promise<ViteHubAuth> {
   const origin = request.headers.get("origin")
-  if (!origin) throw new TypeError("The request origin is required.")
+  if (!origin) throw authErrorDiagnostics.AUTH_R0006({ message: "The request origin is required." })
   const auth = getAuthForRequest(request, undefined, event)
   if (!(await auth.$context).isTrustedOrigin(origin)) {
-    throw new TypeError("The request origin is not trusted.")
+    throw authErrorDiagnostics.AUTH_R0007({ message: "The request origin is not trusted." })
   }
   return auth
 }
@@ -346,6 +349,32 @@ function authBaseURL(definition: AuthDefinition, request: Pick<Request, "headers
 
 function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
   return request.method === "GET" && request.headers.get("accept")?.includes("text/html") === true
+}
+
+function createForbiddenResponse(request: Pick<Request, "headers" | "method">): Response {
+  return wantsHtml(request)
+    ? new Response("Forbidden.", {
+        headers: { "content-type": "text/plain; charset=utf-8" },
+        status: 403,
+      })
+    : Response.json({ error: "Forbidden." }, { status: 403 })
+}
+
+function authAccessRoutes(
+  definition: AuthDefinition,
+  request: Pick<Request, "headers" | "url">,
+  event: unknown,
+  routeIndexes: number[],
+): AuthAccessRoute[] {
+  // SAFETY: Auth Definitions validate `access` before the runtime resolves their options.
+  const routes = (resolveDefinitionOptions(definition, request, event) as { access?: AuthAccessConfiguration }).access?.routes
+  return routeIndexes.map((routeIndex) => {
+    const route = routes?.[routeIndex]
+    if (!route) {
+      throw authErrorDiagnostics.AUTH_R0008({ message: `[vitehub] Auth access route ${routeIndex} is unavailable at runtime.` })
+    }
+    return route
+  })
 }
 
 async function createSignInResponse(
@@ -384,14 +413,37 @@ async function createSignInResponse(
   return new Response(null, { headers, status: 302 })
 }
 
-export async function requireAuth(
+async function requireAuthRequest(
   input: AuthRequestInput,
-  definition: AuthDefinition = resolveDefaultDefinition(),
+  definition: AuthDefinition,
+  routeIndexes?: number[],
+  requiredAuthorizeRouteIndexes: number[] = [],
 ): Promise<Response | undefined> {
   const request = unwrapAuthRequest(input)
   const auth = createAuthenticationProvider(resolveBetterAuthOptionsForRequest(definition, request, undefined, input))
   const session = await getAuthenticationSession(auth, { headers: request.headers })
-  if (session) return
+  if (session) {
+    if (routeIndexes === undefined) return
+
+    const context: AuthAccessAuthorizationContext = {
+      request,
+      session: session.session,
+      user: session.user,
+    }
+    const requiredAuthorizeRoutes = new Set(requiredAuthorizeRouteIndexes)
+    const routes = authAccessRoutes(definition, request, input, routeIndexes)
+    for (const [index, route] of routes.entries()) {
+      const authorize = route instanceof Object ? route.authorize : undefined
+      if (!authorize && requiredAuthorizeRoutes.has(routeIndexes[index]!)) {
+        return createForbiddenResponse(request)
+      }
+      if (!authorize) continue
+      const result = await authorize(context)
+      if (result instanceof Response) return result
+      if (result !== true) return createForbiddenResponse(request)
+    }
+    return
+  }
 
   if (!wantsHtml(request)) {
     return Response.json({ error: "Unauthorized." }, { status: 401 })
@@ -408,6 +460,28 @@ export async function requireAuth(
   return signIn
     ? await createSignInResponse(definition, request, signIn, input)
     : Response.json({ error: "Unauthorized." }, { status: 401 })
+}
+
+export async function requireAuth(
+  input: AuthRequestInput,
+  definition: AuthDefinition = resolveDefaultDefinition(),
+): Promise<Response | undefined> {
+  return requireAuthRequest(input, definition)
+}
+
+export async function requireAuthAccessRoutes(
+  input: AuthRequestInput,
+  routeIndexes: number[],
+  definition: AuthDefinition = resolveDefaultDefinition(),
+  requiredAuthorizeRouteIndexes: number[] = [],
+): Promise<Response | undefined> {
+  if (!Array.isArray(routeIndexes) || routeIndexes.length === 0 || routeIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
+    throw authErrorDiagnostics.AUTH_R0009({ message: "[vitehub] Auth access route indexes must be a non-empty array of non-negative integers." })
+  }
+  if (!Array.isArray(requiredAuthorizeRouteIndexes) || requiredAuthorizeRouteIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
+    throw authErrorDiagnostics.AUTH_R0010({ message: "[vitehub] Required Auth authorize route indexes must be an array of non-negative integers." })
+  }
+  return requireAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes)
 }
 
 export default handleAuth

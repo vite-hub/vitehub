@@ -10,7 +10,7 @@ icon: i-lucide-heading
 `title()` generates a short title for an Agent Invocation.
 It can use a model, a custom executor, or a local heuristic, then streams or returns the title as output metadata and optionally delivers it to a Channel thread.
 
-The Capability reads the prepared first user message, generates a short title, provides it as a finish extension, and injects title data into compatible streams.
+The Capability reads the prepared first user message, or `input.prompt` when no user message is present. It generates a short title, provides it as a finish extension, and injects title data into compatible streams.
 When that message has no semantic text, such as an attachment-only audio or image message, it waits for the successful Agent reply and uses that text instead.
 Applications can use the finish extension to name a job, run, artifact, or other durable record without depending on a chat interface.
 It can limit title generation to selected Agent Trigger ids.
@@ -41,11 +41,13 @@ Input Capabilities run first, so `transcribe()` can replace audio with transcrip
 
 For framework-managed Chat SDK message Channels, ViteHub also delivers the title once per thread by default, even when each webhook contains only the current message or the handler is recreated. Follow-up Channel invocations skip title generation after successful delivery. Set `channelDelivery: "always"` to refresh the platform title on every invocation. Plain `runAgent()` and UI invocations without framework-managed Chat SDK delivery still receive stream data and finish extensions per invocation.
 
+When an Invocation journal is configured, title generation starts beside the main answer. Invocation cleanup waits for this work, subject to the title timeout and invocation abort signal. Metadata journals retain the generated text only when `metadataContent` includes `vitehub.session.title`; the Console enables this selection.
+
 The Capability avoids wrapping the same result twice.
 
 ## Requirements
 
-`title()` needs message-shaped input with at least one user message and semantic text from either the prepared input or a successful Agent reply.
+`title()` accepts a text `prompt` or message input with at least one user message. It needs semantic text from the prepared input or a successful Agent reply.
 A model, custom executor, or heuristic path must be available.
 
 Use a custom template, variables, or executor when the title must include product-specific context.

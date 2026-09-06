@@ -31,6 +31,82 @@ Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`
 
 `webChat()` enables a generated AI SDK chat route by default. `http()` is a generic HTTP Channel and keeps its route disabled unless you pass `http({ route: true })`.
 
+## Publish Agent activity without opening a chat
+
+Enable `activity` when an invocation should project its lifecycle into a Channel without treating that Channel as the Agent's conversation transport. With GitHub App webhooks enabled, ViteHub creates the authenticated app-owned comment on `pull_request.opened`; later invocations reuse it. The comment claims work with a “Starting” row. One table lists the current and recent sessions, newest first, with links, status, GitHub relative start times, and completed durations. Normalized harness task checkboxes and the latest iteration result appear below it. Previous results stay under a collapsed section. The full transcript stays in the linked session.
+
+Enable the GitHub App webhook for `pull_request` events and route it to the Agent’s generated webhook endpoint to claim the comment when the PR opens. Without webhook delivery, the first invocation creates it.
+
+Activity updates are ordered within one process. Across concurrent hosts, GitHub delivery is best-effort: intermediate updates can coalesce, separate hosts can temporarily create duplicate managed comments, and overlapping writes can briefly replace newer state. A later update reconciles owned duplicates and stale state when possible. Within one process, older updates do not replace the current or terminal run.
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export const agent = defineAgent({
+  channels: {
+    github: github({
+      activity: true,
+      app: true,
+    }),
+  },
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
+
+Select the Channel and its destination when the application starts the invocation. Links are application-owned; use them for the current session, memory, or another inspection surface.
+
+```ts
+import { runScheduledAgent } from 'vite-hub/agent'
+
+await runScheduledAgent(agent, schedule, {
+  run: {
+    activity: {
+      links: [
+        { label: 'Session', url: sessionUrl },
+        { label: 'Memory', url: memoryUrl },
+      ],
+      target: { repository: 'acme/storefront', issue: 42 },
+    },
+    channelId: 'github',
+    runId: schedule.runId,
+  },
+}, { prompt: 'Converge this pull request.' })
+```
+
+The runtime publishes `queued` before capacity admission, `running` after admission, `waiting` for approval requests, and a terminal state on every exit. `data-agent-plan` stream events update the task list, so Codex and other harnesses that expose normalized plans do not need provider-specific GitHub code. Activity delivery failures are reported without replacing the Agent result.
+
+## Reconcile GitHub pull requests
+
+`pullRequest: true` accepts declared slash commands on pull request comments. Add `pullRequest.reconcile` when selected pull request lifecycle events should also start an invocation. Mention commands are opt-in and application-owned, so ViteHub does not reserve a bot name.
+
+```ts [server/agents/reviewer.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { github } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      activity: true,
+      app: true,
+      pullRequest: {
+        reconcile: {
+          events: ['opened', 'reopened', 'ready_for_review', 'synchronize'],
+          mentions: ['@agent'],
+          prompt: 'Review this pull request and make any needed changes.',
+        },
+      },
+    }),
+  },
+  driver: { kind: 'codex', permissions: 'allow-all' },
+  workspace: { mode: 'write' },
+})
+```
+
+Lifecycle deliveries use one concurrent invocation slot per repository and pull request. ViteHub ignores bot-authored `synchronize` events to prevent a bot push from immediately triggering itself. Existing slash commands still work when reconciliation is enabled. Reconciliation starts work; merge policy and any required human consent remain application-owned instructions or Capabilities.
+
+Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
+
 ## Connect a web chat
 
 `webChat()` exposes the Agent through `/api/_vitehub/agents/[agent]/chat`. Set `route: false` to keep that Agent unreachable through the shared dispatcher.
@@ -57,7 +133,11 @@ const { messages, status, sendMessage, stop } = useChat(agent)
 </script>
 ```
 
+`useChat()` also exposes a reactive `invocationId`. It is populated when the generated route accepts a request so an application can link to `/_vitehub/agents/~support/invocations/${invocationId.value}`.
+
 Add `route.admission.authenticate` when the generated route needs authentication. ViteHub reads the raw body once, verifies the shared UI-message contract, and copies only fields named in `route.input.trust` after authentication.
+
+Agent chat and webhook routes accept at most 1 MiB by default. Set `route.maxBodyBytes` to a smaller limit or raise it as high as 10 MiB for a web chat with larger JSON payloads. ViteHub checks `Content-Length` and the streamed byte count, so chunked requests cannot bypass the limit.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -82,6 +162,35 @@ export default defineAgent({
 ```
 
 Use an application-owned route and [`streamAgentTrigger()`](/docs/agents/triggers#consume-a-capability-trigger) when the shared dispatcher is not the right authentication or request boundary.
+
+### Resume a web chat in one process
+
+Set `resume: true` in `useChat()` and opt the generated route into process-scoped replay when a browser should follow an active response after reconnecting.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { webChat } from 'vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    portal: webChat({
+      route: {
+        admission: {
+          authenticate: ({ request }) => requireSession(request),
+        },
+        resumable: {
+          owner: ({ auth }) => auth.user.id,
+          scope: 'process',
+          ttlMs: 10 * 60 * 1000,
+        },
+      },
+    }),
+  },
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
+
+The route de-duplicates one owner's repeated submission, replays buffered UI-message stream bytes, follows the live response, and retains a completed response for `ttlMs`. `scope: 'process'` is literal: active streams do not survive process replacement and cannot be discovered by another instance. Use this only where deployment keeps a chat on one process, or put durable execution, stream storage, and coordination behind an application-owned route.
 
 ## Connect an adapter platform
 
@@ -147,9 +256,37 @@ teams({
 
 `deliveryKind` is `direct`, `mention`, or `subscribed`. Returning `false` posts no fallback error because the Agent never started.
 
+Set `messages.meta` to a Standard Schema when application-owned Channel metadata must be validated before Capabilities, hooks, or the Driver run. The schema may normalize or add defaults, but its output must be an object. Set `metaRevision` to a stable value and change it whenever the schema contract changes so durable Agent Workflows can reuse parsed metadata across processes. Without a revision, durable execution validates the metadata again. Put both settings on shared Agent message settings or on one Channel to override them for that Channel.
+
+```ts
+import { defineAgent } from 'vite-hub/agent'
+import * as v from 'valibot'
+
+export default defineAgent({
+  driver: { run: ({ context }) => context.get('channel')?.meta },
+  messages: {
+    meta: v.object({ audience: v.optional(v.picklist(['support', 'technical'])) }),
+    metaRevision: '1',
+  },
+})
+```
+
 Set `messages.commentary: 'message'` only when the Driver emits explicit commentary phases for public progress. Commentary is hidden by default; ViteHub never publishes reasoning as progress.
 
-Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. Overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
+Use `messages.delivery: 'manual'` when finish hooks own replies. A generated Workflow may carry manual delivery across a durable boundary when the Channel and host support it. An explicit `messages.timeout` bounds inline execution and the durable handoff's typing indicator, but it does not cap the durable Agent Workflow. `steer` queues overlapping messages and preserves that Workflow handoff. Other overlap policies such as `serial`, `drop`, `queue`, and `reject` remain inline and cannot be combined with required durable delivery.
+
+For a progress message that is edited while the Agent works, configure `messages.loading`. Its required `text` accepts a string, rotating string array, callback, or `null`; `intervalMs` controls the minimum update interval. Set `updates: 'commentary'` to project explicit commentary text into that message. `messages.loading` selects manual delivery, so it cannot be combined with `messages.stream` or `messages.commentary`. Set `messages.final.delivery: 'new-message'` to post the final answer separately and then remove the loading placeholder.
+
+```ts
+messages: {
+  loading: {
+    text: ['Looking into it…', 'Still working…'],
+    intervalMs: 1_500,
+    updates: 'commentary',
+  },
+  final: { delivery: 'new-message' },
+}
+```
 
 ## Inspect delivery custody
 
@@ -189,13 +326,15 @@ Channel-scoped Capabilities select abilities, not identity. Authenticate and res
 
 ## Handle attachments
 
-Adapter Channels preserve incoming images, audio, and files as typed message parts. Normalization can fetch a URL-only text attachment on the server to produce text bytes. It does not call lazy provider callbacks, write local files, or persist blobs.
+Adapter Channels preserve incoming images, audio, and files as typed message parts. An attachment on the message selected by the current reply is also current Agent input automatically. Replies reached only through fetched history remain metadata references, so ViteHub does not repeatedly download old media.
 
-Model-backed Drivers can consume inline data, adapter-owned `fetchData`, and HTTPS references within one invocation-wide byte budget. The default is 25 MiB; set `driver.execution.attachments.maxBytes` to lower it. Image, audio, and file HTTPS references are forwarded, but URL-only text attachments use the runtime's server-side `fetch()` without built-in scheme or host restrictions. Treat adapter-supplied text URLs as an SSRF boundary: reject untrusted URLs or validate them against an application-owned allowlist or fetch proxy before they reach normalization.
+Model-backed Drivers can consume inline data and adapter-owned `fetchData` within one invocation-wide byte budget. The default is 25 MiB; set `driver.execution.attachments.maxBytes` to lower it. A URL-only attachment remains a typed reference; ViteHub does not fetch it from the Agent server. Resolve private or provider-owned files in the Channel adapter so its authentication, destination checks, timeouts, and size limits stay in force.
+
+This rule is adapter-neutral: every Channel that supplies normalized `replyTo.attachments` receives it without another ViteHub option. Thread ids, link previews, and URLs in message text are not reply content and are never resolved implicitly. If a provider does not normalize its native reply into `replyTo`, fix that provider adapter instead of inferring a thread root in the Agent.
 
 Channel history export archives inline data, size-declared adapter-owned `fetchData`, and Blob data within a 25 MiB total attachment budget and a 35 MiB total response budget. Lazy adapter reads need a trustworthy non-negative `size` within the remaining budget. URL-only attachments remain unavailable references because the Agent server cannot infer an application-owned host trust policy safely. Persist their bytes through the adapter when they must be recoverable. The export stops waiting for each provider history read or adapter-owned read after 30 seconds or when its request is aborted. The Chat SDK history and `fetchData` contracts have no cancellation channel, so their underlying private I/O remains adapter-owned and may settle after the export stops waiting. Attachments that exceed the remaining budget, contain malformed retained data, fail rehydration, omit the size required for a lazy read, or otherwise cannot be read remain in `history.json` as unavailable references. The export fails instead of building an archive above its total response limit.
 
-Provider-backed Drivers materialize inline data and application-owned `fetchData` results. URL-only attachments require the application to validate and resolve the URL through `fetchData` before crossing the provider boundary; the Driver does not fetch arbitrary URLs from the ViteHub host.
+Provider-backed Drivers materialize inline data and application-owned `fetchData` results. URL-only attachments require the application to validate and resolve the URL through `fetchData` before crossing the provider boundary; the Driver does not fetch arbitrary URLs from the ViteHub host. Provider download URLs and rehydration metadata are removed after adapter-owned content is available so signed locators do not enter durable Workflow input.
 
 ## Separate responsibilities
 

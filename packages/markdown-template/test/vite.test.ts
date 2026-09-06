@@ -12,7 +12,7 @@ import {
   ScriptTarget,
 } from "typescript"
 import { build } from "vite"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { extractMarkdownTemplateImportSpecifiers, markdownTemplateMaterializationPath, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
 import { hubMarkdownTemplate } from "../src/vite.ts"
@@ -51,6 +51,24 @@ describe("hubMarkdownTemplate", () => {
     expect(parseMarkdownTemplateRequest("./prompt.template.md?markdown-template")).toEqual({ path: "./prompt.template.md" })
   })
 
+  it("keeps resolved Markdown template module ids stable", async () => {
+    const resolveIdCandidate: unknown = hubMarkdownTemplate().resolveId
+    // SAFETY: hubMarkdownTemplate defines resolveId as this function hook; the test supplies its only used context method.
+    const resolveId = resolveIdCandidate as (
+      this: { resolve: (source: string) => Promise<{ id: string }> },
+      source: string,
+    ) => Promise<string | undefined>
+
+    const resolve = vi.fn(async (source: string) => ({ id: `/app/${source.slice(2)}` }))
+    await expect(resolveId.call({ resolve }, "./reply.template.md?markdown-template")).resolves.toBe(
+      "/app/reply.template.md?markdown-template",
+    )
+    expect(resolve).toHaveBeenCalledWith("./reply.template.md", undefined, { skipSelf: true })
+    await expect(resolveId.call({
+      resolve: async source => ({ id: `${source}?markdown-template` }),
+    }, "/app/reply.template.md")).resolves.toBe("/app/reply.template.md?markdown-template")
+  })
+
   it("extracts imports from indented paragraph continuations", () => {
     expect(extractMarkdownTemplateImportSpecifiers("Intro\n    @./context.md\n")).toEqual(["./context.md"])
     expect(extractMarkdownTemplateImportSpecifiers("    @./example.md\n")).toEqual([])
@@ -87,11 +105,11 @@ describe("hubMarkdownTemplate", () => {
     })
 
     await Promise.all([rm(template), rm(partial)])
+    // SAFETY: The fixture entry exports the declared default function and is built immediately above.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42..\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\nReview PR 42.\n\n> Waiting")
     const typesPath = join(root, ".vitehub", "types", "markdown-template.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain(`declare module "*.template.md"`)
-    await expect(readFile(typesPath, "utf8")).resolves.toContain(`declare module "*?markdown-template"`)
 
     const program = createProgram({
       options: {
@@ -106,136 +124,47 @@ describe("hubMarkdownTemplate", () => {
     expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
   }, 15_000)
 
-  it("discovers named templates with generated autocomplete", async () => {
+  it("writes direct-import types at the project root when Vite runs from app", async () => {
     const root = await createRoot()
-    const templates = join(root, "server", "templates", "review")
-    const entry = join(root, "entry.ts")
-    const outfile = join(root, "dist", "entry.mjs")
-    await mkdir(templates, { recursive: true })
-    await writeFile(join(templates, "prompt.md"), "Review {{ repository }}.\n", "utf8")
-    await writeFile(join(templates, "private.template.md"), "Private {{ repository }}.\n", "utf8")
-    await writeFile(join(root, "server", "templates", "__proto__.md"), "Prototype-safe.\n", "utf8")
-    await writeFile(entry, [
-      `import { renderTemplate, type TemplateName } from "#vitehub/templates"`,
-      `const name: TemplateName = "review/prompt"`,
-      `function assertInvalidName(): void {`,
-      `  // @ts-expect-error invalid template name`,
-      `  void renderTemplate("missing")`,
-      `}`,
-      `void assertInvalidName`,
-      `export default (): Promise<string> => renderTemplate(name, { repository: "ViteHub" })`,
+    const app = join(root, "app")
+    await mkdir(app, { recursive: true })
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await mkdir(join(root, ".vitehub", "markdown-template"), { recursive: true })
+    await mkdir(join(root, ".vitehub", "types"), { recursive: true })
+    await writeFile(join(app, "package.json"), "{}", "utf8")
+    await writeFile(join(app, "prompt.template.md"), "Hello {{ name }}.", "utf8")
+    await writeFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "stale catalog", "utf8")
+    await writeFile(join(root, ".vitehub", "types", "templates.d.ts"), "stale catalog types", "utf8")
+    await writeFile(join(app, "entry.ts"), [
+      `import prompt from "./prompt.template.md"`,
+      `export default () => prompt({ name: "ViteHub" })`,
       ``,
     ].join("\n"), "utf8")
 
     await build({
       build: {
-        emptyOutDir: true,
-        lib: { entry, fileName: () => "entry.mjs", formats: ["es"] },
-        minify: false,
-        outDir: join(root, "dist"),
+        lib: { entry: join(app, "entry.ts"), fileName: () => "entry.mjs", formats: ["es"] },
+        outDir: join(app, "dist"),
       },
-      logLevel: "silent",
-      plugins: [hubMarkdownTemplate()],
-      root,
-    })
-
-    const catalogTypesPath = join(root, ".vitehub", "types", "templates.d.ts")
-    await expect(readFile(catalogTypesPath, "utf8")).resolves.toContain(`export type TemplateName = "__proto__" | "review/prompt"`)
-    await expect(readFile(catalogTypesPath, "utf8")).resolves.not.toContain("private")
-    const catalogPath = join(root, ".vitehub", "markdown-template", "templates.mjs")
-    await expect(readFile(catalogPath, "utf8")).resolves.toContain("Review {{ repository }}.")
-    await expect(readFile(catalogPath, "utf8")).resolves.toContain("Prototype-safe.")
-    await expect(readFile(catalogPath, "utf8")).resolves.not.toContain("Private {{ repository }}.")
-
-    const program = createProgram({
-      options: {
-        module: ModuleKind.NodeNext,
-        moduleResolution: ModuleResolutionKind.NodeNext,
-        noEmit: true,
-        strict: true,
-        target: ScriptTarget.ES2022,
-      },
-      rootNames: [entry, catalogTypesPath],
-    })
-    expect(getPreEmitDiagnostics(program).map(diagnostic => flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([])
-
-    await rm(join(root, "server"), { force: true, recursive: true })
-    const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("Review ViteHub.")
-  }, 15_000)
-
-  it("discovers named templates from a forwarded server directory", async () => {
-    const root = await createRoot()
-    const templates = join(root, "backend", "templates")
-    const entry = join(root, "entry.ts")
-    await mkdir(templates, { recursive: true })
-    await writeFile(join(templates, "prompt.md"), "Custom server directory.\n", "utf8")
-    await writeFile(entry, 'export { renderTemplate } from "#vitehub/templates"\n', "utf8")
-
-    await build({
-      __vitehubServerDirs: [join(root, "backend")],
-      build: {
-        emptyOutDir: true,
-        lib: { entry, fileName: () => "entry.mjs", formats: ["es"] },
-        outDir: join(root, "dist"),
-      },
-      logLevel: "silent",
-      plugins: [hubMarkdownTemplate()],
-      root,
-    } as Parameters<typeof build>[0])
-
-    await expect(readFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "utf8"))
-      .resolves.toContain("Custom server directory.")
-  }, 15_000)
-
-  it("uses the project root when Vite runs from app", async () => {
-    const root = await createRoot()
-    const app = join(root, "app")
-    const templates = join(root, "server", "templates")
-    await mkdir(app, { recursive: true })
-    await mkdir(templates, { recursive: true })
-    await writeFile(join(app, "package.json"), "{}", "utf8")
-    await writeFile(join(templates, "prompt.md"), "Hello.", "utf8")
-    await writeFile(join(app, "entry.ts"), 'export { renderTemplate } from "#vitehub/templates"\n', "utf8")
-
-    await build({
-      build: { lib: { entry: join(app, "entry.ts"), formats: ["es"] }, outDir: join(app, "dist") },
       logLevel: "silent",
       plugins: [hubMarkdownTemplate()],
       root: app,
     })
 
-    await expect(readFile(join(root, ".vitehub", "types", "templates.d.ts"), "utf8"))
-      .resolves.toContain('export type TemplateName = "prompt"')
-    await expect(readFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "utf8"))
-      .resolves.toContain("Hello.")
-  }, 15_000)
-
-  it("keeps a standalone app directory as the project root", async () => {
-    const parent = await createRoot()
-    const root = join(parent, "app")
-    const templates = join(root, "server", "templates")
-    await mkdir(templates, { recursive: true })
-    await writeFile(join(root, "package.json"), "{}", "utf8")
-    await writeFile(join(templates, "prompt.md"), "Hello.", "utf8")
-    await writeFile(join(root, "entry.ts"), 'export { renderTemplate } from "#vitehub/templates"\n', "utf8")
-
-    await build({
-      build: { lib: { entry: join(root, "entry.ts"), formats: ["es"] }, outDir: join(root, "dist") },
-      logLevel: "silent",
-      plugins: [hubMarkdownTemplate()],
-      root,
-    })
-
-    await expect(readFile(join(root, ".vitehub", "types", "templates.d.ts"), "utf8"))
-      .resolves.toContain('export type TemplateName = "prompt"')
+    await expect(readFile(join(root, ".vitehub", "types", "markdown-template.d.ts"), "utf8"))
+      .resolves.toContain('declare module "*.template.md"')
+    await expect(readFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, ".vitehub", "types", "templates.d.ts"), "utf8")).rejects.toThrow()
+    // SAFETY: The fixture entry exports the declared default function and is built immediately above.
+    const bundled = await import(`${pathToFileURL(join(app, "dist", "entry.mjs")).href}?t=${Date.now()}`) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
   }, 15_000)
 
   it("fails the build when a bundled template import is missing", async () => {
     const root = await createRoot()
     const entry = join(root, "entry.ts")
-    await writeFile(join(root, "prompt.md"), "@./missing.md\n", "utf8")
-    await writeFile(entry, 'import prompt from "./prompt.md?markdown-template"\nexport default prompt\n', "utf8")
+    await writeFile(join(root, "prompt.template.md"), "@./missing.md\n", "utf8")
+    await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default prompt\n', "utf8")
 
     await expect(build({
       build: { lib: { entry, formats: ["es"] }, outDir: join(root, "dist") },

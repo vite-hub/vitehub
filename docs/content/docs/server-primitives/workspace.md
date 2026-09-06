@@ -2,6 +2,7 @@
 title: Workspace
 description: Build persistent file-tree state with rules, Source Bindings, snapshots, diffs, and sessions.
 navigation.order: 7
+navigation.group: Files and execution
 icon: i-lucide-folder-git-2
 ---
 
@@ -52,7 +53,7 @@ export default defineWorkspace({
 | `useWorkspace` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Read, write, diff, snapshot, sync, or start sessions for a Workspace. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Workspace Source Bindings. |
 | `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tools from Workspace access. |
-| Source resolution and request helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources into runtime facades. |
+| Source resolution, request, and preparation helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources and process-local readiness into runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Add loaders and publishers, or create test Workspaces. |
@@ -173,16 +174,63 @@ Instruction text reads scalar bindings with `{{ workspace.<name> }}` and file-ba
 
 ## Source Binding options
 
-Workspace Source Bindings can wrap Source Package loaders and add Workspace behavior.
+Bind a standalone Source definition with `{ source, mount, materialize }`. Reuse
+the definition for direct reads or Content:
+
+```ts [server/sources/docs.ts]
+import { glob } from 'vite-hub/source/glob'
+
+export const docs = glob({ cwd: 'docs', include: '**/*.md' })
+```
+
+```ts [server/workspaces/docs.ts]
+import { defineWorkspace } from 'vite-hub/workspace'
+import { docs } from '../sources/docs'
+
+export default defineWorkspace({
+  sources: {
+    docs: { source: docs, mount: 'docs', materialize: 'lazy' },
+  },
+})
+```
+
+The Source key `intro.md` appears at `docs/intro.md`. The binding owns placement,
+materialization, sync, and access rules. Source owns retrieval. Pass the same
+`docs` definition to `createSource(docs)` for direct reads or
+`defineContent({ source: docs })` for parsed Content. Each consumer owns its
+reader lifecycle and revision.
+
+The Workspace `file()`, `glob()`, and other binding helpers remain available
+when a definition is used only in Workspace. Standalone Source loaders use
+`defineSource()` for custom retrieval; Workspace's `custom()` helper adds
+Workspace binding behavior.
 
 | Option | Type | Description |
 | --- | --- | --- |
+| `source` | `Source` | Standalone loader definition to bind. Required in the explicit binding form. |
 | `mount` | `WorkspaceSourceMount` | Where retrieved items appear in the Workspace file tree. Accepts a path string or Mount options. |
-| `materialize` | `WorkspaceMaterializeMode` | Build-time, lazy, or disabled materialization. Values: `build`, `lazy`, `none`. |
+| `materialize` | `WorkspaceMaterializeMode` | Build-time, process-startup, lazy, or disabled materialization. Values: `build`, `startup`, `lazy`, `none`. Startup Sources remain available through lazy reads and can be prepared with `createWorkspacePreparation()`. |
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
 | `probeKeys` | `string[]` | Known Source item keys used to check bundled-source completeness and intersect path-scoped access without enumerating the whole Source. File-shaped helpers infer this when possible. |
+
+### Prepare startup Sources
+
+Use `createWorkspacePreparation()` when a process must materialize required Sources before reporting readiness:
+
+```ts
+import { createWorkspacePreparation } from '@vite-hub/workspace/runtime'
+
+export const preparation = createWorkspacePreparation({
+  retryDelayMs: 10_000,
+  workspace: 'docs',
+})
+
+await preparation.start()
+```
+
+With no explicit `sources`, the controller selects every Source whose `materialize` mode is `startup`. Failed attempts become inspectable error state and retry in the background. `response()` returns a non-cacheable JSON readiness response without exposing internal errors, and `stop()` cancels an active attempt and its retry timer. The state is process-local readiness, not a continuous upstream health or liveness signal.
 
 ### Fetch Sources
 
@@ -200,8 +248,9 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | `bodySchema` | Standard JSON Schema-compatible schema | none | Validates runtime body input and supplies schema defaults. Cannot be combined with `body`. |
 | `headers` | `Record<string, string>` | none | Static request headers. |
 | `cookies` | `Record<string, string>` | none | Static request cookies. |
-| `timeout` | `number` | package default | Request timeout in milliseconds. |
-| `request` | `FetchSourceRequestOptions \| callback` | none | Adds headers, cookies, or timeout at request time. The callback receives request metadata, the Selected Workspace Scope, Source key, and Workspace name. |
+| `timeout` | `number` | `30000` | Request and response-body timeout in milliseconds. |
+| `maxResponseBytes` | `number` | `5242880` | Maximum decoded response size. Explicit limits must not exceed 25 MiB. |
+| `request` | `FetchSourceRequestOptions \| callback` | none | Adds headers, cookies, timeout, or `maxResponseBytes` at request time. The callback receives request metadata, the Selected Workspace Scope, Source key, and Workspace name. |
 | `transform` | `(response) => output` | identity | Transforms parsed response data before ViteHub serializes it. |
 | `cache` | `false \| { maxAge?: number }` | `false` | Controls Source response caching. |
 | `materialize` | `build \| lazy \| none` | `lazy`, or `none` when sync is enabled | Controls when response content is written into the Workspace Store. |
@@ -267,8 +316,10 @@ export default defineEventHandler(async (event) => {
 | `snapshot(options?)` | `name?: string` | Captures the current Workspace tree with an optional snapshot name. |
 | `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store while preserving staged paths. A listed path takes its remote version only when both sides changed; any other overlapping change remains a conflict. |
 | `diff(options?)` | `from?: WorkspaceSnapshot` | Compares the current tree with the supplied snapshot or the Store baseline. |
-| `materializeSources(options?)` | `abortSignal?`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
+| `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
+
+Each materialized Source reports its provider, cache disposition, revision, duration, and added, updated, unchanged, and removed file counts. Set `details: 'paths'` when the caller is allowed to inspect file names; path details stay out of the result by default.
 
 ## Resolve custom Sources
 
@@ -400,7 +451,7 @@ export async function testDocs() {
 
 `startSession(options)` combines Workspace state with an open Box Session. `host` is required for execution. `paths` limits materialization and commits, and `target` defaults to `/workspace`. `abortSignal` cancels preparation, while `onProgress` reports materialization phases. Closing the Workspace Session doesn't close the Box host.
 
-Set `writeBack.exclude` to Workspace-relative paths owned by the runtime rather than the invocation. Excluded paths remain usable in the host tree, but their changes are omitted from `diff()` and `commit()` and their pre-Session state is restored by `close()`. ViteHub always applies the same behavior to `.agent-runs`, `.git`, and `.vitehub`. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
+Set `writeBack.exclude` to Workspace-relative paths owned by the runtime rather than the invocation. Excluded paths remain usable in the host tree, but their changes are omitted from `diff()` and `commit()` and their pre-Session state is restored by `close()`. Set `writeBack: false` when the runtime must remain writable but its changes must never be published. That mode disables `diff()` and `commit()` and restores the authoritative Workspace on close without first scanning the runtime tree. Read-only Agent Workspaces select it automatically. ViteHub always applies the same excluded-path behavior to `.agent-runs`, `.git`, and `.vitehub`. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
 
 | Method | Options | Behavior |
 | --- | --- | --- |

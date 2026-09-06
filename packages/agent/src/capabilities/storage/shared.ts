@@ -6,6 +6,7 @@ import type {
   AgentToolPolicyDecision,
   MaybePromise,
 } from "../../types.ts"
+import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export type JsonSchema = Record<string, unknown>
 export type StorageToolPolicy = AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
@@ -20,10 +21,10 @@ export function createTool<TInput = unknown, TOutput = unknown>(
   tool: AgentToolDefinition<TInput, TOutput>,
 ): AgentToolDefinition {
   if (!tool || typeof tool !== "object") {
-    throw new TypeError("[vitehub] tool definitions must be objects.")
+    throw agentDiagnostics.AGENT_R0226({ message: "[vitehub] tool definitions must be objects." })
   }
   if (!tool.name || typeof tool.name !== "string") {
-    throw new TypeError("[vitehub] tool definitions require a tool name.")
+    throw agentDiagnostics.AGENT_R0227({ message: "[vitehub] tool definitions require a tool name." })
   }
   return tool as AgentToolDefinition
 }
@@ -42,20 +43,21 @@ export function requirePrimitive(context: AgentCapabilityContext, name: string):
   const value = typeof handle === "object" && handle !== null && "value" in handle
     ? (handle as { value?: unknown }).value
     : handle
-  if (!value) throw new Error(`[vitehub] Capability "${name}" requires the ${name} primitive to be configured.`)
+  if (!value) throw agentDiagnostics.AGENT_R0228({ message: `[vitehub] Capability "${name}" requires the ${name} primitive to be configured.` })
   return value
 }
 
 export function assertString(value: unknown, label: string): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new TypeError(`[vitehub] ${label} must be a non-empty string.`)
+    throw agentDiagnostics.AGENT_R0229({ message: `[vitehub] ${label} must be a non-empty string.` })
   }
   return value
 }
 
 export function method<T extends (...args: never[]) => unknown>(handle: unknown, primitive: string, name: string): T {
   const fn = typeof handle === "object" && handle !== null ? (handle as Record<string, unknown>)[name] : undefined
-  if (typeof fn !== "function") throw new Error(`[vitehub] ${primitive} primitive does not expose ${name}().`)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider handles expose optional methods that must be callable before binding.
+  if (typeof fn !== "function") throw agentDiagnostics.AGENT_R0230({ message: `[vitehub] ${primitive} primitive does not expose ${name}().` })
   return fn.bind(handle) as T
 }
 
@@ -71,6 +73,7 @@ export async function storageValue<T>(result: MaybePromise<T | [Error, undefined
 export function selectStore(handle: unknown, primitive: "Blob" | "KV", store?: string): unknown {
   if (!store) return handle
   const storeFn = typeof handle === "object" && handle !== null ? (handle as { store?: unknown }).store : undefined
-  if (typeof storeFn !== "function") throw new Error(`[vitehub] ${primitive} Capability store selection requires the ${primitive.toLowerCase()} primitive to expose store().`)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Provider handles expose optional methods that must be callable before binding.
+  if (typeof storeFn !== "function") throw agentDiagnostics.AGENT_R0231({ message: `[vitehub] ${primitive} Capability store selection requires the ${primitive.toLowerCase()} primitive to expose store().` })
   return storeFn.call(handle, store)
 }

@@ -17,25 +17,33 @@ Authenticate at the application boundary, then pass only validated identity fact
 ```ts [server/api/support.post.ts]
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
-import { getRuntimeContext } from '../runtime-context'
+import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthenticatedUser(event)
   const { prompt } = await readBody<{ prompt: string }>(event)
 
-  return runAgent(support, getRuntimeContext(event), {
-    prompt,
-    context: {
-      invoker: {
-        id: user.id,
-        kind: 'customer',
-        label: user.email,
-        meta: { customer: user.customerId },
+  const runtime = getRuntimeContext(event)
+  try {
+    return await runAgent(support, runtime, {
+      prompt,
+      context: {
+        invoker: {
+          id: user.id,
+          kind: 'customer',
+          label: user.email,
+          meta: { customer: user.customerId },
+        },
       },
-    },
-  })
+    })
+  }
+  finally {
+    await runtime.flushWaitUntil().catch(console.error)
+  }
 })
 ```
+
+Without a host lifetime API, drain tracked work before returning. The example reports background failures without replacing the Agent result or error.
 
 ViteHub trusts this server-owned value. Never copy unverified request fields into `context.invoker`.
 

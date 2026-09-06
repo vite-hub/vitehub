@@ -34,14 +34,19 @@ Current [`gog` path conventions](https://github.com/openclaw/gogcli/blob/main/do
 
 ## Choose a mode
 
-Read mode is the default and exposes two tools:
+Read mode is the default. Draft mode adds `gmail_draft`, which creates an unsent draft with `to`, optional `cc` and `bcc`, a subject, and a plain-text body.
 
-| Tool | Behavior |
-| --- | --- |
-| `gmail_auth` | Starts or completes remote authorization for one Gmail address. |
-| `gmail_search` | Searches or lists Gmail threads. It does not retrieve full message bodies. |
+The following Agent-visible definitions are resolved from the real Capability during the docs build.
 
-Draft mode exposes the same tools plus `gmail_draft`, which creates an unsent draft with `to`, optional `cc` and `bcc`, a subject, and a plain-text body.
+### Read mode
+
+::agent-capability-tools{name="gmail" variant="read"}
+::
+
+### Draft mode
+
+::agent-capability-tools{name="gmail" variant="draft"}
+::
 
 ```ts
 gmail()

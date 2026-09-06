@@ -1,18 +1,28 @@
-import { isPlainObject } from "@vite-hub/internal/object"
+import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
+import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
+import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 
 import type {
   AgentAdapterInstructions,
   AgentAttachmentExecutionOptions,
+  AgentDriverAdaptiveCapacityOptions,
   AgentDriverCapacityOptions,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
   AgentModelResolver,
   AgentOutputDefinition,
+  AgentProviderCredentialResolver,
+  AgentProviderEnvironmentResolver,
+  AgentProviderLaunchCommand,
+  AgentProviderLaunchResolver,
   AgentProviderPermissions,
   AgentRunHandler,
   AgentRuntimeConfig,
   AgentSettings,
+  CodexReasoningEffort,
+  CodexReasoningSummary,
 } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type NormalizedAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -27,14 +37,21 @@ export type NormalizedAgentDriver<
     output?: AgentOutputDefinition<TOutput>
   }
   | {
-    env?: Record<string, string | undefined>
+    credentialProfile?: string
+    credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
+    env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
     execution?: { attachments?: AgentAttachmentExecutionOptions }
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "provider"
+    launch?: AgentProviderLaunchResolver<TRuntimeConfig>
     model?: string
     output?: AgentOutputDefinition<TOutput>
-    permissions?: AgentProviderPermissions
+    permissions: AgentProviderPermissions
     provider: "claude-code" | "codex"
+    providerSettings?: Record<string, unknown>
+    reasoningEffort?: CodexReasoningEffort
+    reasoningSummary?: CodexReasoningSummary
+    sessionStorePath?: string
   }
   | {
     kind: "run"
@@ -50,133 +67,291 @@ function hasOwnDefined(value: Record<string, unknown>, key: string): boolean {
 function assertNoUnsupportedOptions(value: Record<string, unknown>, allowed: Set<string>, label: string): void {
   const unsupported = Object.keys(value).filter(key => value[key] !== undefined && !allowed.has(key))
   if (unsupported.length) {
-    throw new Error(`[vitehub] ${label} does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+    throw agentDiagnostics.AGENT_R0454({ message: `[vitehub] ${label} does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.` })
   }
 }
 
 function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacityOptions | undefined {
   if (value === undefined) return
-  if (!isPlainObject(value)) throw new TypeError("[vitehub] defineAgent({ driver.capacity }) must be an object.")
-  assertNoUnsupportedOptions(value, new Set(["concurrency", "queue"]), "defineAgent({ driver.capacity })")
-  if (!Number.isInteger(value.concurrency) || (value.concurrency as number) <= 0) {
-    throw new TypeError("[vitehub] defineAgent({ driver.capacity.concurrency }) must be a positive integer.")
+  if (!isPlainObject(value)) throw agentDiagnostics.AGENT_R0455({ message: "[vitehub] defineAgent({ driver.capacity }) must be an object." })
+  assertNoUnsupportedOptions(value, new Set(["adaptive", "concurrency", "queue"]), "defineAgent({ driver.capacity })")
+  if (!isRuntimeNumber(value.concurrency) || !Number.isInteger(value.concurrency) || value.concurrency <= 0) {
+    throw agentDiagnostics.AGENT_R0456({ message: "[vitehub] defineAgent({ driver.capacity.concurrency }) must be a positive integer." })
   }
-  if (value.queue === undefined) return { concurrency: value.concurrency as number }
-  if (!isPlainObject(value.queue)) throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue }) must be an object.")
-  assertNoUnsupportedOptions(value.queue, new Set(["maxPending", "timeout"]), "defineAgent({ driver.capacity.queue })")
-  if (!Number.isInteger(value.queue.maxPending) || (value.queue.maxPending as number) <= 0) {
-    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer.")
+  let queue: AgentDriverCapacityOptions["queue"]
+  if (value.queue !== undefined) {
+    if (!isPlainObject(value.queue)) throw agentDiagnostics.AGENT_R0457({ message: "[vitehub] defineAgent({ driver.capacity.queue }) must be an object." })
+    assertNoUnsupportedOptions(value.queue, new Set(["maxPending", "timeout"]), "defineAgent({ driver.capacity.queue })")
+    if (!isRuntimeNumber(value.queue.maxPending) || !Number.isInteger(value.queue.maxPending) || value.queue.maxPending <= 0) {
+      throw agentDiagnostics.AGENT_R0458({ message: "[vitehub] defineAgent({ driver.capacity.queue.maxPending }) must be a positive integer." })
+    }
+    if (value.queue.timeout !== undefined
+      && (!isRuntimeNumber(value.queue.timeout) || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0 || value.queue.timeout > 2_147_483_647)) {
+      throw agentDiagnostics.AGENT_R0459({ message: "[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number no greater than 2147483647." })
+    }
+    queue = { maxPending: value.queue.maxPending }
+    if (value.queue.timeout !== undefined) queue.timeout = value.queue.timeout
   }
-  if (value.queue.timeout !== undefined
-    && (typeof value.queue.timeout !== "number" || !Number.isFinite(value.queue.timeout) || value.queue.timeout <= 0 || value.queue.timeout > 2_147_483_647)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.capacity.queue.timeout }) must be a positive finite number no greater than 2147483647.")
+
+  let adaptive: AgentDriverAdaptiveCapacityOptions | undefined
+  if (value.adaptive !== undefined) {
+    if (!isPlainObject(value.adaptive)) throw agentDiagnostics.AGENT_R0460({ message: "[vitehub] defineAgent({ driver.capacity.adaptive }) must be an object." })
+    assertNoUnsupportedOptions(value.adaptive, new Set(["fallbackConcurrency", "intervalMs", "rampUp", "sample", "sampleTimeoutMs"]), "defineAgent({ driver.capacity.adaptive })")
+    if (!isRuntimeFunction(value.adaptive.sample)) {
+      throw agentDiagnostics.AGENT_R0461({ message: "[vitehub] defineAgent({ driver.capacity.adaptive.sample }) must be a function." })
+    }
+    if (value.adaptive.fallbackConcurrency !== undefined
+      && (!isRuntimeNumber(value.adaptive.fallbackConcurrency) || !Number.isInteger(value.adaptive.fallbackConcurrency) || value.adaptive.fallbackConcurrency < 0 || value.adaptive.fallbackConcurrency > value.concurrency)) {
+      throw agentDiagnostics.AGENT_R0462({ message: "[vitehub] defineAgent({ driver.capacity.adaptive.fallbackConcurrency }) must be an integer between zero and concurrency." })
+    }
+    if (value.adaptive.intervalMs !== undefined
+      && (!isRuntimeNumber(value.adaptive.intervalMs) || !Number.isFinite(value.adaptive.intervalMs) || value.adaptive.intervalMs < 100 || value.adaptive.intervalMs > 2_147_483_647)) {
+      throw agentDiagnostics.AGENT_R0463({ message: "[vitehub] defineAgent({ driver.capacity.adaptive.intervalMs }) must be a finite number between 100 and 2147483647." })
+    }
+    if (value.adaptive.rampUp !== undefined
+      && (!isRuntimeNumber(value.adaptive.rampUp) || !Number.isInteger(value.adaptive.rampUp) || value.adaptive.rampUp <= 0)) {
+      throw agentDiagnostics.AGENT_R0464({ message: "[vitehub] defineAgent({ driver.capacity.adaptive.rampUp }) must be a positive integer." })
+    }
+    if (value.adaptive.sampleTimeoutMs !== undefined
+      && (!isRuntimeNumber(value.adaptive.sampleTimeoutMs) || !Number.isFinite(value.adaptive.sampleTimeoutMs) || value.adaptive.sampleTimeoutMs <= 0 || value.adaptive.sampleTimeoutMs > 2_147_483_647)) {
+      throw agentDiagnostics.AGENT_R0465({ message: "[vitehub] defineAgent({ driver.capacity.adaptive.sampleTimeoutMs }) must be a positive finite number no greater than 2147483647." })
+    }
+    adaptive = {
+      fallbackConcurrency: value.adaptive.fallbackConcurrency ?? 1,
+      intervalMs: value.adaptive.intervalMs ?? 5_000,
+      rampUp: value.adaptive.rampUp ?? 1,
+      // SAFETY: Callability is validated above; the typed AgentSettings boundary establishes the sample contract.
+      sample: value.adaptive.sample as AgentDriverAdaptiveCapacityOptions["sample"],
+      sampleTimeoutMs: value.adaptive.sampleTimeoutMs ?? 1_000,
+    }
   }
-  return {
-    concurrency: value.concurrency as number,
-    queue: {
-      maxPending: value.queue.maxPending as number,
-      ...(value.queue.timeout === undefined ? {} : { timeout: value.queue.timeout as number }),
-    },
+
+  const normalized: AgentDriverCapacityOptions = {
+    ...(adaptive ? { adaptive } : {}),
+    concurrency: value.concurrency,
+    ...(queue ? { queue } : {}),
   }
+  inheritSharedAgentCapacityOptions(value, normalized)
+  return normalized
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["capacity", "env", "execution", "instructions", "kind", "model", "output", "permissions"])
+const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "env", "execution", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "sessionStorePath"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 
-function normalizeProviderEnvironment(value: unknown): Record<string, string | undefined> | undefined {
-  if (value === undefined) return
-  if (!isPlainObject(value) || Object.values(value).some(item => item !== undefined && typeof item !== "string")) {
-    throw new TypeError("[vitehub] defineAgent({ driver.env }) must contain only string or undefined values.")
-  }
-  return value as Record<string, string | undefined>
+function isResolver(value: unknown): value is { resolve: (...args: never[]) => unknown } {
+  return isPlainObject(value) && isRuntimeFunction(value.resolve)
 }
 
-function normalizeProviderPermissions(value: unknown): AgentProviderPermissions | undefined {
+function normalizeProviderEnvironment(value: unknown): AgentProviderEnvironmentResolver | undefined {
   if (value === undefined) return
+  // SAFETY: Runtime function and resolver shapes are validated here; their resolved values are validated at invocation time.
+  if (isRuntimeFunction(value) || isResolver(value)) return value as AgentProviderEnvironmentResolver
+  if (!isPlainObject(value)) {
+    throw agentDiagnostics.AGENT_R0466({ message: "[vitehub] defineAgent({ driver.env }) must contain only string or undefined values." })
+  }
+  const entries = Object.entries(value)
+  if (entries.some(([, item]) => item !== undefined && !isRuntimeString(item))) {
+    throw agentDiagnostics.AGENT_R0467({ message: "[vitehub] defineAgent({ driver.env }) must contain only string or undefined values." })
+  }
+  // SAFETY: Every entry value was validated as string or undefined above.
+  return Object.fromEntries(entries) as Record<string, string | undefined>
+}
+
+function normalizeProviderLaunchCommand(value: unknown): AgentProviderLaunchCommand {
+  if (!isPlainObject(value) || !isRuntimeString(value.command) || !value.command.trim()) {
+    throw agentDiagnostics.AGENT_R0468({ message: "[vitehub] defineAgent({ driver.launch }) must be a command object or resolver." })
+  }
+  if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(isRuntimeString))) {
+    throw agentDiagnostics.AGENT_R0469({ message: "[vitehub] defineAgent({ driver.launch.args }) must contain only strings." })
+  }
+  const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (value.args !== undefined) launch.args = [...value.args]
+  return launch
+}
+
+function normalizeProviderLaunch(value: unknown): AgentProviderLaunchResolver | undefined {
+  if (value === undefined) return
+  // SAFETY: Runtime function and resolver shapes are validated here; their resolved command is validated at invocation time.
+  if (isRuntimeFunction(value) || isResolver(value)) return value as AgentProviderLaunchResolver
+  return normalizeProviderLaunchCommand(value)
+}
+
+export const defaultAgentProviderPermissions: AgentProviderPermissions = "ask"
+
+function normalizeProviderPermissions(value: unknown): AgentProviderPermissions {
+  if (value === undefined) return defaultAgentProviderPermissions
   if (value !== "ask" && value !== "allow-edits" && value !== "allow-all") {
-    throw new TypeError('[vitehub] defineAgent({ driver.permissions }) must be "ask", "allow-edits", or "allow-all".')
+    throw agentDiagnostics.AGENT_R0470({ message: '[vitehub] defineAgent({ driver.permissions }) must be "ask", "allow-edits", or "allow-all".' })
   }
   return value
 }
 
-function normalizeProviderDriver<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(provider: "claude-code" | "codex", value: Record<string, unknown>): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
+function isConfigurationObject(value: unknown): value is Record<string, unknown> {
+  return isPlainRecord(value)
+}
+
+function normalizeProviderExecution(value: unknown): { attachments?: AgentAttachmentExecutionOptions } | undefined {
+  if (value === undefined) return
+  if (!isConfigurationObject(value)) {
+    throw agentDiagnostics.AGENT_R0471({ message: "[vitehub] defineAgent({ driver.execution }) must be an object." })
+  }
+  assertNoUnsupportedOptions(value, new Set(["attachments"]), "defineAgent({ driver.execution })")
+  if (value.attachments === undefined) return {}
+  if (!isConfigurationObject(value.attachments)) {
+    throw agentDiagnostics.AGENT_R0472({ message: "[vitehub] defineAgent({ driver.execution.attachments }) must be an object." })
+  }
+  assertNoUnsupportedOptions(value.attachments, new Set(["maxBytes"]), "defineAgent({ driver.execution.attachments })")
+  const maxBytes = value.attachments.maxBytes
+  if (maxBytes !== undefined && (!isRuntimeNumber(maxBytes) || !Number.isFinite(maxBytes) || maxBytes <= 0)) {
+    throw agentDiagnostics.AGENT_R0473({ message: "[vitehub] defineAgent({ driver.execution.attachments.maxBytes }) must be a positive finite number." })
+  }
+  return { attachments: maxBytes === undefined ? {} : { maxBytes } }
+}
+
+function normalizeProviderDriver(provider: "claude-code" | "codex", value: Record<string, unknown>): NormalizedAgentDriver {
   assertNoUnsupportedOptions(value, providerDriverKeys, `defineAgent({ driver: { kind: "${provider}" } })`)
-  if (value.model !== undefined && (typeof value.model !== "string" || !value.model.trim())) {
-    throw new TypeError("[vitehub] defineAgent({ driver.model }) must be a non-empty string.")
+  if (value.model !== undefined && (!isRuntimeString(value.model) || !value.model.trim())) {
+    throw agentDiagnostics.AGENT_R0474({ message: "[vitehub] defineAgent({ driver.model }) must be a non-empty string." })
   }
-  const execution = value.execution as { attachments?: AgentAttachmentExecutionOptions } | undefined
-  const maxBytes = execution?.attachments?.maxBytes
-  if (maxBytes !== undefined && (!Number.isFinite(maxBytes) || maxBytes <= 0)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.execution.attachments.maxBytes }) must be a positive finite number.")
+  if (value.providerSettings !== undefined && !isPlainObject(value.providerSettings)) {
+    throw agentDiagnostics.AGENT_R0475({ message: "[vitehub] defineAgent({ driver.providerSettings }) must be an object." })
   }
+  if (value.sessionStorePath !== undefined && (!isRuntimeString(value.sessionStorePath) || !value.sessionStorePath.trim())) {
+    throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] defineAgent({ driver.sessionStorePath }) must be a non-empty string." })
+  }
+  const codexOptions = ["credentialProfile", "credentials", "reasoningEffort", "reasoningSummary"].filter(key => value[key] !== undefined)
+  if (provider !== "codex" && codexOptions.length) {
+    throw agentDiagnostics.AGENT_R0477({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not support Codex option${codexOptions.length === 1 ? "" : "s"}: ${codexOptions.join(", ")}.` })
+  }
+  if (value.credentials !== undefined
+    && !isRuntimeString(value.credentials)
+    && !isRuntimeFunction(value.credentials)
+    // SAFETY: The assertion only exposes `unseal` so isRuntimeFunction can validate it.
+    && !(value.credentials && isRuntimeFunction((value.credentials as { unseal?: unknown }).unseal))
+    // SAFETY: The assertion only exposes `resolve` so isRuntimeFunction can validate it.
+    && !(value.credentials && isRuntimeFunction((value.credentials as { resolve?: unknown }).resolve))) {
+    throw agentDiagnostics.AGENT_R0478({ message: "[vitehub] defineAgent({ driver.credentials }) must be a string, sealed Server Env value, or resolver." })
+  }
+  if (value.credentialProfile !== undefined && (!isRuntimeString(value.credentialProfile) || !value.credentialProfile.trim())) {
+    throw agentDiagnostics.AGENT_R0479({ message: "[vitehub] defineAgent({ driver.credentialProfile }) must be a non-empty string." })
+  }
+  if (isRuntimeString(value.credentialProfile) && (value.credentialProfile.length > 128 || !/^[a-z0-9][a-z0-9._-]*$/.test(value.credentialProfile))) {
+    throw agentDiagnostics.AGENT_R0480({ message: "[vitehub] defineAgent({ driver.credentialProfile }) must start with a lowercase letter or number and contain only lowercase letters, numbers, dots, underscores, or hyphens." })
+  }
+  if (isRuntimeString(value.credentialProfile)
+    && (value.credentialProfile.endsWith(".") || /^(?:aux|con|nul|prn|com[1-9]|lpt[1-9])(?:\.|$)/.test(value.credentialProfile))) {
+    throw agentDiagnostics.AGENT_R0481({ message: "[vitehub] defineAgent({ driver.credentialProfile }) must not use a Windows-equivalent path name." })
+  }
+  if (value.credentialProfile !== undefined && value.credentials === undefined) {
+    throw agentDiagnostics.AGENT_R0482({ message: "[vitehub] defineAgent({ driver.credentialProfile }) requires driver.credentials." })
+  }
+  if (value.credentials !== undefined && value.credentialProfile === undefined && value.sessionStorePath !== undefined) {
+    throw agentDiagnostics.AGENT_R0483({ message: "[vitehub] defineAgent({ driver.sessionStorePath }) requires driver.credentialProfile when driver.credentials is configured." })
+  }
+  if (value.reasoningEffort !== undefined
+    && (!isRuntimeString(value.reasoningEffort) || !value.reasoningEffort.trim())) {
+    throw agentDiagnostics.AGENT_R0484({ message: "[vitehub] defineAgent({ driver.reasoningEffort }) must be a non-empty model-advertised value." })
+  }
+  if (value.reasoningSummary !== undefined
+    && (!isRuntimeString(value.reasoningSummary) || !["auto", "concise", "detailed", "none"].includes(value.reasoningSummary))) {
+    throw agentDiagnostics.AGENT_R0485({ message: '[vitehub] defineAgent({ driver.reasoningSummary }) must be "auto", "concise", "detailed", or "none".' })
+  }
+  if ((value.reasoningEffort !== undefined || value.reasoningSummary !== undefined) && value.model === undefined) {
+    throw agentDiagnostics.AGENT_R0486({ message: "[vitehub] defineAgent({ driver.reasoningEffort, driver.reasoningSummary }) requires driver.model." })
+  }
+  if (value.credentials !== undefined && isPlainRecord(value.providerSettings) && value.providerSettings.shadowHomePath !== undefined) {
+    throw agentDiagnostics.AGENT_R0487({ message: "[vitehub] defineAgent({ driver.credentials }) owns the Codex shadow home and cannot be combined with providerSettings.shadowHomePath." })
+  }
+  if (value.credentials !== undefined && isPlainRecord(value.env) && value.env.CODEX_HOME !== undefined) {
+    throw agentDiagnostics.AGENT_R0488({ message: "[vitehub] defineAgent({ driver.credentials }) owns CODEX_HOME and cannot be combined with driver.env.CODEX_HOME." })
+  }
+  if ((value.reasoningEffort !== undefined || value.reasoningSummary !== undefined)
+    && isPlainRecord(value.env)
+    && value.env.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
+    throw agentDiagnostics.AGENT_R0489({ message: "[vitehub] Codex reasoning options cannot be combined with driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
+  }
+  const execution = normalizeProviderExecution(value.execution)
   return {
     capacity: normalizeAgentDriverCapacity(value.capacity),
+    // SAFETY: credentialProfile is either absent or validated as a non-empty string above.
+    credentialProfile: value.credentialProfile as string | undefined,
+    // SAFETY: The credential input shape is validated above.
+    credentials: value.credentials as AgentProviderCredentialResolver | undefined,
     env: normalizeProviderEnvironment(value.env),
     execution,
-    instructions: value.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
+    // SAFETY: normalizeProviderDriver receives the typed AgentSettings driver after validating its provider-owned fields.
+    instructions: value.instructions as AgentAdapterInstructions | undefined,
     kind: "provider",
-    model: value.model as string | undefined,
+    launch: normalizeProviderLaunch(value.launch),
+    model: value.model,
+    // SAFETY: The typed AgentSettings boundary establishes the provider output definition; provider-owned fields are validated here.
     output: value.output as AgentOutputDefinition | undefined,
     permissions: normalizeProviderPermissions(value.permissions),
     provider,
+    providerSettings: value.providerSettings ? { ...value.providerSettings } : undefined,
+    reasoningEffort: isRuntimeString(value.reasoningEffort) ? value.reasoningEffort.trim() : undefined,
+    // SAFETY: reasoningSummary is either absent or validated against the Codex summary values above.
+    reasoningSummary: value.reasoningSummary as CodexReasoningSummary | undefined,
+    sessionStorePath: isRuntimeString(value.sessionStorePath) ? value.sessionStorePath.trim() : undefined,
   }
 }
 
-function normalizeExplicitAgentDriver<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(driver: unknown): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
-  if (typeof driver === "string") {
+function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
+  if (isRuntimeString(driver)) {
     if (driver !== "codex" && driver !== "claude-code") {
-      throw new Error(`[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model } or { run } driver.`)
+      throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model } or { run } driver.` })
     }
     return normalizeProviderDriver(driver, {})
   }
   if (!isPlainObject(driver)) {
-    throw new TypeError("[vitehub] defineAgent({ driver }) must be a built-in name, tagged built-in configuration, or custom driver object.")
+    throw agentDiagnostics.AGENT_R0491({ message: "[vitehub] defineAgent({ driver }) must be a built-in name, tagged built-in configuration, or custom driver object." })
   }
   if (hasOwnDefined(driver, "kind")) {
     if (driver.kind !== "codex" && driver.kind !== "claude-code") {
-      throw new Error(`[vitehub] Unknown Agent Driver kind "${String(driver.kind)}". Expected "codex" or "claude-code".`)
+      throw agentDiagnostics.AGENT_R0492({ message: `[vitehub] Unknown Agent Driver kind "${String(driver.kind)}". Expected "codex" or "claude-code".` })
     }
     return normalizeProviderDriver(driver.kind, driver)
   }
 
   const capacity = normalizeAgentDriverCapacity(driver.capacity)
-  const keys = (["model", "run"] as const).filter(key => hasOwnDefined(driver, key))
-  if (keys.length !== 1) throw new Error("[vitehub] defineAgent({ driver }) requires exactly one of driver.model or driver.run.")
-  if (keys[0] === "model") {
+  const hasModel = hasOwnDefined(driver, "model")
+  const hasRun = hasOwnDefined(driver, "run")
+  if (hasModel === hasRun) throw agentDiagnostics.AGENT_R0493({ message: "[vitehub] defineAgent({ driver }) requires exactly one of driver.model or driver.run." })
+  if (hasModel) {
     assertNoUnsupportedOptions(driver, modelDriverKeys, "defineAgent({ driver: { model } })")
-    if (driver.maxRetries !== undefined && (!Number.isInteger(driver.maxRetries) || (driver.maxRetries as number) < 0)) {
-      throw new TypeError("[vitehub] defineAgent({ driver.maxRetries }) must be a non-negative integer.")
+    if (driver.maxRetries !== undefined && (!isRuntimeNumber(driver.maxRetries) || !Number.isInteger(driver.maxRetries) || driver.maxRetries < 0)) {
+      throw agentDiagnostics.AGENT_R0494({ message: "[vitehub] defineAgent({ driver.maxRetries }) must be a non-negative integer." })
     }
-    const execution = driver.execution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
+    // SAFETY: The typed AgentSettings boundary establishes model execution options; owned retry fields are validated below.
+    const execution = driver.execution as AgentModelExecutionOptions | undefined
     if (driver.maxRetries !== undefined && execution?.callSettings?.maxRetries !== undefined) {
-      throw new TypeError("[vitehub] defineAgent({ driver }) accepts maxRetries either directly or in execution.callSettings, not both.")
+      throw agentDiagnostics.AGENT_R0495({ message: "[vitehub] defineAgent({ driver }) accepts maxRetries either directly or in execution.callSettings, not both." })
     }
     return {
       capacity,
       execution: driver.maxRetries === undefined
         ? execution
         : { ...execution, callSettings: { ...execution?.callSettings, maxRetries: driver.maxRetries } },
-      instructions: driver.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
+      // SAFETY: The typed AgentSettings boundary establishes the model instructions contract.
+      instructions: driver.instructions as AgentAdapterInstructions | undefined,
       kind: "model",
-      model: driver.model as AgentModelResolver<TRuntimeConfig>,
+      // SAFETY: The typed AgentSettings boundary establishes the model resolver after the owned driver shape is selected.
+      model: driver.model as AgentModelResolver,
+      // SAFETY: The typed AgentSettings boundary establishes the model output definition.
       output: driver.output as AgentOutputDefinition | undefined,
     }
   }
 
   assertNoUnsupportedOptions(driver, runDriverKeys, "defineAgent({ driver: { run } })")
-  if (typeof driver.run !== "function") throw new TypeError("[vitehub] defineAgent({ driver.run }) must be a function.")
+  if (!isRuntimeFunction(driver.run)) throw agentDiagnostics.AGENT_R0496({ message: "[vitehub] defineAgent({ driver.run }) must be a function." })
   return {
     capacity,
     kind: "run",
+    // SAFETY: The typed AgentSettings boundary establishes the run output definition.
     output: driver.output as AgentOutputDefinition | undefined,
-    run: driver.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
+    // SAFETY: The typed AgentSettings boundary establishes the handler signature after runtime callability is validated.
+    run: driver.run as AgentRunHandler,
   }
 }
 
@@ -185,10 +360,9 @@ export function normalizeAgentDriver<
   CALL_OPTIONS,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
+  // SAFETY: AgentSettings is an object contract; normalization validates its driver member before returning it.
   const record = options as Record<string, unknown>
-  if (hasOwnDefined(record, "output")) {
-    throw new Error("[vitehub] defineAgent({ output }) is no longer supported. Move it to defineAgent({ driver: { output } }).")
-  }
-  if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
-  throw new Error("[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model } or { run } driver.")
+  // SAFETY: normalizeExplicitAgentDriver validates the runtime shape; options carries the matching compile-time driver contract.
+  if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver(record.driver) as NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>
+  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model } or { run } driver." })
 }

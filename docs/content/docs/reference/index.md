@@ -3,6 +3,7 @@ title: Package reference
 description: Find the ViteHub package and public import for each feature.
 navigation.title: Package reference
 navigation.order: 50
+navigation.group: Setup
 icon: i-lucide-package
 ---
 
@@ -29,12 +30,12 @@ instead of one root barrel.
 | `@vite-hub/browser` | Browser Definitions, invocation-scoped sessions, controllers and providers, live handoff, and Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
 | `@vite-hub/box` | Box Definitions and provider-neutral execution sessions | `@vite-hub/box` |
 | `@vite-hub/channels` | Provider-neutral Channel definitions, server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
+| `@vite-hub/content` | Comark Content runtime, ViteHub Source adaptation, server handler, and typed client | `@vite-hub/content`, `@vite-hub/content/client` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
-| `@vite-hub/email` | Declarative Unemail provider integration, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
+| `@vite-hub/email` | Portable provider integration, built-in transports, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
-| `@vite-hub/history` | Shared history records, cursors, pages, and store contracts for stateful features | `@vite-hub/history` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
-| `@vite-hub/markdown-template` | Markdown templates with data bindings, conditions, fragments, and Vite discovery | `@vite-hub/markdown-template`, `@vite-hub/markdown-template/vite` |
+| `@vite-hub/markdown-template` | Markdown templates with data bindings, conditions, fragments, and direct Vite imports | `@vite-hub/markdown-template`, `@vite-hub/markdown-template/vite` |
 | `@vite-hub/queue` | Queue Definitions, queue dispatch Runtime Helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, and provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, and Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
@@ -43,8 +44,9 @@ instead of one root barrel.
 | `@vite-hub/schedule` | Static schedules, runtime schedules, Schedule Targets, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
 | `@vite-hub/shell` | Shell-shaped runtime execution providers and Workspace shell integration helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source`, `@vite-hub/source/*` |
+| `@vite-hub/ui` | AI SDK-native Vue and Nuxt components, headless message scrolling, Agent inspection, and Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/headless`, `@vite-hub/ui/nuxt`, `@vite-hub/ui/vite` |
 | `@vite-hub/workflow` | Workflow Definitions, durable run state, step execution, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
-| `@vite-hub/workspace` | Workspace Definitions, Workspace Stores, Source Bindings, Workspace runtime facades, Workspace extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
+| `@vite-hub/workspace` | Workspace Definitions, Workspace Stores, history contracts, Source Bindings, Workspace runtime facades, Workspace extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
 
 ## Internal and support packages
 
@@ -69,4 +71,3 @@ For example, Blob Provider SDK Adapters belong behind Blob Driver Modules, and W
 - [Config options](/docs/reference/config-options)
 - [Provider output](/docs/reference/provider-output)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
-- [Migrate to `vite-hub`](/docs/getting-started/migration)

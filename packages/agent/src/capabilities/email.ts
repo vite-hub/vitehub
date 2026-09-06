@@ -9,6 +9,7 @@ import type {
   AgentToolSchema,
   MaybePromise,
 } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type EmailCapabilityToolPolicy = AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 
@@ -46,7 +47,7 @@ const emailSendInputSchema: AgentToolSchema<EmailSendInput> = {
 
 function nonEmptyString(value: unknown, label: string): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new TypeError(`[vitehub] ${label} must be a non-empty string.`)
+    throw agentDiagnostics.AGENT_R0031({ message: `[vitehub] ${label} must be a non-empty string.` })
   }
   return value
 }
@@ -54,11 +55,11 @@ function nonEmptyString(value: unknown, label: string): string {
 function validateRecipients(value: unknown): string | readonly string[] {
   if (typeof value === "string") return nonEmptyString(value, "email_send to")
   if (!Array.isArray(value)) {
-    throw new TypeError("[vitehub] email_send to must be a non-empty email address or array of email addresses.")
+    throw agentDiagnostics.AGENT_R0032({ message: "[vitehub] email_send to must be a non-empty email address or array of email addresses." })
   }
   const recipients = Array.from(value)
   if (recipients.length === 0 || recipients.some(address => typeof address !== "string" || !address.trim())) {
-    throw new TypeError("[vitehub] email_send to must be a non-empty email address or array of email addresses.")
+    throw agentDiagnostics.AGENT_R0033({ message: "[vitehub] email_send to must be a non-empty email address or array of email addresses." })
   }
   return recipients as string[]
 }
@@ -70,11 +71,11 @@ function recipientKey(address: string): string {
 function normalizeRecipients(value: unknown): readonly string[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) {
-    throw new TypeError("[vitehub] email({ recipients }) must be an array of non-empty email addresses.")
+    throw agentDiagnostics.AGENT_R0034({ message: "[vitehub] email({ recipients }) must be an array of non-empty email addresses." })
   }
   const recipients = Array.from(value)
   if (recipients.some(address => typeof address !== "string" || !address.trim())) {
-    throw new TypeError("[vitehub] email({ recipients }) must be an array of non-empty email addresses.")
+    throw agentDiagnostics.AGENT_R0035({ message: "[vitehub] email({ recipients }) must be an array of non-empty email addresses." })
   }
   return recipients as string[]
 }
@@ -89,7 +90,7 @@ function recipientsAllowed(value: string | readonly string[], allowlist: Readonl
 
 function assertAllowedRecipients(value: string | readonly string[], allowlist: ReadonlySet<string> | undefined): string | readonly string[] {
   if (!recipientsAllowed(value, allowlist)) {
-    throw new Error("[vitehub] email_send recipient is outside the configured allowlist.")
+    throw agentDiagnostics.AGENT_R0036({ message: "[vitehub] email_send recipient is outside the configured allowlist." })
   }
   return value
 }
@@ -121,7 +122,7 @@ function emailSendDescription(recipients: readonly string[] | undefined): string
 function requireEmailClient(context: AgentCapabilityContext): EmailRuntimeClient {
   const client = requirePrimitive(context, "email")
   if (!client || typeof client !== "object" || typeof (client as { send?: unknown }).send !== "function") {
-    throw new Error("[vitehub] email primitive must expose send().")
+    throw agentDiagnostics.AGENT_R0037({ message: "[vitehub] email primitive must expose send()." })
   }
   return client as EmailRuntimeClient
 }

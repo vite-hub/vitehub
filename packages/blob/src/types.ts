@@ -1,4 +1,3 @@
-import type { H3Event } from "h3"
 import type { ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
 
 export type BlobDriver =
@@ -98,6 +97,12 @@ export interface BlobEnsureOptions {
   types?: BlobType[]
 }
 
+export interface BlobServeEvent {
+  res: {
+    headers: Headers
+  }
+}
+
 export interface BlobStorage {
   del(pathnames: string | string[]): Promise<BlobResult<void>>
   get(pathname: string): Promise<BlobResult<Blob | null>>
@@ -105,7 +110,7 @@ export interface BlobStorage {
   list(options?: BlobListOptions): Promise<BlobResult<BlobListResult>>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobResult<BlobObject>>
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
-  serve(event: H3Event, pathname: string): Promise<BlobResult<ReadableStream>>
+  serve(event: BlobServeEvent, pathname: string): Promise<BlobResult<ReadableStream>>
   store(name: BlobStoreName): BlobStorage
 }
 

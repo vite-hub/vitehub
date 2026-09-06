@@ -1,0 +1,11 @@
+--- a/dist/tsdown/build-BZshaq8i-C7uS6x65.js
++++ b/dist/tsdown/build-BZshaq8i-C7uS6x65.js
+@@ -5977,7 +5977,7 @@
+ 		if (detected?.name === "deno") throw new Error(`Cannot pack tarball for Deno projects at ${pkgDir}`);
+ 		const tarballPath = await pack(pkgDir, detected, destination, true);
+ 		debug$1("Packed tarball at %s", tarballPath);
+-		return readFile(tarballPath);
++		return await readFile(tarballPath);
+ 	} finally {
+ 		if (debug$1.enabled) debug$1("Preserving pack directory for debugging: %s", destination);
+ 		else await fsRemove(destination);

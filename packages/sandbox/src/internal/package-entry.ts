@@ -11,6 +11,7 @@ import {
 import { isWorkspacePackage, parsePnpmWorkspacePackages } from '../project'
 import type { SandboxProject } from '../project'
 import type ts from 'typescript'
+import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 const require = createRequire(import.meta.url)
 const typescript = require('typescript') as typeof import('typescript')
@@ -41,7 +42,7 @@ function executablePackageModulePath(path: string) {
 
 function projectFileSource(project: SandboxProject, path: string) {
   const file = project.files[path]
-  if (!file) throw new Error(`[vitehub] Sandbox package project is missing required file: ${path}`)
+  if (!file) throw sandboxErrorDiagnostics.SANDBOX_R0015({ message: `[vitehub] Sandbox package project is missing required file: ${path}` })
   return Buffer.from(file.contents, file.encoding).toString()
 }
 
@@ -49,9 +50,9 @@ function parseRuntimeManifest(project: SandboxProject, path: string) {
   try {
     return JSON.parse(projectFileSource(project, path)) as PackageRuntimeManifest
   } catch (error) {
-    throw new Error(`[vitehub] Sandbox package manifest is invalid JSON: ${path}`, {
+    throw sandboxErrorDiagnostics.SANDBOX_R0016({ message: `[vitehub] Sandbox package manifest is invalid JSON: ${path}`, ...{
       cause: error,
-    })
+    } })
   }
 }
 
@@ -59,9 +60,7 @@ function selectedPackageManifest(project: SandboxProject) {
   const path = project.packagePath === '.' ? 'package.json' : `${project.packagePath}/package.json`
   const manifest = parseRuntimeManifest(project, path)
   if (manifest.type !== 'module') {
-    throw new Error(
-      `[vitehub] Sandbox package manifest "${path}" must set "type" to "module". Canonical Sandbox package entrypoints are ESM.`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0017({ message: `[vitehub] Sandbox package manifest "${path}" must set "type" to "module". Canonical Sandbox package entrypoints are ESM.` })
   }
   return manifest
 }
@@ -215,9 +214,7 @@ function validateWorkspaceJavaScriptGraph(
           }
           const target = normalize(join(dirname(manifestPath), aliasTarget.replace(/[?#].*$/, '')))
           if (isTypeScriptRuntimeTarget(target)) {
-            throw new Error(
-              `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${aliasTarget}" through package import "${specifier}". Build dependencies to JavaScript before Sandbox execution.`,
-            )
+            throw sandboxErrorDiagnostics.SANDBOX_R0018({ message: `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${aliasTarget}" through package import "${specifier}". Build dependencies to JavaScript before Sandbox execution.` })
           }
           if (/\.(?:js|mjs)$/.test(target)) pending.push(target)
         }
@@ -229,9 +226,7 @@ function validateWorkspaceJavaScriptGraph(
       }
       const target = normalize(join(dirname(path), specifier.replace(/[?#].*$/, '')))
       if (isTypeScriptRuntimeTarget(target)) {
-        throw new Error(
-          `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${specifier}" from "${path}". Build dependencies to JavaScript before Sandbox execution.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0019({ message: `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${specifier}" from "${path}". Build dependencies to JavaScript before Sandbox execution.` })
       }
       if (/\.(?:js|mjs)$/.test(target)) pending.push(target)
     }
@@ -286,9 +281,7 @@ function validateWorkspaceRuntimeExports(
     )
     const target = targets.find(isTypeScriptRuntimeTarget)
     if (target) {
-      throw new Error(
-        `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${target}" in "${dependency.path}". Build dependencies to JavaScript before Sandbox execution.`,
-      )
+      throw sandboxErrorDiagnostics.SANDBOX_R0020({ message: `[vitehub] Sandbox workspace dependency "${packageName}" exposes TypeScript runtime target "${target}" in "${dependency.path}". Build dependencies to JavaScript before Sandbox execution.` })
     }
     const runtimePackageEdges = validateWorkspaceJavaScriptGraph(
       project,
@@ -359,9 +352,7 @@ function transpilePackageModule(source: string, path: string) {
     const details = errors
       .map((diagnostic) => typescript.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
       .join('\n')
-    throw new Error(
-      `[vitehub] Sandbox package module "${path}" could not be transpiled:\n${details}`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0021({ message: `[vitehub] Sandbox package module "${path}" could not be transpiled:\n${details}` })
   }
   return result.outputText
 }
@@ -398,9 +389,7 @@ function throwCommonJSSyntax(
     commonJS.specifier && commonJS.syntax !== 'require-property'
       ? ` for "${commonJS.specifier}"`
       : ''
-  throw new Error(
-    `[vitehub] Sandbox package module "${path}" uses CommonJS ${syntax}${target}. Canonical Sandbox package entrypoints are ESM; use import or export syntax.`,
-  )
+  throw sandboxErrorDiagnostics.SANDBOX_R0022({ message: `[vitehub] Sandbox package module "${path}" uses CommonJS ${syntax}${target}. Canonical Sandbox package entrypoints are ESM; use import or export syntax.` })
 }
 
 function validatePackageModuleSpecifiers(
@@ -417,9 +406,7 @@ function validatePackageModuleSpecifiers(
     visited.add(path)
     const source = projectFileSource(project, path)
     if (hasNonLiteralDynamicImport(source, path)) {
-      throw new Error(
-        `[vitehub] Sandbox package module "${path}" uses a non-literal dynamic import. Canonical Sandbox package entrypoints require literal import() specifiers.`,
-      )
+      throw sandboxErrorDiagnostics.SANDBOX_R0023({ message: `[vitehub] Sandbox package module "${path}" uses a non-literal dynamic import. Canonical Sandbox package entrypoints require literal import() specifiers.` })
     }
     const importEquals = findCommonJSImportEqualsSpecifiers(source, path)[0]
     if (importEquals)
@@ -427,19 +414,13 @@ function validatePackageModuleSpecifiers(
     const moduleSpecifiers = findRuntimeModuleSpecifiers(source, path)
     for (const specifier of moduleSpecifiers) {
       if (specifier.startsWith('#')) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports package alias "${specifier}". Use an explicit relative ESM import for local Sandbox source.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0024({ message: `[vitehub] Sandbox package module "${path}" imports package alias "${specifier}". Use an explicit relative ESM import for local Sandbox source.` })
       }
       if (packageName && (specifier === packageName || specifier.startsWith(`${packageName}/`))) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" self-imports "${specifier}". Use an explicit relative ESM import for local Sandbox source.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0025({ message: `[vitehub] Sandbox package module "${path}" self-imports "${specifier}". Use an explicit relative ESM import for local Sandbox source.` })
       }
       if (isUnsupportedExternalModuleSpecifier(specifier)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports absolute or URL module "${specifier}". Use a relative module inside the package or a runtime-ready package dependency.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0026({ message: `[vitehub] Sandbox package module "${path}" imports absolute or URL module "${specifier}". Use a relative module inside the package or a runtime-ready package dependency.` })
       }
       if (!/^\.\.?\//.test(specifier) && !specifier.startsWith('node:')) {
         runtimePackages.add(specifier)
@@ -448,29 +429,19 @@ function validatePackageModuleSpecifiers(
     for (const specifier of moduleSpecifiers.filter((specifier) => /^\.\.?\//.test(specifier))) {
       const target = normalize(join(dirname(path), specifier.replace(/[?#].*$/, '')))
       if (!isInsideSelectedPackage(project, target)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports "${specifier}" outside its package. Declare runtime-ready JavaScript as a package dependency instead.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0027({ message: `[vitehub] Sandbox package module "${path}" imports "${specifier}" outside its package. Declare runtime-ready JavaScript as a package dependency instead.` })
       }
       if (!Object.hasOwn(project.files, target)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports "${specifier}", which is not an executable package file. Use an explicit extension that resolves to a package file.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0028({ message: `[vitehub] Sandbox package module "${path}" imports "${specifier}", which is not an executable package file. Use an explicit extension that resolves to a package file.` })
       }
       if (/\.(?:cjs|cts)$/.test(target)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports CommonJS module "${specifier}". Canonical Sandbox package source must use ESM JavaScript or TypeScript modules.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0029({ message: `[vitehub] Sandbox package module "${path}" imports CommonJS module "${specifier}". Canonical Sandbox package source must use ESM JavaScript or TypeScript modules.` })
       }
       if (/\.[cm]?[jt]sx$/.test(target)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports JSX module "${specifier}". Canonical Sandbox package source does not compile JSX.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0030({ message: `[vitehub] Sandbox package module "${path}" imports JSX module "${specifier}". Canonical Sandbox package source does not compile JSX.` })
       }
       if (/\.d\.[cm]?ts$/.test(target)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" imports declaration file "${specifier}" at runtime. Use an import type declaration instead.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0031({ message: `[vitehub] Sandbox package module "${path}" imports declaration file "${specifier}" at runtime. Use an import type declaration instead.` })
       }
       if (/\.(?:js|mjs|ts|mts)$/.test(target)) pending.push(target)
     }
@@ -507,9 +478,7 @@ export function prepareExecutablePackageProject(project: SandboxProject, entry: 
     if (isExecutableTypeScriptModule(path)) {
       const executablePath = executablePackageModulePath(path)
       if (Object.hasOwn(project.files, executablePath)) {
-        throw new Error(
-          `[vitehub] Sandbox package module "${path}" conflicts with generated executable "${executablePath}". Rename the existing file.`,
-        )
+        throw sandboxErrorDiagnostics.SANDBOX_R0032({ message: `[vitehub] Sandbox package module "${path}" conflicts with generated executable "${executablePath}". Rename the existing file.` })
       }
       const executableSource = transpilePackageModule(rewritten, path)
       executableSources.set(executablePath, executableSource)

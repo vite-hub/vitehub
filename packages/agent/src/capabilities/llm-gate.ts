@@ -17,6 +17,7 @@ import type {
   AgentRuntimeConfig,
 } from "../types.ts"
 import type { LlmDecisionChoiceMap } from "./llm-decision-shared.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type LlmGateDecision<TAllow extends string = string, TReject extends string = string> =
   | {
@@ -83,7 +84,7 @@ export function llmGate<
       const input = context.input.get()
       const messages = context.input.messages()
       if (context.context.has(id)) {
-        throw new Error(`[vitehub] Invocation context value "${id}" is already set.`)
+        throw agentDiagnostics.AGENT_R0110({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
       const model = await context.model.resolve(options.model)
       const output = await generateDecision<LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>>({
@@ -112,7 +113,7 @@ export function llmGate<
         }, (value) => {
           const record = value as { allowed?: unknown, category?: unknown, confidence?: unknown, reason?: unknown }
           if (typeof record?.category !== "string" || !categoryKeys.includes(record.category)) {
-            throw new Error(`[vitehub] ${id} returned an invalid gate category.`)
+            throw agentDiagnostics.AGENT_R0111({ message: `[vitehub] ${id} returned an invalid gate category.` })
           }
           const allowed = allowKeys.includes(record.category)
           return {

@@ -1,0 +1,37 @@
+{
+  "label": "Agent",
+  "description": "A credential-free Agent Definition with local discovery and invocation.",
+  "icon": "i-lucide-bot",
+  "order": 1,
+  "defaultPhase": "define",
+  "frameworks": {
+    "vite": {
+      "modes": {
+        "dev": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "server/agents/greeting.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "README.md",
+            "package.json",
+            "vitehub.mjs"
+          ]
+        },
+        "build": {
+          "phases": {
+            "configure": "vite.config.ts",
+            "define": "server/agents/greeting.ts",
+            "run": "src/server.ts"
+          },
+          "supplementalFiles": [
+            "README.md",
+            "package.json",
+            "vitehub.mjs"
+          ]
+        }
+      }
+    }
+  }
+}

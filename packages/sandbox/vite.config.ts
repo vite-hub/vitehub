@@ -30,8 +30,15 @@ export default defineConfig({
         "runtime/providers/vercel",
       ],
       customExports(exports) {
+        const runtimeExport = exports["."];
+        const packageExports = {
+          ...exports,
+          ...(runtimeExport ? { "./_internal/runtime": runtimeExport } : {}),
+          "./_internal/runtime/providers/cloudflare": "./dist/runtime/providers/cloudflare.js",
+          "./_internal/runtime/providers/vercel": "./dist/runtime/providers/vercel.js",
+        };
         return Object.fromEntries(
-          Object.entries(exports).map(([key, value]) => {
+          Object.entries(packageExports).map(([key, value]) => {
             const exportKey = key;
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [exportKey, value];

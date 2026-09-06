@@ -1,20 +1,34 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { writeScheduleTypes } from "./registry-types.ts"
+import { randomUUID } from "node:crypto"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
-import { shouldSkipViteProviderBuild, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
+import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
-import { generateProviderOutputsWithinLock, readDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputsWithinLock, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
+import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
+
+export { discoverScheduleDefinitions } from "./discovery.ts"
+
+export async function readScheduleDefinitionCrons(
+  definitions: DiscoveredScheduleDefinition[],
+): Promise<Map<string, string>> {
+  return await readRuntimeDefinitionCrons(definitions)
+}
 
 const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
@@ -22,6 +36,7 @@ const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
+const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroRuntimeRegistry = ".vitehub/nitro/schedule/runtime-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
@@ -42,6 +57,8 @@ export interface ScheduleVitePluginOptions {
 
 export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
   command?: "build" | "serve"
+  /** @internal Resolve generated Nitro registrations from the ViteHub project root. */
+  nitroOwnsPaths?: boolean
   nitro?: unknown
   root?: string
   /** @internal Framework-resolved server definition directories. */
@@ -50,6 +67,7 @@ export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
 
 interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
   importBase?: string
+  typesImportBase?: string
   providerImportAliases?: Record<string, string>
   runtimeImport?: string
 }
@@ -79,7 +97,7 @@ type NitroConfig = Record<string, unknown> & {
 interface WorkflowVitePlugin extends Plugin {
   vitehub?: {
     workflow?: {
-      prepareScheduleRuntime?: () => Promise<ScheduleWorkflowRuntime | undefined>
+      prepareScheduleRuntime?: (artifactDir?: string) => Promise<ScheduleWorkflowRuntime | undefined>
     }
   }
 }
@@ -103,16 +121,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOptions | undefined {
   if (value === undefined) return
   if (!isRecord(value) || value.driver !== "process") {
-    throw new TypeError("Schedule Process Runtime driver must be \"process\".")
+    throw scheduleErrorDiagnostics.SCHEDULE_B0001({ message: "Schedule Process Runtime driver must be \"process\"." })
   }
   if (value.prefix !== undefined && typeof value.prefix !== "string") {
-    throw new TypeError("Schedule Process Runtime prefix must be a string.")
+    throw scheduleErrorDiagnostics.SCHEDULE_B0002({ message: "Schedule Process Runtime prefix must be a string." })
   }
   if (value.intervalMs !== undefined && (typeof value.intervalMs !== "number" || !Number.isFinite(value.intervalMs) || value.intervalMs <= 0 || value.intervalMs > 60_000)) {
-    throw new TypeError("Schedule Process Runtime intervalMs must be a positive number no greater than 60000.")
+    throw scheduleErrorDiagnostics.SCHEDULE_B0003({ message: "Schedule Process Runtime intervalMs must be a positive number no greater than 60000." })
   }
   if (value.concurrency !== undefined && (typeof value.concurrency !== "number" || !Number.isInteger(value.concurrency) || value.concurrency < 1)) {
-    throw new TypeError("Schedule Process Runtime concurrency must be a positive integer.")
+    throw scheduleErrorDiagnostics.SCHEDULE_B0004({ message: "Schedule Process Runtime concurrency must be a positive integer." })
   }
   return {
     ...(value.concurrency !== undefined ? { concurrency: value.concurrency } : {}),
@@ -123,13 +141,7 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
 }
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
-  const aliases: Record<string, string> = {}
-  for (const alias of config.resolve.alias) {
-    if (typeof alias.find === "string" && typeof alias.replacement === "string") {
-      aliases[alias.find] = alias.replacement
-    }
-  }
-  return aliases
+  return encodeProviderOutputAliases(config.resolve.alias)
 }
 
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {
@@ -160,15 +172,27 @@ function cloneNitroConfig(value: unknown): NitroConfig {
   return nitro as NitroConfig
 }
 
-function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], plugin: string, providerWake: boolean }): NitroConfig {
+function isGeneratedNitroRegistration(value: unknown, generatedPath: string): boolean {
+  const suffix = generatedPath.replace(/^\.\//, "")
+  return typeof value === "string"
+    && (value === generatedPath || value.replaceAll("\\", "/").endsWith(`/${suffix}`))
+}
+
+function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], module: string, plugin: string, providerWake: boolean }): NitroConfig {
   const nitro = cloneNitroConfig(value)
-  nitro.plugins = Array.isArray(nitro.plugins) && nitro.plugins.includes(options.plugin)
-    ? nitro.plugins
-    : [...(Array.isArray(nitro.plugins) ? nitro.plugins : []), options.plugin]
+  nitro.plugins = [
+    ...(Array.isArray(nitro.plugins)
+      ? nitro.plugins.filter(plugin => !isGeneratedNitroRegistration(plugin, generatedNitroSchedulePlugin))
+      : []),
+    options.plugin,
+  ]
   if (!options.providerWake) return nitro
-  nitro.modules = Array.isArray(nitro.modules) && nitro.modules.includes(generatedNitroCloudflareModule)
-    ? nitro.modules
-    : [...(Array.isArray(nitro.modules) ? nitro.modules : []), generatedNitroCloudflareModule]
+  nitro.modules = [
+    ...(Array.isArray(nitro.modules)
+      ? nitro.modules.filter(module => !isGeneratedNitroRegistration(module, generatedNitroCloudflareModule))
+      : []),
+    options.module,
+  ]
   nitro.cloudflare ||= {}
   nitro.cloudflare.wrangler ||= {}
   const wrangler = nitro.cloudflare.wrangler
@@ -239,6 +263,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
       : []),
     ...(processRuntime
       ? [
+          `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? `${importBase}/runtime/static`)}`,
           `import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from ${JSON.stringify(importBase)}`,
           `import { installScheduleRuntime } from ${JSON.stringify(`${importBase}/runtime/driver`)}`,
           `import { createProcessScheduleWakeDriver } from ${JSON.stringify(`${importBase}/runtime/process`)}`,
@@ -267,7 +292,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "  function captureRuntimeError(error: unknown) {",
           "    let runtimeError: Error",
           "    try {",
-          "      runtimeError = error instanceof Error ? error : new Error(String(error))",
+          "      runtimeError = normalizeScheduleRuntimeError(error)",
           "    }",
           "    catch {",
           "      return",
@@ -295,14 +320,30 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "      return { error }",
           "    },",
           "  )",
+          "  const nodeProcess = globalThis.process",
+          "  const shutdownSignals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']",
+          "  let runtimeClose: Promise<void> | undefined",
+          "  function removeRuntimeShutdownSignals() {",
+          "    for (const signal of shutdownSignals) nodeProcess?.off(signal, closeRuntimeOnSignal)",
+          "  }",
+          "  function closeRuntime() {",
+          "    removeRuntimeShutdownSignals()",
+          "    runtimeClose ??= runtimeInstallation.then(async (result) => {",
+          "      if ('controller' in result) await result.controller.close()",
+          "    })",
+          "    return runtimeClose",
+          "  }",
+          "  function closeRuntimeOnSignal(signal: NodeJS.Signals) {",
+          "    void closeRuntime().catch(captureRuntimeError).finally(() => {",
+          "      if (nodeProcess) nodeProcess.kill(nodeProcess.pid, signal)",
+          "    })",
+          "  }",
+          "  for (const signal of shutdownSignals) nodeProcess?.prependOnceListener(signal, closeRuntimeOnSignal)",
           "  nitroApp.hooks.hook('request', async () => {",
           "    const result = await runtimeInstallation",
           "    if ('error' in result) throw result.error",
           "  })",
-          "  nitroApp.hooks.hook('close', async () => {",
-          "    const result = await runtimeInstallation",
-          "    if ('controller' in result) await result.controller.close()",
-          "  })",
+          "  nitroApp.hooks.hook('close', closeRuntime)",
         ]
       : []),
     "})",
@@ -357,7 +398,7 @@ interface WriteNitroSchedulePluginOptions {
 async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedulePluginOptions): Promise<string> {
   const pluginFile = resolve(root, generatedNitroSchedulePlugin)
   const moduleFile = resolve(root, generatedNitroCloudflareModule)
-  const providerRegistryFile = resolve(root, registryImportAnchor)
+  const providerRegistryFile = resolve(root, generatedNitroProviderRegistry)
   const runtimeRegistryFile = resolve(root, generatedNitroRuntimeRegistry)
   const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
   await mkdir(dirname(pluginFile), { recursive: true })
@@ -429,6 +470,8 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     serverDirs: options.serverDirs,
     serverRootDir: roots.projectRoot,
   })
+  // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
+  await writeScheduleTypes(roots.projectRoot, definitions, (options as InternalScheduleVitePluginOptions).typesImportBase)
   const installNitroPlugin = shouldInstallNitroSchedulePlugin(definitions, options)
   const nitroPreset = isRecord(options.nitro) && typeof options.nitro.preset === "string"
     ? options.nitro.preset
@@ -471,7 +514,12 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   })
   return mergeNitroScheduleConfig(nitro, {
     crons,
-    plugin,
+    module: options.nitroOwnsPaths
+      ? resolve(roots.projectRoot, generatedNitroCloudflareModule)
+      : generatedNitroCloudflareModule,
+    plugin: options.nitroOwnsPaths
+      ? resolve(roots.projectRoot, plugin)
+      : plugin,
     providerWake: nitroDefinitions.length > 0,
   })
 }
@@ -481,6 +529,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let resolved: ResolvedConfig | undefined
   let emitStandaloneProviderOutput = true
   let projectRoot: string | undefined
+  let providerOutput: ProviderOutputCatalog | undefined
+  const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
@@ -536,6 +586,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const nitro = await createScheduleNitroConfig({
         ...options,
         command: env.command,
+        nitroOwnsPaths: hasNitroConfigContext(config),
         nitro: (config as { nitro?: unknown }).nitro,
         root: config.root || process.cwd(),
         serverDirs,
@@ -543,11 +594,14 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       if (!nitro) return null
       ;(config as ViteConfigWithNitro).nitro = nitro
     },
-    configResolved(config) {
+    async configResolved(config) {
       resolved = config
+      providerOutput = useProviderOutputCatalog(config)
       const roots = resolveSchedulePluginRoots(config.root, options)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
+      // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
+      await writeScheduleTypes(projectRoot, discoverRegistrySchedules(), (options as InternalScheduleVitePluginOptions).typesImportBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -557,7 +611,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
     },
-    handleHotUpdate(context) {
+    async handleHotUpdate(context) {
       const file = normalize(context.file).replace(/\\/g, "/")
       const scheduleRoots = (serverDirs ?? [resolve(projectRoot ?? resolved?.root ?? context.server.config.root, "server")])
         .map(directory => `${resolve(directory, "schedules").replace(/\\/g, "/")}/`)
@@ -568,6 +622,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return
       }
 
+      // SAFETY: The framework can add this optional internal import path; standalone plugin options leave it undefined.
+      await writeScheduleTypes(projectRoot ?? context.server.config.root, discoverRegistrySchedules(), (options as InternalScheduleVitePluginOptions).typesImportBase)
       const registryModule = context.server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
       if (registryModule) {
         context.server.moduleGraph.invalidateModule(registryModule)
@@ -593,36 +649,96 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return createTargetsContents()
       }
     },
-    async closeBundle() {
+    buildStart() {
+      providerOutputGenerations.capture(this, providerOutput)
+    },
+    async buildEnd(error) {
+      if (error) {
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        return
+      }
       if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
       const config = resolved
       const rootDir = projectRoot ?? config.root
-      const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
-        .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
-        ?.vitehub?.workflow?.prepareScheduleRuntime
-      await withProviderDeploymentOutputLock(rootDir, async () => {
-        const workflow = await prepareWorkflow?.()
+      let artifactDir: string | undefined
+      try {
+        const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
+        const crons = await readDefinitionCrons(definitions)
+        const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
+          .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
+          ?.vitehub?.workflow?.prepareScheduleRuntime
+        artifactDir = resolve(rootDir, ".vitehub/schedule-generations", randomUUID())
+        const contributionArtifactDir = artifactDir
+        const workflow = await prepareWorkflow?.(resolve(contributionArtifactDir, "workflow"))
         const contributedAliases = await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
-        await generateProviderOutputsWithinLock({
-          bundleAlias: {
-            ...resolveStringAliases(config),
-            ...contributedAliases,
-            ...internalOptions.providerImportAliases,
-            ...workflow?.bundleAlias,
-          },
-          ...(workflow ? { bundleExternal: ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"] } : {}),
-          clientOutDir: resolve(config.root, config.build.outDir),
-          definitions: emitStandaloneProviderOutput ? discoverRegistrySchedules() : [],
+        const aliases = {
+          ...resolveStringAliases(config),
+          ...contributedAliases,
+          ...internalOptions.providerImportAliases,
+          ...workflow?.bundleAlias,
+        }
+        const retainedSources = definitions.length || workflow
+          ? await retainProviderOutputSources({
+              artifactDir: resolve(contributionArtifactDir, "sources"),
+              paths: [...definitions.map(definition => definition.handler), ...Object.keys(aliases), ...Object.values(aliases)],
+              roots: [rootDir],
+            })
+          : { resolve: (path: string) => path }
+        const retainedDefinitions = definitions.map(definition => ({
+          ...definition,
+          handler: retainedSources.resolve(definition.handler),
+        }))
+        const retainedAliases = retainProviderOutputAliases(aliases, retainedSources)
+        const bundleExternal = workflow
+          ? ["@vitejs/devtools-core", "@vitejs/devtools-kit", "@vitejs/devtools-rolldown"]
+          : undefined
+        contributeProviderDeploymentOutput(providerOutput, {
+          discard: async () => await removeProviderOutputArtifactDir(contributionArtifactDir),
+          owner: "schedule",
           rootDir,
-          runtimeImport: internalOptions.runtimeImport,
-          source: standaloneProviderSource,
-          workflow,
-        })
-      })
+          write: async ({ signal }) => {
+            signal.throwIfAborted()
+            const artifacts = await generateProviderOutputsWithinLock({
+              bundleAlias: retainedAliases,
+              bundleExternal,
+              clientOutDir: resolve(config.root, config.build.outDir),
+              definitions: retainedDefinitions,
+              crons,
+              rootDir,
+              retainedSourcesDir: resolve(contributionArtifactDir, "sources"),
+              runtimeImport: internalOptions.runtimeImport,
+              signal,
+              source: standaloneProviderSource,
+              sourceRootDir: retainedSources.resolve(rootDir),
+              workflow,
+            })
+            if (artifacts.definitions.length === 0) {
+              await rm(resolve(rootDir, ".vitehub", "schedule", "sources"), { force: true, recursive: true })
+            }
+          },
+        }, providerOutputGenerations.get(this))
+      }
+      catch (error) {
+        if (artifactDir) await removeProviderOutputArtifactDir(artifactDir)
+        await providerOutputGenerations.reset(this, providerOutput, error)
+        throw error
+      }
+    },
+    async renderError(error) {
+      await providerOutputGenerations.reset(this, providerOutput, error)
+    },
+    closeBundle: {
+      order: "post",
+      sequential: true,
+      async handler() {
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        await finalizeProviderDeploymentOutputs(providerOutput)
+      },
     },
   }
 
-  return plugin as unknown as ScheduleVitePlugin
+  // SAFETY: The implementation above supplies Vite's plugin hooks plus ViteHub's intentionally loose public hook index.
+  return plugin as ScheduleVitePlugin
 }

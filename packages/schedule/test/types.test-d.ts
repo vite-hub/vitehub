@@ -79,7 +79,7 @@ it("types Runtime Schedule helper inputs", async () => {
   const created = await schedules.create({ cron: "0 9 * * *", input: { prompt: "Daily report" }, target: "daily-report", timeZone: "Europe/Copenhagen" })
   expectTypeOf(created.input).toEqualTypeOf<{ prompt: string } | undefined>()
   const updated = await schedules.update("schedule-1", { cron: "15 10 * * *", enabled: false, input: { prompt: "Weekday report" }, target: "daily-report", timeZone: "Asia/Bangkok" })
-  expectTypeOf(updated.input).toEqualTypeOf<{ prompt: string } | undefined>()
+  expectTypeOf(updated.input).toEqualTypeOf<unknown>()
 
   // @ts-expect-error create requires a target.
   await schedules.create({ cron: "0 9 * * *" })
@@ -142,4 +142,37 @@ it("types generated Nitro Process Runtime options", () => {
 
   // @ts-expect-error Generated Process Runtime does not serialize test clocks.
   hubSchedule({ runtime: { driver: "process", now: () => new Date() } })
+})
+
+const dailyReport = defineScheduleTarget<{ prompt: string }>({ handler: context => context.input?.prompt })
+const countReport = defineScheduleTarget<{ count: number }>({ handler: context => context.input?.count })
+
+declare module "../src/types.ts" {
+  interface ScheduleTargetRegistry {
+    "daily-report": typeof dailyReport
+    "count-report": typeof countReport
+  }
+}
+
+it("checks input against the selected Schedule target", async () => {
+  // @ts-expect-error Input belongs to count-report.
+  await schedules.create({ target: "daily-report", cron: "0 9 * * *", input: { count: 1 } })
+  // @ts-expect-error Unknown target.
+  await schedules.create({ target: "missing", cron: "0 9 * * *" })
+  // @ts-expect-error An existing record ID does not prove its input type.
+  await schedules.update("stored-id", { input: { prompt: "hello" } })
+  // @ts-expect-error Update inputs also belong to the selected target.
+  await schedules.update("stored-id", { target: "daily-report", input: { count: 1 } })
+  // @ts-expect-error Changing targets must replace or clear the old target input.
+  await schedules.update("stored-id", { target: "daily-report" })
+  await schedules.update("stored-id", { target: "daily-report", input: undefined })
+  await schedules.update("stored-id", { enabled: false })
+  await schedules.update("stored-id", { target: "daily-report", input: { prompt: "hello" } })
+  const selected: "daily-report" | "count-report" = Math.random() > 0.5 ? "daily-report" : "count-report"
+  // @ts-expect-error A union target cannot accept input valid for only one possible definition.
+  await schedules.create({ target: selected, cron: "0 9 * * *", input: { prompt: "hello" } })
+  const target: string = "external-target"
+  // @ts-expect-error Dynamic target names use the operational API.
+  await schedules.create({ target, cron: "0 9 * * *", input: { anything: true } })
+  await schedules.dynamic.create({ target, cron: "0 9 * * *", input: { anything: true } })
 })

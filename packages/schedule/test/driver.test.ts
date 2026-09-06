@@ -196,7 +196,7 @@ describe("Runtime Schedule Wake Driver", () => {
     expect(new Set(reconciled.map(schedule => schedule.id)).size).toBe(2)
     const staticSchedule = reconciled.find(schedule => schedule.target === "daily-report")!
     expect(staticSchedule.id).not.toBe("\0vitehub:static:daily-report")
-    await expect(schedules.create({
+    await expect(schedules.dynamic.create({
       cron: "0 10 * * *",
       id: staticSchedule.id,
       target: "runtime-report",
@@ -261,7 +261,7 @@ describe("Runtime Schedule Wake Driver", () => {
     })
     await flushAsyncWork()
 
-    const creating = schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    const creating = schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
     await flushAsyncWork()
     expect(await runtimeScheduleStore.list()).toEqual([])
 
@@ -293,7 +293,7 @@ describe("Runtime Schedule Wake Driver", () => {
     })
     await flushAsyncWork()
 
-    const creating = schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    const creating = schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
     await flushAsyncWork()
     rejectReconcile?.()
 
@@ -430,7 +430,7 @@ describe("Runtime Schedule Wake Driver", () => {
         report: async () => ({
           cron: "0 9 * * *",
           handler: async () => {
-            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+            await schedules.dynamic.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
           },
           options: { allowRuntimeSchedules: true },
         }),
@@ -460,7 +460,7 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
 
     expect(handler).toHaveBeenCalledOnce()
   })
@@ -479,7 +479,7 @@ describe("Runtime Schedule Wake Driver", () => {
         report: async () => ({
           cron: "0 9 * * *",
           handler: async () => {
-            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+            await schedules.dynamic.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
           },
           options: { allowRuntimeSchedules: true },
         }),
@@ -488,7 +488,7 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
 
     await expect(schedules.get("follow-up")).resolves.toMatchObject({ id: "follow-up" })
   })
@@ -520,7 +520,7 @@ describe("Runtime Schedule Wake Driver", () => {
         report: async () => ({
           cron: "0 9 * * *",
           handler: async () => {
-            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+            await schedules.dynamic.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
           },
           options: { allowRuntimeSchedules: true },
         }),
@@ -529,7 +529,7 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
 
     expect(concurrentReconcile).toBe(false)
     expect(snapshots.at(-1)).toEqual(["daily", "follow-up"])
@@ -555,7 +555,7 @@ describe("Runtime Schedule Wake Driver", () => {
           cron: "0 9 * * *",
           handler: async () => {
             try {
-              await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+              await schedules.dynamic.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
             }
             catch (error) {
               mutationError = error
@@ -568,7 +568,7 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
 
     expect(mutationError).toBe(reconciliationError)
     await expect(schedules.get("follow-up")).resolves.toBeUndefined()
@@ -605,7 +605,7 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleRunStore,
     })
 
-    const updating = schedules.update("daily", { cron: "0 10 * * *" })
+    const updating = schedules.dynamic.update("daily", { cron: "0 10 * * *" })
     await reconcileStarted
     const waking = context!.wake({
       scheduleId: "daily",
@@ -669,8 +669,8 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
-    await schedules.update("daily", { cron: "30 9 * * *", enabled: false })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await schedules.dynamic.update("daily", { cron: "30 9 * * *", enabled: false })
     await schedules.delete("daily")
 
     expect(snapshots).toEqual([
@@ -704,9 +704,9 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    const first = schedules.create({ cron: "0 9 * * *", id: "first", target: "report" })
+    const first = schedules.dynamic.create({ cron: "0 9 * * *", id: "first", target: "report" })
     await firstMutationStarted
-    const second = schedules.create({ cron: "0 10 * * *", id: "second", target: "report" })
+    const second = schedules.dynamic.create({ cron: "0 10 * * *", id: "second", target: "report" })
     await flushAsyncWork()
 
     expect(snapshot(await runtimeScheduleStore.list())).toEqual([
@@ -746,7 +746,7 @@ describe("Runtime Schedule Wake Driver", () => {
     })
 
     rejectNext = true
-    await expect(schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })).rejects.toThrow("host create failed")
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })).rejects.toThrow("host create failed")
 
     expect(await runtimeScheduleStore.list()).toEqual([])
     expect(snapshots).toEqual([
@@ -780,7 +780,7 @@ describe("Runtime Schedule Wake Driver", () => {
     })
 
     rejectNext = true
-    await expect(schedules.update("daily", { cron: "30 9 * * *", enabled: false })).rejects.toThrow("host update failed")
+    await expect(schedules.dynamic.update("daily", { cron: "30 9 * * *", enabled: false })).rejects.toThrow("host update failed")
 
     expect(await runtimeScheduleStore.get("daily")).toEqual(original)
     expect(deleteRecord).toHaveBeenCalledWith("daily")
@@ -839,7 +839,7 @@ describe("Runtime Schedule Wake Driver", () => {
       runtimeScheduleStore: createMemoryRuntimeScheduleStore(),
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
-    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
     expect(reconcile).toHaveBeenCalledTimes(2)
 
     await schedules.run("daily", { scheduledAt: new Date("2026-07-11T09:00:00.000Z") })
@@ -858,7 +858,7 @@ describe("Runtime Schedule Wake Driver", () => {
       runtimeScheduleStore,
       scheduleRunStore,
     })
-    await schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
 
     const firstClose = controller.close()
     const secondClose = controller.close()
@@ -887,7 +887,7 @@ describe("Runtime Schedule Wake Driver", () => {
       scheduleRunStore: createMemoryScheduleRunStore(),
     })
 
-    const mutation = schedules.create({ cron: "0 9 * * *", id: "daily", target: "report" })
+    const mutation = schedules.dynamic.create({ cron: "0 9 * * *", id: "daily", target: "report" })
     await vi.waitFor(() => expect(releaseReconcile).toBeTypeOf("function"))
     let closed = false
     const closing = controller.close().then(() => { closed = true })
@@ -926,7 +926,7 @@ describe("Runtime Schedule Wake Driver", () => {
           cron: "0 9 * * *",
           handler: async () => {
             await new Promise<void>(resolve => { releaseHandler = resolve })
-            await schedules.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
+            await schedules.dynamic.create({ cron: "0 10 * * *", id: "follow-up", target: "report" })
           },
           options: { allowRuntimeSchedules: true },
         }),

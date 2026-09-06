@@ -9,6 +9,7 @@ import { createViteAgentDiscoveryContext, loadViteAgent } from "../vite/runtime-
 
 import type { AgentChannelDefinition, DiscoveredAgentDefinition } from "../types.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface ChannelSyncCliContext {
   cwd: string
@@ -136,7 +137,7 @@ function writeChannelSyncUsage(context: ChannelSyncCliContext): void {
 
 function takeValue(args: string[], index: number, flag: string): [string, number] {
   const value = args[index + 1]
-  if (!value || value.startsWith("--")) throw new TypeError(`${flag} requires a value.`)
+  if (!value || value.startsWith("--")) throw agentDiagnostics.AGENT_R0535({ message: `${flag} requires a value.` })
   return [value, index + 1]
 }
 
@@ -165,7 +166,7 @@ function parseChannelSyncArgs(args: string[]): ParsedChannelSyncArgs {
       else if (arg === "--confirm-origin") parsed.confirmOrigin = value
       else if (arg === "--stage") parsed.stage = value
       else parsed.origin = value
-    } else throw new TypeError(`Unknown channels sync option: ${arg}`)
+    } else throw agentDiagnostics.AGENT_R0536({ message: `Unknown channels sync option: ${arg}` })
   }
   return parsed
 }
@@ -176,10 +177,10 @@ function httpsUrlOrigin(value: string, label: string): { origin: string; url: UR
     url = new URL(value)
   }
   catch {
-    throw new TypeError(`${label} must be a valid HTTPS URL.`)
+    throw agentDiagnostics.AGENT_R0537({ message: `${label} must be a valid HTTPS URL.` })
   }
   if (url.protocol !== "https:" || url.username || url.password) {
-    throw new TypeError(`${label} must use HTTPS without credentials.`)
+    throw agentDiagnostics.AGENT_R0538({ message: `${label} must use HTTPS without credentials.` })
   }
   return { origin: url.origin, url }
 }
@@ -187,9 +188,7 @@ function httpsUrlOrigin(value: string, label: string): { origin: string; url: UR
 function normalizeOrigin(value: string, flag: string): string {
   const { origin, url } = httpsUrlOrigin(value, flag)
   if (url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
-    throw new TypeError(
-      `${flag} must be an HTTPS origin without credentials, a path, query, or fragment.`,
-    )
+    throw agentDiagnostics.AGENT_R0539({ message: `${flag} must be an HTTPS origin without credentials, a path, query, or fragment.` })
   }
   return origin
 }
@@ -209,16 +208,14 @@ function desiredWebhookUrl(
 ): string | undefined {
   if (target.mode === "disabled") return
   if (!target.registration)
-    throw new TypeError(`Channel ${target.agent}/${target.channel} has no webhook registration.`)
+    throw agentDiagnostics.AGENT_R0540({ message: `Channel ${target.agent}/${target.channel} has no webhook registration.` })
   const configured = target.registration.url || target.registration.path
   const route = configured || webhookRoute
   if (!route)
-    throw new TypeError(`Channel ${target.agent}/${target.channel} has no deployed webhook route.`)
+    throw agentDiagnostics.AGENT_R0541({ message: `Channel ${target.agent}/${target.channel} has no deployed webhook route.` })
   const url = new URL(replaceRouteParams(route, target.agent, target.registration.id), `${origin}/`)
   if (url.origin !== origin) {
-    throw new TypeError(
-      `Channel ${target.agent}/${target.channel} resolves outside the confirmed deployment origin.`,
-    )
+    throw agentDiagnostics.AGENT_R0542({ message: `Channel ${target.agent}/${target.channel} resolves outside the confirmed deployment origin.` })
   }
   return url.toString()
 }
@@ -257,11 +254,9 @@ export async function channelRegistration(
     : registrations
   if (registrationId && matching.length === 0 && allowMissing) return
   if (matching.length !== 1) {
-    throw new TypeError(
-      registrationId
+    throw agentDiagnostics.AGENT_R0543({ message: registrationId
         ? `Channel ${channelId} has no unique webhook registration named ${registrationId}.`
-        : `Channel ${channelId} must declare exactly one webhook registration or select one with --webhook.`,
-    )
+        : `Channel ${channelId} must declare exactly one webhook registration or select one with --webhook.` })
   }
   const registration = matching[0]!
   const secretToken = await resolvedChannelValue(registration.secretToken, context)
@@ -290,7 +285,7 @@ function uniqueAgentDefinitions(
   for (const definition of definitions) {
     const existing = unique.get(definition.name)
     if (existing && existing.handler !== definition.handler) {
-      throw new TypeError(`Duplicate Agent name "${definition.name}" cannot be synchronized.`)
+      throw agentDiagnostics.AGENT_R0544({ message: `Duplicate Agent name "${definition.name}" cannot be synchronized.` })
     }
     unique.set(definition.name, definition)
   }
@@ -419,12 +414,10 @@ async function verifyDeployedWebhook(
     })
   }
   catch {
-    throw new Error(`Deployed webhook preflight request failed for ${sanitizedUrl(url)}.`)
+    throw agentDiagnostics.AGENT_R0545({ message: `Deployed webhook preflight request failed for ${sanitizedUrl(url)}.` })
   }
   if (!response.ok || response.headers.get(agentChannelSyncProviderHeader) !== provider) {
-    throw new Error(
-      `Deployed webhook preflight failed for ${sanitizedUrl(url)}; expected ${agentChannelSyncProviderHeader}: ${provider}.`,
-    )
+    throw agentDiagnostics.AGENT_R0546({ message: `Deployed webhook preflight failed for ${sanitizedUrl(url)}; expected ${agentChannelSyncProviderHeader}: ${provider}.` })
   }
 }
 
@@ -469,17 +462,17 @@ export async function runAgentChannelSyncCli(
       writeChannelSyncUsage(context)
       return 0
     }
-    if (!parsed.stage) throw new TypeError("channels sync requires --stage <name>.")
-    if (!parsed.origin) throw new TypeError("channels sync requires --url <https-origin>.")
+    if (!parsed.stage) throw agentDiagnostics.AGENT_R0547({ message: "channels sync requires --stage <name>." })
+    if (!parsed.origin) throw agentDiagnostics.AGENT_R0548({ message: "channels sync requires --url <https-origin>." })
     if (parsed.apply && parsed.dryRun)
-      throw new TypeError("--apply and --dry-run cannot be used together.")
+      throw agentDiagnostics.AGENT_R0549({ message: "--apply and --dry-run cannot be used together." })
     const origin = normalizeOrigin(parsed.origin, "--url")
     if (parsed.apply) {
       if (!parsed.confirmOrigin)
-        throw new TypeError("--apply requires --confirm-origin <https-origin>.")
+        throw agentDiagnostics.AGENT_R0550({ message: "--apply requires --confirm-origin <https-origin>." })
       const confirmedOrigin = normalizeOrigin(parsed.confirmOrigin, "--confirm-origin")
       if (confirmedOrigin !== origin)
-        throw new TypeError("--confirm-origin must exactly match --url.")
+        throw agentDiagnostics.AGENT_R0551({ message: "--confirm-origin must exactly match --url." })
     }
 
     const loadTargets = options.loadTargets || loadChannelSyncTargets
@@ -496,16 +489,14 @@ export async function runAgentChannelSyncCli(
         (!parsed.channel || target.channel === parsed.channel),
     )
     if (!targets.length)
-      throw new Error("No synchronizable Channels matched the selected Agent and Channel filters.")
+      throw agentDiagnostics.AGENT_R0552({ message: "No synchronizable Channels matched the selected Agent and Channel filters." })
 
     const providerResources = new Map<unknown, LoadedChannelSyncTarget>()
     for (const target of targets) {
       if (target.sync.resourceKey === undefined) continue
       const existing = providerResources.get(target.sync.resourceKey)
       if (existing) {
-        throw new Error(
-          `Channels ${existing.agent}/${existing.channel} and ${target.agent}/${target.channel} target the same ${target.provider} resource.`,
-        )
+        throw agentDiagnostics.AGENT_R0553({ message: `Channels ${existing.agent}/${existing.channel} and ${target.agent}/${target.channel} target the same ${target.provider} resource.` })
       }
       providerResources.set(target.sync.resourceKey, target)
     }
@@ -526,17 +517,13 @@ export async function runAgentChannelSyncCli(
       if (currentUrl) {
         const currentOrigin = httpsUrlOrigin(currentUrl, "current provider webhook URL").origin
         if (currentOrigin !== origin) {
-          throw new Error(
-            `Channel ${item.target.agent}/${item.target.channel} ${item.plan.action} targets ${currentOrigin}, which does not match the confirmed deployment origin ${origin}.`,
-          )
+          throw agentDiagnostics.AGENT_R0554({ message: `Channel ${item.target.agent}/${item.target.channel} ${item.plan.action} targets ${currentOrigin}, which does not match the confirmed deployment origin ${origin}.` })
         }
       }
     }
     const deletion = deletions[0]
     if (parsed.apply && deletion && !parsed.allowDelete) {
-      throw new Error(
-        `Channel ${deletion.target.agent}/${deletion.target.channel} requires deletion; rerun with --allow-delete after reviewing the plan.`,
-      )
+      throw agentDiagnostics.AGENT_R0555({ message: `Channel ${deletion.target.agent}/${deletion.target.channel} requires deletion; rerun with --allow-delete after reviewing the plan.` })
     }
 
     const registrations: ChannelSyncResultRegistration[] = []
@@ -547,9 +534,7 @@ export async function runAgentChannelSyncCli(
           typeof item.plan.desired.url === "string" ? item.plan.desired.url : undefined
         const resultUrl = typeof result.url === "string" ? result.url : undefined
         if (expectedUrl !== undefined && resultUrl !== expectedUrl) {
-          throw new Error(
-            `Provider verification failed for ${item.target.agent}/${item.target.channel}; expected webhook URL ${expectedUrl ? sanitizedUrl(expectedUrl) : "<empty>"}.`,
-          )
+          throw agentDiagnostics.AGENT_R0556({ message: `Provider verification failed for ${item.target.agent}/${item.target.channel}; expected webhook URL ${expectedUrl ? sanitizedUrl(expectedUrl) : "<empty>"}.` })
         }
       }
       registrations.push({

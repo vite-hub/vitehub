@@ -10,6 +10,8 @@ import type {
   WranglerDurableObjectBinding,
   WranglerMigration,
 } from './internal/shared/cloudflare-target'
+import { finalizeCloudflareWranglerConfig } from './internal/shared/cloudflare-wrangler'
+import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const defaultCloudflareSandboxBinding = 'SANDBOX'
 export const defaultCloudflareSandboxClassName = 'Sandbox'
@@ -22,7 +24,7 @@ function resolveCloudflareSandboxEntrypoint() {
     return require.resolve('@cloudflare/sandbox')
   }
   catch {
-    throw new Error('[vitehub] The Cloudflare Sandbox provider requires @cloudflare/sandbox. Install a supported version before building.')
+    throw sandboxErrorDiagnostics.SANDBOX_R0003({ message: '[vitehub] The Cloudflare Sandbox provider requires @cloudflare/sandbox. Install a supported version before building.' })
   }
 }
 
@@ -30,7 +32,7 @@ function resolveCloudflareSandboxVersion() {
   const entry = resolveCloudflareSandboxEntrypoint()
   const pkg = require(join(entry, '..', '..', 'package.json'))
   if (typeof pkg?.version !== 'string')
-    throw new Error('[vitehub] Could not resolve the installed @cloudflare/sandbox version.')
+    throw sandboxErrorDiagnostics.SANDBOX_R0004({ message: '[vitehub] Could not resolve the installed @cloudflare/sandbox version.' })
   return pkg.version
 }
 
@@ -43,7 +45,7 @@ export type CloudflareSandboxEntrypointOptions = {
 
 function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEntrypointOptions = {}) {
   if (options.className === 'ContainerProxy')
-    throw new Error('[vitehub] Cloudflare Sandbox className "ContainerProxy" is reserved by @cloudflare/sandbox. Configure a different className.')
+    throw sandboxErrorDiagnostics.SANDBOX_R0005({ message: '[vitehub] Cloudflare Sandbox className "ContainerProxy" is reserved by @cloudflare/sandbox. Configure a different className.' })
   return {
     binding: options.binding || defaultCloudflareSandboxBinding,
     className: options.className || defaultCloudflareSandboxClassName,
@@ -69,16 +71,16 @@ function mergeRollupExternal(value: unknown, addition: string): unknown {
 export function configureCloudflareSandbox(target: MutableCloudflareTarget, options: CloudflareSandboxEntrypointOptions = {}) {
   const { binding, className, migrationTag, name } = resolveCloudflareSandboxEntrypointOptions(options)
   if (typeof target.cloudflare?.wrangler?.exports !== 'undefined') {
-    throw new Error('[vitehub] Cloudflare Sandbox cannot compose legacy migrations with an existing Wrangler exports configuration. Remove exports or configure the Sandbox Durable Object explicitly.')
+    throw sandboxErrorDiagnostics.SANDBOX_R0006({ message: '[vitehub] Cloudflare Sandbox cannot compose legacy migrations with an existing Wrangler exports configuration. Remove exports or configure the Sandbox Durable Object explicitly.' })
   }
   const existingMigrations = target.cloudflare?.wrangler?.migrations
   const classIsMigrated = existingMigrations?.some(entry => entry.new_sqlite_classes?.includes(className))
   if (!classIsMigrated && existingMigrations?.some(entry => entry.tag === migrationTag)) {
-    throw new Error(`[vitehub] Cloudflare migration tag ${JSON.stringify(migrationTag)} is already in use. Configure a unique sandbox migrationTag.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0007({ message: `[vitehub] Cloudflare migration tag ${JSON.stringify(migrationTag)} is already in use. Configure a unique sandbox migrationTag.` })
   }
   const existingBindings = target.cloudflare?.wrangler?.durable_objects?.bindings
   if (existingBindings?.some(entry => entry.name === binding && entry.class_name !== className)) {
-    throw new Error(`[vitehub] Cloudflare Durable Object binding ${JSON.stringify(binding)} is already in use. Configure a unique sandbox binding.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0008({ message: `[vitehub] Cloudflare Durable Object binding ${JSON.stringify(binding)} is already in use. Configure a unique sandbox binding.` })
   }
 
   target.cloudflare ||= {}
@@ -191,7 +193,11 @@ export async function writeCloudflareSandboxDockerfile(serverDir: string) {
   const dockerfilePath = join(serverDir, 'Dockerfile')
   await writeFileIfChanged(
     dockerfilePath,
-    `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}\n`,
+    [
+      `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}`,
+      'RUN npm install --global corepack@0.34.5 && corepack enable pnpm yarn',
+      '',
+    ].join('\n'),
   )
   return dockerfilePath
 }
@@ -205,6 +211,7 @@ export async function configureCloudflareSandboxNitro(
   targetValue: MutableNitroCloudflareTarget | undefined,
   rootDir: string,
   options: CloudflareSandboxEntrypointOptions = {},
+  finalizeWrangler = true,
 ) {
   const target = targetValue || {}
   const serverDir = resolve(rootDir, target.output?.serverDir || '.output/server')
@@ -231,5 +238,7 @@ export async function configureCloudflareSandboxNitro(
   target.rollupConfig ||= {}
   target.rollupConfig.external = mergeRollupExternal(target.rollupConfig.external, 'cloudflare:workers')
   installCloudflareSandboxEntrypoint(target, resolvedOptions)
+  if (finalizeWrangler)
+    finalizeCloudflareWranglerConfig(target)
   return target
 }

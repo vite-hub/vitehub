@@ -2,6 +2,7 @@
 title: Database
 description: Define relational data with Drizzle and query it through generated ViteHub imports.
 navigation.order: 5
+navigation.group: Data
 icon: i-lucide-database
 ---
 
@@ -37,13 +38,13 @@ export default defineConfig({
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const notes = sqliteTable('notes', {
-  id: integer('id').primaryKey(),
-  title: text('title').notNull(),
-})
-
 export default defineDatabase({
-  schema: { notes },
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+    }),
+  },
 })
 ```
 
@@ -54,7 +55,7 @@ export default defineDatabase({
 | Import | Use |
 | --- | --- |
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `db`, `databases`, `schema` from `@vite-hub/database/drizzle` | Query the generated Drizzle Runtime Surface. |
+| `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Provider Output. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use package-owned database CLI contribution. |
@@ -97,14 +98,14 @@ Database Definitions keep the Database Table Schema next to the server code that
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
-export const notes = sqliteTable('notes', {
-  id: integer('id').primaryKey(),
-  title: text('title').notNull(),
-  body: text('body').notNull(),
-})
-
 export default defineDatabase({
-  schema: { notes },
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey(),
+      title: text('title').notNull(),
+      body: text('body').notNull(),
+    }),
+  },
 })
 ```
 
@@ -143,12 +144,13 @@ pnpm vitehub db migrate
 
 ## Use it at runtime
 
-Use the generated Drizzle Runtime Surface from server code.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database.
 
 ```ts [server/api/notes.get.ts]
-import { db, schema } from '@vite-hub/database/drizzle'
+import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
+  const { db, schema } = useDatabase('default')
   return db.select().from(schema.notes)
 })
 ```
@@ -282,7 +284,7 @@ export default defineNuxtConfig({
 Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vitehub/provision.json`. Cloudflare production builds fail before deployment when provision state, `database.databaseId`, and an existing complete matching Nitro Wrangler binding all fail to supply the id.
 
 ::note
-`@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource, mainly to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface.
+`@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource, mainly to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, the module writes the hosted runtime, schema modules, and definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
 ::
 
 ## Connect it to Agents

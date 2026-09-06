@@ -1,7 +1,9 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 interface FinalizedStreamOutput<T> {
   deferFinish: boolean
@@ -26,9 +28,7 @@ const uiMessageStreamHeaders = {
 } as const
 
 export function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: () => ReadableStream<unknown> } {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
+  return isRuntimeRecord(value) && hasRuntimeType(value.toUIMessageStream, "function")
 }
 
 export function isUIMessageStreamResponse(value: unknown): value is Response & { body: ReadableStream<Uint8Array> } {
@@ -128,10 +128,11 @@ export function createAgentUIMessageStreamResponse(options: {
 
 export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): {
   cancel: (reason?: unknown) => Promise<void>
+  readonly completed: boolean
   stream: AsyncIterable<unknown>
 } {
-  const readableReader = typeof (stream as ReadableStream<unknown>).getReader === "function"
-    ? (stream as ReadableStream<unknown>).getReader()
+  const readableReader = isReadableAsyncIterable(stream)
+    ? stream.getReader()
     : undefined
   const iterator: AsyncIterator<unknown> = readableReader
     ? {
@@ -156,6 +157,9 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
   }
   return {
     cancel,
+    get completed() {
+      return completed
+    },
     stream: (async function* () {
       try {
         for (;;) {
@@ -175,24 +179,32 @@ export function cancellableAsyncIterableSource(stream: AsyncIterable<unknown>): 
   }
 }
 
+function isReadableAsyncIterable(stream: AsyncIterable<unknown>): stream is AsyncIterable<unknown> & ReadableStream<unknown> {
+  return isRuntimeRecord(stream) && hasRuntimeType(stream.getReader, "function")
+}
+
 export function withReadableStreamCleanup<T>(
   stream: ReadableStream<T>,
   cleanup: (outcome: StreamCleanupOutcome) => Promise<void>,
-  options: { abortSignal?: AbortSignal, cancelOnAbort?: (reason: unknown) => Promise<void>, onChunk?: (chunk: T) => void } = {},
+  options: { abortSignal?: AbortSignal, cancelOnAbort?: (reason: unknown) => Promise<void>, detachPendingReaderCancellation?: boolean, onChunk?: (chunk: T) => void } = {},
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
+  let cleanupTask: Promise<void> | undefined
+  let pendingCleanupOutcome: StreamCleanupOutcome | undefined
   let pendingError: unknown
   let wrappedController: ReadableStreamDefaultController<T> | undefined
-  const runCleanup = async (outcome: StreamCleanupOutcome = { completed: true, failed: false }) => {
-    if (cleaned) return
+  const runCleanup = async (outcome: StreamCleanupOutcome = pendingCleanupOutcome ?? { completed: true, failed: false }) => {
+    if (cleanupTask) return await cleanupTask
     cleaned = true
     options.abortSignal?.removeEventListener("abort", onAbort)
-    await cleanup(outcome)
+    cleanupTask = Promise.resolve(cleanup(outcome))
+    await cleanupTask
   }
   const onAbort = () => {
     const reason = options.abortSignal?.reason ?? new DOMException("[vitehub] Agent Invocation stream aborted.", "AbortError")
     if (cleaned) return
+    pendingCleanupOutcome = { error: reason, failed: true }
     cleaned = true
     options.abortSignal?.removeEventListener("abort", onAbort)
     wrappedController?.error(reason)
@@ -247,16 +259,33 @@ export function withReadableStreamCleanup<T>(
     },
     async cancel(reason) {
       let outcome: StreamCleanupOutcome = reason === undefined ? { completed: false, failed: false } : { error: reason, failed: true }
+      pendingCleanupOutcome = outcome
+      let detachedReaderSettlement: Promise<true> | undefined
       try {
         await options.cancelOnAbort?.(reason)
-        await reader.cancel(reason)
+        const readerCancellation = reader.cancel(reason)
+        if (options.detachPendingReaderCancellation) {
+          detachedReaderSettlement = readerCancellation.then(() => true, () => true)
+          void readerCancellation.catch(() => {})
+        }
+        else await readerCancellation
       }
       catch (error) {
         outcome = { error, failed: true }
+        pendingCleanupOutcome = outcome
         throw error
       }
       finally {
-        await runCleanup(outcome)
+        const cleanup = runCleanup(outcome)
+        if (detachedReaderSettlement) {
+          const settled = await Promise.race([
+            detachedReaderSettlement,
+            new Promise<false>(resolve => setTimeout(() => resolve(false), 0)),
+          ])
+          if (settled) await cleanup
+          else void cleanup.catch(() => {})
+        }
+        else await cleanup
       }
     },
   })
@@ -266,49 +295,42 @@ export function withReadableStreamCleanup<T>(
 }
 
 function textFromRenderedOutput(rendered: unknown): string | undefined {
-  if (typeof rendered === "string") return rendered
-  if (typeof rendered !== "object" || rendered === null) return undefined
-  const record = rendered as { text?: unknown }
-  return typeof record.text === "string" ? record.text : undefined
+  if (hasRuntimeType(rendered, "string")) return rendered
+  if (!isRuntimeRecord(rendered)) return undefined
+  return hasRuntimeType(rendered.text, "string") ? rendered.text : undefined
 }
 
 function streamEventType(event: unknown): string | undefined {
-  return typeof event === "object" && event !== null && typeof (event as { type?: unknown }).type === "string"
-    ? (event as { type: string }).type
-    : undefined
+  return isRuntimeRecord(event) && hasRuntimeType(event.type, "string") ? event.type : undefined
 }
 
 export function uiMessageTextDelta(event: unknown): string | undefined {
   const type = streamEventType(event)
-  if (type !== "text" && type !== "text-delta") return
-  const text = (event as { delta?: unknown, text?: unknown, textDelta?: unknown }).text
-    ?? (event as { delta?: unknown, textDelta?: unknown }).textDelta
-    ?? (event as { delta?: unknown }).delta
-  return typeof text === "string" ? text : undefined
+  if ((type !== "text" && type !== "text-delta") || !isRuntimeRecord(event)) return
+  const text = event.text ?? event.textDelta ?? event.delta
+  return hasRuntimeType(text, "string") ? text : undefined
 }
 
 function uiMessageStreamError(event: unknown): Error | undefined {
-  if (streamEventType(event) !== "error" || typeof event !== "object" || event === null) return
-  const error = event as { error?: unknown, errorText?: unknown, message?: unknown, recoverable?: unknown }
-  if (error.recoverable === true) return
-  if (error.error instanceof Error) return error.error
-  const message = error.errorText ?? error.message ?? error.error
-  return new Error(typeof message === "string" && message ? message : "Agent stream failed.")
+  if (streamEventType(event) !== "error" || !isRuntimeRecord(event)) return
+  if (event.recoverable === true) return
+  if (event.error instanceof Error) return event.error
+  const message = event.errorText ?? event.message ?? event.error
+  return agentDiagnostics.AGENT_R0856({ message: hasRuntimeType(message, "string") && message ? message : "Agent stream failed." })
 }
 
 function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) return false
-  const record = input as Record<string, unknown>
-  const argv = record.argv
-  return Object.keys(record).every(key => key === "argv" || key === "input" || key === "json")
+  if (!isRuntimeRecord(input) || Array.isArray(input)) return false
+  const argv = input.argv
+  return Object.keys(input).every(key => key === "argv" || key === "input" || key === "json")
     && Array.isArray(argv)
-    && argv.every(arg => typeof arg === "string")
-    && (record.json === undefined || typeof record.json === "boolean")
+    && argv.every(arg => hasRuntimeType(arg, "string"))
+    && (input.json === undefined || hasRuntimeType(input.json, "boolean"))
 }
 
 export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
-  if (typeof chunk !== "object" || chunk === null) return chunk
-  const record = chunk as Record<string, unknown>
+  if (!isRuntimeRecord(chunk)) return chunk
+  const record = chunk
   if (record.type === "error" && record.recoverable === true) {
     const error = record.errorText ?? record.message ?? record.error
     return {
@@ -321,9 +343,7 @@ export function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
     }
   }
   if (record.type !== "tool-input-error") return chunk
-  const metadata = typeof record.toolMetadata === "object" && record.toolMetadata !== null
-    ? record.toolMetadata as Record<string, unknown>
-    : undefined
+  const metadata = isRuntimeRecord(record.toolMetadata) ? record.toolMetadata : undefined
   if (metadata?.vitehubCapabilityCli !== true || !isCapabilityCliInput(record.input)) return chunk
 
   const { errorText: _errorText, ...available } = record
@@ -356,34 +376,41 @@ function projectUiMessageStream(
 ): ReadableStream<unknown> {
   if (!projection) return stream
   const pendingTextStarts = new Map<string, unknown>()
-  const reasoningTextIds = new Set<string>()
+  const hiddenTextIds = new Set<string>()
   return stream.pipeThrough(new TransformStream<unknown, unknown>({
     flush(controller) {
       for (const start of pendingTextStarts.values()) controller.enqueue(start)
     },
     transform(chunk, controller) {
       const type = streamEventType(chunk)
-      if (projection.reasoning === "hidden") {
-        if (type?.startsWith("reasoning-")) return
-        const text = chunk as { id?: unknown, phase?: unknown }
-        const id = typeof text.id === "string" ? text.id : undefined
+      if (projection.reasoning === "hidden" || projection.commentary === "hidden") {
+        if (projection.reasoning === "hidden" && type?.startsWith("reasoning-")) return
+        const text = isRuntimeRecord(chunk) ? chunk : {}
+        const id = hasRuntimeType(text.id, "string") ? text.id : undefined
         if (type === "text-start" && id) {
-          reasoningTextIds.delete(id)
+          hiddenTextIds.delete(id)
           pendingTextStarts.delete(id)
-          if (text.phase === "reasoning") {
-            reasoningTextIds.add(id)
+          if (isHiddenTextPhase(projection, text.phase)) {
+            hiddenTextIds.add(id)
             return
           }
           pendingTextStarts.set(id, chunk)
           return
         }
-        if (text.phase === "reasoning" && id) {
-          pendingTextStarts.delete(id)
-          reasoningTextIds.add(id)
+        if (text.phase !== undefined && id) {
+          if (isHiddenTextPhase(projection, text.phase)) {
+            hiddenTextIds.add(id)
+          }
+          else {
+            hiddenTextIds.delete(id)
+          }
         }
-        const reasoning = text.phase === "reasoning" || Boolean(id && reasoningTextIds.has(id))
-        if (type === "text-end" && id) reasoningTextIds.delete(id)
-        if (reasoning) return
+        const hidden = isHiddenTextPhase(projection, text.phase) || Boolean(id && hiddenTextIds.has(id))
+        if (type === "text-end" && id) hiddenTextIds.delete(id)
+        if (hidden) {
+          if (type === "text-end" && id) pendingTextStarts.delete(id)
+          return
+        }
         if (id && pendingTextStarts.has(id)) {
           controller.enqueue(pendingTextStarts.get(id))
           pendingTextStarts.delete(id)
@@ -395,9 +422,14 @@ function projectUiMessageStream(
   }))
 }
 
+function isHiddenTextPhase(projection: AgentUIMessageStreamProjection, phase: unknown): boolean {
+  return (projection.reasoning === "hidden" && phase === "reasoning")
+    || (projection.commentary === "hidden" && phase === "commentary")
+}
+
 function uiDataType(data: unknown): `data-${string}` {
-  const rawType = typeof data === "object" && data !== null && typeof (data as { type?: unknown }).type === "string"
-    ? (data as { type: string }).type
+  const rawType = isRuntimeRecord(data) && hasRuntimeType(data.type, "string")
+    ? data.type
     : "event"
   const type = rawType.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "")
   return `data-${type || "event"}`
@@ -414,30 +446,32 @@ async function writeEventsToUiMessageStream(
   const messageId = crypto.randomUUID()
   let textStarted = false
   let finished = false
-  const reasoningTextIds = new Set<string>()
+  const hiddenTextIds = new Set<string>()
   writer.write({ type: "start", messageId })
   for await (const event of events) {
     const usageRecord = usageRecordFromStreamChunk(event, events)
     if (usageRecord) options.onUsageRecord?.(usageRecord)
     const type = streamEventType(event)
-    if (!type) continue
+    if (!type || !isRuntimeRecord(event)) continue
     if (type === "usage" && usageRecord) continue
-    if (options.projection?.reasoning === "hidden") {
-      const text = event as { id?: unknown, phase?: unknown }
-      const id = typeof text.id === "string" ? text.id : undefined
+    if (options.projection?.reasoning === "hidden" || options.projection?.commentary === "hidden") {
+      const id = hasRuntimeType(event.id, "string") ? event.id : undefined
       if (type === "text-start" && id) {
-        reasoningTextIds.delete(id)
+        hiddenTextIds.delete(id)
       }
-      if (text.phase === "reasoning" && id) reasoningTextIds.add(id)
-      const reasoning = type.startsWith("reasoning-")
-        || text.phase === "reasoning"
-        || Boolean(id && reasoningTextIds.has(id))
-      if (type === "text-end" && id) reasoningTextIds.delete(id)
-      if (reasoning) continue
+      if (event.phase !== undefined && id) {
+        if (isHiddenTextPhase(options.projection, event.phase)) hiddenTextIds.add(id)
+        else hiddenTextIds.delete(id)
+      }
+      const hidden = (options.projection.reasoning === "hidden" && type.startsWith("reasoning-"))
+        || isHiddenTextPhase(options.projection, event.phase)
+        || Boolean(id && hiddenTextIds.has(id))
+      if (type === "text-end" && id) hiddenTextIds.delete(id)
+      if (hidden) continue
     }
     if (type === "text-delta") {
-      const text = (event as { delta?: unknown, text?: unknown }).text ?? (event as { delta?: unknown }).delta
-      if (typeof text !== "string" || !text) continue
+      const text = event.text ?? event.delta
+      if (!hasRuntimeType(text, "string") || !text) continue
       if (!textStarted) {
         writer.write({ type: "text-start", id: messageId })
         textStarted = true
@@ -446,22 +480,19 @@ async function writeEventsToUiMessageStream(
       continue
     }
     if (type === "tool-call") {
-      const tool = event as { id?: unknown, input?: unknown, name?: unknown }
-      writer.write({ type: "tool-input-available", toolCallId: tool.id, toolName: tool.name, input: tool.input })
+      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input })
       continue
     }
     if (type === "tool-result") {
-      const tool = event as { error?: unknown, id?: unknown, name?: unknown, output?: unknown }
-      if (typeof tool.error === "string") {
-        writer.write({ type: "tool-output-error", toolCallId: tool.id, toolName: tool.name, errorText: tool.error })
+      if (hasRuntimeType(event.error, "string")) {
+        writer.write({ type: "tool-output-error", toolCallId: event.id, toolName: event.name, errorText: event.error })
         continue
       }
-      writer.write({ type: "tool-output-available", toolCallId: tool.id, toolName: tool.name, output: tool.output })
+      writer.write({ type: "tool-output-available", toolCallId: event.id, toolName: event.name, output: event.output })
       continue
     }
     if (type === "data" || type.startsWith("data-")) {
-      const dataEvent = event as { data?: unknown, id?: unknown, transient?: unknown }
-      writer.write({ type: type === "data" ? uiDataType(dataEvent.data) : type, data: dataEvent.data, id: dataEvent.id, ...(typeof dataEvent.transient === "boolean" ? { transient: dataEvent.transient } : {}) })
+      writer.write({ type: type === "data" ? uiDataType(event.data) : type, data: event.data, id: event.id, ...(hasRuntimeType(event.transient, "boolean") ? { transient: event.transient } : {}) })
       continue
     }
     if (type === "finish") {
@@ -469,14 +500,13 @@ async function writeEventsToUiMessageStream(
       break
     }
     if (type === "error") {
-      const error = event as { error?: unknown, message?: unknown, recoverable?: unknown }
-      if (error.recoverable === true) {
+      if (event.recoverable === true) {
         writer.write(normalizeUiMessageStreamChunk(event))
         continue
       }
-      throw error.error instanceof Error
-        ? error.error
-        : new Error(typeof error.error === "string" ? error.error : typeof error.message === "string" ? error.message : "Agent stream failed.")
+      throw event.error instanceof Error
+        ? event.error
+        : agentDiagnostics.AGENT_R0857({ message: hasRuntimeType(event.error, "string") ? event.error : hasRuntimeType(event.message, "string") ? event.message : "Agent stream failed." })
     }
   }
   if (textStarted) writer.write({ type: "text-end", id: messageId })
@@ -490,16 +520,17 @@ export async function finalizeUiMessageStreamOutput(
   options: {
     abortSignal?: AbortSignal
     cancelOnAbort?: (reason: unknown) => Promise<void>
+    detachPendingReaderCancellation?: boolean
     onNormalizedChunk?: (chunk: unknown) => void
     projection?: AgentUIMessageStreamProjection
   } = {},
 ): Promise<FinalizedStreamOutput<unknown>> {
-  const { abortSignal, cancelOnAbort, onNormalizedChunk, projection } = options
+  const { abortSignal, cancelOnAbort, detachPendingReaderCancellation, onNormalizedChunk, projection } = options
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
   const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
   if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
-    throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
+    throw agentDiagnostics.AGENT_R0858({ message: "[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream()." })
   }
   let streamedUsageRecord: AgentUsageRecord | undefined
   const stream = projectUiMessageStream(normalizeUiMessageStream(hasUiMessageStream
@@ -533,6 +564,7 @@ export async function finalizeUiMessageStreamOutput(
       ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText, streamedUsageRecord)), {
           abortSignal,
           cancelOnAbort,
+          detachPendingReaderCancellation,
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
             streamedUsageRecord = usageRecordFromStreamChunk(chunk, rendered) ?? streamedUsageRecord

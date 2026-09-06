@@ -2,6 +2,7 @@
 title: Provisioning
 description: Create missing provider resources and write non-secret provider ids into local provision state.
 navigation.order: 33
+navigation.group: Build state
 icon: i-lucide-cloud-cog
 ---
 

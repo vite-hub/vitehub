@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import type { BoxFileEntry } from "../index.ts";
 import { shellQuote } from "./remote.ts";
 import type { RuntimeProcess, RuntimeSession } from "./session.ts";
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 
 const ssh2Package = "ssh2";
 const allowedSignals = new Set(["HUP", "INT", "KILL", "QUIT", "TERM"]);
@@ -49,26 +50,26 @@ export function parseAsciiSshHostKeys(output: string): readonly Uint8Array[] {
     .map((line) => {
       const [type, encoded] = line.split(/\s+/);
       if (!type || !/^[A-Za-z0-9@._+-]+$/.test(type) || !encoded)
-        throw new Error("[vitehub] ASCII returned an invalid SSH host public key.");
+        throw boxErrorDiagnostics.BOX_R0065({ message: "[vitehub] ASCII returned an invalid SSH host public key." });
       const key = Buffer.from(encoded, "base64");
       if (
         key.length === 0 ||
         key.toString("base64").replace(/=+$/, "") !== encoded.replace(/=+$/, "")
       )
-        throw new Error("[vitehub] ASCII returned an invalid SSH host public key.");
+        throw boxErrorDiagnostics.BOX_R0066({ message: "[vitehub] ASCII returned an invalid SSH host public key." });
       if (key.length < 5)
-        throw new Error("[vitehub] ASCII returned an invalid SSH host public key.");
+        throw boxErrorDiagnostics.BOX_R0067({ message: "[vitehub] ASCII returned an invalid SSH host public key." });
       const typeLength = key.readUInt32BE(0);
       if (
         typeLength <= 0 ||
         typeLength + 4 >= key.length ||
         key.subarray(4, 4 + typeLength).toString() !== type
       ) {
-        throw new Error("[vitehub] ASCII returned an invalid SSH host public key.");
+        throw boxErrorDiagnostics.BOX_R0068({ message: "[vitehub] ASCII returned an invalid SSH host public key." });
       }
       return new Uint8Array(key);
     });
-  if (keys.length === 0) throw new Error("[vitehub] ASCII returned no SSH host public keys.");
+  if (keys.length === 0) throw boxErrorDiagnostics.BOX_R0069({ message: "[vitehub] ASCII returned no SSH host public keys." });
   return keys;
 }
 
@@ -104,9 +105,7 @@ async function loadSsh2(): Promise<Ssh2Module> {
       utils: imported.default.utils,
     } as unknown as Ssh2Module;
   } catch (error) {
-    throw new Error(
-      `[vitehub] The ASCII Box runtime requires ssh2: ${error instanceof Error ? error.message : error}`,
-    );
+    throw boxErrorDiagnostics.BOX_R0070({ message: `[vitehub] The ASCII Box runtime requires ssh2: ${error instanceof Error ? error.message : error}` });
   }
 }
 
@@ -187,7 +186,7 @@ function createAsciiSshSession(
 
   const assertOpen = () => {
     fault.throwIfFailed();
-    if (closed) throw new Error("[vitehub] ASCII SSH transport is closed.");
+    if (closed) throw boxErrorDiagnostics.BOX_R0071({ message: "[vitehub] ASCII SSH transport is closed." });
   };
   const exec = async (command: string) => {
     assertOpen();
@@ -287,7 +286,7 @@ function createAsciiSshSession(
         command: `find ${shellQuote(path)} -mindepth 1 ${recursive ? "" : "-maxdepth 1 "}-printf '%y\\t%s\\t%p\\0'`,
         workingDirectory: "/home/user",
       });
-      if (result.exitCode !== 0) throw new Error(result.stderr);
+      if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0072({ message: result.stderr });
       return parseAsciiFileList(result.stdout);
     },
     async makeDirectory({ abortSignal, path, recursive }) {
@@ -296,7 +295,7 @@ function createAsciiSshSession(
         command: `mkdir ${recursive ? "-p " : ""}-- ${shellQuote(path)}`,
         workingDirectory: "/home/user",
       });
-      if (result.exitCode !== 0) throw new Error(result.stderr);
+      if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0073({ message: result.stderr });
     },
     async moveFile({ abortSignal, destination, source }) {
       const result = await run({
@@ -304,7 +303,7 @@ function createAsciiSshSession(
         command: `mv -- ${shellQuote(source)} ${shellQuote(destination)}`,
         workingDirectory: "/home/user",
       });
-      if (result.exitCode !== 0) throw new Error(result.stderr);
+      if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0074({ message: result.stderr });
     },
     async readBinaryFile({ abortSignal, path }) {
       assertOpen();
@@ -327,7 +326,7 @@ function createAsciiSshSession(
           : `if test -d ${shellQuote(path)}; then rmdir -- ${shellQuote(path)}; else rm -f -- ${shellQuote(path)}; fi`,
         workingDirectory: "/home/user",
       });
-      if (result.exitCode !== 0) throw new Error(result.stderr);
+      if (result.exitCode !== 0) throw boxErrorDiagnostics.BOX_R0075({ message: result.stderr });
     },
     run,
     spawn,
@@ -389,7 +388,7 @@ function systemdRunCommand(unit: string, workingDirectory?: string) {
 function launchScriptContents(options: { command: string; env?: Record<string, string> }) {
   const exports = Object.entries(options.env ?? {}).map(([name, value]) => {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-      throw new Error(`[vitehub] Invalid environment variable name: ${JSON.stringify(name)}.`);
+      throw boxErrorDiagnostics.BOX_R0076({ message: `[vitehub] Invalid environment variable name: ${JSON.stringify(name)}.` });
     }
     return `export ${shellQuote(`${name}=${value}`)}`;
   });
@@ -429,7 +428,7 @@ function createRuntimeProcess(
   const ready = observed
     .then(async (active) => {
       if (active || isTerminal()) return;
-      throw new Error(`[vitehub] ASCII process ${unit} could not be observed after launch.`);
+      throw boxErrorDiagnostics.BOX_R0077({ message: `[vitehub] ASCII process ${unit} could not be observed after launch.` });
     })
     .catch(async (error) => {
       await failClosed(error, destroyBox, `[vitehub] ASCII process ${unit} launch failed.`);
@@ -461,7 +460,7 @@ function createRuntimeProcess(
         await Promise.race([settled, delay(250)]);
         if (!isTerminal()) {
           await destroyBox();
-          throw new Error(`[vitehub] ASCII could not kill ${unit}: ${result.stderr}`);
+          throw boxErrorDiagnostics.BOX_R0078({ message: `[vitehub] ASCII could not kill ${unit}: ${result.stderr}` });
         }
       }
       killedExitCode = signalExitCodes[normalized];
@@ -484,7 +483,7 @@ function createRuntimeProcess(
       await settled;
       if (closeError) throw closeError;
       if (exitCode === undefined)
-        throw new Error(`[vitehub] ASCII process ${unit} closed without an exit status.`);
+        throw boxErrorDiagnostics.BOX_R0079({ message: `[vitehub] ASCII process ${unit} closed without an exit status.` });
       return { exitCode: killedExitCode ?? exitCode };
     },
   } satisfies RuntimeProcess & { ready: Promise<void>; settled: Promise<void> };
@@ -525,7 +524,7 @@ async function verifyUnitStopped(
     ].join(" "),
   );
   if (result.exitCode !== 0)
-    throw new Error(`[vitehub] ASCII could not verify ${unit}: ${result.stderr}`);
+    throw boxErrorDiagnostics.BOX_R0080({ message: `[vitehub] ASCII could not verify ${unit}: ${result.stderr}` });
   const properties = new Map(
     result.stdout
       .trim()
@@ -539,18 +538,18 @@ async function verifyUnitStopped(
   );
   if (properties.get("LoadState") === "not-found") return;
   if (properties.get("LoadState") !== "loaded")
-    throw new Error(`[vitehub] ASCII process ${unit} has an unknown systemd load state.`);
+    throw boxErrorDiagnostics.BOX_R0081({ message: `[vitehub] ASCII process ${unit} has an unknown systemd load state.` });
   const activeState = properties.get("ActiveState");
   const controlGroup = properties.get("ControlGroup");
   if (activeState && !["failed", "inactive"].includes(activeState))
-    throw new Error(`[vitehub] ASCII process ${unit} remains ${activeState}.`);
+    throw boxErrorDiagnostics.BOX_R0082({ message: `[vitehub] ASCII process ${unit} remains ${activeState}.` });
   if (controlGroup) {
     const processes = posix.join("/sys/fs/cgroup", controlGroup, "cgroup.procs");
     const check = await executeControl(
       `test ! -e ${shellQuote(processes)} || test -z "$(cat ${shellQuote(processes)})"`,
     );
     if (check.exitCode !== 0)
-      throw new Error(`[vitehub] ASCII process ${unit} left a non-empty cgroup.`);
+      throw boxErrorDiagnostics.BOX_R0083({ message: `[vitehub] ASCII process ${unit} left a non-empty cgroup.` });
   }
 }
 
@@ -595,7 +594,7 @@ async function collectChannel(channel: SshChannel) {
     }),
   ]);
   if (exitCode === undefined)
-    throw new Error("[vitehub] ASCII SSH command closed without an exit status.");
+    throw boxErrorDiagnostics.BOX_R0084({ message: "[vitehub] ASCII SSH command closed without an exit status." });
   return { exitCode, stderr, stdout };
 }
 
@@ -696,7 +695,7 @@ function createTransportFault(destroyBox: () => Promise<void>): TransportFault {
     record(failure) {
       if (error !== undefined) return;
       const transportError =
-        failure ?? new Error("[vitehub] ASCII SSH transport failed without an error.");
+        failure ?? boxErrorDiagnostics.BOX_R0085({ message: "[vitehub] ASCII SSH transport failed without an error." });
       error = transportError;
       cleanup = destroyBox().catch((cleanupError) => {
         error = new AggregateError(
@@ -738,7 +737,7 @@ export function parseAsciiFileList(output: string): BoxFileEntry[] {
 function normalizeSignal(signal = "TERM") {
   const normalized = signal.toUpperCase().replace(/^SIG/, "");
   if (!allowedSignals.has(normalized))
-    throw new TypeError(`[vitehub] Unsupported ASCII process signal: ${signal}`);
+    throw boxErrorDiagnostics.BOX_R0086({ message: `[vitehub] Unsupported ASCII process signal: ${signal}` });
   return normalized;
 }
 
@@ -773,7 +772,7 @@ async function waitWithTimeout<T>(
     };
     const timer = setTimeout(() => {
       finish();
-      reject(new Error(message));
+      reject(boxErrorDiagnostics.BOX_R0087({ message: message }));
     }, milliseconds);
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) onAbort();

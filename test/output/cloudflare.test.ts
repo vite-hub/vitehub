@@ -34,6 +34,10 @@ describe.runIf(providerEnabled("cloudflare"))("cloudflare provider output", () =
     expect(wrangler().triggers?.crons).toContain("* * * * *")
   })
 
+  it("allows queue consumers to report live markers through the public Worker URL", () => {
+    expect(wrangler().compatibility_flags).toContain("global_fetch_strictly_public")
+  })
+
   it("wrangler.json declares kv namespaces", () => {
     expect(Array.isArray(wrangler().kv_namespaces)).toBe(true)
     expect(wrangler().kv_namespaces.length).toBeGreaterThan(0)

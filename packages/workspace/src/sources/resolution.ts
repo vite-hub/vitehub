@@ -6,7 +6,9 @@ import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
+import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import { markLiveWorkspaceSource } from "./live.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
@@ -86,24 +88,36 @@ function writeOperations(options: WritableWorkspaceFacadeToolOptions | undefined
 function createOverlaySourceStore<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   fallback: (path: string) => boolean,
-): WorkspaceStore {
+): WorkspaceStore & { isTombstoned(path: string): boolean } {
   const memory = createMemoryWorkspaceStore()
+  const tombstones = new Set<string>()
+
+  function isTombstoned(path: string) {
+    return [...tombstones].some(tombstone => path === tombstone || path.startsWith(`${tombstone}/`))
+  }
+
+  function restorePath(path: string) {
+    for (const tombstone of tombstones) {
+      if (path === tombstone || path.startsWith(`${tombstone}/`)) tombstones.delete(tombstone)
+    }
+  }
 
   async function readBaseFile(path: string): Promise<WorkspaceFile | undefined> {
-    if (!fallback(path)) return
+    if (!fallback(path) || isTombstoned(path)) return
     if (!await workspace.fs.exists(path as never)) return
     const stat = await workspace.fs.stat(path as never).catch(() => undefined)
     if (stat?.type === "directory") return
     return {
       content: await workspace.fs.readFile(path as never, { encoding: "binary" } as never) as Uint8Array,
       mediaType: stat?.mediaType,
+      metadata: stat?.metadata,
       path,
     }
   }
 
   async function baseEntries(path = "", options?: ListOptions) {
     try {
-      return (await workspace.fs.list(path as never, options)).filter(entry => fallback(entry.path))
+      return (await workspace.fs.list(path as never, options)).filter(entry => fallback(entry.path) && !isTombstoned(entry.path))
     }
     catch {
       return []
@@ -112,7 +126,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
 
   async function baseGlob(pattern: string | string[], options?: GlobOptions) {
     try {
-      return (await workspace.fs.glob(pattern as never, options)).filter(entry => fallback(entry.path))
+      return (await workspace.fs.glob(pattern as never, options)).filter(entry => fallback(entry.path) && !isTombstoned(entry.path))
     }
     catch {
       return []
@@ -120,7 +134,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 
   async function baseStat(path: string) {
-    if (!fallback(path)) return
+    if (!fallback(path) || isTombstoned(path)) return
     try {
       return await workspace.fs.stat(path as never)
     }
@@ -130,10 +144,12 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 
   return {
+    isTombstoned,
     async readFile(path) {
       return await memory.readFile(path) || await readBaseFile(path)
     },
     async writeFile(path, file) {
+      restorePath(path)
       await memory.writeFile(path, file)
     },
     async list(path, options) {
@@ -146,10 +162,14 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       return await memory.stat(path) || await baseStat(path)
     },
     async mkdir(path, options) {
+      restorePath(path)
       await memory.mkdir(path, options)
     },
     async rm(path, options) {
+      const removedBaseEntries = options?.recursive ? await baseEntries(path, { recursive: true }) : []
       await memory.rm(path, options)
+      tombstones.add(path)
+      for (const entry of removedBaseEntries) tombstones.add(entry.path)
     },
     async snapshot(options) {
       return await memory.snapshot(options)
@@ -158,7 +178,10 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       return await memory.diff(options)
     },
     async getMeta(key) {
+      const internalMetadata = await resolveWorkspaceMetadataTarget(workspace)
       return await memory.getMeta?.(key)
+        ?? await internalMetadata?.getMeta?.(key)
+        ?? await workspace.getMeta?.(key)
     },
     async setMeta(key, value) {
       await memory.setMeta?.(key, value)
@@ -272,8 +295,13 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   const selectedWorkspaceScope = options.selectedWorkspaceScope
   const sourceViewDefinition = createScopedSourceViewDefinition(resolvedDefinition, selectedWorkspaceScope)
-  const sourceView = createWorkspaceSourceView(sourceViewDefinition, createOverlaySourceStore(workspace, path => !isLazySourcePath(resolvedDefinition, path)))
+  const overlayStore = createOverlaySourceStore(workspace, path =>
+    !isLazySourcePath(resolvedDefinition, path)
+    || selectedScopeCanSee(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
+  )
+  const sourceView = createWorkspaceSourceView(sourceViewDefinition, overlayStore, { reuseStartupSnapshots: true })
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
+  const canUseBase = (path: string) => !overlayStore.isTombstoned(normalizeWorkspacePath(path))
   let readWorkspace!: Workspace
   const fs = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
@@ -281,18 +309,21 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         return await sourceView.readFile(path, options as never)
       }
       if (selectedScopeCanRead(selectedWorkspaceScope, path) && await sourceViewHasPath(resolvedDefinition, sourceView, path)) return await sourceView.readFile(path, options as never)
-      return await workspace.fs.readFile(path, options as never)
+      if (selectedScopeCanRead(selectedWorkspaceScope, path) && canUseBase(path)) return await workspace.fs.readFile(path, options as never)
+      return await sourceView.readFile(path, options as never)
     },
     async stat(path) {
       if (isSourcePath(resolvedDefinition, path)) {
         return await sourceView.stat(path)
       }
       if (selectedScopeCanSee(selectedWorkspaceScope, path) && await sourceViewHasPath(resolvedDefinition, sourceView, path)) return await sourceView.stat(path)
-      return await workspace.fs.stat(path)
+      if (selectedScopeCanSee(selectedWorkspaceScope, path) && canUseBase(path)) return await workspace.fs.stat(path)
+      return await sourceView.stat(path)
     },
     async exists(path) {
       if (isSourcePath(resolvedDefinition, path)) return await sourceView.exists(path)
-      return selectedScopeCanSee(selectedWorkspaceScope, path) && await sourceViewHasPath(resolvedDefinition, sourceView, path) || await workspace.fs.exists(path)
+      return selectedScopeCanSee(selectedWorkspaceScope, path)
+        && (await sourceViewHasPath(resolvedDefinition, sourceView, path) || canUseBase(path) && await workspace.fs.exists(path))
     },
     async list(path = "", options = {}) {
       const normalized = normalizeWorkspacePath(path)
@@ -303,14 +334,14 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         workspace.fs.list(path as never, options as ListOptions),
         selectedScopeCanSee(selectedWorkspaceScope, normalized) && sourcePathIntersects(resolvedDefinition, normalized) ? sourceView.list(normalized, options) : Promise.resolve([]),
       ])
-      return mergeEntries(filterBaseEntries(resolvedDefinition, baseEntries), filterScopedEntries(selectedWorkspaceScope, sourceEntries))
+      return mergeEntries(filterScopedEntries(selectedWorkspaceScope, filterBaseEntries(resolvedDefinition, baseEntries).filter(entry => canUseBase(entry.path))), filterScopedEntries(selectedWorkspaceScope, sourceEntries))
     },
     async glob(pattern, options) {
       const [baseEntries, sourceEntries] = await Promise.all([
         workspace.fs.glob(pattern as never, options),
         sourceView.glob(pattern as never, options),
       ])
-      return mergeEntries(filterBaseEntries(resolvedDefinition, baseEntries), filterScopedEntries(selectedWorkspaceScope, sourceEntries))
+      return mergeEntries(filterScopedEntries(selectedWorkspaceScope, filterBaseEntries(resolvedDefinition, baseEntries).filter(entry => canUseBase(entry.path))), filterScopedEntries(selectedWorkspaceScope, sourceEntries))
     },
     async search(query) {
       const scopedToSource = searchQueryTargetsSource(resolvedDefinition, query)
@@ -318,12 +349,12 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         scopedToSource ? Promise.resolve([]) : workspace.fs.search(query),
         sourceView.search(query),
       ])
-      return mergeHits(filterBaseHits(resolvedDefinition, baseHits), filterScopedHits(selectedWorkspaceScope, sourceHits)).slice(0, query.limit ?? 100)
+      return mergeHits(filterScopedHits(selectedWorkspaceScope, filterBaseHits(resolvedDefinition, baseHits).filter(hit => canUseBase(hit.path))), filterScopedHits(selectedWorkspaceScope, sourceHits)).slice(0, query.limit ?? 100)
     },
     materializeSources,
     startSession: async (options) => {
       const paths = options?.paths?.length ? options.paths : [""]
-      await Promise.all(paths.map(path => materializeSources({ path })))
+      if (options?.materializeSources !== false) await Promise.all(paths.map(path => materializeSources({ path })))
       return await startOverlayWorkspaceSession(resolvedDefinition, readWorkspace, options)
     },
   } as ReadonlyWorkspaceFacade<Name>["fs"] & Pick<Workspace, "startSession">, sourceRequestExecution)
@@ -337,7 +368,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     search: fs.search,
     startSession: fs.startSession,
     stat: fs.stat,
-  } as unknown as Workspace, sourceRequestExecution)
+  } as Workspace, sourceRequestExecution)
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,
@@ -353,7 +384,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     timeout: options?.timeout,
   })
   const tools = createTools() as WorkspaceReadToolSet
-  tools.inspect = createTools as unknown as WorkspaceReadToolSet["inspect"]
+  tools.inspect = createTools as WorkspaceReadToolSet["inspect"]
   tools.none = (() => ({})) as WorkspaceReadToolSet["none"]
 
   if (isWritableWorkspaceFacade(workspace)) {
@@ -417,7 +448,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
     const writeFs: WritableWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
       appendFile: async (path, content) => await appendWorkspaceFile(writeWorkspace, path, content),
-      copyPath: async (from, to, options) => await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite),
+      copyPath: async (from, to, options) => {
+        await sourceView.assertWritable(to)
+        await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite)
+      },
       exists: fs.exists,
       glob: fs.glob,
       list: fs.list,
@@ -478,8 +512,8 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       snapshot: workspace.snapshot,
       startSession: async (options) => {
         const paths = options?.paths?.length ? options.paths : [""]
-        await Promise.all(paths.map(path => materializeSources({ path })))
-        const startBoxSession = (workspace as unknown as Record<symbol, unknown>)[Symbol.for("vitehub.workspace.start-box-session")]
+        if (options?.materializeSources !== false) await Promise.all(paths.map(path => materializeSources({ path })))
+        const startBoxSession: unknown = Reflect.get(workspace, Symbol.for("vitehub.workspace.start-box-session"))
         const session = options?.host
           ? await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options)
           : typeof startBoxSession === "function"
@@ -509,9 +543,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       timeout: options?.timeout,
     })
     const writeTools = createWriteTools() as WorkspaceWriteToolSet
-    writeTools.inspect = createTools as unknown as WorkspaceWriteToolSet["inspect"]
+    writeTools.inspect = createTools as WorkspaceWriteToolSet["inspect"]
     writeTools.none = (() => ({})) as WorkspaceWriteToolSet["none"]
-    writeTools.write = createWriteTools as unknown as WorkspaceWriteToolSet["write"]
+    writeTools.write = createWriteTools as WorkspaceWriteToolSet["write"]
     const writableWorkspace: WritableWorkspaceFacade<Name> = {
       ...workspace,
       diff: writeWorkspace.diff,
@@ -523,6 +557,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       sync: writeWorkspace.sync,
       tools: writeTools,
     }
+    forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => overlayStore }, writableWorkspace)
 
     return {
       definition: resolvedDefinition,
@@ -534,6 +569,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     fs,
     tools,
   }
+  forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => overlayStore }, readonlyWorkspace)
   const starter = workspaceSessionStarter(workspace)
   if (starter) {
     readonlyWorkspace.startSession = async options => await starter.startSession(options)
@@ -669,8 +705,25 @@ function sourceDescriptorPathIntersects(definition: WorkspaceDefinition, path: s
 function isLazySourcePath(definition: WorkspaceDefinition, path: string): boolean {
   const normalized = normalizeWorkspacePath(path)
   return normalizeWorkspaceSources(definition.sources)
-    .filter(source => source.materialize === "lazy")
+    .filter(source => source.materialize === "lazy" || source.materialize === "startup")
     .some(source => pathIntersects(source.mountPath, normalized))
+}
+
+function isUnchangedStartupSourcePath(
+  definition: WorkspaceDefinition,
+  resolvedDefinition: WorkspaceDefinition,
+  path: string,
+): boolean {
+  const resolved = resolveWorkspacePath(resolvedDefinition, path)
+  if (resolved.type === "source") {
+    return resolved.materialize === "startup"
+      && resolvedDefinition.sources?.[resolved.sourceKey] === definition.sources?.[resolved.sourceKey]
+  }
+  return normalizeWorkspaceSources(resolvedDefinition.sources).some(source =>
+    !source.mountPath
+    && source.materialize === "startup"
+    && resolvedDefinition.sources?.[source.key] === definition.sources?.[source.key],
+  )
 }
 
 function searchQueryTargetsSource(definition: WorkspaceDefinition, query: WorkspaceSearchQuery): boolean {
@@ -709,7 +762,7 @@ function scopedWorkspaceSource(
     ...(scopedLivePaths
       ? {
           async prepare(ctx) {
-            await source.source.prepare?.(ctx)
+            await prepareWorkspaceSource(source.source, ctx)
             syncScopedLivePaths(scopedLivePaths, source.livePaths, scope)
           },
         }
@@ -737,16 +790,6 @@ function scopedWorkspaceSource(
           },
         }
       : {}),
-    ...(source.source.search
-      ? {
-          search: async (query, ctx) => {
-            const paths = selectedScopeQueryPaths(scope, query)
-              .filter(path => pathIntersects(source.mountPath, path))
-            if (!paths.length) return []
-            return filterScopedHits(scope, await source.source.search!({ ...query, paths }, ctx))
-          },
-        }
-      : {}),
   }
   if (!source.requestDescriptor || selectedScopeCanRead(scope, workspaceSourceRequestDescriptorPath(source.key))) {
     copyWorkspaceSourceMetadata(source.source, scoped)
@@ -769,19 +812,6 @@ function sourceItemWorkspacePath(
 ): string {
   const normalized = normalizeWorkspacePath(sourcePath)
   return normalizeWorkspacePath(source.mountPath ? `${source.mountPath}/${normalized}` : normalized)
-}
-
-function selectedScopeQueryPaths(scope: WorkspaceSelectedScope, query: WorkspaceSearchQuery): string[] {
-  const requestedPaths = (query.paths?.length ? query.paths : [query.cwd || ""]).map(path => normalizeWorkspacePath(path))
-  const scopedPaths = (scope.paths || []).map(path => normalizeWorkspacePath(path))
-  const paths = new Set<string>()
-  for (const scopedPath of scopedPaths) {
-    for (const requestedPath of requestedPaths) {
-      if (pathContains(scopedPath, requestedPath)) paths.add(requestedPath)
-      else if (pathContains(requestedPath, scopedPath)) paths.add(scopedPath)
-    }
-  }
-  return [...paths]
 }
 
 function selectedScopeCanRead(scope: WorkspaceSelectedScope | undefined, path: string): boolean {

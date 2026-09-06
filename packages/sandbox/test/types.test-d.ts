@@ -39,6 +39,7 @@ describe("types", () => {
 
   it("types sandbox definitions and run results", async () => {
     const definition = defineSandbox({
+      project: false,
       run: async (payload?: { value: string }) => ({ value: payload?.value || "" }),
     })
 

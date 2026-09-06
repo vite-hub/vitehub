@@ -37,16 +37,11 @@ beforeAll(async () => {
   consumerRoot = await mkdtemp(join(tmpdir(), "vitehub-runtime-types-"))
   await cp(fixtureRoot, consumerRoot, { recursive: true })
   await syncPackedWorkspaceDependencies(consumerRoot, workspaceRoot, ["@vite-hub/runtime"])
-  const packResults = await Promise.allSettled([runProcess("npm", [
+  await runProcess("pnpm", [
     "pack",
     "--pack-destination",
     consumerRoot,
-    "--ignore-scripts",
-    "--cache",
-    join(consumerRoot, ".npm-cache"),
-  ], packageRoot)])
-  const failedPack = packResults.find(result => result.status === "rejected")
-  if (failedPack) throw failedPack.reason
+  ], packageRoot)
   await runProcess("npm", [
     "install",
     "--ignore-scripts",

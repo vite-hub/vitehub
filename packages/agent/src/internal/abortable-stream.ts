@@ -1,5 +1,6 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 export function abortSignalError(signal: AbortSignal, fallbackMessage: string): unknown {
-  return signal.reason ?? new Error(fallbackMessage)
+  return signal.reason ?? agentDiagnostics.AGENT_R0451({ message: fallbackMessage })
 }
 
 export async function nextWithAbort<T>(

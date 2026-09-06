@@ -131,8 +131,6 @@ rateLimit({
 })
 ```
 
-There is no compatibility shim. `memoryRateLimitStore()` and `RateLimitStore` are replaced by `memoryRateLimitDriver()` and `RateLimitDriver` from `@vite-hub/rate-limit`.
-
 ## Verify it
 
 Run repeated Agent Invocations with the same identity. Confirm that the first `limit` invocations reach the Agent Driver and the next fails with code `RATE_LIMIT_REJECTED` before model, provider, or custom-run execution.

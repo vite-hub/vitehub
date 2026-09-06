@@ -51,6 +51,31 @@ describe("docs lane navigation", () => {
     expect(primitives.find(section => section.id === "getting-started")?.pages.map(page => page.id)).not.toContain("first-agent");
   });
 
+  it("groups large sections and keeps UI in the Agents lane", () => {
+    const agents = getDocsSectionsForLane(docsManifest.sections, "agents");
+    const primitives = getDocsSectionsForLane(docsManifest.sections, "server-primitives");
+
+    expect(agents.map(section => section.id)).toContain("ui");
+    expect(primitives.map(section => section.id)).not.toContain("ui");
+
+    for (const sectionId of [
+      "agents",
+      "capabilities",
+      "concepts",
+      "development",
+      "frameworks-hosts",
+      "reference",
+      "server-primitives",
+      "ui",
+    ]) {
+      const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
+      const navigablePages = section?.pages.filter(page => page.navigation) || [];
+
+      expect(navigablePages.length, sectionId).toBeGreaterThan(0);
+      expect(navigablePages.every(page => page.group), sectionId).toBe(true);
+    }
+  });
+
   it("persists in-place lane selections without navigating exclusive pages", () => {
     const sharedPage = getDocsPageByPath("/docs/concepts");
     const agentPage = getDocsPageByPath("/docs/agents/invocations");

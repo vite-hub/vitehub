@@ -1,6 +1,7 @@
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
-import { defineAgent, otlpHttpJson } from "vite-hub/agent"
+import { defineAgent } from "vite-hub/agent"
+import { otlp } from "vite-hub/agent/capabilities"
 import type {
   BuiltInAgentDriver,
   BuiltInAgentDriverName,
@@ -15,7 +16,10 @@ import { useAgent, useChat } from "vite-hub/agent/vue"
 import * as authAgent from "vite-hub/auth/agent"
 import { createAuthClient, useUserSession } from "vite-hub/auth/vue"
 import type { BoxDefinition } from "vite-hub/box"
+import { useDatabase } from "vite-hub/database/drizzle"
 import { env } from "vite-hub/env"
+import { defineEnvProvider } from "vite-hub/env/provider"
+import type { SecretEnv } from "vite-hub/env/secret"
 import * as markdownTemplate from "vite-hub/markdown-template"
 import viteHubNuxtModule from "vite-hub/nuxt"
 import * as scheduleDriver from "vite-hub/schedule/runtime/driver"
@@ -26,6 +30,14 @@ import * as cloudflareWorkspace from "vite-hub/workspace/cloudflare"
 import * as workspaceLoader from "vite-hub/workspace/loader"
 import * as workspacePublisher from "vite-hub/workspace/publish"
 import * as workspaceServer from "vite-hub/workspace/server"
+
+declare module "vite-hub/database/drizzle" {
+  interface DatabaseRegistry {
+    default: {
+      schema: { notes: { title: string } }
+    }
+  }
+}
 
 export const appFacingModules = [
   agentCloudflare,
@@ -48,21 +60,33 @@ export const nuxtModule = viteHubNuxtModule
 export const customAuthClient = createAuthClient({ basePath: "/auth" })
 export const userSession = useUserSession(customAuthClient)
 export const supportChat = useChat(useAgent("support"))
+export const notesTable = useDatabase("default").schema.notes
 export const builtInAgent = defineAgent({
+  capabilities: [otlp({
+    endpoint: "https://telemetry.example/otlp",
+    headers: context => ({ "x-otlp-signal": context.signal }),
+    live: true,
+  })],
   driver: "codex",
   runtime: false,
-  telemetry: otlpHttpJson({ endpoint: "https://console.example/v1/traces" }),
 })
 export const builtInBox = { runtime: "trusted-host" } satisfies BoxDefinition
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
 export const configuredCodex = { kind: "codex", permissions: "ask" } satisfies BuiltInAgentDriver
 export const codexOptions = { model: "gpt-5.5" } satisfies CodexDriverOptions
 export const claudeCodeOptions = { env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } } satisfies ClaudeCodeDriverOptions
+export const credentialsProvider = defineEnvProvider<{
+  credentialsGatewayKey: SecretEnv<string>
+}>({
+  read: async ({ env: serverEnv, keys }) => Object.fromEntries(keys.map(key => [key, serverEnv.credentialsGatewayKey.unseal()])),
+})
 
 export default defineConfig({
   env: {
     server: {
       GH_TOKEN: env(),
+      credentialsGatewayKey: env({ secret: true }),
+      githubToken: env({ secret: true, source: env.provider("credentials", "github/token") }),
     },
   },
   plugins: [vitehub({
@@ -71,6 +95,9 @@ export default defineConfig({
     agent: true,
     blob: true,
     database: true,
+    env: {
+      providers: { credentials: "./credentials-provider.ts" },
+    },
     workflow: true,
     workspace: true,
   })],

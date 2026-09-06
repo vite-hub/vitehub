@@ -2,6 +2,7 @@ import { assertRuntimeScheduleId, createScheduleError } from "../errors.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleStore, RuntimeScheduleUpdateInput, ScheduleRunAttemptRecord, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
 import type { ScheduleKVStorage } from "./kv-storage.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface KVScheduleStoreOptions {
   kvStore?: ScheduleKVStorage
@@ -74,7 +75,7 @@ async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
   }
   catch (error) {
     if (isMissingKVPackage(error)) {
-      throw new Error("[vitehub:schedule] The default KV-backed stores require @vite-hub/kv. Install it with: pnpm add @vite-hub/kv", { cause: error })
+      throw scheduleErrorDiagnostics.SCHEDULE_R0029({ message: "[vitehub:schedule] The default KV-backed stores require @vite-hub/kv. Install it with: pnpm add @vite-hub/kv", cause: error })
     }
     throw error
   }
@@ -317,14 +318,14 @@ export function createMemoryScheduleRunStore(): ScheduleRunStore {
   return {
     createAttempt(attempt) {
       if (attempts.has(attempt.id)) {
-        throw new Error(`Schedule Run Attempt already exists: ${attempt.id}`)
+        throw scheduleErrorDiagnostics.SCHEDULE_R0030({ message: `Schedule Run Attempt already exists: ${attempt.id}` })
       }
       attempts.set(attempt.id, cloneScheduleRunAttempt(attempt))
       return cloneScheduleRunAttempt(attempt)
     },
     createRun(run) {
       if (runs.has(run.id)) {
-        throw new Error(`Schedule Run already exists: ${run.id}`)
+        throw scheduleErrorDiagnostics.SCHEDULE_R0031({ message: `Schedule Run already exists: ${run.id}` })
       }
       runs.set(run.id, cloneScheduleRun(run))
       return cloneScheduleRun(run)
@@ -387,7 +388,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions = {}): 
       const key = scheduleRunAttemptKey(prefix, attempt.id)
       return await withKVKeyLock(key, async () => {
         if (await store.has(key)) {
-          throw new Error(`Schedule Run Attempt already exists: ${attempt.id}`)
+          throw scheduleErrorDiagnostics.SCHEDULE_R0032({ message: `Schedule Run Attempt already exists: ${attempt.id}` })
         }
         await store.set(key, serializeScheduleRunAttempt(attempt))
         return cloneScheduleRunAttempt(attempt)
@@ -398,7 +399,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions = {}): 
       const key = scheduleRunKey(prefix, run.id)
       return await withKVKeyLock(key, async () => {
         if (await store.has(key)) {
-          throw new Error(`Schedule Run already exists: ${run.id}`)
+          throw scheduleErrorDiagnostics.SCHEDULE_R0033({ message: `Schedule Run already exists: ${run.id}` })
         }
         await store.set(key, serializeScheduleRun(run))
         return cloneScheduleRun(run)

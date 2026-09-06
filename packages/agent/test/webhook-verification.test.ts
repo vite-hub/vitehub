@@ -7,6 +7,7 @@ import { defineAgent, runAgentTrigger, verifyAgentWebhookRequest } from "../src/
 function runtime(request?: Request) {
   return {
     ...(request ? { request } : {}),
+    capabilities: {},
     memo: vi.fn(),
     runtime: "unknown" as const,
     waitUntil: vi.fn(),
@@ -150,6 +151,21 @@ describe("agent webhook verification", () => {
         message: "[vitehub] Webhook registration \"custom\" declares secretToken but no secretHeader is configured. Verification requires secretHeader; secretToken: false explicitly disables verification.",
         statusCode: 401,
       })
+  })
+
+  it("provides capabilities when verification context is omitted", async () => {
+    const secretToken = vi.fn(context => context.capabilities.webhook?.value)
+    await expect(verifyAgentWebhookRequest([{
+      id: "custom",
+      provider: "custom",
+      secretHeader: "x-webhook-secret",
+      secretToken,
+    }], new Request("https://example.com", {
+      headers: { "x-webhook-secret": "provided-token" },
+      method: "POST",
+    }))).rejects.toMatchObject({ statusCode: 401 })
+
+    expect(secretToken).toHaveBeenCalledWith(expect.objectContaining({ capabilities: {} }))
   })
 
   it("allows explicit unverified webhook registrations", async () => {

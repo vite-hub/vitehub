@@ -2,6 +2,7 @@
 title: Channels
 description: Understand how messages reach an Agent Invocation.
 navigation.order: 15
+navigation.group: Application model
 navigation.lanes: [agents]
 icon: i-lucide-message-square
 ---

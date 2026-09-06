@@ -1,0 +1,7 @@
+{
+  "name": "@fixture/serial-b",
+  "scripts": {
+    "build": "node ../../task.mjs build @fixture/serial-b",
+    "test": "node ../../task.mjs test @fixture/serial-b"
+  }
+}

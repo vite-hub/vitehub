@@ -1,18 +1,23 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source/github"
 
+import { resolveGitHubIgnore } from "./github-ignore.ts"
+import { prepareWorkspaceSource } from "./preparation.ts"
 import { withWorkspaceRuntimeOptions } from "./runtime-options.ts"
 import { resolveWorkspaceEnv } from "../env.ts"
 import { processEnv, resolveGitHubTokenOption } from "../providers/github/shared.ts"
 import type { ExactOptions, WorkspaceSourceRuntimeOptions } from "./runtime-options.ts"
 import type { MaybePromise, WorkspaceSource, WorkspaceSourceResolutionContext } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 type GitHubResolvedSourceOptions = Omit<GitHubSourceOptions, "repo"> & Partial<Pick<GitHubSourceOptions, "repo">>
 const githubTokenEnvNames = ["WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] as const
 
-export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, WorkspaceSourceRuntimeOptions {
+export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth" | "ignore">, WorkspaceSourceRuntimeOptions {
   auth?: GitHubAuth
+  /** Adds to the default Source ignores. Set to false to include every matched path. */
+  ignore?: false | string | readonly string[]
 }
 
 export type GitHubSourceResolver = (
@@ -27,7 +32,10 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
   if (typeof input === "function") return resolvableGitHubSource(input)
 
   const options = input
-  const resolvedOptions = { ...options }
+  const resolvedOptions = {
+    ...options,
+    ignore: resolveGitHubIgnore(options.ignore),
+  }
   const baseSource = createGitHubSource({
     ...resolvedOptions,
     auth: createGitHubAuthResolver(resolvedOptions.auth),
@@ -50,15 +58,19 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
   return withWorkspaceRuntimeOptions({
     ...baseSource,
     fingerprint: {
-      exclude: resolvedOptions.exclude,
+      ignore: resolvedOptions.ignore,
       include: resolvedOptions.include,
       ref: resolvedOptions.ref,
       repo: resolvedOptions.repo,
       root: resolvedOptions.root,
     },
+    async resolveRevision(ctx) {
+      const source = await getSourceForRoot(ctx.rootDir)
+      return await source.resolveRevision?.(ctx)
+    },
     async prepare(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
-      await source.prepare?.(ctx)
+      await prepareWorkspaceSource(source, ctx)
     },
     async getKeys(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
@@ -76,10 +88,6 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.getMeta?.(key, ctx)
     },
-    async search(query, ctx) {
-      const source = await getSourceForRoot(ctx.rootDir)
-      return await source.search?.(query, ctx) ?? []
-    },
   }, resolvedOptions)
 }
 
@@ -93,12 +101,9 @@ function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource 
       return []
     },
     async getItem(key) {
-      throw new Error(`[vitehub] github() resolver did not resolve before reading ${JSON.stringify(key)}.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_R0060({ message: `[vitehub] github() resolver did not resolve before reading ${JSON.stringify(key)}.` })
     },
     async getItems() {
-      return []
-    },
-    async search() {
       return []
     },
     async resolve(ctx) {
@@ -111,7 +116,7 @@ function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource 
 function githubResolutionDefaults(options: GitHubResolvedSourceOptions, ctx: WorkspaceSourceResolutionContext): GitHubSourceOptions {
   const source = pullRequestSource(ctx.invocation.context.get("pullRequest"))
   const repo = options.repo || source?.repo
-  if (!repo) throw new Error("[vitehub] github() resolver requires repo or typed pullRequest source context.")
+  if (!repo) throw workspaceErrorDiagnostics.WORKSPACE_R0061({ message: "[vitehub] github() resolver requires repo or typed pullRequest source context." })
   return {
     ...options,
     mount: options.mount ?? ctx.source.mountPath,
@@ -153,8 +158,8 @@ function pullRequestSource(value: unknown): { ref?: string, repo?: string } | un
 
 function createGitHubAuthResolver(auth: GitHubAuth | undefined) {
   if (auth === false) return false
-  return () => {
-    return resolveExplicitGitHubAuth(auth)
+  return async () => {
+    return await resolveExplicitGitHubAuth(auth)
       || getActiveCloudflareBinding<string>("GITHUB_TOKEN")
       || processEnv(process.env, ...githubTokenEnvNames)
   }
@@ -162,15 +167,15 @@ function createGitHubAuthResolver(auth: GitHubAuth | undefined) {
 
 async function resolveGitHubAuth(auth: GitHubAuth | undefined, rootDir: string): Promise<GitHubAuth | undefined> {
   if (auth === false) return false
-  return resolveExplicitGitHubAuth(auth)
+  return await resolveExplicitGitHubAuth(auth)
     || resolveGitHubTokenOption({})
     || await resolveGitHubEnvFileToken(rootDir)
     || await resolveGitHubCliToken()
 }
 
-function resolveExplicitGitHubAuth(auth: GitHubAuth | undefined): string | undefined {
+async function resolveExplicitGitHubAuth(auth: GitHubAuth | undefined): Promise<string | undefined> {
   if (auth === false) return undefined
-  if (typeof auth === "function") return auth()
+  if (typeof auth === "function") return await auth()
   return typeof auth === "string" ? auth : undefined
 }
 

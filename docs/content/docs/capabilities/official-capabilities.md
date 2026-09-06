@@ -20,6 +20,7 @@ import {
   title,
   db,
   email,
+  executor,
   fetch,
   git,
   gmail,
@@ -30,18 +31,16 @@ import {
   mcp,
   memory,
   openapi,
+  otlp,
   papercuts,
   progressSummary,
   rateLimit,
-  repositoryHost,
-  repositoryHostContext,
   sandbox,
   schedule,
   skills,
-  subagents,
   transcribe,
   usage,
-  cost,
+  diagnostics,
   webSearch,
   workspaceShell,
 } from 'vite-hub/agent/capabilities'
@@ -56,7 +55,6 @@ import {
 | Invocation access | [`access()`](/docs/capabilities/access) | Narrow chat admission or Workspace access from trusted invocation identity. |
 | Chat behavior | [`chat()`](/docs/capabilities/chat) | Start Agent Invocations from chat messages and manage Chat History. |
 | Input commands | [`inputCommands()`](/docs/capabilities/input-commands) | Transform command-shaped user input before the Agent runs. |
-| Subagents | [`subagents()`](/docs/capabilities/subagents) | Delegate bounded work to named Agent Definitions through tools. |
 
 ### Workspace
 
@@ -78,13 +76,15 @@ import {
 | Email | [`email()`](/docs/capabilities/email) | Send authorized plain-text messages through the configured Email primitive. |
 | Sandbox execution | [`sandbox()`](/docs/capabilities/sandbox) | The Agent may run an allowlisted executable in an isolated runtime. |
 | Schedules | [`schedule()`](/docs/capabilities/schedule) | The Agent declares scheduled invocations or manages Runtime Schedules through tools. |
+| OTLP telemetry | [`otlp()`](/docs/capabilities/otlp) | Live Agent Invocation events and completed traces should be exported to an OpenTelemetry receiver. |
+| Papercut reporting | [`papercuts()`](/docs/capabilities/papercuts) | Let an Agent report small failures and wasted work to an application-owned sink. |
+| Operational diagnostics | [`diagnostics()`](/docs/capabilities/diagnostics) | Invocation outcomes and scoped runtime resource observations should go to an application-owned reporter. |
 
 ### External context
 
 | Ability | Capability | Use it when |
 | --- | --- | --- |
-| Repository host | [`repositoryHost()`](/docs/capabilities/repository-host) | The Agent needs provider-hosted repository, Change Request, issue, comment, check, or status data through a configured Repository Host client. |
-| Repository host context | [`repositoryHostContext()`](/docs/capabilities/repository-host-context) | Read issue or Change Request data identified by a trigger or host. |
+| Executor catalog | [`executor()`](/docs/capabilities/executor) | Use integrations and policies configured behind one Executor MCP endpoint. |
 | MCP servers | [`mcp()`](/docs/capabilities/mcp) | Add tools from external MCP servers to the Agent. |
 | Web search | [`webSearch()`](/docs/capabilities/web-search) | The Agent needs model web search or normalized web search/read tools. |
 | Fetch tools | [`fetch()`](/docs/capabilities/fetch) | The Agent needs named HTTP tools for developer-approved endpoints. |
@@ -102,9 +102,7 @@ import {
 | Title | [`title()`](/docs/capabilities/title) | Generate a title for Agent output, finish extensions, or Channel threads. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | Replace a summary command with a conversation summary. |
 | Progress summary | [`progressSummary()`](/docs/capabilities/progress-summary) | Summarize current reasoning and tool activity while an Agent streams. |
-| Papercut reports | [`papercuts()`](/docs/capabilities/papercuts) | Report small runtime or developer-experience problems to application code. |
-| Usage | [`usage()`](/docs/capabilities/usage) | Request provider usage metadata and expose a normalized Agent Usage Record. |
-| Cost | [`cost()`](/docs/capabilities/cost) | Add exact and display-ready USD cost to Agent Usage Records. |
+| Usage | [`usage()`](/docs/capabilities/usage) | Request provider usage metadata and expose normalized tokens and cost. |
 
 ## Next steps
 
