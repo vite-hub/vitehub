@@ -968,12 +968,22 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
     if (bytes + size + (retained.length ? 1 : 0) > maxBytes && isAppendedObservation(observation)) {
       throw agentDiagnostics.AGENT_R0908({ message: "[vitehub] Agent Invocation observation byte capacity reached; appended evidence was not changed." })
     }
-    if (bytes + size + (retained.length ? 1 : 0) > maxBytes && outcomes.has(observation)) {
+    if (bytes + size + (retained.length ? 1 : 0) > maxBytes && observation.name === "vitehub.agent.configured") {
+      candidate = {
+        ...observation,
+        attributes: {
+          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !isTraceContentAttributeKey(key) && key !== "vitehub.agent.configuration")),
+          "vitehub.agent.configurationTruncated": true,
+        },
+      }
+      size = encoder.encode(JSON.stringify(candidate)).byteLength
+    }
+    else if (bytes + size + (retained.length ? 1 : 0) > maxBytes && outcomes.has(observation)) {
       candidate = {
         ...observation,
         attributes: {
           ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !isTraceContentAttributeKey(key) && key !== "vitehub.payload.value")),
-          [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+          [observation.name === "vitehub.agent.configured" ? "vitehub.agent.configurationTruncated" : AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
           ...(observation.payload?.visibility === "public" ? { "vitehub.payload.visibility": "redacted" } : {}),
         },
         ...(observation.payload?.visibility === "public" ? { payload: { visibility: "redacted" as const } } : {}),
