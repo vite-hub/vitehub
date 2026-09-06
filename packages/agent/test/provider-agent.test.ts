@@ -184,13 +184,15 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
-    const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected" }, provider: "codex" })
+    vi.stubEnv("CLIPROXY_BASE_URL", "http://127.0.0.1:8317/v1")
+    vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
+    const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected", CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY }, provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
-      environment: expect.objectContaining({ PROVIDER_SELECTED: "selected" }),
+      environment: expect.objectContaining({ PROVIDER_SELECTED: "selected", CLIPROXY_API_KEY: "proxy-test-key" }),
       settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
     }))
     expect(createProviderRuntime).toHaveBeenCalled()

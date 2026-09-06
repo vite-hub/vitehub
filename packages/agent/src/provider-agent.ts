@@ -282,10 +282,16 @@ const providerHostEnvironmentKeys = [
   "XDG_CACHE_HOME",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
+  "CLIPROXY_BASE_URL",
+  "CLIPROXY_API_KEY",
 ] as const
 
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
-  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
+  const cliproxyEnabled = hasRuntimeType(process.env.CLIPROXY_BASE_URL, "string") && process.env.CLIPROXY_BASE_URL.length > 0
+  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => {
+    if ((key === "CLIPROXY_BASE_URL" || key === "CLIPROXY_API_KEY") && !cliproxyEnabled) return []
+    return hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []
+  }))
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
 }
 
