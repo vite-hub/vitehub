@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest"
 import { inspectAgentTools } from "../src/tool-inspection.ts"
 
 describe("inspectAgentTools", () => {
+  it("preserves the exact description including long guidance and line breaks", () => {
+    const description = `First line.\n${"Detailed guidance. ".repeat(50)}`
+    expect(inspectAgentTools({ lookup: { description } })?.[0]?.description).toBe(description)
+  })
+
   it("serializes the model-visible tool contract", () => {
     expect(inspectAgentTools({
       lookup: {

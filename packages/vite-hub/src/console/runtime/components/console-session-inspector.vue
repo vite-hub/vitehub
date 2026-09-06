@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
-import { Diagnostic } from "nostics";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { useConsoleWordWrap } from "./console-wrap";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
+import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 type InspectorTab = "details" | "trace" | "workspace";
@@ -31,6 +32,7 @@ const activeSurface = defineModel<string>("activeSurface", { default: "view:deta
 const openViews = defineModel<InspectorTab[]>("openViews", { default: () => ["details"] });
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
+const wordWrap = useConsoleWordWrap();
 const workspace = ref<WorkspaceDescriptor>();
 const workspaceError = ref<string>();
 const workspaceLoading = ref(false);
@@ -142,6 +144,13 @@ watch(
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
+    if (!props.workspaceBase) {
+      openViews.value = openViews.value.filter((view) => view !== "workspace");
+      openPaths.value = [];
+      selectedPath.value = undefined;
+      if (tab.value === "workspace") tab.value = "details";
+      if (activeSurface.value === "view:workspace" || activeSurface.value.startsWith("file:")) activeSurface.value = "view:details";
+    }
     if (tab.value === "workspace") void loadWorkspace();
   },
   { immediate: true },
@@ -208,6 +217,7 @@ watch([workspace, treeOpen], async ([value, open]) => {
 });
 
 function openView(value: InspectorTab) {
+  if (value === "workspace" && !props.workspaceBase) return;
   if (!openViews.value.includes(value)) openViews.value = [...openViews.value, value];
   tab.value = value;
   activeSurface.value = `view:${value}`;
@@ -375,27 +385,7 @@ async function loadFile(path: string) {
 }
 
 async function requestJson(path: string, signal: AbortSignal): Promise<unknown> {
-  const response = await fetch(path, { signal });
-  if (!response.ok) {
-    const payload = record(await response.json().catch(() => undefined));
-    throw new RequestError(
-      stringValue(payload?.statusMessage) ||
-        stringValue(payload?.statusText) ||
-        `Request failed with status ${response.status}.`,
-      response.status,
-    );
-  }
-  return response.json();
-}
-
-class RequestError extends Diagnostic {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super({ code: "VITE_HUB_R0111", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, RequestError);
-    this.name = "RequestError";
-  }
+  return requestConsole(path, { signal });
 }
 
 function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
@@ -661,8 +651,8 @@ function message(error: unknown) {
             >{{ segment }}</span
           ></template
         >
-        <small v-if="file">{{ file.size }} bytes</small>
         <div class="session-inspector__workspace-actions">
+          <UButton icon="i-lucide-wrap-text" label="Wrap" color="neutral" :variant="wordWrap ? 'soft' : 'ghost'" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
           <UTooltip text="Reload Workspace"
             ><UButton
               icon="i-lucide-rotate-cw"
@@ -699,7 +689,7 @@ function message(error: unknown) {
           <div class="session-inspector__file">
             <div v-if="!selectedPath" class="session-inspector__snapshot">
               <UIcon name="i-lucide-folder-git-2" />
-              <span class="session-inspector__eyebrow">Immutable snapshot</span>
+              <span>Select a file to preview</span>
               <strong>{{ workspaceLabel }}</strong>
               <small>
                 {{ workspace.paths.length }} files<span v-if="workspace.pullRequest !== undefined">
@@ -717,6 +707,7 @@ function message(error: unknown) {
               v-else-if="selectedPath && file"
               :content="file.content"
               :path="file.path"
+              :wrap="wordWrap"
             />
             <div v-else-if="selectedPath" class="session-inspector__state">
               <UIcon name="i-lucide-mouse-pointer-2" />Select a file to preview it.
@@ -731,6 +722,10 @@ function message(error: unknown) {
           </aside>
         </div>
       </template>
+      <footer v-if="workspace" class="session-inspector__file-status">
+        <span :title="workspace.revision === 'current' ? 'Files currently mounted on this host; not a snapshot of this run.' : workspace.revision">{{ workspace.revision === 'current' ? 'Current mounted files' : workspace.revision }}</span>
+        <span>{{ workspace.paths.length }} files<span v-if="file"> · {{ file.size.toLocaleString() }} bytes</span></span>
+      </footer>
     </div>
   </aside>
 </template>

@@ -1569,6 +1569,73 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("registers the normalized readiness route with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ preparation: { route: "health/", workspace: "docs" } })
+    const result = isRuntimeFunction(plugin.config)
+      ? // SAFETY: This fixture supplies only the fields read by the config hook.
+        await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: { handlers: expect.arrayContaining([expect.objectContaining({ route: "/health" })]) },
+    })
+  })
+
+  it("registers readiness alongside Nitro middleware", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ preparation: { route: "/health", workspace: "docs" } })
+    const middleware = { route: "/**", handler: "/app/middleware.ts", middleware: true }
+    const result = isRuntimeFunction(plugin.config)
+      ? // SAFETY: The fixture supplies the Nitro fields read by the config hook.
+        await plugin.config.call({} as never, {
+          root: hostedAgentRoot,
+          nitro: { handlers: [middleware] },
+        } as never, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: { handlers: expect.arrayContaining([middleware, expect.objectContaining({ route: "/health" })]) },
+    })
+  })
+
+  it.each(["/", "/:page", "/**"])("rejects a readiness route that shadows the configured Nitro endpoint %s", async route => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ preparation: { route: "/", workspace: "docs" } })
+    expect(() => {
+      if (isRuntimeFunction(plugin.config)) {
+        // SAFETY: The fixture supplies the Nitro fields read by the config hook.
+        return plugin.config.call({} as never, {
+          root: hostedAgentRoot,
+          nitro: { handlers: [{ route: "/**", handler: "/app/middleware.ts", middleware: true }, { route, handler: "/app/index.ts" }] },
+        } as never, { command: "build", mode: "production" })
+      }
+    }).toThrow("readiness route conflicts")
+  })
+
+  it("registers webhook aliases on the native handler", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { aliases: { "/api/github/webhook": { agent: "support", webhook: "github" } } } })
+    const result = isRuntimeFunction(plugin.config)
+      ? await plugin.config.call({} as never, { root: hostedAgentRoot }, { command: "build", mode: "production" })
+      : undefined
+    expect(result).toMatchObject({ nitro: { handlers: expect.arrayContaining([
+      { handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"), route: "/api/github/webhook" },
+    ]) } })
+  })
+
+  it.each([
+    { runtime: "deno", message: "require a Nitro host" },
+    { nitro: { preset: "netlify" }, message: "require a Nitro host" },
+    { nitro: { handlers: [{ route: "/api/github/webhook", handler: "/app/handler.ts" }] }, message: "webhook alias route conflicts" },
+  ])("rejects unsupported or conflicting webhook aliases: %j", async ({ runtime, nitro, message }) => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ ...(runtime ? { runtime: "deno" as const } : {}), routes: { aliases: { "/api/github/webhook": { agent: "support", webhook: "github" } } } })
+    expect(() => {
+      if (isRuntimeFunction(plugin.config)) return plugin.config.call({} as never, { root: hostedAgentRoot, nitro } as never, { command: "build", mode: "production" })
+    }).toThrow(message)
+  })
+
   it("registers configured Discord Gateway routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ routes: { discordGateway: true } })

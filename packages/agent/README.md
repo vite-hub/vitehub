@@ -164,7 +164,7 @@ The portable `@vite-hub/agent/server` entry exports `failInterruptedAgentInvocat
 
 `defineAgentInvocations({ observations, store })` configures retained observation count, content string length, encoded byte budget, and finish drain time. Defaults remain 256 observations, 65,536 UTF-16 code units of content strings, and a one-second drain, with a 16 MiB aggregate storage limit. Explicit limits support longer traces without removing bounds; records keep those limits across restarts. See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for the limits and privacy policy.
 
-`title()` accepts message input or a plain `prompt`. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
+`title()` accepts message input or a plain `prompt`. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 
@@ -439,3 +439,38 @@ A timeout returns a degraded report and prevents overlapping samples until the
 original dependency settles. Dependency errors are not copied into public reports.
 Health is an operational report and returns HTTP 200 even when degraded; keep
 startup readiness and Kubernetes restart policy on their existing probes.
+
+## Host lifecycle and transcript retention
+
+For a Nitro host, set `agent.preparation` in `vitehub()` to start Workspace preparation with the server and stop it on shutdown:
+
+```ts
+agent: {
+  preparation: {
+    workspace: "support",
+    requireNonEmpty: true,
+    retryDelayMs: 10_000,
+  },
+}
+```
+
+The generated `/api/_vitehub/ready` route supports GET and HEAD, returning 503 until preparation succeeds. `requireNonEmpty` rejects an empty prepared Workspace; it is opt-in. Set `route` to change the readiness path.
+
+`agentEvlogPlugin(telemetry, reporters)` from `@vite-hub/agent/evlog` owns Nitro request IDs, drain and error hooks, reporter lifecycle, and shutdown flush. See the [evlog guide](https://vitehub.dev/docs/agents/evlog) for host drain reuse and background delivery.
+
+Set `transcripts: { retention: "forever" }` in `createLibsqlAgentState()` to preserve Chat transcript rows before startup expiry cleanup and ignore future transcript TTLs. Other state still expires normally. This cannot recover rows already deleted.
+
+
+For an existing external webhook URL, Nitro hosts can route an alias directly to an Agent Channel:
+
+```ts
+hubAgent({
+  routes: {
+    aliases: {
+      "/api/github/webhook": { agent: "support", webhook: "github" },
+    },
+  },
+})
+```
+
+Aliases use the native webhook handler, retaining the request body and signature headers. The target Channel must be configured on that Agent. Static route collisions fail at build time. Deno and standalone Netlify output do not currently support aliases.

@@ -140,3 +140,7 @@ Set `console: { access: "auth", invoke: true }` to use ViteHub Auth, or `console
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 
 Set `console.observations` to configure the fallback journal's observation count, string length, byte budget, and flush timeout. Discovered Agent Definitions with an explicit shared journal retain that journal's settings.
+
+## Console images
+
+The Console accepts up to ten PNG, JPEG, WebP, or GIF images per message, within a combined 10 MiB limit. Configure durable Blob storage to keep the bytes, and content-enabled Invocation storage to keep message references. Agents can return published Blob image URLs in Markdown. See [Console usage](https://vitehub.dev/docs/console/usage).

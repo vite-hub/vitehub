@@ -23,3 +23,15 @@ The standard Console SQLite database maintains a rebuildable usage projection. C
 Backfill runs in bounded batches. `projection.complete: false` and `partial: true` mean totals are still incomplete. Refresh after backfill finishes. This projection does not change invocation retention or hold transcripts. Deleting an invocation removes its projection. A process restart resumes pending work. The version 2 history projection has separate tables and triggers, so an older process can keep using its version 1 projection during a rolling update. A custom invocation store uses its existing paginated read interface instead of the Console SQLite projection.
 
 The native SQLite regression fixture is `packages/vite-hub/test/console-usage-index.test.ts`. It exercises 100,001 invocations, exact decimal totals, missing cost, failed and cancelled runs, auxiliary calls, pagination, replay, updates, and deletion without invoking a model.
+
+## Console image attachments
+
+With Blob storage configured, the Console composer accepts PNG, JPEG, WebP, and GIF images. Each message supports up to ten images and 10 MiB combined. You can send an image with or without text. The server stores the bytes in Blob storage and gives the Driver a reference with a download callback. Invocation journals retain image metadata and URLs without serializing callbacks or image bytes. Use durable Blob storage and content-enabled Invocation storage to retain the images and their message references across restarts.
+
+The Console renders image references in input and output messages. An Agent can publish a generated image with the Blob Capability and include its URL in Markdown. The Blob Capability also rewrites artifact links in the final response.
+
+The new-invocation composer sends image data with the invocation request. Console validates the Agent, profile, and history before storing those images in Blob storage. This avoids orphan uploads from rejected request fields or interruption between separate upload and invocation requests. If Agent or Workflow preparation fails before provider dispatch, Console removes the new objects. This includes Workflow definition loading, OpenWorkflow connection and registration, and Vercel runtime loading.
+
+Before rollback, Console writes cleanup records to `vitehub-console-attachment-cleanup/` in the same Blob store. If deletion fails or the server stops during rollback, those records survive. Each later upload retries up to 100 records before storing new images. A retry failure rejects that upload and keeps the record for the next attempt. Cleanup requires another upload request and an available Blob store; it does not run on a timer. If both recording and deletion fail, the request reports both errors.
+
+Once input reaches a runtime, a rejected start may still have durable work, so Console preserves the objects and does not record them for rollback. Durable cleanup for a server crash before rollback starts or a failure after handoff remains unimplemented.

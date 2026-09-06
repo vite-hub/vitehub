@@ -1324,6 +1324,54 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it("retains a full multi-capability tool catalog within the configuration budget", async () => {
+    const invocations = defineAgentInvocations({ configuration: "content", observations: { maxStringLength: 1024 * 1024 }, store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("large-tool-catalog"))
+    if (!journal) throw new Error("Expected the invocation journal.")
+    const nestedSchema = Array.from({ length: 20 }).reduce<Record<string, unknown>>(
+      child => ({ type: "object", properties: { child } }), { type: "string" },
+    )
+    const tools = Array.from({ length: 40 }, (_, index) => ({
+      name: `tool_${index}`, capabilityId: `capability_${index % 8}`, description: "Read the current workspace file. ".repeat(80),
+      inputSchema: { type: "object", properties: { path: { type: "string", description: "Relative path", enum: Array.from({ length: 600 }, (_, index) => `path_${index}`) } }, required: ["path"] },
+      outputSchema: { type: "object", properties: { content: nestedSchema } },
+    }))
+    await journal.context.traceLog?.append({ name: "vitehub.agent.configured", type: "run", attributes: {
+      "vitehub.agent.configuration": { tools },
+    } })
+    await journal.finish("completed")
+    const event = (await invocations.getByRunId("large-tool-catalog"))?.observations.find(entry => entry.name === "vitehub.agent.configured")
+    expect(event?.attributes?.["vitehub.agent.configuration"]).toEqual({ tools })
+    expect(event?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+  })
+
+  it("retains individual configuration strings above the default limit when explicitly allowed", async () => {
+    const instructions = ["x".repeat(100 * 1024)]
+    const invocations = defineAgentInvocations({ configuration: "content", observations: { maxStringLength: 1024 * 1024 }, store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("long-configuration-string"))
+    if (!journal) throw new Error("Expected the invocation journal.")
+    await journal.context.traceLog?.append({ name: "vitehub.agent.configured", type: "run", attributes: {
+      "vitehub.agent.configuration": { instructions },
+    } })
+    await journal.finish("completed")
+    const event = (await invocations.getByRunId("long-configuration-string"))?.observations.find(entry => entry.name === "vitehub.agent.configured")
+    expect(event?.attributes?.["vitehub.agent.configuration"]).toEqual({ instructions })
+    expect(event?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+  })
+
+  it("constrains retained configuration to an explicit string budget", async () => {
+    const invocations = defineAgentInvocations({ configuration: "content", observations: { maxStringLength: 4096 }, store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("limited-configuration"))
+    if (!journal) throw new Error("Expected the invocation journal.")
+    await journal.context.traceLog?.append({ name: "vitehub.agent.configured", type: "run", attributes: {
+      "vitehub.agent.configuration": { instructions: ["x".repeat(5000), "y".repeat(5000)] },
+    } })
+    await journal.finish("completed")
+    const event = (await invocations.getByRunId("limited-configuration"))?.observations.find(entry => entry.name === "vitehub.agent.configured")
+    expect(event?.attributes?.["vitehub.agent.configuration"]).toEqual({ instructions: ["x".repeat(4096), "[truncated]"] })
+    expect(event?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
+  })
+
   it("marks bounded Agent configuration as truncated", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-configuration"))
@@ -1803,6 +1851,24 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(configured?.attributes?.["vitehub.agent.configuration"])).not.toContain("Search indexed records")
   })
 
+  it("retains configuration explicitly without retaining arbitrary trace content", async () => {
+    const invocations = defineAgentInvocations({ configuration: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      invocations,
+      capabilities: [inspectableToolCapability()],
+      driver: { run: async context => {
+        await context.traceLog?.append({ name: "private", type: "run", attributes: { "input.prompt": "private prompt" } })
+        return "done"
+      } },
+    })
+    await runAgent(agent, runtime("configuration-only"), { prompt: "hello" })
+    const record = await invocations.getByRunId("configuration-only")
+    const configured = record?.observations.findLast(entry => entry.name === "vitehub.agent.configured")
+    expect(JSON.stringify(configured?.attributes?.["vitehub.agent.configuration"])).toContain("Search indexed records")
+    const privateEvent = record?.observations.find(entry => entry.name === "private")
+    expect(JSON.stringify(privateEvent)).not.toContain("private prompt")
+  })
+
   it("persists resolved instructions when invocation content is enabled", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({
@@ -1847,7 +1913,7 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it("persists compact tool descriptions for content-enabled Console inspection", async () => {
+  it("persists exact tool descriptions for content-enabled Console inspection", async () => {
     const { MockLanguageModelV3 } = await import("ai/test")
     const invocations = defineAgentInvocations({
       content: "content",
@@ -1887,11 +1953,10 @@ describe("Agent Invocations", () => {
     // SAFETY: The invocation configuration event owns the asserted, JSON-compatible tools projection.
     const configuration = configured?.attributes?.["vitehub.agent.configuration"] as { tools?: { description?: string, name: string }[] } | undefined
     expect(configuration?.tools).toEqual([expect.objectContaining({
-      description: expect.stringMatching(/^Find matching records\. Detailed guidance\./),
+      description: `  Find matching records.\n${"Detailed guidance. ".repeat(20)}  `,
       name: "lookup",
     })])
-    expect(configuration?.tools?.[0]?.description).toHaveLength(240)
-    expect(configuration?.tools?.[0]?.description).not.toContain("\n")
+    expect(configuration?.tools?.[0]?.description).toContain("\n")
   })
 
   it("does not reacquire journal ownership for observations appended after finish", async () => {

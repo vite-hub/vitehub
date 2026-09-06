@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { mount } from "@vue/test-utils";
-import { createSSRApp, h, nextTick } from "vue";
+import { createSSRApp, defineComponent, h, nextTick } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
@@ -13,6 +13,43 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("places one semantic run timestamp before the session activities and falls back to creation time", () => {
+    const invocation: AgentInvocationView = { id: "time", status: "completed", traceId: "trace", createdAt: "2026-09-05T10:00:00Z", startedAt: "2026-09-05T10:01:00Z", updatedAt: "2026-09-05T10:02:00Z", observations: [] };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const time = wrapper.get("time");
+    expect(time.attributes("datetime")).toBe("2026-09-05T10:01:00.000Z");
+    expect(time.element.nextElementSibling?.getAttribute("role")).toBe("log");
+    expect(wrapper.findAll("time")).toHaveLength(1);
+    const fallback = mount(AgentInvocation, { props: { invocation: { ...invocation, startedAt: "invalid" } } });
+    expect(fallback.get("time").attributes("datetime")).toBe("2026-09-05T10:00:00.000Z");
+  });
+
+  it("groups recorded tools under their capability without inventing ownership", () => {
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation: {
+      id: "tools", status: "completed", traceId: "trace", createdAt: "2026-09-05T10:00:00Z", updatedAt: "2026-09-05T10:00:00Z", observations: [],
+      configuration: { capabilities: [{ id: "files" }], tools: [{ name: "read", capabilityId: "files", description: "Read exact bytes." }, { name: "native", description: "Provider tool." }] },
+    } } });
+    const capability = wrapper.findAll("details").find(item => item.find("summary").text().startsWith("files"))!;
+    expect(capability.text()).toContain("Read exact bytes.");
+    expect(capability.text()).not.toContain("Provider tool.");
+    expect(wrapper.text()).toContain("Provider tool.");
+  });
+
+  it("shows durable input images beside text after reloading an invocation", () => {
+    const timestamp = "2026-09-05T00:00:00.000Z";
+    const activities = invocationActivities({
+      id: "image", createdAt: timestamp, updatedAt: timestamp, status: "completed", traceId: "trace",
+      observations: [{ name: "agent.input", type: "run", timestamp, sequence: 1, attributes: {
+        "input.messages": [{ id: "input", role: "user", parts: [
+          { type: "text", text: "What is this?" },
+          { type: "image", name: "chart.png", url: "/files/retained-image" },
+        ] }],
+      } }],
+    });
+    expect(activities.some(activity => activity.body?.includes("![chart.png](</files/retained-image>)"))).toBe(true);
+    expect(activities.some(activity => activity.body?.includes("What is this?"))).toBe(true);
+  });
+
   it("groups long message streams without losing delta order", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const observationCount = 32_768;
@@ -169,20 +206,24 @@ describe("Agent Invocation UI", () => {
       { filename: "safe.txt", mediaType: "text/plain", type: "file", url: "https://example.com/safe.txt" },
       { filename: "unsafe.txt", mediaType: "text/plain", type: "file", url: "javascript:alert(1)" },
       { filename: "inline.png", mediaType: "image/png", type: "file", url: "data:image/png;base64,c2FmZQ==" },
+      { filename: "retained.png", mediaType: "image/png", type: "file", url: "/files/retained-image" },
+      { filename: "unsafe.png", mediaType: "image/png", type: "file", url: "javascript:alert(1)" },
       { mediaType: "text/html", type: "file", url: "data:text/html,<script>alert(1)</script>" },
     ];
-    const wrapper = mount(AgentMessageParts, { props: { parts } });
+    const wrapper = mount(AgentMessageParts, {
+      global: { components: { UModal: defineComponent({ setup: (_, { slots }) => () => slots.default?.() }) } },
+      props: { parts },
+    });
 
     expect(wrapper.findAll("a").map(link => link.attributes("href"))).toEqual([
       "https://example.com/safe.txt",
-      "data:image/png;base64,c2FmZQ==",
     ]);
-    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ=="]);
+    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["data:image/png;base64,c2FmZQ==", "/files/retained-image"]);
     expect(wrapper.findAll("a")[0]!.attributes("rel")).toBe("noreferrer");
-    expect(wrapper.findAll("a")[1]!.attributes("target")).toBeUndefined();
-    expect(wrapper.get("img").attributes("alt")).toBe("");
+    expect(wrapper.get("img").attributes("alt")).toBe("inline.png");
     expect(wrapper.text()).toContain("unsafe.txt");
-    expect(wrapper.text()).toContain("inline.png");
+    expect(wrapper.get('[aria-label="Preview inline.png"]').attributes("type")).toBe("button");
+    expect(wrapper.text()).toContain("unsafe.png");
     expect(wrapper.text()).toContain("text/html");
   });
 
@@ -1635,13 +1676,26 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
     expect(wrapper.get(".vh-invocation-inspector__status").text()).toContain("Failed");
-    expect(wrapper.get(".vh-invocation-inspector__error").text()).toBe(
+    expect(wrapper.get(".vh-invocation-error").text()).toBe(
       "Provider errorThe provider stopped before returning a result.",
     );
     const secondary = mount(AgentInvocationInspector, { props: { invocation, showError: false } });
     expect(secondary.text()).toContain("Failed");
-    expect(secondary.find(".vh-invocation-inspector__error").exists()).toBe(false);
+    expect(secondary.find(".vh-invocation-error").exists()).toBe(false);
 
+  });
+
+  it("renders provider-owned recovery instructions without guessing advice", () => {
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z", id: "quota", observations: [],
+      status: "failed", traceId: "trace", updatedAt: "2026-08-22T00:00:00.000Z",
+      error: { code: "AGENT_R0726", message: "Workspace spend cap reached" },
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(wrapper.find(".vh-invocation-error__recovery").exists()).toBe(false);
+    expect(wrapper.get(".vh-invocation-error__details").text()).toContain("Workspace spend cap reached");
+    const explicit = mount(AgentInvocationInspector, { props: { invocation: { ...invocation, error: { ...invocation.error!, fix: "Contact the workspace owner." } } } });
+    expect(explicit.get(".vh-invocation-error__recovery").text()).toContain("Contact the workspace owner.");
   });
 
   it("keeps bounded runtime diagnostics available behind a disclosure", () => {
@@ -2643,6 +2697,18 @@ describe("Agent Invocation UI", () => {
     expect(groups[0]!.get(".vh-invocation-lifecycle__emoji").text()).toBe("👀");
     expect(groups[1]!.get(".vh-invocation-lifecycle__title").text()).toBe("Removed label");
     expect(groups[1]!.get(".vh-invocation-lifecycle__label").attributes("data-operation")).toBe("remove");
+  });
+
+  it("renders historical tool catalogs that contain journal truncation markers", () => {
+    const invocation: AgentInvocationView = {
+      id: "truncated-tools", traceId: "truncated-tools", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
+      status: "failed", observations: [],
+      configuration: JSON.parse('{"tools":[{"name":"search"},"[truncated]",{},null,{"name":"exec"}]}'),
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    expect(wrapper.text()).toContain("search");
+    expect(wrapper.text()).toContain("exec");
+    expect(wrapper.get('[role="note"]').text()).toContain("Some setup values were shortened");
   });
 
   it("groups recorded Agent Definition details as captured setup", () => {

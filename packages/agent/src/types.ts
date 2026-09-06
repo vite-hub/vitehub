@@ -308,6 +308,8 @@ export interface AgentTelemetryCapabilityMetadata {
 }
 
 export interface AgentToolInspection {
+  /** Capability that registered this tool, when known. */
+  capabilityId?: string;
   description?: string
   inputSchema?: AgentInspectionValue
   name: string
@@ -1254,6 +1256,8 @@ export interface AgentProviderUsageLimits {
 }
 
 export interface AgentProviderStatus {
+  /** Opaque scope for deduplicating shared limits. Never contains the credential itself. */
+  account?: { id: string, kind: "credential" | "account" }
   agent: string
   provider?: "codex" | "claude-code"
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
@@ -1580,18 +1584,36 @@ export type AgentCliOptions = Record<never, never>
 
 export type AgentRouteOption = boolean | string
 
+export interface AgentWebhookAlias {
+  agent: string
+  webhook: string
+}
+
 export interface AgentRoutesOptions {
+  /** Additional public paths handled by an existing Agent webhook, without an HTTP proxy. */
+  aliases?: Record<string, AgentWebhookAlias>
   discordGateway?: AgentRouteOption
   inspection?: AgentRouteOption
 }
 
 export interface ResolvedAgentRoutesOptions {
+  aliases?: Record<string, AgentWebhookAlias>
   discordGateway: false | string
   inspection: false | string
   webhooks: string
 }
 
+export interface AgentPreparationOptions {
+  workspace: string
+  requireNonEmpty?: boolean
+  retryDelayMs?: number
+  /** Readiness probe path. Defaults to /api/_vitehub/ready. */
+  route?: string
+}
+
 export interface AgentModuleOptions {
+  /** Prepare startup Workspace sources on a persistent Nitro host. */
+  preparation?: AgentPreparationOptions
   cli?: false | AgentCliOptions
   execution?: AgentExecution
   eval?: AgentEvalOptions
@@ -1603,6 +1625,7 @@ export interface AgentModuleOptions {
 }
 
 export interface ResolvedAgentModuleOptions {
+  preparation?: AgentPreparationOptions
   execution: AgentExecution
   imports: boolean
   integrations: Required<AgentIntegrationsOptions>

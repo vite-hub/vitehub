@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import { defineComponent, h, type PropType, resolveComponent, type VNodeChild } from "vue";
 import { isSafeExternalUrl } from "../internal/url.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";
+import { ImagePreview } from "../internal/image-preview.ts";
 
 type Part = UIMessage["parts"][number];
 type ToolLikePart = Extract<Part, { state: string; toolCallId: string }>;
@@ -28,12 +29,13 @@ function isSafeFileUrl(value: string, filename: string | undefined): boolean {
 
 function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
   const label = part.filename ?? part.mediaType;
+  const image = part.mediaType === "image" || part.mediaType.startsWith("image/");
+  if (image) return h(ImagePreview, { alt: label, src: part.url });
   if (!isSafeFileUrl(part.url, part.filename)) {
     return h("span", { class: "vh-attachment" }, [
       h("span", { class: "vh-attachment__name" }, label),
     ]);
   }
-  const image = part.mediaType === "image" || part.mediaType.startsWith("image/");
   return h(
     "a",
     {
@@ -44,13 +46,6 @@ function filePart(part: Extract<Part, { type: "file" }>): VNodeChild {
       target: isSafeExternalUrl(part.url) ? "_blank" : undefined,
     },
     [
-      image
-        ? h("img", {
-            alt: "",
-            class: "vh-attachment__preview",
-            src: part.url,
-          })
-        : null,
       h("span", { class: "vh-attachment__name" }, label),
     ],
   );

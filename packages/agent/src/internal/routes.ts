@@ -1,3 +1,5 @@
+import { agentDiagnostics } from "../agent-diagnostics.ts"
+
 export const defaultAgentChatRoute = "/api/_vitehub/agents/[agent]/chat"
 export const agentChatInvocationIdHeader = "x-vitehub-invocation-id"
 export const defaultAgentDiscordGatewayRoute = "/api/_vitehub/agents/[agent]/discord/gateway"
@@ -18,4 +20,26 @@ export function resolveAgentRoutePath(route: string, values: Record<string, stri
 
 export function agentRouteUsesParam(route: false | string | undefined, param: string): boolean {
   return Boolean(route && normalizeAgentRoute(route).split("/").includes(`:${param}`))
+}
+
+/** Generated static endpoints must not shadow application handlers. */
+export function validateAgentStaticRoute(route: string, handlers: readonly { route: string, middleware?: boolean }[], label = "readiness"): string {
+  const normalized = normalizeAgentRoute(route).replace(/\/$/, "") || "/"
+  if (!route.trim() || /[:*?#\[\]]/.test(normalized)) {
+    throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent ${label} requires a static route path.` })
+  }
+  const target = normalized.split("/")
+  const conflict = handlers.find(({ route: handler, middleware }) => {
+    if (middleware) return false
+    const parts = (normalizeAgentRoute(handler).replace(/\/$/, "") || "/").split("/")
+    for (let index = 0; index < parts.length; index++) {
+      const part = parts[index]!
+      if (part.startsWith("**") || part.startsWith(":...")) return true
+      if (target[index] === undefined) return false
+      if (part !== target[index] && !part.startsWith(":") && part !== "*") return false
+    }
+    return parts.length === target.length
+  })
+  if (conflict) throw agentDiagnostics.AGENT_B0006({ message: `[vitehub] Agent ${label} route conflicts with the existing route ${JSON.stringify(conflict.route)}.` })
+  return normalized
 }

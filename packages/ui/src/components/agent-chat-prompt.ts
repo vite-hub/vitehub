@@ -2,6 +2,7 @@ import type { ChatStatus, FileUIPart } from "ai";
 import { computed, defineComponent, h, mergeProps, onBeforeUnmount, type PropType, ref, resolveComponent } from "vue";
 import { fileToUIPart } from "../composables/attachments.ts";
 import { nextPromptFiles } from "../internal/prompt-files.ts";
+import { ImagePreview } from "../internal/image-preview.ts";
 
 const attachmentSubmitSentinel = "\u200B";
 
@@ -117,9 +118,9 @@ export const AgentChatPrompt = defineComponent({
                         },
                         [
                           image
-                            ? h("img", {
+                            ? h(ImagePreview, {
                                 alt: label,
-                                class: "vh-prompt__attachment-preview",
+                                compact: true,
                                 src: file.url,
                               })
                             : h("span", label),
@@ -127,6 +128,7 @@ export const AgentChatPrompt = defineComponent({
                             "button",
                             {
                               "aria-label": `Remove ${file.filename ?? "attachment"}`,
+                              class: "vh-prompt__attachment-remove",
                               onClick: () => remove(index),
                               type: "button",
                             },

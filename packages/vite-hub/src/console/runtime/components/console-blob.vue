@@ -40,7 +40,6 @@ const props = defineProps<{
 }>();
 
 const sidebarOpen = ref(false);
-const sidebarCollapsed = ref(false);
 const stores = ref<string[]>([]);
 const selectedStore = ref("default");
 const prefix = ref("");
@@ -223,16 +222,14 @@ onBeforeUnmount(() => {
 <template>
   <ConsoleFrame>
     <UDashboardSidebar
-      id="blob-objects"
+      id="console-navigation"
       v-model:open="sidebarOpen"
-      v-model:collapsed="sidebarCollapsed"
-      :default-size="21"
+      :default-size="16"
       :collapsed-size="4"
-      :min-size="17"
-      :max-size="28"
+      :min-size="13"
+      :max-size="26"
       :menu="{ title: 'Blob objects', description: 'Browse configured Blob stores.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-3 py-2' }"
-      collapsible
+      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'h-11 shrink-0 border-t border-default px-2 py-1.5' }"
       resizable
     >
       <template #header="{ collapsed }">
@@ -278,10 +275,9 @@ onBeforeUnmount(() => {
         <UEmpty v-else-if="!loading && !error && !collapsed" class="min-h-0 flex-1 px-4" icon="i-lucide-file-box" :title="prefix ? 'No matching objects' : 'This store is empty'" :description="prefix ? 'Try a shorter object prefix.' : 'Objects will appear here when the application stores them.'" />
       </template>
 
-      <template #footer="{ collapsed, collapse }">
+      <template #footer="{ collapsed }">
         <ConsolePrimitiveSwitcher active="blob" :collapsed="collapsed" :sections-base="sectionsBase" />
         <UTooltip text="Refresh objects"><UButton aria-label="Refresh objects" color="neutral" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="loading || loadingMore" @click="refresh" /></UTooltip>
-        <UButton class="max-lg:hidden" :class="collapsed ? '' : 'ml-1'" :icon="collapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" color="neutral" variant="ghost" size="xs" :aria-label="collapsed ? 'Show Blob objects' : 'Hide Blob objects'" @click="collapse(!collapsed)" />
       </template>
     </UDashboardSidebar>
 

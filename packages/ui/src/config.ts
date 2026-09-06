@@ -27,6 +27,7 @@ const defaultOptions: ResolvedViteHubUIDefaults = {
 };
 
 const runtimeComponents = {
+  UAlert: defineAsyncComponent(() => import("@nuxt/ui/components/Alert.vue")),
   UBadge: defineAsyncComponent(() => import("@nuxt/ui/components/Badge.vue")),
   UButton: defineAsyncComponent(() => import("@nuxt/ui/components/Button.vue")),
   UChatMessage: defineAsyncComponent(() => import("@nuxt/ui/components/ChatMessage.vue")),
@@ -37,6 +38,7 @@ const runtimeComponents = {
   UChatReasoning: defineAsyncComponent(() => import("@nuxt/ui/components/ChatReasoning.vue")),
   UChatTool: defineAsyncComponent(() => import("@nuxt/ui/components/ChatTool.vue")),
   UCollapsible: defineAsyncComponent(() => import("@nuxt/ui/components/Collapsible.vue")),
+  UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
 };
 
 export const ViteHubUIInjectionKey: InjectionKey<ResolvedViteHubUIDefaults> = Symbol("ViteHubUI");

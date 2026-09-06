@@ -1,3 +1,4 @@
+import { consoleAttachmentRequestBytes, consoleInputMessage, withConsoleInputMessage } from "./attachments.ts"
 import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import * as v from "valibot"
@@ -11,7 +12,7 @@ import type { Message } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
-const allowedInputKeys = new Set(["prompt", "invokerProfileId", "messages"])
+const allowedInputKeys = new Set(["prompt", "invokerProfileId", "messages", "attachments", "files"])
 const recordSchema = v.record(v.string(), v.unknown())
 const stringSchema = v.string()
 
@@ -73,7 +74,7 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
 
   let body: Record<string, unknown> | undefined
   try {
-    body = record(await consoleRequestJSON(event))
+    body = record(await consoleRequestJSON(event, consoleAttachmentRequestBytes))
   }
   catch (error) {
     if (error instanceof Error && "statusCode" in error) throw error
@@ -83,8 +84,10 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
   const unknown = Object.keys(body).filter(key => !allowedInputKeys.has(key))
   if (unknown.length) throw consoleError(400, `Unsupported Agent invocation field: ${unknown[0]}.`)
 
+  if (body.files !== undefined && body.attachments !== undefined) throw consoleError(400, "Provide files or stored attachments, not both.")
+
   const prompt = stringValue(body.prompt)?.trim() ?? ""
-  if (!prompt) throw consoleError(400, "Agent invocation requires a prompt.")
+  if (!prompt && !(Array.isArray(body.attachments) && body.attachments.length) && !(Array.isArray(body.files) && body.files.length)) throw consoleError(400, "Agent invocation requires a prompt.")
   let messages: Message[] | undefined
   if (body.messages !== undefined) {
     if (!Array.isArray(body.messages)) throw consoleError(400, "Agent invocation messages must be an array.")
@@ -102,7 +105,7 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
     catch {
       throw consoleError(400, "Agent invocation messages must be valid user or assistant messages with unique ids and only text or attachment parts.")
     }
-    messages.push(createMessage({ role: "user", text: prompt }))
+
   }
   const profileValue = body.invokerProfileId
   let profileId: string | undefined
@@ -115,7 +118,7 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
   }
 
   const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
-  const controller = await startAgentInvocation(agent, createExecutionContext({
+  const context = createExecutionContext({
     agentIdentity: { name },
     capabilities: { console },
     memo: memo(),
@@ -123,11 +126,23 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAg
     runtime: "unknown" as const,
     runtimeConfig: {},
     waitUntil: tasks.waitUntil,
-  }), {
-    context: profileId ? { invokerProfileId: profileId } : {},
-    ...messages ? { messages } : {},
-    prompt,
   })
+  const start = (inputMessages: Message[] | undefined, onInputHandoff?: () => void) => startAgentInvocation(agent, context, {
+    context: profileId ? { invokerProfileId: profileId } : {},
+    ...inputMessages ? { messages: inputMessages } : {},
+    prompt,
+  }, { onInputHandoff })
+  let controller: Awaited<ReturnType<typeof start>>
+  if (body.files !== undefined) {
+    controller = await withConsoleInputMessage(prompt, { files: body.files }, (message, handoff) => start([...(messages || []), message], handoff))
+  }
+  else {
+    if (body.attachments !== undefined) {
+      messages = [...(messages || []), await consoleInputMessage(prompt, body.attachments)]
+    }
+    else if (messages) messages.push(createMessage({ role: "user", text: prompt }))
+    controller = await start(messages)
+  }
   tasks.waitUntil(waitForInvocation(controller))
   const id = await agentInvocationId(controller.id, name)
   setConsoleResponseStatus(event, 202)

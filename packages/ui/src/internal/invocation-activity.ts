@@ -57,7 +57,13 @@ function messageText(value: unknown): string | undefined {
   if (!Array.isArray(message?.parts)) return;
   const parts = message.parts.flatMap((part) => {
     const item = record(part);
-    return hasRuntimeType(item?.text, "string") ? [item.text] : [];
+    if (hasRuntimeType(item?.text, "string")) return [item.text];
+    if (item?.type === "image" && hasRuntimeType(item.url, "string") && /^(https?:\/\/|\/(?!\/))/.test(item.url)) {
+      const name = hasRuntimeType(item.name, "string") ? item.name.replace(/[\[\]\r\n]/g, "") : "Attachment";
+      const url = item.url.replace(/[<>\r\n]/g, "");
+      return [`\n\n![${name}](<${url}>)\n\n`];
+    }
+    return [];
   });
   return parts.length ? parts.join("") : undefined;
 }
@@ -295,7 +301,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     if (Array.isArray(inputMessages)) {
       inputMessages.forEach((message, index) => {
         const value = record(message);
-        const body = messageText(value) ?? (Array.isArray(value?.parts) ? JSON.stringify(value.parts, null, 2) : undefined);
+        const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + JSON.stringify(value.parts, null, 2) + "\n```" : undefined);
         const role = messageRole(value?.role);
         if (!body || !role) return;
         const key = `input-message:${observation.sequence}:${index}`;

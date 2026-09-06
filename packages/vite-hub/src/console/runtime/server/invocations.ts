@@ -152,6 +152,7 @@ export function createConsoleInvocations(projectRoot: string, observations?: Age
   let invocations: AgentInvocations
   try {
     invocations = defineAgentInvocations({
+      configuration: "content",
       metadataContent: consoleMetadataContent,
       observations,
       store: createLibsqlAgentInvocationStore({
@@ -180,7 +181,7 @@ function createConsoleFixtureInvocationsFromSnapshot(fixture: ConsoleFixture): A
     const { cursor: _cursor, ...input } = record
     store.create(input)
   }
-  return defineAgentInvocations({ metadataContent: consoleMetadataContent, store })
+  return defineAgentInvocations({ configuration: "content", metadataContent: consoleMetadataContent, store })
 }
 
 export function createConsoleFixtureInvocations(file: string): AgentInvocations {
