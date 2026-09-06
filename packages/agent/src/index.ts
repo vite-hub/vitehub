@@ -1259,7 +1259,18 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
     const value = input as unknown
     if (typeof value === "object" && value && "kind" in value && typeof value.kind === "string") continue
     const channel = typeof input === "function"
-      ? input()
+      ? (() => {
+          const resolved = input()
+          if (resolved && typeof resolved === "object" && "kind" in resolved) return resolved
+          return id === "discord" ? builtInDiscord(resolved as never)
+            : id === "github" ? builtInGitHub(resolved as never)
+              : id === "http" ? builtInHttp(resolved as never)
+                : id === "slack" ? builtInSlack(resolved as never)
+                  : id === "teams" ? builtInTeams(resolved as never)
+                    : id === "telegram" ? builtInTelegram(resolved as never)
+                      : id === "webChat" ? builtInWebChat(resolved as never)
+                        : undefined
+        })()
       : id === "discord"
         ? builtInDiscord<TRuntimeConfig>(input as never)
         : id === "github"
