@@ -408,6 +408,24 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
     }
   }
 
+  // Provider drivers (Codex/Claude) are not AI SDK language models. Reuse the
+  // enclosing provider driver so title generation keeps its credentials,
+  // environment, launch path, and permissions. A string model override only
+  // changes the model name on that inherited driver.
+  const inheritedDriver = context.agentDriver as { kind?: string, model?: string, [key: string]: unknown } | undefined
+  if (inheritedDriver?.kind === "provider") {
+    try {
+      const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
+      const providerDriver = typeof options.model === "string"
+        ? { ...inheritedDriver, model: options.model }
+        : inheritedDriver
+      return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, { ...options, driver: providerDriver as never }, timedInput, prompt)), maxLength, fallback)
+    }
+    catch (error) {
+      return recoverGeneration(error, true)
+    }
+  }
+
   try {
     const model = await raceTimeout(resolveTitleModel(context, options, abortSignal))
     if (model) {

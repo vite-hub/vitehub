@@ -18,8 +18,11 @@ export type PapercutSource = "cli" | "tool"
 
 export type PapercutSeverity = "low" | "medium" | "high" | "critical"
 
-export interface PapercutBackend {
-  report: (event: PapercutReportEvent) => MaybePromise<void>
+export interface PapercutBackend<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  report: (event: PapercutReportEvent<TRuntimeConfig, Name>) => MaybePromise<void>
 }
 
 export interface PosthogPapercutsOptions {
@@ -69,7 +72,7 @@ export interface PapercutsOptions<
 > {
   cli?: boolean
   report?: (event: PapercutReportEvent<TRuntimeConfig, Name>) => MaybePromise<void>
-  backend?: PapercutBackend
+  backend?: PapercutBackend<TRuntimeConfig, Name>
   retry?: { attempts?: number, delayMs?: number }
   dedupe?: boolean
 }

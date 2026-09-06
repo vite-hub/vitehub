@@ -128,6 +128,7 @@ export interface AgentCapabilityInvocationOptions<
 > {
   context?: AgentInvocationContextStore
   driverKind?: AgentDriverKind
+  driver?: unknown
   invocationKind?: "run" | "stream"
   invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
@@ -976,6 +977,7 @@ export async function resolveAgentCapabilities<
       }
       capabilityContext = {
         ...metadataContext,
+        ...(invocationOptions.driver ? { agentDriver: invocationOptions.driver } : {}),
         [workspaceOverrideSymbol](nextWorkspace: ReadonlyWorkspaceFacade<Name>) {
           currentWorkspace = nextWorkspace
           syncCapabilityWorkspaceContext(capabilityContext)
