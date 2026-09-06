@@ -184,6 +184,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
+    vi.stubEnv("CLIPROXY_BASE_URL", "http://127.0.0.1:8317/v1")
     vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
     const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected", CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY }, provider: "codex" })
 
