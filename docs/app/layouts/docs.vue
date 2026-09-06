@@ -8,10 +8,7 @@ const isSupportMatrix = computed(
 <template>
   <UMain>
     <UContainer>
-      <template v-if="isSupportMatrix">
-        <AnnouncementBanner />
-        <slot />
-      </template>
+      <slot v-if="isSupportMatrix" />
 
       <UPage v-else>
         <template #left>

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/plugin-schema.json",
+  "name": "vitehub-workspace",
+  "detection": {
+    "type": "fileExists",
+    "pattern": "**/*.workspace.ts"
+  },
+  "alwaysUsed": [
+    "**/*.workspace.ts",
+    "**/*.workspace.mts",
+    "**/*.workspace.cts"
+  ]
+}

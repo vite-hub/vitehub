@@ -4,17 +4,24 @@ import { describe, expect, it } from "vitest";
 import { viteHubOpenApi } from "../server/utils/openapi";
 import {
   acceptsAgentFriendlyError,
+  acceptsMarkdown,
+  markdownRouteForPath,
   notFoundMarkdown,
   withVary,
 } from "../server/utils/markdown-negotiation";
-import { rawMarkdownUrl, rewriteLlmsRawLinks } from "../modules/vitehub-docs/runtime/utils/llms-links";
-import { createCapabilityReferences } from "../modules/vitehub-docs/capability-references";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const trustPages = ["about", "contact", "privacy"];
 
 describe("agent-ready HTTP contracts", () => {
-  it("selects agent-friendly 404 responses from the Accept header", () => {
+  it("negotiates only explicit Markdown requests", () => {
+    expect(acceptsMarkdown("text/markdown")).toBe(true);
+    expect(acceptsMarkdown("text/html, text/markdown;q=0.8")).toBe(true);
+    expect(acceptsMarkdown("TEXT/MARKDOWN; charset=utf-8")).toBe(true);
+    expect(acceptsMarkdown("text/markdown;q=0")).toBe(false);
+    expect(acceptsMarkdown("text/html, */*")).toBe(false);
+    expect(acceptsMarkdown(undefined)).toBe(false);
+
     expect(acceptsAgentFriendlyError(undefined)).toBe(true);
     expect(acceptsAgentFriendlyError("*/*")).toBe(true);
     expect(acceptsAgentFriendlyError("text/markdown")).toBe(true);
@@ -24,95 +31,24 @@ describe("agent-ready HTTP contracts", () => {
     expect(acceptsAgentFriendlyError("application/json, */*")).toBe(false);
   });
 
-  it("uses the Docus preview package for Markdown negotiation", () => {
+  it("maps rendered pages to their canonical raw Markdown resources", () => {
+    expect(markdownRouteForPath("/")).toBe("/llms.txt");
+    expect(markdownRouteForPath("/docs")).toBe("/raw/docs.md");
+    expect(markdownRouteForPath("/docs/agents/")).toBe("/raw/docs/agents.md");
+    expect(markdownRouteForPath("/blog/agents")).toBe("/raw/blog/agents.md");
+    expect(markdownRouteForPath("/about")).toBe("/raw/about.md");
+    expect(markdownRouteForPath("/examples")).toBeUndefined();
+  });
+
+  it("runs negotiable prerendered pages through the Cloudflare Worker", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
+    const middleware = readFileSync(resolve(docsRoot, "server/middleware/markdown-negotiation.ts"), "utf8");
 
-    expect(workspace).toContain("docus: https://pkg.pr.new/docus@986a334");
-    expect(config).not.toContain("routeRules:");
-    expect(config).not.toContain("run_worker_first");
-    expect(config).toContain("contentRawMarkdown: false");
-  });
-
-  it("serves ViteHub-owned raw Markdown artifacts", () => {
-    const module = readFileSync(resolve(docsRoot, "modules/vitehub-docs/index.ts"), "utf8");
-
-    expect(module).toContain('baseURL: "/raw"');
-    expect(module).toContain('dir: resolve(outputDir, "raw")');
-    expect(module).toContain("config.plugins.push(llmsRawLinksPlugin)");
-    expect(module).toContain("const manifest = writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });");
-    expect(module).toContain("const capabilityReferences = await createCapabilityReferences();");
-  });
-
-  it("derives Capability references from the real model-facing tools", async () => {
-    const references = await createCapabilityReferences();
-
-    expect(references["papercuts.default"]?.tools).toEqual([
-      expect.objectContaining({
-        description: expect.stringContaining("Never include secrets or customer data"),
-        inputSchema: expect.objectContaining({ required: ["message"], type: "object" }),
-        name: "report_papercut",
-      }),
-    ]);
-    expect(references["db.write"]?.tools.map(tool => tool.name)).toEqual([
-      "db_exec",
-      "db_query",
-      "db_schema",
-    ]);
-  });
-
-  it("keeps the compact index routed to raw Markdown", () => {
-    expect(rawMarkdownUrl("https://vitehub.dev/docs", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/docs.md");
-    expect(rawMarkdownUrl("https://vitehub.dev/docs/", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/docs.md");
-    expect(rawMarkdownUrl("/docs/server-primitives/kv#runtime", "https://vitehub.dev")).toBe(
-      "https://vitehub.dev/raw/docs/server-primitives/kv.md#runtime",
-    );
-    expect(rawMarkdownUrl("/blog/agents", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/blog/agents.md");
-    expect(rawMarkdownUrl("https://vitehub.dev/privacy?source=llms", "https://vitehub.dev")).toBe(
-      "https://vitehub.dev/raw/privacy.md?source=llms",
-    );
-    expect(rawMarkdownUrl("/blog", "https://vitehub.dev")).toBe("/blog");
-    expect(rawMarkdownUrl("/pricing", "https://vitehub.dev")).toBe("/pricing");
-    expect(rawMarkdownUrl("https://example.com/docs", "https://vitehub.dev")).toBe("https://example.com/docs");
-
-    const options = {
-      domain: "https://vitehub.dev",
-      sections: [{ links: [
-        { href: "https://vitehub.dev/docs/agents" },
-        { href: "https://vitehub.dev/blog/server-primitives" },
-        { href: "https://vitehub.dev/about" },
-        { href: "https://vitehub.dev/contact" },
-        { href: "https://vitehub.dev/privacy" },
-        { href: "https://vitehub.dev/" },
-        { href: "https://www.npmjs.com/package/vite-hub" },
-      ] }],
-    };
-    rewriteLlmsRawLinks(options);
-    expect(options.sections[0]?.links).toEqual([
-      { href: "https://vitehub.dev/raw/docs/agents.md" },
-      { href: "https://vitehub.dev/raw/blog/server-primitives.md" },
-      { href: "https://vitehub.dev/raw/about.md" },
-      { href: "https://vitehub.dev/raw/contact.md" },
-      { href: "https://vitehub.dev/raw/privacy.md" },
-      { href: "https://vitehub.dev/" },
-      { href: "https://www.npmjs.com/package/vite-hub" },
-    ]);
-  });
-
-  it("pins the patched Nuxt toolchain and disables DevTools", () => {
-    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
-    const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
-    const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
-
-    expect(workspace).toContain("nuxt: ^4.5.2");
-    expect(lockfile).toContain("nuxt@4.5.2:");
-    expect(lockfile).toContain("'@nuxt/devtools@3.4.2':");
-    expect(lockfile).not.toContain("nuxt@4.4.8:");
-    expect(lockfile).not.toContain("'@nuxt/devtools@3.2.4':");
-    expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
-    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
-    expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
+    expect(config).toContain("run_worker_first");
+    expect(config).toContain('"/docs/*"');
+    expect(config).toContain('"/blog/*"');
+    expect(config).not.toContain('run_worker_first: true');
+    expect(middleware).toContain('event.method !== "HEAD"');
   });
 
   it("adds Accept to Vary once and gives missing routes recovery links", () => {

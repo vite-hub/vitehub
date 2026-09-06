@@ -1,5 +1,5 @@
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
-const secretKey = /^(?:authorization|cookie|set-cookie|password|secret|token|api[_-]?key|credentials?|prompt|messages|input|output|raw|context|headers|body|pre_context|post_context|context_line)$/i
+const secretKey = /^(?:authorization|cookie|set-cookie|password|secret|token|api[_-]?key|credentials?|prompt|messages|input|output|raw|context|headers|body|pre_context|post_context|context_line|tool[_-]?(?:input|output|arguments?|result)|(?:input|output)[_-]?body)$/i
 
 function sanitizeString(value: string): string {
   return value
@@ -21,7 +21,10 @@ function sanitizeString(value: string): string {
 }
 
 /** Explicit papercut messages are allowed; runtime inputs and tool payloads are not. */
-export function sanitizeAgentLog(properties: Record<string, unknown>): Record<string, unknown> {
+export function sanitizeAgentLog(properties: Record<string, unknown>, options: { allowContent?: boolean } = {}): Record<string, unknown> {
+  const blocked = options.allowContent
+    ? /^(?:authorization|cookie|set-cookie|password|secret|token|api[_-]?key|credentials?|raw|headers)$/i
+    : secretKey
   const seen = new WeakSet<object>()
   function clean(value: unknown, depth: number): unknown {
     if (hasRuntimeType(value, "string")) return sanitizeString(value).slice(0, 4000)
@@ -31,11 +34,10 @@ export function sanitizeAgentLog(properties: Record<string, unknown>): Record<st
     seen.add(value)
     if (Array.isArray(value)) return value.slice(0, 100).map(entry => clean(entry, depth + 1))
     return Object.fromEntries(Object.entries(value)
-      .filter(([key]) => !secretKey.test(key))
+      .filter(([key]) => !blocked.test(key))
       .map(([key, entry]) => [key, clean(key === 'path' && hasRuntimeType(entry, "string") ? entry.split(/[?#]/)[0] : entry, depth + 1)])
       .filter(([, entry]) => entry !== undefined))
   }
   const result = clean(properties, 0)
   return isRuntimeRecord(result) ? result : {}
 }
-

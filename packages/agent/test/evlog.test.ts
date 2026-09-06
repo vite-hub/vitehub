@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { initLogger } from "evlog"
-import { createAgentEvlog, sanitizeAgentLog, type AgentEvlogExporter } from "../src/evlog.ts"
+import { createAgentEvlog, filterAgentObservability, sanitizeAgentLog, type AgentEvlogExporter } from "../src/evlog.ts"
 import { defineAgent, runAgent } from "../src/index.ts"
 
 const background: Promise<unknown>[] = []
@@ -83,6 +83,25 @@ it("removes secrets and raw model content from nested log data", () => {
   const data: Record<string, unknown> = { prompt: "private", customer: "a@example.com", url: "https://user:pass@example.org/a?token=secret#secret", nested: { authorization: "secret", messages: ["private"], message: "Bearer abc" } }
   data.cycle = data
   expect(sanitizeAgentLog(data)).toEqual({ customer: "[EMAIL]", url: "https://example.org/a", nested: { message: "Bearer [REDACTED]" } })
+})
+
+it("filters minimal observability to lifecycle metadata", () => {
+  expect(filterAgentObservability("minimal", {
+    invocation_id: "inv-1", model: "gpt-test", duration_ms: 12,
+    tool_name: "github", tool_input: "private", input_summary: "private",
+    status: "completed", prompt: "private",
+  })).toEqual({ invocation_id: "inv-1", model: "gpt-test", duration_ms: 12, status: "completed" })
+})
+
+it.each(["minimal", "standard", "full"] as const)("applies %s level before exporter delivery", async (level) => {
+  const { telemetry, exporter } = setup({}, { level })
+  telemetry.event("agent.lifecycle", { invocation_id: "i", prompt: "private prompt", output_summary: "safe summary", tool_name: "shell", tool_status: "ok" })
+  await telemetry.flush()
+  const payload = exporter.capture.mock.calls[0]?.[1] || {}
+  expect(JSON.stringify(payload)).not.toContain("private prompt")
+  if (level === "minimal") expect(payload).not.toHaveProperty("tool_name")
+  if (level === "standard") expect(payload).toHaveProperty("output_summary", "safe summary")
+  if (level === "full") expect(payload).toHaveProperty("prompt", "private prompt")
 })
 
 it("records a terminal event when a later capability fails to prepare", async () => {

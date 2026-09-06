@@ -1,27 +1,53 @@
 import { defineCapability } from "../capability-runtime.ts"
-import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { defineInternalTool } from "./internal.ts"
 
 import type {
+  AgentCapabilityCliContribution,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
+  AgentHostIdentity,
+  AgentRunMetadata,
   AgentRuntimeConfig,
   AgentToolSchema,
   MaybePromise,
 } from "../types.ts"
+import type { TraceContext } from "@vite-hub/runtime"
 import type { WorkspaceName } from "@vite-hub/workspace"
-import { agentDiagnostics } from "../agent-diagnostics.ts"
 
-export type PapercutSource = "tool"
+export type PapercutSource = "cli" | "tool"
+
+export type PapercutSeverity = "low" | "medium" | "high" | "critical"
+
+export interface PapercutBackend<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  report: (event: PapercutReportEvent<TRuntimeConfig, Name>) => MaybePromise<void>
+}
+
+export interface PosthogPapercutsOptions {
+  apiKey: string
+  host?: string
+  distinctId?: string
+  projectApiKey?: string
+  fetch?: typeof globalThis.fetch
+}
 
 export interface Papercut {
-  agent?: NonNullable<AgentCapabilityRuntimeContext["agentIdentity"]>
+  agent?: AgentHostIdentity
   createdAt: string
   id: string
   message: string
-  run?: NonNullable<AgentCapabilityRuntimeContext["run"]>
+  title?: string
+  description?: string
+  severity?: PapercutSeverity
+  category?: string
+  consoleUrl?: string
+  sourceMetadata?: Record<string, unknown>
+  reproduction?: string
+  run?: AgentRunMetadata
   source: PapercutSource
-  trace?: NonNullable<AgentCapabilityRuntimeContext["trace"]>
+  trace?: TraceContext
 }
 
 export type PapercutReportContext<
@@ -44,7 +70,11 @@ export interface PapercutsOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  report: (event: PapercutReportEvent<TRuntimeConfig, Name>) => MaybePromise<void>
+  cli?: boolean
+  report?: (event: PapercutReportEvent<TRuntimeConfig, Name>) => MaybePromise<void>
+  backend?: PapercutBackend<TRuntimeConfig, Name>
+  retry?: { attempts?: number, delayMs?: number }
+  dedupe?: boolean
 }
 
 interface PapercutInput {
@@ -56,14 +86,14 @@ interface PapercutResult {
   reported: true
 }
 
-const papercutMaxMessageLength = 1_000
-const papercutReportDescription = "Never include secrets or customer data. Proactively report small friction as soon as it happens, even when non-blocking: a missed or retried tool call, confusing or undocumented setup, flaky command, stale cache, misleading error, or non-obvious gotcha. In one or two sentences, say what you were doing and what got in the way; a likely cause or fix is a bonus."
+const maxMessageLength = 1000
+const reportDescription = "Proactively report small friction as soon as it happens, even when non-blocking: a missed or retried tool call, confusing or undocumented setup, flaky command, stale cache, misleading error, or non-obvious gotcha. In one or two sentences, say what you were doing and what got in the way; a likely cause or fix is a bonus. Never include secrets or customer data."
 const papercutInputSchema: AgentToolSchema<PapercutInput> = {
   additionalProperties: false,
   properties: {
     message: {
       description: "One or two sentences describing what you were doing and what got in the way.",
-      maxLength: papercutMaxMessageLength,
+      maxLength: maxMessageLength,
       minLength: 1,
       type: "string",
     },
@@ -78,46 +108,157 @@ function createPapercutId(): string {
 }
 
 function normalizePapercutMessage(value: unknown): string {
-  if (!hasRuntimeType(value, "string") || !value.trim()) {
-    throw agentDiagnostics.AGENT_R0153({ message: "[vitehub] report_papercut requires a non-empty message." })
+  if (typeof value !== "string" || !value.trim()) {
+    throw new TypeError("[vitehub] report_papercut requires a non-empty message.")
   }
   const message = value.trim()
-  if (message.length > papercutMaxMessageLength) {
-    throw agentDiagnostics.AGENT_R0154({ message: `[vitehub] report_papercut message must be at most ${papercutMaxMessageLength} characters.` })
+  if (message.length > maxMessageLength) {
+    throw new TypeError(`[vitehub] report_papercut message must be at most ${maxMessageLength} characters.`)
   }
   return message
+}
+
+function createPapercut(
+  context: AgentCapabilityRuntimeContext,
+  message: string,
+  source: PapercutSource,
+): Papercut {
+  return {
+    ...(context.agentIdentity ? { agent: { ...context.agentIdentity } } : {}),
+    createdAt: new Date().toISOString(),
+    id: createPapercutId(),
+    message,
+    ...(context.run ? { run: { ...context.run } } : {}),
+    source,
+    ...(context.trace ? { trace: { ...context.trace } } : {}),
+  }
+}
+
+async function submitPapercut<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: PapercutsOptions<TRuntimeConfig, Name>,
+  context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
+  value: unknown,
+  source: PapercutSource,
+): Promise<Papercut> {
+  const papercut = createPapercut(context, normalizePapercutMessage(value), source)
+  const report = options.report || options.backend?.report
+  if (!report) throw new TypeError("[vitehub] papercuts() requires a report callback or backend.")
+  if (options.report) {
+    await options.report({ context, papercut })
+  } else {
+    const key = `${papercut.message}|${papercut.run?.runId || ""}`
+    if (options.dedupe !== false && reportedPapercuts.has(key)) return papercut
+    if (options.dedupe !== false) reportedPapercuts.add(key)
+    const attempts = Math.max(1, options.retry?.attempts ?? 3)
+    const delayMs = Math.max(0, options.retry?.delayMs ?? 100)
+    const deliver = async () => {
+      let failure: unknown
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        try { await report({ context, papercut }); return }
+        catch (error) { failure = error; if (attempt + 1 < attempts && delayMs) await new Promise(resolve => setTimeout(resolve, delayMs * 2 ** attempt)) }
+      }
+      throw failure
+    }
+    // Backends are best effort: exhaust retries, then keep the invocation successful.
+    // Awaiting the attempt makes delivery deterministic for local runtimes; hosts may
+    // still attach their own durable waitUntil implementation around the capability.
+    const delivered = await deliver().then(() => true, () => false)
+    if (!delivered && options.dedupe !== false) reportedPapercuts.delete(key)
+  }
+  return papercut
+}
+
+const reportedPapercuts = new Set<string>()
+
+/** PostHog issue-board backend. Delivery is fire-and-forget and never fails an invocation. */
+export function posthogPapercuts(options: PosthogPapercutsOptions): PapercutBackend {
+  if (!options?.apiKey) throw new TypeError("[vitehub] posthogPapercuts() requires an apiKey.")
+  const send = options.fetch || globalThis.fetch
+  return {
+    async report({ papercut }) {
+      const host = (options.host || "https://us.i.posthog.com").replace(/\/+$/, "")
+      const response = await send(`${host}/capture/`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${options.apiKey}` },
+        body: JSON.stringify({
+          api_key: options.projectApiKey || options.apiKey,
+          event: "papercut",
+          distinct_id: options.distinctId || papercut.agent?.name || "vitehub-agent",
+          properties: { ...papercut, $process_person_profile: false },
+        }),
+      })
+      if (!response.ok) throw new Error(`[vitehub] PostHog papercut delivery failed (${response.status}).`)
+    },
+  }
+}
+
+function papercutCliMessage(input: unknown): unknown {
+  if (!input || typeof input !== "object") return undefined
+  const argv = (input as { argv?: unknown }).argv
+  if (!Array.isArray(argv) || argv.some(value => typeof value !== "string")) return undefined
+  return argv.join(" ")
+}
+
+function createPapercutsCli<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: PapercutsOptions<TRuntimeConfig, Name>,
+  context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
+): AgentCapabilityCliContribution<TRuntimeConfig, Name> {
+  return {
+    commands: {
+      report: {
+        description: "Report one papercut from the current Agent Invocation.",
+        effects: ["write"],
+        examples: ["papercuts report \"Describe the friction.\""],
+        output: { format: "text" },
+        rest: true,
+        async run({ input }) {
+          await submitPapercut(options, context, papercutCliMessage(input), "cli")
+          return "Papercut reported."
+        },
+      },
+    },
+    description: "Report small friction from the current Agent Invocation.",
+    name: "papercuts",
+  }
 }
 
 export function papercuts<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(options: PapercutsOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
-  if (!options || !hasRuntimeType(options.report, "function")) {
-    throw agentDiagnostics.AGENT_R0155({ message: "[vitehub] papercuts() requires a report callback." })
+  if (!options || (typeof options.report !== "function" && typeof options.backend?.report !== "function")) {
+    throw new TypeError("[vitehub] papercuts() requires a report callback or backend.")
   }
+  if (options.cli !== undefined && typeof options.cli !== "boolean") {
+    throw new TypeError("[vitehub] papercuts({ cli }) must be a boolean.")
+  }
+
   return defineCapability({
     id: "papercuts",
-    metadata: { tool: "report_papercut" },
-    tools: context => ({
-      report_papercut: defineInternalTool<PapercutInput, PapercutResult>({
-        description: papercutReportDescription,
-        inputSchema: papercutInputSchema,
-        name: "report_papercut",
-        async execute(input) {
-          const papercut: Papercut = {
-            ...(context.agentIdentity ? { agent: { ...context.agentIdentity } } : {}),
-            createdAt: new Date().toISOString(),
-            id: createPapercutId(),
-            message: normalizePapercutMessage(input?.message),
-            ...(context.run ? { run: { ...context.run } } : {}),
-            source: "tool",
-            ...(context.trace ? { trace: { ...context.trace } } : {}),
-          }
-          // SAFETY: Invocation tool resolution supplies the full Capability runtime context. Static tool inspection may omit only Workspace fields.
-          await options.report({ context: context as PapercutReportContext<TRuntimeConfig, Name>, papercut })
-          return { id: papercut.id, reported: true }
-        },
-      }),
-    }),
+    cli: options.cli ? context => createPapercutsCli(options, context) : undefined,
+    metadata: {
+      ...(options.cli ? { cli: "papercuts" } : {}),
+      tool: "report_papercut",
+    },
+    tools: (capabilityContext) => {
+      const context = capabilityContext as AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
+      return {
+        report_papercut: defineInternalTool<PapercutInput, PapercutResult>({
+          description: reportDescription,
+          inputSchema: papercutInputSchema,
+          name: "report_papercut",
+          async execute(input) {
+            const papercut = await submitPapercut(options, context, input?.message, "tool")
+            return { id: papercut.id, reported: true }
+          },
+        }),
+      }
+    },
   })
 }

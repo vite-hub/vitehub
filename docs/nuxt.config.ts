@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 export default defineNuxtConfig({
   extends: ["docus"],
-  modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org"],
+  modules: ["./modules/vitehub-docs", "nuxt-schema-org"],
   site: {
     description: "Portable Agents and Server Primitives for any Vite host.",
     name: "ViteHub",
@@ -13,7 +13,6 @@ export default defineNuxtConfig({
     defaults: false,
   },
   llms: {
-    contentRawMarkdown: false,
     domain: "https://vitehub.dev",
     title: "ViteHub",
     description: "Portable Agents and Server Primitives for any Vite host.",
@@ -70,6 +69,16 @@ export default defineNuxtConfig({
       },
     ],
   },
+  routeRules: {
+    "/": { headers: { vary: "Accept" } },
+    "/about": { headers: { vary: "Accept" } },
+    "/blog": { headers: { vary: "Accept" } },
+    "/blog/**": { headers: { vary: "Accept" } },
+    "/contact": { headers: { vary: "Accept" } },
+    "/docs": { headers: { vary: "Accept" } },
+    "/docs/**": { headers: { vary: "Accept" } },
+    "/privacy": { headers: { vary: "Accept" } },
+  },
   app: {
     head: {
       link: [
@@ -103,16 +112,11 @@ export default defineNuxtConfig({
       scan: true,
       icons: [
         "lucide:brain",
-        "lucide:check",
         "lucide:chevron-down",
         "lucide:chevron-right",
-        "lucide:chevron-up",
-        "lucide:code-2",
-        "lucide:copy",
         "lucide:hash",
         "lucide:lightbulb",
         "lucide:menu",
-        "lucide:paperclip",
         "lucide:moon",
         "lucide:search",
         "lucide:sun",
@@ -163,7 +167,6 @@ export default defineNuxtConfig({
         "ph:markdown-logo-light",
         "ph:package-light",
         "ph:paper-plane-tilt-light",
-        "ph:paperclip-light",
         "ph:path-light",
         "ph:play-circle-light",
         "ph:plug-light",
@@ -204,12 +207,12 @@ export default defineNuxtConfig({
       wrangler: {
         name: "vitehub-docs",
         compatibility_date: "2026-07-19",
-        workers_dev: false,
-        preview_urls: true,
         d1_databases: [
           {
             binding: "DB",
-            database_id: "4a8731af-1899-4d41-ac8b-6870167ead95",
+            database_id:
+              process.env.CLOUDFLARE_D1_DATABASE_ID ??
+              "00000000-0000-0000-0000-000000000000",
             database_name: "vitehub-docs",
           },
         ],
@@ -219,6 +222,20 @@ export default defineNuxtConfig({
             custom_domain: true,
           },
         ],
+        assets: {
+          run_worker_first: [
+            "/",
+            "/about",
+            "/about/",
+            "/contact",
+            "/contact/",
+            "/docs",
+            "/docs/*",
+            "/blog/*",
+            "/privacy",
+            "/privacy/",
+          ],
+        },
         observability: {
           enabled: true,
           head_sampling_rate: 0.1,
