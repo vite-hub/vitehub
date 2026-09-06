@@ -211,6 +211,7 @@ export default defineConfig({
     entry: [
       ...distributionEntries,
       "src/console/runtime/console-route.ts",
+      "src/console/runtime/client/invocation.ts",
       "src/console/runtime/client/request.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/definitions.ts",
@@ -238,6 +239,7 @@ export default defineConfig({
       customExports(exports) {
         delete exports["./console/runtime/console-route"];
         delete exports["./console/runtime/client/sections"];
+        delete exports["./console/runtime/client/invocation"];
         delete exports["./console/runtime/client/request"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/definitions"];
