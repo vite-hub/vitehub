@@ -71,6 +71,9 @@ export type AgentBoxValue<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
 
 export type AgentBoxDefinitions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Readonly<Record<string, AgentBoxValue<TRuntimeConfig>>>
+export type AgentBoxInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  | AgentBoxDefinitions<TRuntimeConfig>
+  | (() => AgentBoxDefinitions<TRuntimeConfig>)
 
 export interface AgentBoxContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   readonly definitions: AgentBoxDefinitions
@@ -1231,7 +1234,7 @@ type AgentSharedSettings<
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
 > = {
-  box?: AgentBoxDefinitions<TRuntimeConfig>
+  box?: AgentBoxInput<TRuntimeConfig>
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
@@ -1272,7 +1275,7 @@ export interface AgentDefinition<
   TOutput = unknown,
 > {
   [agentOutputType]?: TOutput
-  box?: AgentBoxDefinitions<TRuntimeConfig>
+  box?: AgentBoxInput<TRuntimeConfig>
   health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>

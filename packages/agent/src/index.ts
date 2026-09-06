@@ -395,6 +395,7 @@ export type {
   AgentRuntime,
   AgentBoxContext,
   AgentBoxDefinitions,
+  AgentBoxInput,
   AgentBoxValue,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
@@ -705,9 +706,10 @@ function withAgentBox<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): AgentRuntimeContext<TRuntimeConfig> {
-  const configured = hasAgentDefinition(agent)
+  const input = hasAgentDefinition(agent)
     ? (agent as AgentDefinition<TRuntimeConfig> & { box?: AgentSettings<TRuntimeConfig>["box"] }).box
     : undefined
+  const configured = typeof input === "function" ? input() : input
   if (!configured || context.box?.definitions === configured) return context
   const box = Object.freeze({
     ...configured,
