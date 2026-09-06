@@ -3,7 +3,6 @@ import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
 import { withExportDeadline } from "./internal/export-deadline.ts"
 import { defineCapability, eagerFinishExtensionSymbol } from "./capability-runtime.ts"
-import { agentInvocationId } from "./invocations.ts"
 import { sanitizeAgentLog } from "./evlog/privacy.ts"
 import type { AgentCapabilityDefinition, AgentFinishEvent, ResolvedAgentRuntimeContext } from "./types.ts"
 import type { RuntimeDiagnosticReporter } from "@vite-hub/runtime"
@@ -18,8 +17,10 @@ export interface AgentEvlogExporter {
 }
 
 export interface AgentEvlogOptions {
-  service: string
-  environment: string
+  /** Service name defaults to the enclosing agent name when available. */
+  service?: string
+  /** Runtime environment defaults to NODE_ENV (or development). */
+  environment?: string
   metadata?: Record<string, unknown>
   exporter?: AgentEvlogExporter
   maxPending?: number
@@ -29,7 +30,7 @@ export interface AgentEvlogOptions {
 }
 
 export type AgentObservabilityOptions = AgentEvlogOptions & {
-  preset: "evlog"
+  preset?: "evlog"
   level?: "minimal" | "standard" | "full"
 }
 
@@ -44,20 +45,36 @@ export interface AgentEvlog {
   flush(): Promise<void>
 }
 
-export function observability(options: AgentObservabilityOptions): AgentEvlog {
-  if (options.preset !== "evlog") throw new TypeError("[vitehub] Unsupported observability preset.")
-  return createAgentEvlog(options)
+const minimalKeys = /^(?:agent_name|environment|service|run_id|invocation_id|thread_id|trace_id|parent_trace_id|\$ai_trace_id|session_url|model|provider|provider_name|status|level|severity|duration_ms|timestamp|started_at|ended_at|input_tokens|output_tokens|total_tokens|cost_usd|cost_estimated|cost_source|tool_steps|retry|attempt|reason|code|diagnostic_code|diagnostic_status|warning|error|message)$/i
+const contentKeys = /(?:prompt|message|input|output|instruction|tool|argument|result|body|context|header|cookie|token|secret|credential)/i
+
+/** Apply the configured observability level before exporter delivery. */
+export function filterAgentObservability(level: NonNullable<AgentObservabilityOptions["level"]>, properties: Record<string, unknown>): Record<string, unknown> {
+  if (level !== "minimal") return properties
+  const filtered: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(properties)) {
+    if (!minimalKeys.test(key) || contentKeys.test(key)) continue
+    filtered[key] = value
+  }
+  return filtered
+}
+
+export function observability(options: AgentObservabilityOptions): AgentCapabilityDefinition {
+  if (options.preset && options.preset !== "evlog") throw new TypeError("[vitehub] Unsupported observability preset.")
+  return createAgentEvlog(options).capability
 }
 
 /** One shared exporter per host. Capability invocations keep their metadata separate. */
 export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
-  if (!options.service?.trim() || !options.environment?.trim()) throw new TypeError("[vitehub] evlog requires service and environment.")
+  const service = options.service?.trim() || "vitehub-agent"
+  const environment = options.environment?.trim() || (typeof process !== "undefined" && process.env.NODE_ENV) || "development"
   const maxPending = options.maxPending ?? 1000
   if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw new TypeError("[vitehub] evlog maxPending must be a positive integer.")
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new TypeError("[vitehub] evlog deliveryTimeoutMs must be a positive timer duration.")
   const exporter = options.exporter
-  const metadata = { ...options.metadata, service: options.service, environment: options.environment }
+  const level = (options as AgentObservabilityOptions).level ?? "standard"
+  const metadata = { ...options.metadata, service, environment }
   const pending = new Set<Promise<unknown>>()
   const counts = { accepted: 0, failed: 0, dropped: 0 }
   let closing = false
@@ -90,7 +107,8 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   }
 
   function emit(event: string, properties: Record<string, unknown>, error?: Error) {
-    const safe = sanitizeAgentLog({ ...properties, ...metadata, event })
+    const filtered = filterAgentObservability(level, { ...properties, ...metadata, event })
+    const safe = sanitizeAgentLog(filtered, { allowContent: level === "full" })
     // The integration owns delivery; avoid also sending through a global Nitro drain.
     const logger = createLogger(safe, { _deferDrain: true })
     if (error) logger.error(error)
@@ -103,7 +121,8 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   async function capture(event: string, properties: Record<string, unknown>, delivery?: { uuid?: string, timestamp?: Date }) {
     if (closing || !exporter) throw new Error("[vitehub] Agent telemetry delivery is unavailable.")
     if (pending.size >= maxPending) { counts.dropped++; throw new Error("[vitehub] Agent telemetry queue is full.") }
-    const task = withExportDeadline(timeoutMs, signal => exporter.capture(event, sanitizeAgentLog({ ...properties, ...metadata }), { ...delivery, signal }))
+    const filtered = filterAgentObservability(level, { ...properties, ...metadata, event })
+    const task = withExportDeadline(timeoutMs, signal => exporter.capture(event, sanitizeAgentLog(filtered, { allowContent: level === "full" }), { ...delivery, signal }))
     // Explicit reports await delivery and propagate failure to their durable reporter.
     void track(task)
     return task
@@ -132,7 +151,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
 
   async function invocationMetadata(runtime: Pick<ResolvedAgentRuntimeContext, "agentIdentity" | "run" | "trace">, run = runtime.run) {
     const agentName = runtime.agentIdentity?.name
-    const id = agentName && run?.runId ? await agentInvocationId(run.runId, agentName) : undefined
+    const id = run?.runId
     return {
       agent_name: agentName, run_id: run?.runId, invocation_id: id, thread_id: run?.threadId,
       trace_id: runtime.trace?.id, parent_trace_id: runtime.trace?.parentId,
@@ -191,9 +210,9 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
     capability, capture, diagnostics, event, exception,
     drain(context: DrainContext) {
       if (closing || !exporter) return
-      const safe = sanitizeAgentLog({ ...context.event, ...metadata })
+      const safe = sanitizeAgentLog(filterAgentObservability(level, { ...context.event, ...metadata }), { allowContent: level === "full" })
       if (safe.error) safe.error = { message: "Request failed; inspect the correlated exception." }
-      logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service: options.service, environment: options.environment })
+      logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service, environment })
     },
     status: () => ({ configured: Boolean(exporter), ...counts, pending: pending.size + logs.pending, closed: closing }),
     flush() {
