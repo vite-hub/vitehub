@@ -1460,6 +1460,8 @@ type AgentSharedSettings<
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
 > = {
+  /** Shared host resources and credentials available to the agent. */
+  box?: AgentBox
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
@@ -1497,6 +1499,7 @@ export interface AgentDefinition<
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
 > {
+  box?: AgentBox
   [agentOutputType]?: TOutput
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
@@ -1517,6 +1520,10 @@ export interface AgentDefinition<
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
+}
+
+export interface AgentBox {
+  [key: string]: unknown
 }
 
 export type AgentInput<
