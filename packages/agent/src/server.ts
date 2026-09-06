@@ -1,4 +1,15 @@
 export {
+  createAgentHealthHandler,
+  resolveAgentHealth,
+} from "./health.ts"
+
+export type {
+  AgentHealthHandlerOptions,
+  AgentHealthReport,
+  AgentHealthStatus,
+} from "./health.ts"
+
+export {
   createDiscordGatewayRouteHandler,
   createTelegramPollingRouteHandler,
 } from "./server/routes.ts"

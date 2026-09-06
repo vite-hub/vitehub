@@ -74,6 +74,7 @@ export type AgentBoxDefinitions<TRuntimeConfig extends AgentRuntimeConfig = Agen
 
 export interface AgentBoxContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   readonly definitions: AgentBoxDefinitions
+  readonly [name: string]: unknown
   get<T = unknown>(name: string): T | undefined
 }
 

@@ -710,6 +710,7 @@ function withAgentBox<TRuntimeConfig extends AgentRuntimeConfig>(
     : undefined
   if (!configured || context.box?.definitions === configured) return context
   const box = Object.freeze({
+    ...configured,
     definitions: configured,
     get<T = unknown>(name: string): T | undefined {
       return configured[name] as T | undefined
