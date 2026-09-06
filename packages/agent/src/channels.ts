@@ -74,13 +74,6 @@ export type {
 } from "./delivery-artifacts.ts"
 export { defineFinishEffect } from "./delivery-effects.ts"
 export type {
-  AgentActivityLink,
-  AgentActivityStatus,
-  AgentActivityTask,
-  AgentActivityTarget,
-  AgentActivityUpdate,
-  AgentChannelActivityContext,
-  AgentChannelActivityDefinition,
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectHandler,
   AgentChannelDeliveryEffectIntent,
