@@ -36,8 +36,8 @@ catalogs:
     "@cloudflare/playwright": ^1.3.6
     playwright-core: ^1.62.1
   chat:
-    "@chat-adapter/discord": 4.39.0
-    "@chat-adapter/telegram": 4.39.0
+    "@chat-adapter/discord": 4.40.0
+    "@chat-adapter/telegram": 4.40.0
     chat: 4.40.0
     chat-state-cloudflare-do: ^0.2.0
   database:
