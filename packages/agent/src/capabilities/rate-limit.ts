@@ -12,6 +12,7 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type RateLimitIdentity =
   | "auto"
@@ -122,7 +123,7 @@ async function resolveIdentity(
   if (typeof identity === "function") {
     const value = await identity(context)
     if (value) return { source: "custom", value }
-    throw new Error("[vitehub] rateLimit({ identity }) returned no identity.")
+    throw agentDiagnostics.AGENT_R0159({ message: "[vitehub] rateLimit({ identity }) returned no identity." })
   }
   if (identity === "invoker") {
     return { source: "invoker", value: invokerIdentity(context.invoker) }
@@ -130,12 +131,12 @@ async function resolveIdentity(
   if (identity === "run") {
     const value = resolveRunIdentity(context)
     if (value) return { source: "run", value }
-    throw new Error("[vitehub] rateLimit({ identity: \"run\" }) could not resolve Agent Run metadata.")
+    throw agentDiagnostics.AGENT_R0160({ message: "[vitehub] rateLimit({ identity: \"run\" }) could not resolve Agent Run metadata." })
   }
   if (identity === "ip") {
     const value = resolveIpIdentity(context, trustedIpHeaders)
     if (value) return { source: "ip", value }
-    throw new Error("[vitehub] rateLimit({ identity: \"ip\" }) requires trustedIpHeaders and a matching request header.")
+    throw agentDiagnostics.AGENT_R0161({ message: "[vitehub] rateLimit({ identity: \"ip\" }) requires trustedIpHeaders and a matching request header." })
   }
   return resolveAutoIdentity(context, trustedIpHeaders)
 }
@@ -186,7 +187,7 @@ async function resolveLimiter(
 ): Promise<RateLimiter> {
   const resolved = typeof limiter === "function" ? await limiter(context) : limiter
   if (!resolved || typeof resolved.consume !== "function") {
-    throw new TypeError("[vitehub] rateLimit({ limiter }) must be a RateLimiter.")
+    throw agentDiagnostics.AGENT_R0162({ message: "[vitehub] rateLimit({ limiter }) must be a RateLimiter." })
   }
   return resolved
 }
@@ -228,7 +229,7 @@ export function rateLimit(
     },
     async input(context) {
       if (context.context.has(id)) {
-        throw new Error(`[vitehub] Invocation context value "${id}" is already set.`)
+        throw agentDiagnostics.AGENT_R0163({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
       const resolvedIdentity = await resolveIdentity(identity, context, trustedIpHeaders)
       const scope = await resolveScope(options.scope, context, id)

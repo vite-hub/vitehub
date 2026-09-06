@@ -1,4 +1,6 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import {
+  formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
   ViteHubError,
 } from "@vite-hub/runtime"
@@ -45,6 +47,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
   const policy = tool.policy
   const approvedInputs = new Set<unknown>()
 
+  // SAFETY: The wrapper preserves the tool fields and execute signature, and adds an internal approval symbol.
   return {
     ...tool,
     [agentToolPolicyApproveSymbol](input: unknown) {
@@ -81,7 +84,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
         })
       }
       if (decision === "retryable-failure") {
-        throw new Error(`[vitehub:agent] Tool "${tool.name}" failed with a retryable policy decision.`)
+        throw agentDiagnostics.AGENT_R0003({ name: tool.name })
       }
 
       context?.abortSignal?.throwIfAborted()
@@ -133,10 +136,6 @@ function toolCallIdFromExecutionOptions(value: unknown): string | undefined {
   return typeof toolCallId === "string" && toolCallId ? toolCallId : undefined
 }
 
-function getErrorOutput(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 function materializeSummary(output: unknown): unknown {
   if (!output || typeof output !== "object") return output
   const result = output as {
@@ -180,7 +179,7 @@ export async function reportWorkspaceMaterialization(
     await reportToolStep?.({ toolResults: [{ ...toolCall, output: materializeSummary(output) }] })
   }
   catch (error) {
-    await reportToolStep?.({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+    await reportToolStep?.({ toolErrors: [{ ...toolCall, output: formatRuntimeDiagnosticError(error) }] })
   }
 }
 
@@ -189,6 +188,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
     return tools
   }
 
+  // SAFETY: Every tool key and field is preserved; execute forwards its arguments and returns the original output.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
       return [name, tool]
@@ -216,7 +216,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
           return output
         }
         catch (error) {
-          await reportToolStep({ toolErrors: [{ ...toolCall, output: getErrorOutput(error) }] })
+          await reportToolStep({ toolErrors: [{ ...toolCall, output: formatRuntimeDiagnosticError(error) }] })
           throw error
         }
       },

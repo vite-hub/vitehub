@@ -2,6 +2,7 @@
 title: Troubleshooting
 description: Diagnose common ViteHub development failures from symptoms to proof paths.
 navigation.order: 37
+navigation.group: Proof and recovery
 icon: i-lucide-stethoscope
 ---
 

@@ -2,6 +2,7 @@ import { getMessageText } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type { Message } from "../messages.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type LlmDecisionChoiceDefinition =
   | string
@@ -28,14 +29,14 @@ export interface DecisionObjectSchema<T> {
 
 function assertStableId(id: string, label: string): void {
   if (!/^[a-z][a-z0-9-_.]*$/i.test(id)) {
-    throw new TypeError(`[vitehub] ${label} "${id}" must be a stable identifier.`)
+    throw agentDiagnostics.AGENT_R0107({ message: `[vitehub] ${label} "${id}" must be a stable identifier.` })
   }
 }
 
 export function normalizeChoices(choices: LlmDecisionChoiceMap, label: string): NormalizedLlmDecisionChoice[] {
   const entries = Object.entries(choices)
   if (!entries.length) {
-    throw new TypeError(`[vitehub] ${label} requires at least one choice.`)
+    throw agentDiagnostics.AGENT_R0108({ message: `[vitehub] ${label} requires at least one choice.` })
   }
   return entries.map(([key, value]) => {
     assertStableId(key, `${label} choice`)
@@ -106,7 +107,7 @@ export function objectSchema<T>(schema: Record<string, unknown>, validate: (valu
         return { success: true as const, value: validate(value) }
       }
       catch (error) {
-        return { success: false as const, error: error instanceof Error ? error : new Error(String(error)) }
+        return { success: false as const, error: error instanceof Error ? error : agentDiagnostics.AGENT_R0109({ message: String(error) }) }
       }
     },
   }

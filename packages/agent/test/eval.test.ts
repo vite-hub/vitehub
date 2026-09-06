@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { adapterDefinition } from "./adapter-definition.ts"
 
+// SAFETY: The Evalite mock records the library's dynamically shaped options so each test can inspect only the fields it configures.
 const evaliteCalls = vi.hoisted(() => [] as Array<{ name: string, opts: any, variants?: Array<{ input: unknown, name: string }> }>)
 
 vi.mock("evalite", () => {
@@ -21,11 +22,14 @@ const readFile = vi.fn()
 const list = vi.fn()
 const inspectTools = vi.fn(() => ({}))
 const registerWorkspace = vi.hoisted(() => vi.fn())
+// SAFETY: The Agent mock records normalized settings as string-keyed objects for field-level assertions.
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown, warnings?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
+// SAFETY: The provider mock records start options as string-keyed objects and controls every value written to the array.
 const providerStarts = vi.hoisted(() => [] as Record<string, unknown>[])
 
 vi.mock("@t3tools/provider-runtime", () => ({
+  createSqliteProviderRuntimeSessionStore: vi.fn(),
   createProviderRuntime: vi.fn(async () => {
     let releaseTurn!: () => void
     const turnStarted = new Promise<void>(resolve => releaseTurn = resolve)
@@ -45,6 +49,7 @@ vi.mock("@t3tools/provider-runtime", () => ({
       }),
       startSession: vi.fn(async (options: Record<string, unknown>) => {
         providerStarts.push(options)
+        // SAFETY: Provider Agent startup supplies the required non-empty threadId string exercised by this mock.
         threadId = options.threadId as string
         return { threadId }
       }),
@@ -201,6 +206,7 @@ describe("agent eval", () => {
 
     const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
     const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+    // SAFETY: This fixture registers a Workspace Agent whose private normalized options are the subject of this assertion.
     const registeredAgent = registerWorkspace.mock.calls[0]?.[1] as any
 
     expect(registeredAgent.__vitehubWorkspaceAgentOptions.workspace.sourceRootDir)
@@ -208,6 +214,28 @@ describe("agent eval", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("workspace config")
     expect(output.text).toBe("ok")
     expect(score.score).toBe(1)
+  })
+
+  it.each([false, true])("infers the caller Source root for explicit Eval Agents (factory: %s)", async (factory) => {
+    const { defineEval } = await import("../src/eval.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { model: {} as never }, workspace: {} })
+    defineEval({ agent: factory ? async () => agent : agent, name: "explicit", workspace: "explicit", scenarios: [{ input: { prompt: "hello" }, name: "hello" }] })
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    expect(registerWorkspace.mock.calls[0]?.[1]).toMatchObject({
+      __vitehubWorkspaceAgentOptions: { workspace: { sourceRootDir: expect.stringMatching(/packages[/\\]agent[/\\]test$/) } },
+    })
+  })
+
+  it("keeps explicit Eval workspace Source roots", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: { model: {} as never }, workspace: { sourceRootDir: "/explicit/source/root" } })
+    defineEval({ agent, name: "explicit-root", workspace: "explicit-root", scenarios: [{ input: { prompt: "hello" }, name: "hello" }] })
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    expect(registerWorkspace.mock.calls[0]?.[1]).toMatchObject({
+      __vitehubWorkspaceAgentOptions: { workspace: { sourceRootDir: "/explicit/source/root" } },
+    })
   })
 
   it("uses exact variants when variants are provided", async () => {
@@ -448,6 +476,7 @@ describe("agent eval", () => {
       agent: defineAgent({
         driver: {
           instructions: "Base instructions.",
+          // SAFETY: This fixture uses a minimal model descriptor because the mocked Agent boundary only reads its id.
           model: baseModel as never,
         },
         workspace: {},
@@ -475,6 +504,7 @@ describe("agent eval", () => {
       agent: defineAgent({
         driver: {
           instructions: "Base instructions.",
+          // SAFETY: This fixture uses a minimal model descriptor because the mocked Agent boundary only reads its id.
           model: baseModel as never,
         },
       }),
@@ -501,6 +531,7 @@ describe("agent eval", () => {
       agent: defineAgent({
         driver: {
           instructions: "Base instructions.",
+          // SAFETY: This fixture uses a minimal model descriptor because the mocked Agent boundary only reads its id.
           model: baseModel as never,
         },
       }),
@@ -525,6 +556,7 @@ describe("agent eval", () => {
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
+      // SAFETY: The parameterized fixture contains only the two supported Codex Driver forms listed above.
       agent: defineAgent({ driver: driver as never }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
@@ -547,6 +579,7 @@ describe("agent eval", () => {
       agent: defineAgent({ driver: "codex" }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      // SAFETY: These deliberately ambiguous model fixtures exercise the runtime rejection path.
       variants: [{ model: model as never, name: "variant" }],
     })
 
@@ -595,10 +628,9 @@ describe("agent eval", () => {
     } = await import("../src/eval.ts")
     const extensions = {
       entries: (): Array<[string, unknown]> => [["completion", { status: "completed" }]],
-      get<T = unknown>(capabilityId: string, key?: string): T | undefined {
+      get(capabilityId: string, key?: string): unknown {
         if (capabilityId !== "completion") return undefined
-        const value = key === "status" ? "completed" : { status: "completed" }
-        return value as T
+        return key === "status" ? "completed" : { status: "completed" }
       },
       toJSON: () => ({ completion: { status: "completed" } }),
     }

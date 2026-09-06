@@ -1,5 +1,6 @@
 import { resolveModule } from 'local-pkg'
 import { resolvePathSync } from 'mlly'
+import { sandboxErrorDiagnostics } from "../../error-diagnostics.ts"
 
 export type ModuleResolveResult =
   | [error: null, path: string]
@@ -33,7 +34,7 @@ export function tryResolveModule(id: string, options: { paths?: string[] } = {})
 
   const runtimeResolved = tryResolveFromRuntime(id)
   if (runtimeResolved === false)
-    return [new Error(`Unable to resolve module "${id}" using the active runtime resolver`), undefined]
+    return [sandboxErrorDiagnostics.SANDBOX_R0050({ message: `Unable to resolve module "${id}" using the active runtime resolver` }), undefined]
   if (runtimeResolved)
     return [null, runtimeResolved]
 
@@ -50,11 +51,9 @@ export function tryResolveModule(id: string, options: { paths?: string[] } = {})
     }
   }
 
-  return [new Error(
-    paths.length > 0
+  return [sandboxErrorDiagnostics.SANDBOX_R0051({ message: paths.length > 0
       ? `Unable to resolve module "${id}" from ${paths.join(', ')}`
-      : `Unable to resolve module "${id}" without explicit resolution paths`,
-  ), undefined]
+      : `Unable to resolve module "${id}" without explicit resolution paths` }), undefined]
 }
 
 const resolveCache = new Map<string, boolean>()

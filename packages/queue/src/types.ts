@@ -148,24 +148,13 @@ export interface QueueDefinition<TPayload = unknown, TResult = unknown> {
 }
 
 export interface QueueEnqueueOptions {
-  contentType?: CloudflareQueueContentType
-  delaySeconds?: number
-  idempotencyKey?: string
-  region?: string
-  retentionSeconds?: number
-}
-
-export type QueueEnqueueEnvelope<TPayload = unknown> = {
-  payload: TPayload
-  contentType?: CloudflareQueueContentType
-  delaySeconds?: number
   id?: string
+  contentType?: CloudflareQueueContentType
+  delaySeconds?: number
   idempotencyKey?: string
   region?: string
   retentionSeconds?: number
 }
-
-export type QueueEnqueueInput<TPayload = unknown> = TPayload | QueueEnqueueEnvelope<TPayload>
 
 export type QueueSendResult = {
   messageId?: string
@@ -178,29 +167,37 @@ export interface NormalizedQueueEnqueueInput<TPayload = unknown> {
   payload: TPayload
 }
 
-interface QueueClientBase<P extends QueueProvider = QueueProvider> {
+interface QueueClientBase<P extends QueueProvider = QueueProvider, TPayload = unknown> {
   readonly native: unknown
   readonly provider: P
-  send: <TPayload = unknown>(input: QueueEnqueueInput<TPayload>) => Promise<QueueSendResult>
+  send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<QueueSendResult>
 }
 
-export interface CloudflareQueueClient extends QueueClientBase<"cloudflare"> {
+export interface CloudflareQueueClient<TPayload = unknown> extends QueueClientBase<"cloudflare", TPayload> {
   readonly binding: CloudflareQueueBinding
-  createBatchHandler: <TPayload = unknown>(options: CloudflareQueueBatchHandlerOptions<TPayload>) => (batch: CloudflareQueueMessageBatch<TPayload>) => Promise<void>
-  sendBatch: (items: CloudflareQueueSendBatchMessage[], options?: QueueEnqueueOptions) => Promise<QueueSendResult[]>
+  createBatchHandler: <TMessage = unknown>(options: CloudflareQueueBatchHandlerOptions<TMessage>) => (batch: CloudflareQueueMessageBatch<TMessage>) => Promise<void>
+  sendBatch: (items: CloudflareQueueSendBatchMessage<TPayload>[], options?: Omit<QueueEnqueueOptions, "id">) => Promise<QueueSendResult[]>
 }
 
-export interface VercelQueueClient extends QueueClientBase<"vercel"> {
+export interface VercelQueueClient<TPayload = unknown> extends QueueClientBase<"vercel", TPayload> {
   readonly topic: string
-  callback: <TPayload = unknown>(handler: VercelQueueMessageHandler<TPayload>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
+  callback: <TMessage = unknown>(handler: VercelQueueMessageHandler<TMessage>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
 }
 
-interface QueueClientMap {
-  cloudflare: CloudflareQueueClient
-  vercel: VercelQueueClient
+interface QueueClientMap<TPayload> {
+  cloudflare: CloudflareQueueClient<TPayload>
+  vercel: VercelQueueClient<TPayload>
 }
 
-export type QueueClient<P extends QueueProvider = QueueProvider> = QueueClientMap[P]
+export type QueueClient<P extends QueueProvider = QueueProvider, TPayload = unknown> = QueueClientMap<TPayload>[P]
+
+/** Discovered Queue Definitions. Generated declarations extend this interface. */
+export interface QueueRegistry {}
+
+export type QueueName = Extract<keyof QueueRegistry, string>
+export type QueuePayload<TName extends QueueName> = QueueRegistry[TName] extends { handler: (job: infer TJob) => unknown }
+  ? TJob extends QueueJob<infer TPayload> ? TPayload : never
+  : never
 
 export interface QueueDefinitionRegistry {
   [name: string]: () => Promise<{ default?: QueueDefinition } | QueueDefinition>

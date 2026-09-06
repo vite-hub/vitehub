@@ -1,4 +1,5 @@
 import type { WebSearchCredential, WebSearchProviderInput, WebSearchProviderOptions } from "./types.ts"
+import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export interface ResolvedWebSearchProviderOptions {
   apiKey?: string
@@ -23,7 +24,7 @@ function resolveCredential(value: WebSearchCredential | undefined): string | und
 export function normalizeWebSearchProviderInput(provider: WebSearchProviderInput): WebSearchProviderOptions {
   if (typeof provider === "string") return { name: provider }
   if (!provider || typeof provider !== "object" || typeof provider.name !== "string" || !provider.name.trim()) {
-    throw new TypeError("[vitehub] webSearch({ mode: \"tool\" }) requires a provider name.")
+    throw agentDiagnostics.AGENT_R0269({ message: "[vitehub] webSearch({ mode: \"tool\" }) requires a provider name." })
   }
   return provider
 }

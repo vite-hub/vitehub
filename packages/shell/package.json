@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "just-bash": "catalog:shell",
+    "nostics": "catalog:runtime",
     "sh-syntax": "catalog:shell"
   },
   "devDependencies": {

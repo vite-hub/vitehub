@@ -13,6 +13,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type JsonSchema = Record<string, unknown>
 type OpenAPIMethod = "GET" | "HEAD" | "POST"
@@ -101,6 +102,7 @@ export interface OpenAPIRequestDraft {
   body?: unknown
   cookies: Record<string, string>
   headers: Headers
+  maxResponseBytes?: number
   path: Record<string, unknown>
   query: Record<string, unknown>
   timeout?: number
@@ -110,6 +112,7 @@ export interface OpenAPIRequestPatch {
   body?: unknown
   cookies?: Record<string, string>
   headers?: Headers | OpenAPIHeaders
+  maxResponseBytes?: number
   path?: Record<string, unknown>
   query?: Record<string, unknown>
   timeout?: number
@@ -153,6 +156,7 @@ export interface OpenAPICapabilityOptions<
   cli?: OpenAPIContextValue<false | OpenAPICliOptions | undefined, TRuntimeConfig, Name>
   description?: string
   hooks?: OpenAPIHooks<TRuntimeConfig, Name>
+  maxResponseBytes?: number
   operations: readonly string[]
   responseType?: "json" | "text"
   server?: OpenAPIContextValue<string | URL, TRuntimeConfig, Name>
@@ -211,10 +215,10 @@ export function openapi<
 }
 
 function assertOpenAPIOptions(options: OpenAPICapabilityOptions): void {
-  if (!options || typeof options !== "object") throw new TypeError("[vitehub] openapi() requires options.")
-  if (!options.spec) throw new TypeError("[vitehub] openapi({ spec }) requires an OpenAPI document URL or object.")
+  if (!options || typeof options !== "object") throw agentDiagnostics.AGENT_R0126({ message: "[vitehub] openapi() requires options." })
+  if (!options.spec) throw agentDiagnostics.AGENT_R0127({ message: "[vitehub] openapi({ spec }) requires an OpenAPI document URL or object." })
   if (!Array.isArray(options.operations) || !options.operations.length) {
-    throw new TypeError("[vitehub] openapi({ operations }) requires at least one allowed operationId.")
+    throw agentDiagnostics.AGENT_R0128({ message: "[vitehub] openapi({ operations }) requires at least one allowed operationId." })
   }
 }
 
@@ -231,7 +235,7 @@ async function loadOpenAPIOperations<
   const allOperations = collectOperations(document, allowed)
   const selected = options.operations.map((operationId) => {
     const operation = allOperations.get(operationId)
-    if (!operation) throw new Error(`[vitehub] openapi() operationId "${operationId}" was not found in the OpenAPI spec.`)
+    if (!operation) throw agentDiagnostics.AGENT_R0129({ message: `[vitehub] openapi() operationId "${operationId}" was not found in the OpenAPI spec.` })
     return operation
   })
   return { baseUrl, tools: selected }
@@ -245,18 +249,19 @@ async function loadOpenAPIDocument<
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
 ): Promise<{ document: OpenAPIDocument, specUrl?: URL }> {
   const spec = await resolveContextValue(options.spec, context)
-  if (!spec) throw new TypeError("[vitehub] openapi({ spec }) requires an OpenAPI document URL or object.")
+  if (!spec) throw agentDiagnostics.AGENT_R0130({ message: "[vitehub] openapi({ spec }) requires an OpenAPI document URL or object." })
   if (typeof spec === "object" && !(spec instanceof URL)) {
     return { document: spec }
   }
   const specUrl = spec instanceof URL ? spec : new URL(spec)
   const result = await executeHttpRequest({
     headers: options.specHeaders,
+    maxResponseBytes: options.maxResponseBytes,
     timeout: options.timeout,
     url: specUrl,
   }, { signal: context.abortSignal })
   if (!result.data || typeof result.data !== "object") {
-    throw new Error("[vitehub] openapi() spec must be a JSON OpenAPI document.")
+    throw agentDiagnostics.AGENT_R0131({ message: "[vitehub] openapi() spec must be a JSON OpenAPI document." })
   }
   return { document: result.data as OpenAPIDocument, specUrl }
 }
@@ -272,7 +277,7 @@ async function resolveContextValue<T, TRuntimeConfig extends AgentRuntimeConfig,
 
 function resolveBaseUrl(baseUrl: string | URL | undefined, document: OpenAPIDocument, specUrl: URL | undefined): URL {
   const value = baseUrl ?? document.servers?.[0]?.url ?? (specUrl ? specUrl.origin : undefined)
-  if (!value) throw new Error("[vitehub] openapi() requires server when the spec does not declare servers[0].url.")
+  if (!value) throw agentDiagnostics.AGENT_R0132({ message: "[vitehub] openapi() requires server when the spec does not declare servers[0].url." })
   return value instanceof URL ? new URL(value) : new URL(value, specUrl)
 }
 
@@ -286,11 +291,11 @@ function collectOperations(document: OpenAPIDocument, allowed: Set<string>): Map
       assertToolName(operation.operationId)
       const method = methodName.toUpperCase()
       if (!supportedMethods.has(method) && allowed.has(operation.operationId)) {
-        throw new Error(`[vitehub] openapi() operation "${operation.operationId}" uses ${method}; v1 supports GET, HEAD, and POST.`)
+        throw agentDiagnostics.AGENT_R0133({ message: `[vitehub] openapi() operation "${operation.operationId}" uses ${method}; v1 supports GET, HEAD, and POST.` })
       }
       if (!supportedMethods.has(method)) continue
       if (result.has(operation.operationId)) {
-        throw new Error(`[vitehub] Duplicate OpenAPI operationId "${operation.operationId}".`)
+        throw agentDiagnostics.AGENT_R0134({ message: `[vitehub] Duplicate OpenAPI operationId "${operation.operationId}".` })
       }
       result.set(operation.operationId, {
         bodySchema: requestBodySchema(document, operation),
@@ -308,7 +313,7 @@ function collectOperations(document: OpenAPIDocument, allowed: Set<string>): Map
 
 function assertToolName(operationId: string): void {
   if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(operationId)) {
-    throw new TypeError(`[vitehub] OpenAPI operationId "${operationId}" must be usable as a tool name: letters, numbers, and underscores only.`)
+    throw agentDiagnostics.AGENT_R0135({ message: `[vitehub] OpenAPI operationId "${operationId}" must be usable as a tool name: letters, numbers, and underscores only.` })
   }
 }
 
@@ -376,7 +381,7 @@ function createOpenAPICli<
   for (const operation of operations) {
     const name = operationCommandName(cli.name, operation.operationId)
     if (commands[name]) {
-      throw new Error(`[vitehub] OpenAPI operationId "${operation.operationId}" generates duplicate ${cli.name} command "${name}".`)
+      throw agentDiagnostics.AGENT_R0136({ message: `[vitehub] OpenAPI operationId "${operation.operationId}" generates duplicate ${cli.name} command "${name}".` })
     }
     const outputFormat = options.responseType === "text" ? "text" : "json"
     commands[name] = {
@@ -434,7 +439,7 @@ async function executeOpenAPIOperation<
 ): Promise<unknown> {
   const rawInput = applyOpenAPIProvidedInput(normalizeRawToolInput(operation, input), openAPIRequestProvidedInput(options))
   const rawUrl = operationTemplateUrl(baseUrl, operation.path)
-  const draft = createOpenAPIRequestDraft(rawInput, options.timeout)
+  const draft = createOpenAPIRequestDraft(rawInput, options.timeout, options.maxResponseBytes)
   await applyOpenAPIRequestHook(options, {
     ...context,
     input: rawInput,
@@ -453,6 +458,7 @@ async function executeOpenAPIOperation<
     body: requestInput.body,
     cookies: Object.keys(draft.cookies).length ? draft.cookies : undefined,
     headers: headersToRecord(draft.headers),
+    maxResponseBytes: draft.maxResponseBytes,
     method: operation.method,
     query: requestInput.query,
     timeout: draft.timeout,
@@ -483,11 +489,16 @@ function openAPIRequestProvidedInput<
   return openAPIRequestOptions(options)?.provides
 }
 
-function createOpenAPIRequestDraft(input: OpenAPIToolInput, timeout: number | undefined): OpenAPIRequestDraft {
+function createOpenAPIRequestDraft(
+  input: OpenAPIToolInput,
+  timeout: number | undefined,
+  maxResponseBytes: number | undefined,
+): OpenAPIRequestDraft {
   return {
     ...(input.body !== undefined ? { body: input.body } : {}),
     cookies: {},
     headers: new Headers(),
+    ...(maxResponseBytes !== undefined ? { maxResponseBytes } : {}),
     path: { ...input.path },
     query: { ...input.query },
     ...(timeout !== undefined ? { timeout } : {}),
@@ -516,6 +527,7 @@ function applyOpenAPIRequestPatch(request: OpenAPIRequestDraft, patch: OpenAPIRe
     const headers = patch.headers instanceof Headers ? patch.headers : new Headers(patch.headers)
     headers.forEach((value, key) => request.headers.set(key, value))
   }
+  if (patch.maxResponseBytes !== undefined) request.maxResponseBytes = patch.maxResponseBytes
   if (patch.timeout !== undefined) request.timeout = patch.timeout
 }
 
@@ -584,32 +596,32 @@ async function transformOpenAPIResponse<
 
 function assertValidOpenAPIRequest(operation: OpenAPIOperationTool, input: OpenAPIToolInput): void {
   const issues = validateJsonSchema(operationInputSchema(operation), compactOpenAPIInput(input), "request")
-  if (issues.length) throw new Error(`[vitehub] ${operation.operationId} request is invalid: ${issues.join(", ")}`)
+  if (issues.length) throw agentDiagnostics.AGENT_R0137({ message: `[vitehub] ${operation.operationId} request is invalid: ${issues.join(", ")}` })
 }
 
 function normalizeRawToolInput(operation: OpenAPIOperationTool, input: unknown): OpenAPIToolInput {
   const value = input == null ? {} : input
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError(`[vitehub] ${operation.operationId} input must be an object.`)
+    throw agentDiagnostics.AGENT_R0138({ message: `[vitehub] ${operation.operationId} input must be an object.` })
   }
   const record = value as Record<string, unknown>
   const allowedTopLevel = new Set(["path", "query", "body"])
   const extra = Object.keys(record).filter(key => !allowedTopLevel.has(key))
   if (extra.length && !supportsFlattenedBodyInput(operation, extra)) {
-    throw new Error(`[vitehub] ${operation.operationId} does not support input option${extra.length === 1 ? "" : "s"}: ${extra.join(", ")}.`)
+    throw agentDiagnostics.AGENT_R0139({ message: `[vitehub] ${operation.operationId} does not support input option${extra.length === 1 ? "" : "s"}: ${extra.join(", ")}.` })
   }
   if (record.path !== undefined && !isPlainRecord(record.path)) {
-    throw new TypeError(`[vitehub] ${operation.operationId} path input must be an object.`)
+    throw agentDiagnostics.AGENT_R0140({ message: `[vitehub] ${operation.operationId} path input must be an object.` })
   }
   if (record.query !== undefined && !isPlainRecord(record.query)) {
-    throw new TypeError(`[vitehub] ${operation.operationId} query input must be an object.`)
+    throw agentDiagnostics.AGENT_R0141({ message: `[vitehub] ${operation.operationId} query input must be an object.` })
   }
   if (!operation.bodySchema && record.body !== undefined) {
-    throw new Error(`[vitehub] ${operation.operationId} does not declare a request body.`)
+    throw agentDiagnostics.AGENT_R0142({ message: `[vitehub] ${operation.operationId} does not declare a request body.` })
   }
   const flattenedBody = Object.fromEntries(extra.map(key => [key, record[key]]))
   if (extra.length && record.body !== undefined && !isPlainRecord(record.body)) {
-    throw new TypeError(`[vitehub] ${operation.operationId} body input must be an object when mixed with top-level body fields.`)
+    throw agentDiagnostics.AGENT_R0143({ message: `[vitehub] ${operation.operationId} body input must be an object when mixed with top-level body fields.` })
   }
   const body = extra.length
     ? { ...flattenedBody, ...(record.body as Record<string, unknown> | undefined) }
@@ -633,7 +645,7 @@ function normalizeToolInput(operation: OpenAPIOperationTool, input: OpenAPIToolI
   const path = normalizeParameterInput(operation.operationId, "path", operation.pathParameters, input.path)
   const query = normalizeParameterInput(operation.operationId, "query", operation.queryParameters, input.query)
   if (!operation.bodySchema && input.body !== undefined) {
-    throw new Error(`[vitehub] ${operation.operationId} does not declare a request body.`)
+    throw agentDiagnostics.AGENT_R0144({ message: `[vitehub] ${operation.operationId} does not declare a request body.` })
   }
   return {
     ...(input.body !== undefined ? { body: input.body } : {}),
@@ -649,18 +661,18 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 function normalizeParameterInput(operationId: string, location: "path" | "query", parameters: OpenAPIParameter[], input: unknown): Record<string, unknown> | undefined {
   const required = parameters.filter(parameter => location === "path" || parameter.required).map(parameter => parameter.name as string)
   if (input === undefined) {
-    if (required.length) throw new Error(`[vitehub] ${operationId} requires ${location} parameter${required.length === 1 ? "" : "s"}: ${required.join(", ")}.`)
+    if (required.length) throw agentDiagnostics.AGENT_R0145({ message: `[vitehub] ${operationId} requires ${location} parameter${required.length === 1 ? "" : "s"}: ${required.join(", ")}.` })
     return undefined
   }
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new TypeError(`[vitehub] ${operationId} ${location} input must be an object.`)
+    throw agentDiagnostics.AGENT_R0146({ message: `[vitehub] ${operationId} ${location} input must be an object.` })
   }
   const allowed = new Set(parameters.map(parameter => parameter.name as string))
   const value = input as Record<string, unknown>
   const extra = Object.keys(value).filter(key => !allowed.has(key))
-  if (extra.length) throw new Error(`[vitehub] ${operationId} does not support ${location} parameter${extra.length === 1 ? "" : "s"}: ${extra.join(", ")}.`)
+  if (extra.length) throw agentDiagnostics.AGENT_R0147({ message: `[vitehub] ${operationId} does not support ${location} parameter${extra.length === 1 ? "" : "s"}: ${extra.join(", ")}.` })
   for (const name of required) {
-    if (value[name] === undefined) throw new Error(`[vitehub] ${operationId} requires ${location} parameter "${name}".`)
+    if (value[name] === undefined) throw agentDiagnostics.AGENT_R0148({ message: `[vitehub] ${operationId} requires ${location} parameter "${name}".` })
   }
   return value
 }
@@ -668,7 +680,7 @@ function normalizeParameterInput(operationId: string, location: "path" | "query"
 function operationUrl(baseUrl: URL, operation: OpenAPIOperationTool, pathInput: Record<string, unknown> | undefined): URL {
   return operationTemplateUrl(baseUrl, operation.path.replace(/\{([^}]+)\}/g, (_match, name: string) => {
     const value = pathInput?.[name]
-    if (value === undefined) throw new Error(`[vitehub] ${operation.operationId} requires path parameter "${name}".`)
+    if (value === undefined) throw agentDiagnostics.AGENT_R0149({ message: `[vitehub] ${operation.operationId} requires path parameter "${name}".` })
     return encodeURIComponent(String(value))
   }))
 }

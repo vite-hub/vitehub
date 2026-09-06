@@ -6,58 +6,190 @@
   <img alt="Runtime" src="https://img.shields.io/badge/Runtime-context%20%7C%20policy%20%7C%20trace-18181b?style=flat-square">
 </p>
 
-`@vite-hub/runtime` shares host context, capability handles, policy decisions, approvals, traces, and leases across packages.
+`@vite-hub/runtime` provides the shared Runtime Host Context, Runtime Capability,
+policy, approval, trace, error, lease, and execution-authority contracts used by
+ViteHub packages and custom host integrations.
 
-## Install
+## Choose an import
+
+| You are building                              | Install                   | Import                                              |
+| --------------------------------------------- | ------------------------- | --------------------------------------------------- |
+| A ViteHub application                         | `vite-hub`                | `vite-hub/runtime`                                  |
+| A reusable package or custom host integration | `@vite-hub/runtime`       | `@vite-hub/runtime`                                 |
+| Node diagnostics and process lifecycle        | The same selected package | `vite-hub/runtime/node` or `@vite-hub/runtime/node` |
+
+Use the `vite-hub` facade when it is already your application dependency. Install
+this owner package directly when the integration should depend only on Runtime's
+portable contracts. This package does not register Vite, Nuxt, routes, providers,
+or Agent Definitions.
+
+## Install the owner package
 
 ```sh
 pnpm add @vite-hub/runtime
 ```
 
-## Minimal API
+The package declares Node.js 24 or newer. Import the root entry for portable
+Runtime contracts. When inspected, the `/node` entry reads Node process
+information and, on Linux, `/proc` and cgroup v2 files.
+
+Long-lived Node services can also use `createProcessReconciler()` from the `/node`
+entry to coalesce event-driven work, run periodic repair, stop admission, and await
+tracked work during a graceful drain. Set `signal: "SIGUSR2"` when the service
+manager should trigger that drain through the `vitehub-drain` command included
+with the owner-package installation, `@vite-hub/runtime`. Lifecycle callbacks
+must return before an external caller starts `drain()`; calling `drain()` from an
+active callback rejects to prevent that callback from waiting on itself. Keep the
+status endpoint available until `vitehub-drain` observes the terminal `drained`
+status; process exit or endpoint loss before that acknowledgement is a failed drain.
+
+## Get a first result
+
+Create the host context explicitly, register one Runtime Capability, and look it
+up through the public package entry:
 
 ```ts
-// server/utils/runtime-context.ts
-import {
-  createExecutionContext,
-  defineCapability,
-  getCapability,
-  resolveCapabilityPolicy,
-} from "@vite-hub/runtime"
+import { createRuntimeContext, defineCapability, getCapability } from "@vite-hub/runtime";
 
-const context = createExecutionContext({
-  runtime: "vite",
-  memo: (key, create) => create(),
-  waitUntil: task => task.catch(() => {}),
+const context = createRuntimeContext({
   capabilities: {
-    kv: defineCapability("kv", {
-      get: async (_key: string) => null,
-    }),
+    health: defineCapability("health", { status: "ready" }),
   },
-})
+  runtime: "node",
+});
 
-const kv = getCapability(context, "kv")
+const health = getCapability(context, "health");
+console.log(`${context.runtime}:${health.kind}`);
+await context.flushWaitUntil();
+```
 
-const decision = await resolveCapabilityPolicy("require-approval", {
-  capability: kv.name,
-  operation: "write",
+Running the file prints:
+
+```text
+node:health
+```
+
+`createRuntimeContext()` gives each operation a fresh memo cache and tracks work
+registered with `waitUntil()`. Pass the host's `waitUntil` method to forward that
+work to a real provider lifetime. Without one, await `flushWaitUntil()` before
+returning. A flush drains nested work and then reports the first observed failure.
+The constructor does not extend serverless lifetime or cancel background tasks.
+
+For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
+`vite-hub/runtime/h3`. This framework entry normalizes event bindings and lifetime
+methods. The Runtime owner package has no H3 dependency.
+
+`createExecutionContext()` always returns a complete Execution Context. It creates
+fresh empty `capabilities` and `runtimeConfig` objects when the host omits them,
+and preserves the supplied objects when the host provides them.
+
+## Understand the boundaries
+
+### Runtime Host Context
+
+`createExecutionContext()` normalizes a complete object supplied by the host.
+`createRuntimeContext()` also supplies memo storage and background-work tracking.
+The host still owns the runtime name, request or event data, provider bindings,
+background-work lifetime, and cleanup. Runtime does not discover framework globals, propagate an
+ambient context, or isolate concurrent requests.
+
+Treat every value on the context as available to code that receives it. Runtime
+does not clone, redact, encrypt, or restrict `request`, `event`, `cloudflare.env`,
+`runtimeConfig`, or Runtime Capability values. Pass only the bindings and secrets
+needed by that operation, and do not copy secrets into traces or approval input.
+
+### Runtime Capabilities
+
+`defineCapability()` and `getCapability()` pass a named implementation between
+packages. A handle is not a permission boundary: code that receives its `value`
+can call that implementation. Keep authentication, tenant checks, input
+validation, rate limits, and provider credentials at the application or provider
+boundary that owns the operation.
+
+### Policy and approvals
+
+`resolveCapabilityPolicy()` evaluates a decision. An omitted policy resolves to
+`allow`; `deny` and `require-approval` have an effect only when the calling
+feature checks the decision before performing work. The approval interfaces are
+records, not a durable approval queue or trusted approver service. The host must
+authenticate the actor, persist and correlate decisions when required, prevent
+replay, and resume or reject the operation.
+
+### Traces
+
+`createTraceEventLog()` is an in-memory log. Its default `metadata` policy omits
+known content-bearing attribute keys such as `input`, `prompt`, `body`, and
+`output`, including nested keys. This is bounded omission by key, not general
+secret detection. Arbitrary names such as `token` or `authorization` are not
+automatically redacted, and `error.message` is retained. `{ content: "content" }`
+retains all supplied attributes.
+
+Own trace access, retention, size limits, redaction, and durable export in the
+host. `entries()` returns the current in-memory entries; it does not persist or
+stream them by itself.
+
+### Execution authority and public errors
+
+`ExecutionAuthority` is an immutable snapshot of the filesystem, network,
+environment, credentials, process, and isolation properties reported when an
+execution surface is resolved. It describes those properties; it does not enforce
+them. `unknown` means the provider did not prove a dimension; it never means
+`none`. An isolation label such as `container` or `microvm` is not a security rank.
+
+`ViteHubError` snapshots its JSON-safe public `name`, `code`, `message`, `details`,
+and `requestId` at construction, and freezes the serialized snapshot and its
+details. Never put secrets in those fields; keep raw provider failures in `cause`.
+A `cause` is excluded from `toJSON()`, but remains available to code and loggers
+that inspect the Error instance.
+
+### Developer diagnostics
+
+Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Expected portable failures keep the `ViteHubError` public contract. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
+
+`normalizeRuntimeDiagnosticError(error)` creates a bounded diagnostic record. It
+preserves Nostics codes, fixes, documentation links, and source locations from
+Error instances and JSON records. Causes, aggregate errors, details, and source
+locations share a node budget. All strings share a size budget. Stacks require
+`{ includeStack: true }`.
+
+Use `formatRuntimeDiagnosticError(error)` for terminal output or Agent tool error
+text. It prints the code, message, fix, source locations, and documentation link
+with Nostics formatting. It omits causes and stacks. Plain errors return their
+message. Both helpers accept `unknown` and handle failed property reads.
+
+These helpers produce developer diagnostics. They do not make arbitrary errors
+safe for public responses. Use the `ViteHubError` public contract at that boundary.
+
+## Public entry points
+
+| Import                   | Provides                                                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, and execution-authority APIs |
+| `@vite-hub/runtime/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
+
+Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
+
+## Go deeper
+
+- [Runtime Context](https://vitehub.dev/docs/concepts/runtime-context)
+- [Runtime policy, approvals, and traces](https://vitehub.dev/docs/concepts/runtime-policy-approvals-and-traces)
+- [Runtime events](https://vitehub.dev/docs/reference/runtime-events)
+- [Stable import paths](https://vitehub.dev/docs/reference/import-paths)
+- [Node Runtime diagnostics](https://vitehub.dev/docs/capabilities/diagnostics)
+- [Report a Runtime issue](https://github.com/vite-hub/vitehub/issues/new)
+
+### Work checkpoints
+
+`createWorkTracker({ store })` owns single-process work deduplication and durable park/retry checkpoints. The store exposes asynchronous `get(key)` and `set(key, checkpoint)` operations. The application supplies a meaningful state fingerprint and decides whether a completed run should park or retry.
+
+```ts
+import { createWorkTracker } from '@vite-hub/runtime'
+
+const work = createWorkTracker({ store, retryMs: 60_000, maxRetryMs: 3_600_000 })
+await work.run(key, observedFingerprint, async () => {
+  await repair()
+  return { disposition: 'park', fingerprint: repairedFingerprint }
 })
 ```
 
-An omitted policy resolves to `allow`. Pass `require-approval` or `deny` when an operation needs an explicit gate.
-
-## Execution authority
-
-`ExecutionAuthority` is the normalized, provider-independent description of what one resolved execution surface grants. It records filesystem access and scope, network egress, environment inheritance, credential access, process execution, and the isolation mechanism. Read it from the resolved owner, such as `box.plan.executionAuthority`, `WorkspaceSession.executionAuthority`, `SandboxRunner.executionAuthority`, or `AgentInspectionMetadata.config.driver.executionAuthority`.
-
-Each resolved descriptor is an immutable snapshot of the authority known at resolution time. `unknown` means the provider cannot prove or did not report that dimension; it never means `none`. `isolation` identifies a mechanism such as a container or microVM, but it is not a security rank and does not imply anything about filesystem, network, credentials, or processes. Providers must report every dimension explicitly instead of inheriting a permissive default.
-
-Executable selection, fixed argument arrays, and executable allowlists are dispatch controls. They do not constrain what a selected process can read, reach, inherit, or spawn, so they are not represented as isolation.
-
-`ViteHubError` clones and freezes its JSON-safe public details at construction, and `toJSON()` always returns that immutable snapshot. Put raw provider failures in `cause`; changing the original details or the error's public fields later cannot change serialized output. Accessors, cycles, `bigint`, non-finite numbers, and oversized detail trees are rejected with a fixed `TypeError`, so callers that previously passed mutable or non-JSON detail objects must normalize them first.
-
-## Used by
-
-Feature packages use Runtime Capability handles instead of passing every provider client through every API. Agent Capabilities consume these handles when they expose KV, Blob, DB, sandbox, shell, or workspace behavior.
-
-Learn more at [vitehub.dev](https://vitehub.dev).
+Unchanged parked work is skipped. Retries use bounded exponential backoff, including thrown errors. A changed fingerprint bypasses cooldown. Failed checkpoint writes retain a local cooldown and propagate the persistence failure; they do not claim durability. Active keys are exclusive within one tracker. Use an external lease for multiple hosts sharing work. `eligible(key, fingerprint)` supports discovery filtering, while `run` rechecks eligibility after acquiring local ownership.

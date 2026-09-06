@@ -15,13 +15,17 @@ import { renderEmailMarkdown } from "../src/markdown.ts"
 import { email } from "../src/server.ts"
 import { createTestEmail, type TestEmailClient } from "../src/test.ts"
 import { hubEmail } from "../src/vite.ts"
-import resend from "unemail/driver/resend"
+import resend from "../src/drivers/resend.ts"
 
-resend({ apiKey: "secret" }) satisfies EmailDriver
-const lazyDriver = (() => resend({ apiKey: "secret" })) satisfies EmailDriverFactory
+resend({ apiKey: "re_secret" }) satisfies EmailDriver
+const _lazyDriver = (() => resend({ apiKey: "re_secret" })) satisfies EmailDriverFactory
 declare const message: EmailMessage
 
-hubEmail({ driver: "unemail/driver/resend" })
+// @ts-expect-error Email messages have one envelope sender.
+const multipleSenders: EmailMessage = { from: ["first@example.com", "second@example.com"], subject: "Hello", to: "reader@example.com" }
+void multipleSenders
+
+hubEmail({ driver: "resend" })
 // @ts-expect-error Email requires a configured provider.
 hubEmail()
 // @ts-expect-error File discovery is not an Email configuration model.
@@ -38,6 +42,7 @@ it("exports the portable Email contract", () => {
   expectTypeOf(email.send).parameters.toEqualTypeOf<[message: EmailMessage]>()
   expectTypeOf(email.send).returns.toEqualTypeOf<Promise<EmailSendResult>>()
   expectTypeOf(message.to).toEqualTypeOf<EmailAddressList>()
+  expectTypeOf(message.from).toEqualTypeOf<EmailAddress>()
 })
 
 it("exports Markdown and test helpers from dedicated entrypoints", () => {

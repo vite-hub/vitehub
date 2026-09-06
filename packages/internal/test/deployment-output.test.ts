@@ -1,13 +1,30 @@
-import { existsSync } from "node:fs"
+import { existsSync, renameSync, rmSync } from "node:fs"
+import { spawnSync } from "node:child_process"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { join, relative } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { removeProviderOutputArtifactDir } from "../src/build/provider-output-sources.ts"
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>()
+  return { ...actual, renameSync: vi.fn(actual.renameSync), rmSync: vi.fn(actual.rmSync) }
+})
+
 vi.mock("../src/build/esbuild.ts", () => ({
-  bundleEsmEntry: vi.fn(async () => undefined),
+  bundleEsmEntry: vi.fn(async (_entry: string, outfile: string) => {
+    await mkdir(dirname(outfile), { recursive: true })
+    await writeFile(outfile, "export default {}\n", "utf8")
+  }),
 }))
+
+vi.mock("../src/build/provider-output-sources.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/build/provider-output-sources.ts")>()
+  return { ...original, removeProviderOutputArtifactDir: vi.fn(original.removeProviderOutputArtifactDir) }
+})
 
 const tempDirs: string[] = []
 
@@ -30,10 +47,44 @@ async function writePackage(rootDir: string, name: string, packageJson: Record<s
 }
 
 afterEach(async () => {
+  const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+  vi.mocked(renameSync).mockReset().mockImplementation(actualFs.renameSync)
+  vi.mocked(rmSync).mockReset().mockImplementation(actualFs.rmSync)
+  vi.mocked(bundleEsmEntry).mockReset().mockImplementation(async (_entry, outfile) => {
+    await mkdir(dirname(outfile), { recursive: true })
+    await writeFile(outfile, "export default {}\n", "utf8")
+  })
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
 describe("provider deployment outputs", () => {
+  it("bundles retained sources against their captured project root", async () => {
+    const rootDir = await createTempProject()
+    const sourceRootDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources", "0")
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "cloudflare.mjs"),
+        bundleOptions: {},
+        wranglerConfig: {},
+      },
+      netlify: {
+        functions: [{ bundleEntry: join(rootDir, "netlify.mjs"), bundleOptions: {}, functionName: "agent" }],
+      },
+      rootDir,
+      sourceRootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "vercel.mjs"),
+        bundleOptions: {},
+      },
+    })
+
+    expect(vi.mocked(bundleEsmEntry).mock.calls).toHaveLength(3)
+    expect(vi.mocked(bundleEsmEntry).mock.calls.every(([, , options]) => options?.rootDir === sourceRootDir)).toBe(true)
+  })
+
   it("preserves default output roots for omitted providers", async () => {
     const rootDir = await createTempProject()
     const {
@@ -134,6 +185,59 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       kv_namespaces: [{ binding: "SETTINGS", id: "namespace-id" }],
     })
+  })
+
+  it("keeps Cloudflare transaction backups out of client output", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const clientDir = join(rootDir, "dist")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const copiedBackup = join(rootDir, "dist", "client", `${relative(clientDir, cloudflareDir)}.previous`)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "<!doctype html>\n")
+    await writeFile(join(cloudflareDir, "index.js"), "old worker\n")
+    await writeFile(join(cloudflareDir, "wrangler.json"), "{\"main\":\"index.js\"}\n")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      cloudflare: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        wranglerConfig: { main: "index.js" },
+      },
+      rootDir,
+    })
+
+    expect(existsSync(copiedBackup)).toBe(false)
+  })
+
+  it("backs up custom Cloudflare roots outside their client tree", async () => {
+    const rootDir = await createTempProject()
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const outputRoot = join(rootDir, "dist")
+    const clientDir = join(outputRoot, "client")
+    const staticOutputDir = join(outputRoot, "static")
+    await mkdir(clientDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "<!doctype html>\n")
+    await writeFile(join(outputRoot, "index.js"), "old worker\n")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        outputRoot,
+        staticOutputDir,
+        wranglerConfig: { main: "index.js" },
+      },
+      rootDir,
+    })
+
+    await expect(readFile(join(staticOutputDir, "index.html"), "utf8")).resolves.toBe("<!doctype html>\n")
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ main: "index.js" })
   })
 
   it("excludes nested Cloudflare output from every Vercel static copy", async () => {
@@ -314,6 +418,65 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
       triggers: { crons: ["0 0 * * *"] },
+    })
+  })
+
+  it("retains current provider bindings while cleaning stale ownership", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [
+        { binding: "CURRENT", id: "stale-namespace" },
+        { binding: "STALE", id: "stale-namespace" },
+      ],
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          wranglerConfigOwnership: {
+            arrays: {
+              kv_namespaces: {
+                key: "binding",
+                retainOnCleanup: [{ binding: "CURRENT", id: "current-namespace" }],
+                values: ["CURRENT", "STALE"],
+              },
+            },
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "CURRENT", id: "current-namespace" }],
+    })
+
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          wranglerConfigOwnership: {
+            arrays: {
+              kv_namespaces: {
+                key: "binding",
+                retainOnCleanup: [{ binding: "CURRENT", id: "current-namespace" }],
+                values: ["CURRENT", "STALE"],
+              },
+            },
+          },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "CURRENT", id: "current-namespace" }],
     })
   })
 
@@ -583,8 +746,8 @@ describe("provider deployment outputs", () => {
     await expect(readFile(functionFile, "utf8")).resolves.toContain("\"nodeBundler\": \"esbuild\"")
     expect(vi.mocked(bundleEsmEntry)).toHaveBeenCalledWith(
       join(rootDir, "agent.mjs"),
-      functionFile,
-      { format: "esm", minifyIdentifiers: true, platform: "node", rootDir },
+      join(`${netlifyDir}.pending`, "functions", "vitehub-agent.mjs"),
+      { format: "esm", minifyIdentifiers: true, platform: "node", rootDir, signal: undefined },
     )
     await expect(readFile(join(netlifyDir, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       edge_functions: [{ function: "vitehub-edge", path: "/edge" }],
@@ -592,6 +755,62 @@ describe("provider deployment outputs", () => {
       images: { remote_images: ["https://images.example.com/.*"] },
       redirects: [{ from: "/docs", status: 200, to: "/docs/index.html" }],
     })
+  })
+
+  it("keeps committed Netlify output when backup cleanup fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultNetlifyOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+    const outputRoot = createDefaultNetlifyOutputRoot(rootDir)
+    const previousOutputRoot = `${outputRoot}.previous`
+    await mkdir(outputRoot, { recursive: true })
+    await writeFile(join(outputRoot, "config.json"), '{"redirects":[{"from":"/old","to":"/before"}]}\n')
+    vi.mocked(rmSync).mockImplementation((path, options) => {
+      if (path === previousOutputRoot) throw new Error("backup cleanup failed")
+      return actualFs.rmSync(path, options)
+    })
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      netlify: {
+        config: { redirects: [{ from: "/new", to: "/after" }] },
+        configKeys: ["redirects"],
+      },
+      rootDir,
+    })
+
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      redirects: [{ from: "/new", to: "/after" }],
+    })
+    expect(existsSync(previousOutputRoot)).toBe(true)
+  })
+
+  it("keeps committed provider output when transaction snapshot cleanup fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultNetlifyOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultNetlifyOutputRoot(rootDir)
+    vi.mocked(removeProviderOutputArtifactDir).mockClear()
+    vi.mocked(removeProviderOutputArtifactDir).mockRejectedValueOnce(new Error("snapshot cleanup failed"))
+
+    await expect(writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      netlify: {
+        config: { redirects: [{ from: "/new", to: "/after" }] },
+        configKeys: ["redirects"],
+      },
+      rootDir,
+    })).resolves.toBeUndefined()
+
+    await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      redirects: [{ from: "/new", to: "/after" }],
+    })
+    expect(removeProviderOutputArtifactDir).toHaveBeenCalledOnce()
   })
 
   it("removes owned Cloudflare config keys before merging new output", async () => {
@@ -651,7 +870,9 @@ describe("provider deployment outputs", () => {
       },
     })
 
-    const config = await readFile(join(vercelDir, "config.json"), "utf8").then(JSON.parse) as { crons?: unknown, routes?: unknown, version?: unknown }
+    const parsedConfig: unknown = JSON.parse(await readFile(join(vercelDir, "config.json"), "utf8"))
+    // SAFETY: writeProviderDeploymentOutputs writes a JSON object, whose owned properties are asserted below.
+    const config = parsedConfig as { crons?: unknown, routes?: unknown, version?: unknown }
     expect(config.crons).toBeUndefined()
     expect(config.routes).toEqual([{ handle: "filesystem" }, { dest: "/__server", src: "/(.*)" }])
     expect(config.version).toBe(3)
@@ -712,6 +933,450 @@ describe("provider deployment outputs", () => {
     })
 
     expect(existsSync(cloudflareDir)).toBe(false)
+  })
+
+  it("preserves previous provider output when replacement output fails", async () => {
+    vi.mocked(bundleEsmEntry).mockRejectedValueOnce(new Error("bundle failed"))
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const workerFile = join(cloudflareDir, "worker.mjs")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(workerFile, "export default {}")
+    await writeFile(join(cloudflareDir, "wrangler.json"), "{\"main\":\"worker.mjs\"}\n")
+
+    await expect(writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: {
+          fileNames: ["worker.mjs"],
+          wranglerConfigOwnership: { keys: ["main"] },
+        },
+      },
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "missing-entry.mjs"),
+        bundleOptions: {},
+        function: { kind: "isolated", name: "workflow.func" },
+      },
+    })).rejects.toThrow()
+
+    await expect(readFile(workerFile, "utf8")).resolves.toBe("export default {}")
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
+  })
+
+  it("restores standalone provider output when post-write finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    const workerFile = join(cloudflareDir, "worker.mjs")
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(workerFile, "old worker\n")
+    await writeFile(join(cloudflareDir, "wrangler.json"), '{"main":"worker.mjs"}\n')
+
+    await expect(writeProviderDeploymentOutputs({
+      afterWrite: async () => {
+        throw new Error("post-write finalization failed")
+      },
+      clientOutDir: "dist/client",
+      cloudflare: {
+        files: { "worker.mjs": "new worker\n" },
+        wranglerConfig: { main: "worker.mjs" },
+      },
+      rootDir,
+    })).rejects.toThrow("post-write finalization failed")
+
+    await expect(readFile(workerFile, "utf8")).resolves.toBe("old worker\n")
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({ main: "worker.mjs" })
+  })
+
+  it("restores published Agent sources when finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const agentDir = join(rootDir, ".vitehub", "agent")
+    const sourcesDir = join(agentDir, "sources")
+    const {
+      contributeProviderDeploymentOutput,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    await mkdir(sourcesDir, { recursive: true })
+    await writeFile(join(agentDir, "netlify-function.mjs"), "old handler")
+    await writeFile(join(sourcesDir, "context.md"), "old source")
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => {
+        await write({
+          afterWrite: async () => {
+            await rm(agentDir, { force: true, recursive: true })
+            await mkdir(sourcesDir, { recursive: true })
+            await writeFile(join(agentDir, "netlify-function.mjs"), "new handler")
+            await writeFile(join(sourcesDir, "context.md"), "new source")
+          },
+          clientOutDir: "dist/client",
+          rootDir,
+        })
+        throw new Error("later provider failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("later provider failed")
+
+    await expect(readFile(join(agentDir, "netlify-function.mjs"), "utf8")).resolves.toBe("old handler")
+    await expect(readFile(join(sourcesDir, "context.md"), "utf8")).resolves.toBe("old source")
+  })
+
+  it("restores published Schedule sources when finalization fails", async () => {
+    const rootDir = await createTempProject()
+    const scheduleDir = join(rootDir, ".vitehub", "schedule")
+    const sourcesDir = join(scheduleDir, "sources")
+    const {
+      contributeProviderDeploymentOutput,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    await mkdir(sourcesDir, { recursive: true })
+    await writeFile(join(scheduleDir, "registry.mjs"), "old registry")
+    await writeFile(join(sourcesDir, "cleanup.schedule.ts"), "old source")
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "schedule",
+      rootDir,
+      write: async ({ write }) => {
+        await write({
+          afterWrite: async () => {
+            await rm(scheduleDir, { force: true, recursive: true })
+            await mkdir(sourcesDir, { recursive: true })
+            await writeFile(join(scheduleDir, "registry.mjs"), "new registry")
+            await writeFile(join(sourcesDir, "cleanup.schedule.ts"), "new source")
+          },
+          clientOutDir: "dist/client",
+          rootDir,
+        })
+        throw new Error("later provider failed")
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("later provider failed")
+
+    await expect(readFile(join(scheduleDir, "registry.mjs"), "utf8")).resolves.toBe("old registry")
+    await expect(readFile(join(sourcesDir, "cleanup.schedule.ts"), "utf8")).resolves.toBe("old source")
+  })
+
+  it("preserves the previous Vercel function when replacement bundling is cancelled", async () => {
+    let bundlingStarted!: () => void
+    const started = new Promise<void>(resolve => bundlingStarted = resolve)
+    vi.mocked(bundleEsmEntry).mockImplementationOnce(async (_entry, outfile, options) => {
+      await writeFile(outfile, "incomplete replacement")
+      bundlingStarted()
+      await new Promise<void>((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true })
+      })
+    })
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createDefaultVercelOutputRoot,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+      resetProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const serverEntry = join(serverDir, "index.mjs")
+    await mkdir(serverDir, { recursive: true })
+    await writeFile(serverEntry, "valid function")
+    await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs22.x\"}\n")
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        rootDir,
+        vercel: {
+          bundleEntry: join(rootDir, "entry.mjs"),
+          bundleOptions: {},
+        },
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await started
+    await resetProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+
+    await expect(readFile(serverEntry, "utf8")).resolves.toBe("valid function")
+    await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs22.x\"}\n")
+    expect(existsSync(`${serverDir}.pending`)).toBe(false)
+    expect(existsSync(`${serverDir}.previous`)).toBe(false)
+  })
+
+  it("restores the previous Vercel function when companion output fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const staticDir = join(outputRoot, "static")
+    const serverEntry = join(serverDir, "index.mjs")
+    await mkdir(serverDir, { recursive: true })
+    await mkdir(staticDir, { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(serverEntry, "valid function")
+    await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs22.x\"}\n")
+    await writeFile(join(outputRoot, "config.json"), "{\"version\":2}\n")
+    await writeFile(join(staticDir, "index.html"), "old static")
+    await writeFile(join(rootDir, "dist", "client", "index.html"), "new static")
+
+    await expect(writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        config: new Date() as never,
+      },
+    })).rejects.toThrow("Provider output config must be a JSON object")
+
+    await expect(readFile(serverEntry, "utf8")).resolves.toBe("valid function")
+    await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs22.x\"}\n")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe("{\"version\":2}\n")
+    await expect(readFile(join(staticDir, "index.html"), "utf8")).resolves.toBe("old static")
+    expect(existsSync(`${outputRoot}.pending`)).toBe(false)
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it("removes first-time Vercel output when external static publication fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const clientDir = join(rootDir, "dist", "client")
+    const staticDir = join(rootDir, "public")
+    await mkdir(clientDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "new static")
+    vi.mocked(renameSync).mockImplementation((source, destination) => {
+      if (source === `${staticDir}.pending` && destination === staticDir) {
+        throw new Error("static publication failed")
+      }
+      return actualFs.renameSync(source, destination)
+    })
+
+    await expect(writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "entry.mjs"),
+        bundleOptions: {},
+        staticOutputDir: staticDir,
+      },
+    })).rejects.toThrow("static publication failed")
+
+    expect(existsSync(outputRoot)).toBe(false)
+    expect(existsSync(`${outputRoot}.pending`)).toBe(false)
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+    expect(existsSync(`${staticDir}.pending`)).toBe(false)
+  })
+
+  it("removes first-time external Vercel static output when publication is cancelled", async () => {
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createDefaultVercelOutputRoot,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+      resetProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const clientDir = join(rootDir, "dist", "client")
+    const staticDir = join(rootDir, "public")
+    const catalog = createProviderOutputCatalog()
+    let reset: Promise<void> | undefined
+    await mkdir(clientDir, { recursive: true })
+    await writeFile(join(clientDir, "index.html"), "new static")
+    vi.mocked(renameSync).mockImplementation((source, destination) => {
+      actualFs.renameSync(source, destination)
+      if (source === `${staticDir}.pending` && destination === staticDir) {
+        reset = resetProviderDeploymentOutputs(catalog)
+      }
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        rootDir,
+        vercel: {
+          bundleEntry: join(rootDir, "entry.mjs"),
+          bundleOptions: {},
+          staticOutputDir: staticDir,
+        },
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await reset
+
+    expect(existsSync(outputRoot)).toBe(false)
+    expect(existsSync(staticDir)).toBe(false)
+    expect(existsSync(`${staticDir}.pending`)).toBe(false)
+  })
+
+  it("restores all Vercel output when cancellation begins during companion writes", async () => {
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createDefaultVercelOutputRoot,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+      resetProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const serverDir = join(outputRoot, "functions", "__server.func")
+    const staticDir = join(outputRoot, "static")
+    await mkdir(serverDir, { recursive: true })
+    await mkdir(staticDir, { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
+    await writeFile(join(serverDir, "index.mjs"), "valid function")
+    await writeFile(join(outputRoot, "config.json"), "{\"version\":2}\n")
+    await writeFile(join(staticDir, "index.html"), "old static")
+    await writeFile(join(rootDir, "dist", "client", "index.html"), "new static")
+    const catalog = createProviderOutputCatalog()
+    let reset: Promise<void> | undefined
+    const config = new Proxy({ routes: [] }, {
+      get(target, property, receiver) {
+        if (property === "routes") reset = resetProviderDeploymentOutputs(catalog)
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        rootDir,
+        vercel: {
+          bundleEntry: join(rootDir, "entry.mjs"),
+          bundleOptions: {},
+          config,
+        },
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await reset
+
+    await expect(readFile(join(serverDir, "index.mjs"), "utf8")).resolves.toBe("valid function")
+    await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe("{\"version\":2}\n")
+    await expect(readFile(join(staticDir, "index.html"), "utf8")).resolves.toBe("old static")
+    expect(existsSync(`${outputRoot}.pending`)).toBe(false)
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it("restores all Cloudflare output when cancellation begins during companion writes", async () => {
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createDefaultCloudflareOutputRoot,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+      resetProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const clientDir = join(rootDir, "dist", "client")
+    const staticDir = join(rootDir, "public")
+    await mkdir(outputRoot, { recursive: true })
+    await mkdir(clientDir, { recursive: true })
+    await mkdir(staticDir, { recursive: true })
+    await writeFile(join(outputRoot, "index.js"), "valid worker")
+    await writeFile(join(outputRoot, "wrangler.json"), "{\"main\":\"index.js\",\"name\":\"old\"}\n")
+    await writeFile(join(outputRoot, "metadata.json"), "old metadata")
+    await writeFile(join(staticDir, "index.html"), "old static")
+    await writeFile(join(clientDir, "index.html"), "new static")
+    const catalog = createProviderOutputCatalog()
+    let reset: Promise<void> | undefined
+    const wranglerConfig = new Proxy({ main: "index.js", name: "new" }, {
+      ownKeys(target) {
+        reset = resetProviderDeploymentOutputs(catalog)
+        return Reflect.ownKeys(target)
+      },
+    })
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "agent",
+      rootDir,
+      write: async ({ write }) => await write({
+        clientOutDir: "dist/client",
+        cloudflare: {
+          bundleEntry: join(rootDir, "entry.mjs"),
+          bundleOptions: {},
+          files: { "metadata.json": "new metadata" },
+          staticOutputDir: staticDir,
+          wranglerConfig,
+        },
+        rootDir,
+      }),
+    })
+
+    const finalization = finalizeProviderDeploymentOutputs(catalog)
+    await expect(finalization).rejects.toThrow("Provider Output finalization reset")
+    await reset
+
+    await expect(readFile(join(outputRoot, "index.js"), "utf8")).resolves.toBe("valid worker")
+    await expect(readFile(join(outputRoot, "wrangler.json"), "utf8")).resolves.toBe("{\"main\":\"index.js\",\"name\":\"old\"}\n")
+    await expect(readFile(join(outputRoot, "metadata.json"), "utf8")).resolves.toBe("old metadata")
+    await expect(readFile(join(staticDir, "index.html"), "utf8")).resolves.toBe("old static")
+    expect(existsSync(`${outputRoot}.previous`)).toBe(false)
+  })
+
+  it("settles every started provider write before rejecting", async () => {
+    let finishVercelWrite: (() => void) | undefined
+    vi.mocked(bundleEsmEntry).mockImplementation(async (_entry, outfile) => {
+      if (outfile.endsWith("index.js.pending")) throw new Error("cloudflare failed")
+      await new Promise<void>((resolve) => {
+        finishVercelWrite = resolve
+      })
+    })
+    const rootDir = await createTempProject()
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    let rejected = false
+
+    const output = writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      cloudflare: {
+        bundleEntry: join(rootDir, "cloudflare-entry.mjs"),
+        bundleOptions: {},
+        wranglerConfig: {},
+      },
+      rootDir,
+      vercel: {
+        bundleEntry: join(rootDir, "vercel-entry.mjs"),
+        bundleOptions: {},
+      },
+    })
+    const failure = output.then(() => undefined, (error: unknown) => {
+      rejected = true
+      return error
+    })
+
+    await vi.waitFor(() => expect(finishVercelWrite).toBeTypeOf("function"))
+    expect(rejected).toBe(false)
+    finishVercelWrite?.()
+    await expect(failure).resolves.toEqual(new Error("cloudflare failed"))
   })
 
   it("resolves cleanup ownership after preceding provider writes", async () => {
@@ -848,6 +1513,153 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(serverDir, "node_modules", "optional-peer", "package.json"))).toBe(false)
   })
 
+  it("preserves Vercel runtime packages when cancellation interrupts their replacement", async () => {
+    vi.resetModules()
+    let releaseTrace: (() => void) | undefined
+    const traceStarted = Promise.withResolvers<void>()
+    vi.doMock("@vercel/nft", () => ({
+      nodeFileTrace: vi.fn(async () => {
+        traceStarted.resolve()
+        await new Promise<void>((resolve) => {
+          releaseTrace = resolve
+        })
+        return { fileList: new Set(["index.js"]) }
+      }),
+    }))
+
+    try {
+      const rootDir = await createTempProject()
+      const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+      const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+      const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+      const existingPackage = join(serverDir, "node_modules", "runtime-package")
+      await writePackage(rootDir, "runtime-package", { exports: { ".": "./index.js" } })
+      await writeFile(join(rootDir, "node_modules", "runtime-package", "index.js"), "export const version = 'new'\n", "utf8")
+      await mkdir(existingPackage, { recursive: true })
+      await writeFile(join(existingPackage, "index.js"), "export const version = 'old'\n", "utf8")
+      const controller = new AbortController()
+
+      const copying = copyVercelFunctionRuntimePackages({
+        packages: [{ name: "runtime-package" }],
+        rootDir,
+        signal: controller.signal,
+      })
+      await traceStarted.promise
+      controller.abort()
+      releaseTrace?.()
+
+      await expect(copying).rejects.toHaveProperty("name", "AbortError")
+      await expect(readFile(join(existingPackage, "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
+    }
+    finally {
+      vi.doUnmock("@vercel/nft")
+      vi.resetModules()
+    }
+  })
+
+  it("rolls back Vercel runtime packages when cancellation follows the live swap", async () => {
+    const rootDir = await createTempProject()
+    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+    const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const existingPackage = join(serverDir, "node_modules", "runtime-package")
+    await writePackage(rootDir, "runtime-package")
+    await writeFile(join(rootDir, "node_modules", "runtime-package", "index.js"), "export const version = 'new'\n", "utf8")
+    await mkdir(existingPackage, { recursive: true })
+    await writeFile(join(existingPackage, "index.js"), "export const version = 'old'\n", "utf8")
+    let checks = 0
+    const signal = {
+      throwIfAborted() {
+        checks += 1
+        if (checks === 3) throw new DOMException("cancelled", "AbortError")
+      },
+    } as AbortSignal
+
+    await expect(copyVercelFunctionRuntimePackages({
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+      signal,
+    })).rejects.toHaveProperty("name", "AbortError")
+
+    await expect(readFile(join(existingPackage, "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
+  })
+
+  it("does not resolve Vercel runtime packages without server output", async () => {
+    const rootDir = await createTempProject()
+    const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+    const resolvePackages = vi.fn(() => [{ name: "runtime-package" }])
+
+    await copyVercelFunctionRuntimePackages({
+      packages: resolvePackages,
+      rootDir,
+    })
+
+    expect(resolvePackages).not.toHaveBeenCalled()
+  })
+
+  it("copies runtime packages into an explicit Node output", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    const runtimePackageDir = await writePackage(rootDir, "runtime-package", {
+      dependencies: { "runtime-dependency": "1.0.0" },
+      exports: { ".": "./index.js" },
+      type: "module",
+    })
+    await writePackage(rootDir, "runtime-dependency")
+    await writeFile(join(runtimePackageDir, "index.js"), "import 'runtime-dependency'\nconsole.log('runtime-ready')\n", "utf8")
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+    })
+
+    expect(existsSync(join(outputNodeModules, "runtime-package", "index.js"))).toBe(true)
+    expect(existsSync(join(outputNodeModules, "runtime-dependency", "package.json"))).toBe(true)
+    expect(spawnSync(process.execPath, [join(outputNodeModules, "runtime-package", "index.js")], { encoding: "utf8" })).toMatchObject({
+      status: 0,
+      stdout: "runtime-ready\n",
+    })
+  })
+
+  it("copies cyclic Node runtime package dependencies once", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "first-runtime", { dependencies: { "second-runtime": "1.0.0" } })
+    await writePackage(rootDir, "second-runtime", { dependencies: { "first-runtime": "1.0.0" } })
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [{ name: "first-runtime" }],
+      rootDir,
+    })
+
+    expect(existsSync(join(outputNodeModules, "first-runtime", "package.json"))).toBe(true)
+    expect(existsSync(join(outputNodeModules, "second-runtime", "package.json"))).toBe(true)
+  })
+
+  it("expands required peers when a copied runtime package is revisited with peer inclusion", async () => {
+    const rootDir = await createTempProject()
+    const outputNodeModules = join(rootDir, ".output", "server", "node_modules")
+    await writePackage(rootDir, "first-runtime", { dependencies: { "shared-runtime": "1.0.0" } })
+    await writePackage(rootDir, "shared-runtime", { peerDependencies: { "runtime-peer": "1.0.0" } })
+    await writePackage(rootDir, "runtime-peer")
+    const { copyNodeRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+
+    await copyNodeRuntimePackages({
+      outputNodeModules,
+      packages: [
+        { name: "first-runtime" },
+        { includePeerDependencies: true, name: "shared-runtime" },
+      ],
+      rootDir,
+    })
+
+    expect(existsSync(join(outputNodeModules, "runtime-peer", "package.json"))).toBe(true)
+  })
+
   it("preserves nested dependency versions in copied Vercel runtime packages", async () => {
     const rootDir = await createTempProject()
     const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
@@ -865,6 +1677,33 @@ describe("provider deployment outputs", () => {
 
     await expect(readFile(join(serverDir, "node_modules", "first-runtime", "node_modules", "shared", "package.json"), "utf8").then(JSON.parse)).resolves.toHaveProperty("version", "1.0.0")
     await expect(readFile(join(serverDir, "node_modules", "shared", "package.json"), "utf8").then(JSON.parse)).resolves.toHaveProperty("version", "2.0.0")
+  })
+
+  it("rolls back copied Vercel runtime package directories when cancellation follows the live swap", async () => {
+    const rootDir = await createTempProject()
+    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+    const { copyVercelFunctionRuntimePackageDirectories } = await import("../src/build/vercel-runtime-package-copy.ts")
+    const serverDir = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func")
+    const existingPackage = join(serverDir, "node_modules", "runtime-package")
+    await writePackage(rootDir, "runtime-package")
+    await writeFile(join(rootDir, "node_modules", "runtime-package", "index.js"), "export const version = 'new'\n", "utf8")
+    await mkdir(existingPackage, { recursive: true })
+    await writeFile(join(existingPackage, "index.js"), "export const version = 'old'\n", "utf8")
+    let checks = 0
+    const signal = {
+      throwIfAborted() {
+        checks += 1
+        if (checks === 3) throw new DOMException("cancelled", "AbortError")
+      },
+    } as AbortSignal
+
+    await expect(copyVercelFunctionRuntimePackageDirectories({
+      packages: [{ name: "runtime-package" }],
+      rootDir,
+      signal,
+    })).rejects.toHaveProperty("name", "AbortError")
+
+    await expect(readFile(join(existingPackage, "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
   })
 
   it("resolves import-only Vercel runtime packages from an explicit package location", async () => {

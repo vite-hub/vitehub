@@ -8,6 +8,7 @@ import { declaredRateLimitPolicy, normalizeRateLimitPolicy, rateLimitPolicyKeys 
 
 import type { ESTree } from "vite"
 import type { RateLimitDeclaration, RateLimitPolicy } from "./types.ts"
+import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 const rateLimitImports = new Set(["@vite-hub/rate-limit", "vite-hub/rate-limit"])
 const ignoredSourceDirectories = new Set(["__tests__", "test", "tests"])
@@ -28,7 +29,7 @@ function location(source: string, offset: number): { column: number, line: numbe
 
 function declarationError(file: string, source: string, node: { start: number }, message: string): Error {
   const { column, line } = location(source, node.start)
-  return new Error(`[vitehub] ${message}\n  at ${file}:${line}:${column}`)
+  return rateLimitErrorDiagnostics.RATE_LIMIT_R0001({ message: `[vitehub] ${message}\n  at ${file}:${line}:${column}` })
 }
 
 interface RateLimitBindings {
@@ -318,7 +319,7 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
   if (!source.includes("requireRateLimit")) return []
   const parsed = parseSync(file, source)
   if (parsed.errors.length > 0) {
-    throw new Error(`[vitehub] Could not parse ${file} while collecting Rate Limits: ${parsed.errors[0]?.message}`)
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0002({ message: `[vitehub] Could not parse ${file} while collecting Rate Limits: ${parsed.errors[0]?.message}` })
   }
 
   const rootShadows = programBindings(parsed.program)
@@ -423,11 +424,11 @@ export function discoverRateLimitCatalog(options: { rootDir: string, scanDirs?: 
     for (const declaration of extracted) {
       const existing = declarations.get(declaration.name)
       if (existing && JSON.stringify(existing.policy) !== JSON.stringify(declaration.policy)) {
-        throw new Error([
+        throw rateLimitErrorDiagnostics.RATE_LIMIT_R0003({ message: [
           `[vitehub] Conflicting Rate Limit policies for ID "${declaration.name}":`,
           `  - ${existing.source.file}:${existing.source.line}:${existing.source.column} ${JSON.stringify(existing.policy)}`,
           `  - ${declaration.source.file}:${declaration.source.line}:${declaration.source.column} ${JSON.stringify(declaration.policy)}`,
-        ].join("\n"))
+        ].join("\n") })
       }
       if (!existing) declarations.set(declaration.name, declaration)
     }

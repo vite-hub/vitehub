@@ -5,7 +5,8 @@ import { hubWorkspace } from "@vite-hub/workspace/vite"
 export default defineConfig({
   appType: "custom",
   build: {
-    rollupOptions: {
+    ssr: true,
+    rolldownOptions: {
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
   },

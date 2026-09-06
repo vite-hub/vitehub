@@ -20,6 +20,8 @@
   },
   "files": [
     "dist",
+    "types",
+    "tsconfig.vite.json",
     "package.json"
   ],
   "type": "module",
@@ -29,6 +31,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
     },
     "./file": {
       "types": "./dist/file.d.ts",
@@ -50,7 +56,16 @@
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js"
     },
-    "./package.json": "./package.json"
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    },
+    "./package.json": "./package.json",
+    "./tsconfig": "./tsconfig.vite.json"
   },
   "scripts": {
     "build": "vp pack",
@@ -59,8 +74,13 @@
     "test": "vp run -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
-    "effect": "catalog:effect"
+    "effect": "catalog:effect",
+    "h3": "catalog:unjs",
+    "mlly": "catalog:unjs",
+    "nostics": "catalog:runtime",
+    "ofetch": "catalog:unjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai",
@@ -73,8 +93,23 @@
     "publint": "catalog:tooling",
     "tinyglobby": "catalog:workspace",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "valibot": "catalog:runtime",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:ui"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=24.0.0"

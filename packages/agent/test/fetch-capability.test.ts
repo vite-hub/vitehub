@@ -109,6 +109,22 @@ describe("fetch capability", () => {
     await expect(request).rejects.toBe(reason)
   })
 
+  it("enforces per-tool response byte limits", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("large"))
+    const { fetch } = await import("../src/capabilities.ts")
+    const tool = (fetch({
+      tools: {
+        status: {
+          request: { maxResponseBytes: 4 },
+          responseType: "text",
+          url: "https://status.example.com",
+        },
+      },
+    }).tools as AgentToolSet).status
+
+    await expect(tool.execute?.({})).rejects.toThrow("configured 4-byte limit")
+  })
+
   it("rejects unsupported fetch methods, response types, and missing urls", async () => {
     const { fetch } = await import("../src/capabilities.ts")
     const unsupported = fetch({

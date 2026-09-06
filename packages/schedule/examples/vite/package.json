@@ -1,12 +1,17 @@
 {
+  "name": "@vite-hub/schedule-example-vite",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "vp build"
   },
   "dependencies": {
     "@vite-hub/schedule": "workspace:*",
     "h3": "catalog:unjs",
     "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "vite-plus": "catalog:tooling"
   }
 }

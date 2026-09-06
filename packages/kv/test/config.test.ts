@@ -211,6 +211,29 @@ describe("normalizeKVOptions", () => {
 })
 
 describe("Cloudflare integration", () => {
+  it("registers Wrangler bindings without requiring namespace IDs", () => {
+    const target: {
+      cloudflare?: {
+        wrangler?: {
+          kv_namespaces?: Array<{
+            binding: string
+            id?: string
+          }>
+        }
+      }
+    } = {}
+    const config = normalizeKVOptions(undefined, {
+      env: {},
+      hosting: "cloudflare-module",
+    })!
+
+    configureCloudflareKV(target, config)
+
+    expect(target.cloudflare!.wrangler!.kv_namespaces).toEqual([{
+      binding: "KV",
+    }])
+  })
+
   it("registers wrangler namespaces only once", () => {
     const target: {
       cloudflare?: {

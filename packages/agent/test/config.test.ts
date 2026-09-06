@@ -135,6 +135,9 @@ describe("agent config", () => {
       const publicServer = await import("../src/server.ts")
       expect(publicServer).not.toHaveProperty("createChannelChatRouteHandler")
       expect(publicServer).not.toHaveProperty("createChannelWebhookRouteHandler")
+      expect(publicServer).not.toHaveProperty("createGitHubHost")
+      const githubServer = await import("../src/server/github.ts")
+      expect(githubServer.createGitHubHost).toBeTypeOf("function")
       const server = await import("../src/server/internal.ts")
       expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
       expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")
@@ -176,9 +179,11 @@ describe("agent config", () => {
       const { defineAgent } = await import("../src/index.ts")
       const { chat } = await import("../src/capabilities.ts")
       const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+      // SAFETY: This test supplies the minimal synthetic driver needed to exercise the Deno route without loading AI SDK types.
       const handler = createChannelChatRouteHandler(defineAgent({
         capabilities: [chat()],
         driver: { run({ messages }) {
+            // SAFETY: The test request below supplies a text part with this shape.
             const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
             return `deno ${text?.text}`
           } },

@@ -1,7 +1,7 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts"
-import { contentToBytes, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
+import { contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { MemoryFS } from "../../storage/memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
 
@@ -181,6 +181,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       if (absolute === dir || !absolute.startsWith(`${dir}/`)) continue
       const path = normalizeWorkspacePath(absolute.slice(`${dir}/`.length))
       if (!path || path === ".git" || path.startsWith(".git/") || path === ".vitehub" || path.startsWith(".vitehub/")) continue
+      if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix) {
         if (path === normalizedPrefix) continue
         if (!path.startsWith(`${normalizedPrefix}/`)) continue

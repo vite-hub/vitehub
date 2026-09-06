@@ -1,3 +1,4 @@
+import { boxErrorDiagnostics } from "../error-diagnostics.ts"
 import {
   execFile,
   spawn as spawnChildProcess,
@@ -175,19 +176,17 @@ async function resolveTrustedHostInput(input: BoxRuntimeInput, options: TrustedH
   const cwd = requestedCwd ? await realpath(requestedCwd) : undefined;
   const configuredStateRoot = options.stateRoot;
   if (input.plan.state.length && (!configuredStateRoot || !isAbsolute(configuredStateRoot))) {
-    throw new Error(
-      "[vitehub] The trusted-host runtime requires stateRoot to be an absolute path when box.home.state is declared.",
-    );
+    throw boxErrorDiagnostics.BOX_R0130({ message: "[vitehub] The trusted-host runtime requires stateRoot to be an absolute path when box.home.state is declared." });
   }
   const stateRoot = configuredStateRoot
     ? await canonicalFuturePath(configuredStateRoot)
     : undefined;
   if (input.plan.state.length && stateRoot && dirname(stateRoot) === stateRoot) {
-    throw new Error("[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root.");
+    throw boxErrorDiagnostics.BOX_R0131({ message: "[vitehub] Box stateRoot must be a dedicated directory, not the filesystem root." });
   }
   if (cwd && input.plan.state.length && stateRoot) {
     if (pathsOverlap(cwd, stateRoot))
-      throw new Error("[vitehub] Box stateRoot must be outside the authoritative workspace.");
+      throw boxErrorDiagnostics.BOX_R0132({ message: "[vitehub] Box stateRoot must be outside the authoritative workspace." });
   }
   return { cwd, stateRoot };
 }
@@ -289,7 +288,7 @@ async function prepareState(
       throw error;
     });
     if (existing && !existing.isDirectory())
-      throw new Error(`[vitehub] Box state is not a directory: ${state.key}`);
+      throw boxErrorDiagnostics.BOX_R0133({ message: `[vitehub] Box state is not a directory: ${state.key}` });
     prepared.push({
       initialize: !existing,
       path: state.path,
@@ -332,7 +331,7 @@ async function reconcileProjections(state: PreparedState) {
     (value) => {
       const parsed = JSON.parse(value) as unknown;
       if (!Array.isArray(parsed) || parsed.some((path) => typeof path !== "string")) {
-        throw new Error(`[vitehub] Box projection manifest is invalid: ${state.path}`);
+        throw boxErrorDiagnostics.BOX_R0134({ message: `[vitehub] Box projection manifest is invalid: ${state.path}` });
       }
       return parsed as string[];
     },
@@ -346,7 +345,7 @@ async function reconcileProjections(state: PreparedState) {
     const parent = await canonicalFuturePath(dirname(join(state.persistent, ...path.split("/"))));
     const relativeParent = relative(persistent, parent);
     if (relativeParent === ".." || relativeParent.startsWith(`..${sep}`) || isAbsolute(relativeParent)) {
-      throw new Error(`[vitehub] Box projected path escapes writable state: ${state.path}/${path}`);
+      throw boxErrorDiagnostics.BOX_R0135({ message: `[vitehub] Box projected path escapes writable state: ${state.path}/${path}` });
     }
   }
   const current = new Set(state.projections);
@@ -360,7 +359,7 @@ async function reconcileProjections(state: PreparedState) {
     if (!parent) continue;
     const relativeParent = relative(persistent, parent);
     if (relativeParent === ".." || relativeParent.startsWith(`..${sep}`) || isAbsolute(relativeParent)) {
-      throw new Error(`[vitehub] Box projected path escapes writable state: ${state.path}/${path}`);
+      throw boxErrorDiagnostics.BOX_R0136({ message: `[vitehub] Box projected path escapes writable state: ${state.path}/${path}` });
     }
     await rm(target, { force: true, recursive: true });
   }
@@ -564,6 +563,7 @@ async function createTrustedHostSession(options: {
         options.root,
         runOptions.workingDirectory ?? this.defaultWorkingDirectory,
       );
+      runOptions.abortSignal?.throwIfAborted();
       const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
@@ -637,7 +637,7 @@ async function createTrustedHostSession(options: {
 
 function assertCommandEnvironment(env: Record<string, string> | undefined) {
   const name = Object.keys(env || {}).find((name) => runtimeEnvironmentKeys.has(name));
-  if (name) throw new Error(`[vitehub] Box commands cannot override ${name}.`);
+  if (name) throw boxErrorDiagnostics.BOX_R0137({ message: `[vitehub] Box commands cannot override ${name}.` });
 }
 
 async function validateRequirements(
@@ -832,7 +832,7 @@ function abortable<T>(promise: Promise<T>, abortSignal?: AbortSignal): Promise<T
 async function assertDirectory(path: string, label: string) {
   const item = await stat(path).catch(() => undefined);
   if (!item?.isDirectory())
-    throw new Error(`[vitehub] Box ${label} directory does not exist: ${path}`);
+    throw boxErrorDiagnostics.BOX_R0138({ message: `[vitehub] Box ${label} directory does not exist: ${path}` });
 }
 
 async function canonicalFuturePath(path: string) {
@@ -855,7 +855,7 @@ async function ensureStateRoot(path: string) {
   await mkdir(path, { mode: 0o700, recursive: true });
   const canonical = await realpath(path);
   if (resolve(canonical) !== resolve(path))
-    throw new Error("[vitehub] Box stateRoot changed while the Box was materializing.");
+    throw boxErrorDiagnostics.BOX_R0139({ message: "[vitehub] Box stateRoot changed while the Box was materializing." });
   await assertDirectory(canonical, "stateRoot");
 }
 
@@ -910,7 +910,7 @@ function resolveSessionPath(root: string, path = "") {
       : resolve(root, rootRelativeFragment(path))
     : resolve(root, path);
   if (!isInside(root, candidate))
-    throw new Error(`[vitehub] Trusted host Box path escapes the session root: ${path}`);
+    throw boxErrorDiagnostics.BOX_R0140({ message: `[vitehub] Trusted host Box path escapes the session root: ${path}` });
   return candidate;
 }
 
@@ -957,7 +957,8 @@ function processHandle(
   let abortReason: unknown;
   let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
   const abort = () => {
-    abortReason = abortSignal?.reason || new Error("Box command aborted.");
+    if (abortReason) return;
+    abortReason = abortSignal?.reason || boxErrorDiagnostics.BOX_R0141({ message: "Box command aborted." });
     signalProcessTree(child, "SIGTERM");
     forceKillTimer = setTimeout(() => signalProcessTree(child, "SIGKILL"), 250);
     forceKillTimer.unref?.();
@@ -972,6 +973,7 @@ function processHandle(
       else resolvePromise({ exitCode: code ?? 1 });
     });
   });
+  if (abortSignal?.aborted) abort();
   return {
     pid: child.pid,
     stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,

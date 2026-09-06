@@ -6,6 +6,10 @@ import { getVercelWorkflowName } from "../src/integrations/vercel.ts"
 import { hubWorkflow } from "../src/vite.ts"
 
 describe("workflow config", () => {
+  it("serializes shared Provider Output finalization", () => {
+    expect(hubWorkflow().closeBundle).toMatchObject({ order: "post", sequential: true })
+  })
+
   it("infers cloudflare from hosting", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "cloudflare-module" })).toEqual({
       provider: "cloudflare",
@@ -98,6 +102,20 @@ describe("workflow config", () => {
     ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
 
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+  })
+
+  it("leaves implicitly enabled Workflow disabled when Schedule prepares a Netlify build", async () => {
+    const plugin = hubWorkflow(undefined, { hosting: "netlify", implicitlyEnabled: true })
+    ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
+
+    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+  })
+
+  it("keeps explicit Workflow provider enforcement when Schedule prepares a Netlify build", async () => {
+    const plugin = hubWorkflow({}, { hosting: "netlify" })
+    ;(plugin.configResolved as (config: unknown) => void)({ root: "/unused" })
+
+    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).rejects.toThrow(/cannot be inferred for Netlify/)
   })
 
   it("rejects invalid openworkflow options", () => {

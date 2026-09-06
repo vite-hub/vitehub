@@ -136,8 +136,8 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
     provider: "vercel",
     native: client,
     topic,
-    async send(input) {
-      const normalized = normalizeQueueEnqueueInput(input)
+    async send(payload, options) {
+      const normalized = normalizeQueueEnqueueInput(payload, options)
       if (normalized.options.contentType !== undefined) {
         throw createQueueError("VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS", {
           details: { provider: "vercel", unsupported: ["contentType"] },

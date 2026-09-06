@@ -5,30 +5,49 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
+import { array, boolean, instance, object, optional, parse, record, safeParse, string, union, unknown } from "valibot"
 
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
+const packageManifestSchema = object({ name: string(), version: string() })
+const workerMetadataSchema = object({
+  inputs: record(string(), unknown()),
+  outputs: record(string(), object({
+    imports: optional(array(object({ external: optional(boolean()), path: string() }))),
+  })),
+})
+const commandErrorSchema = object({
+  stderr: optional(union([string(), instance(Buffer)])),
+  stdout: optional(union([string(), instance(Buffer)])),
+})
 
 async function run(command: string, args: string[], cwd: string) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
   catch (error) {
-    const failed = error as Error & { stderr?: string | Buffer, stdout?: string | Buffer }
-    throw new Error(`${command} ${args.join(" ")} failed\n${failed.stdout || ""}${failed.stderr || ""}`, { cause: error })
+    const failed = safeParse(commandErrorSchema, error)
+    const output = failed.success ? `${failed.output.stdout || ""}${failed.output.stderr || ""}` : ""
+    throw new Error(`${command} ${args.join(" ")} failed\n${output}`, { cause: error })
   }
 }
 
 async function packWorkspace(packDir: string) {
   const overrides: Record<string, string> = {}
-  for (const info of listWorkspacePackageInfos(repoRoot).filter(info => !info.private)) {
-    const manifest = JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")) as { name: string, version: string }
-    await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
-    const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`
-    overrides[manifest.name] = `file:${join(packDir, tarball)}`
+  const infos = listWorkspacePackageInfos(repoRoot).filter(info => !info.private)
+  const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
+  for (const info of infos) {
+    const manifest = parse(packageManifestSchema, JSON.parse(await readFile(join(info.dir, "package.json"), "utf8")))
+    const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
+      await run("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
+      return join(packDir, `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`)
+    })
+    overrides[manifest.name] = `file:${tarball}`
   }
+  if (releaseTarballs && releaseTarballs.size !== infos.length) throw new Error("Release manifest package count does not match consumer inventory")
   return overrides
 }
 
@@ -40,6 +59,9 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  esbuild: true",
     "overrides:",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    // Workflow's broad Nest peers must stay on one major when pnpm resolves the packed graph.
+    "  \"@nestjs/common\": \"11.2.3\"",
+    "  \"@nestjs/core\": \"11.2.3\"",
     ...Object.entries(overrides)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),
@@ -67,10 +89,15 @@ async function buildWorker(appDir: string, entry: string, name: string) {
     "--compatibility-flag",
     "nodejs_compat",
   ], appDir)
-  return JSON.parse(await readFile(meta, "utf8")) as {
-    inputs: Record<string, unknown>
-    outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>
-  }
+  const metaValue: unknown = JSON.parse(await readFile(meta, "utf8"))
+  return parse(workerMetadataSchema, metaValue)
+}
+
+function externalImports(outputs: Record<string, { imports?: Array<{ external?: boolean, path: string }> }>) {
+  return Object.values(outputs)
+    .flatMap(output => output.imports || [])
+    .filter(entry => entry.external)
+    .map(entry => entry.path)
 }
 
 describe("packed Source capability closures", () => {
@@ -88,7 +115,7 @@ describe("packed Source capability closures", () => {
           private: true,
           type: "module",
           dependencies: { "vite-hub": overrides["vite-hub"] },
-          devDependencies: { typescript: "6.0.3", wrangler: "4.72.0" },
+          devDependencies: { typescript: "6.0.3", wrangler: "4.112.0" },
         }, null, 2)),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(overrides)),
         writeFile(join(appDir, "tsconfig.json"), JSON.stringify({
@@ -96,19 +123,19 @@ describe("packed Source capability closures", () => {
           include: ["src/**/*.ts"],
         }, null, 2)),
         writeFile(join(appDir, "src/lightweight.ts"), `
-import { custom } from "vite-hub/source"
+import { createSource, defineSource } from "vite-hub/source"
 import { file } from "vite-hub/source/file"
 import { github } from "vite-hub/source/github"
 import { glob } from "vite-hub/source/glob"
 import { markdown } from "vite-hub/source/markdown"
 
-const local = custom({ name: "local", getKeys: async () => ["ok"], getItem: async key => ({ key, content: "ok" }) })
+const local = defineSource({ name: "local", getKeys: async () => ["ok"], getItem: async key => ({ key, content: "ok" }) })
 const inline = file({ content: "ok", workspacePath: "inline.txt" })
 const remote = github({ auth: false, repo: "vite-hub/vitehub" })
 const matches = glob({ include: "**/*.md" })
 const document = markdown({ content: "# ok", workspacePath: "readme.md" })
 
-export default { fetch: () => new Response(local.name + inline.name + remote.name + matches.name + document.name) }
+export default { fetch: async () => new Response(await createSource(local).read("ok") + await createSource(inline).read("inline.txt") + remote.name + matches.name + document.name) }
 `),
         writeFile(join(appDir, "src/mcp.ts"), `
 import { mcpResources } from "vite-hub/source/mcp"
@@ -129,6 +156,8 @@ const sourceTransport: McpResourcesTransport = {
 void sourceTransport
 `),
         writeFile(join(appDir, "mcp-run.mjs"), `
+import { createSource, defineSource } from "vite-hub/source"
+import { file } from "vite-hub/source/file"
 import { mcpResources } from "vite-hub/source/mcp"
 
 const transport = {
@@ -145,7 +174,11 @@ const transport = {
   },
 }
 const source = mcpResources({ server: { transport } })
-const item = await source.getItem("packed/readme.txt", { rootDir: process.cwd() })
+const item = await createSource(source).get("packed/readme.txt")
+const inline = createSource(file({ workspacePath: "readme.md", content: "direct reader ok" }))
+if (await inline.read("readme.md") !== "direct reader ok") throw new Error("Direct file reader failed")
+const records = createSource(defineSource({ name: "records", getKeys: async () => ["one"], getItem: async key => ({ key, data: { count: 1 } }) }))
+if ((await records.get("one")).data.count !== 1) throw new Error("Direct record reader failed")
 if (item.content !== "packed MCP runtime ok") throw new Error(String(item.content))
 console.log(item.content)
 `),
@@ -161,9 +194,8 @@ console.log(item.content)
 
       const mcp = await buildWorker(appDir, "src/mcp.ts", "mcp")
       expect(Object.keys(mcp.inputs).join("\n")).toContain("@vite-hub/source/dist/mcp.js")
-      const externalMcpImports = Object.values(mcp.outputs)
-        .flatMap(output => output.imports || [])
-        .filter(entry => entry.external && /@modelcontextprotocol|pkce-challenge/.test(entry.path))
+      const externalMcpImports = externalImports(mcp.outputs)
+        .filter(path => /@modelcontextprotocol|pkce-challenge/.test(path))
       expect(externalMcpImports).toEqual([])
 
       const runtime = await run("node", ["mcp-run.mjs"], appDir)

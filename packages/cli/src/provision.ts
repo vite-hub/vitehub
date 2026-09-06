@@ -5,7 +5,6 @@ import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 import type {
   ProvisionAction,
   ProvisionContext,
-  ProvisionProvider,
   ProvisionState,
   ProvisionStep,
 } from "@vite-hub/internal/provision"
@@ -18,8 +17,9 @@ interface ProvisionFeatureOptions {
 
 interface ParsedProvisionArgs {
   dryRun: boolean
+  error?: string
   help: boolean
-  provider?: ProvisionProvider
+  provider?: string
 }
 
 function parseArgs(args: string[]): ParsedProvisionArgs {
@@ -28,14 +28,26 @@ function parseArgs(args: string[]): ParsedProvisionArgs {
     const arg = args[index]
     if (arg === "-h" || arg === "--help") parsed.help = true
     else if (arg === "--dry-run") parsed.dryRun = true
-    else if (arg === "--provider") parsed.provider = args[++index] as ProvisionProvider
-    else if (arg?.startsWith("--provider=")) parsed.provider = arg.slice("--provider=".length) as ProvisionProvider
+    else if (arg === "--provider") {
+      const provider = args[index + 1]
+      if (!provider || provider.startsWith("-")) parsed.error = "Option --provider requires a value."
+      else {
+        parsed.provider = provider
+        index++
+      }
+    }
+    else if (arg?.startsWith("--provider=")) {
+      const provider = arg.slice("--provider=".length)
+      if (!provider) parsed.error = "Option --provider requires a value."
+      else parsed.provider = provider
+    }
+    else if (arg) parsed.error = `Unknown provision argument: ${arg}`
   }
   return parsed
 }
 
-function writeUsage(context: ProvisionFeatureContext): void {
-  context.stdout.write([
+function writeUsage(stream: ProvisionFeatureContext["stdout"]): void {
+  stream.write([
     "Usage: vitehub provision run --provider <cloudflare|vercel> [--dry-run]",
     "",
     "Idempotently creates missing provider resources for the app's Definitions.",
@@ -52,12 +64,17 @@ function writeUsage(context: ProvisionFeatureContext): void {
 export async function runProvision(args: string[], context: ProvisionFeatureContext, options: ProvisionFeatureOptions): Promise<number> {
   const parsed = parseArgs(args)
   if (parsed.help) {
-    writeUsage(context)
+    writeUsage(context.stdout)
     return 0
+  }
+  if (parsed.error) {
+    context.stderr.write(`${parsed.error}\n`)
+    writeUsage(context.stderr)
+    return 1
   }
   if (parsed.provider !== "cloudflare" && parsed.provider !== "vercel") {
     context.stderr.write("Provision requires --provider cloudflare|vercel.\n")
-    writeUsage(context)
+    writeUsage(context.stderr)
     return 1
   }
 

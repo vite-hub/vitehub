@@ -6,7 +6,8 @@ import { hubDb } from "@vite-hub/database/vite"
 export default defineConfig({
   appType: "custom",
   build: {
-    rollupOptions: {
+    ssr: true,
+    rolldownOptions: {
       input: resolve(import.meta.dirname, "src/server.ts"),
     },
   },

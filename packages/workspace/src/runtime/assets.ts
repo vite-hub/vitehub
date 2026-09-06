@@ -1,5 +1,5 @@
 import { isWorkspaceError, workspaceError } from "../core/errors.ts"
-import { decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { decodeFile, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { searchText } from "../core/search.ts"
 
 import type {
@@ -116,6 +116,7 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
 
     for (const directory of directorySet) {
       if (directory === normalizedPrefix) continue
+      if (isExcludedWorkspacePath(directory, options.exclude)) continue
       if (normalizedPrefix && !isNestedUnder(directory, normalizedPrefix)) continue
       if (!options.recursive && normalizeWorkspacePath(directory.slice(normalizedPrefix.length)).replace(/^\//, "").includes("/")) continue
       result.set(directory, createDirectoryEntry(directory))
@@ -123,6 +124,7 @@ export function createWorkspaceAssets<TKey extends string = string>(files: Works
 
     for (const path of paths) {
       if (path === normalizedPrefix) continue
+      if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix && !isNestedUnder(path, normalizedPrefix)) continue
       if (!options.recursive && normalizeWorkspacePath(path.slice(normalizedPrefix.length)).replace(/^\//, "").includes("/")) continue
       result.set(path, await statFile(path))

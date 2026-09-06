@@ -1,6 +1,7 @@
 import { pushUnique } from "@vite-hub/internal/arrays"
 
 import type { ResolvedWorkspaceModuleOptions } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface CloudflareArtifactsTarget {
   cloudflare?: {
@@ -27,7 +28,7 @@ export function configureCloudflareArtifacts(
   }
   const existing = target.cloudflare.wrangler.artifacts.find(entry => entry.binding === artifact.binding)
   if (existing && existing.namespace !== artifact.namespace) {
-    throw new TypeError(`[vitehub] Cloudflare Artifacts binding "${artifact.binding}" cannot use both namespace "${existing.namespace}" and "${artifact.namespace}". Configure a unique binding for each namespace.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0029({ message: `[vitehub] Cloudflare Artifacts binding "${artifact.binding}" cannot use both namespace "${existing.namespace}" and "${artifact.namespace}". Configure a unique binding for each namespace.` })
   }
 
   pushUnique(

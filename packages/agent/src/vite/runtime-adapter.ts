@@ -1,10 +1,13 @@
 import { existsSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
+import { createExecutionContext } from "@vite-hub/runtime"
 
 import { agentWithColocatedInstructions } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
-import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
+import {
+  workspaceAgentWithSourceRoot,
+} from "../workspace-agent.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 import { readColocatedAgentInstructions } from "./colocated-agent-instructions.ts"
 import { readColocatedAgentSkills } from "./colocated-agent-skills.ts"
@@ -17,10 +20,11 @@ import type {
   AgentRunMetadata,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  ResolvedAgentRuntimeContext,
   DiscoveredAgentDefinition,
 } from "../index.ts"
 
-export interface ViteAgentRuntimeContext extends AgentRuntimeContext {
+export interface ViteAgentRuntimeContext extends ResolvedAgentRuntimeContext {
   request?: Request
   runtime: "vite"
   runtimeConfig: AgentRuntimeConfig
@@ -83,12 +87,13 @@ export function createViteWorkspaceAgentLoader(
 ) {
   return async () => {
     const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
+    const agent = workspaceAgentWithSourceRoot(
+      withColocatedAgentSkills(module.default, colocatedSkills(definition.handler)),
+      workspaceSourceRoot(definition.handler),
+    )
     return {
       ...module,
-      default: workspaceAgentWithSourceRoot(
-        withColocatedAgentSkills(module.default, colocatedSkills(definition.handler)),
-        workspaceSourceRoot(definition.handler),
-      ),
+      default: agent,
     }
   }
 }
@@ -118,7 +123,8 @@ export function createViteAgentRuntimeContext(
   identity: AgentHostIdentity,
   options: { capabilities?: AgentRuntimeContext["capabilities"], fallbackRoute: string, run?: AgentRunMetadata },
 ): ViteAgentRuntimeContext {
-  return createAgentRuntimeContext({
+  // SAFETY: This adapter fixes the runtime to Vite and supplies its runtime configuration before normalization.
+  const context = createAgentRuntimeContext({
     agentIdentity: identity,
     request: createRequest(server, req, options.fallbackRoute),
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
@@ -126,16 +132,19 @@ export function createViteAgentRuntimeContext(
     runtime: "vite",
     runtimeConfig: {},
     waitUntil: task => void Promise.resolve(task).catch(() => {}),
-  }) as ViteAgentRuntimeContext
+  }) as AgentRuntimeContext & { runtime: "vite", runtimeConfig: AgentRuntimeConfig }
+  return createExecutionContext(context)
 }
 
 export function createViteAgentDiscoveryContext(identity: AgentHostIdentity): ViteAgentRuntimeContext {
-  return createAgentRuntimeContext({
+  // SAFETY: Discovery runs only in Vite and supplies its runtime configuration before normalization.
+  const context = createAgentRuntimeContext({
     agentIdentity: identity,
     runtime: "vite",
     runtimeConfig: {},
     waitUntil: task => void Promise.resolve(task).catch(() => {}),
-  }) as ViteAgentRuntimeContext
+  }) as AgentRuntimeContext & { runtime: "vite", runtimeConfig: AgentRuntimeConfig }
+  return createExecutionContext(context)
 }
 
 export async function writeViteResponse(res: ServerResponse, response: Response): Promise<void> {

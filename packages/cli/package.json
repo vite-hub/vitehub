@@ -38,6 +38,8 @@
     "test": "vp run -t @vite-hub/cli#build && vp test"
   },
   "dependencies": {
+    "@vite-hub/runtime": "workspace:*",
+    "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
@@ -49,7 +51,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "nuxt": "catalog:nuxt",
+    "nuxt": "catalog:nuxt-compat",
     "vite": "catalog:vite-compat"
   },
   "engines": {

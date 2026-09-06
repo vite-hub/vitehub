@@ -5,6 +5,7 @@ import { resolveDBViteConfig } from "./config.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import type { DBModulePublicOptions } from "./types.ts"
+import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 type DatabaseProvisionOptions = DBModulePublicOptions | (Exclude<DBModulePublicOptions, false> & { nuxtHostResource: true })
 
@@ -17,6 +18,17 @@ interface PlannedDatabase {
   databaseName: string
   definitions: string[]
   nuxt: boolean
+}
+
+function parseDatabases(value: unknown): CloudflareD1Database[] {
+  if (!Array.isArray(value)) throw databaseErrorDiagnostics.DATABASE_R0004({ message: "Cloudflare provisioning returned an invalid database list." })
+  // SAFETY: D1 database fields are optional and consumers narrow them before use.
+  return value as CloudflareD1Database[]
+}
+
+function parseDatabase(value: unknown): CloudflareD1Database {
+  if (!value || Object(value) !== value) throw databaseErrorDiagnostics.DATABASE_R0005({ message: "Cloudflare provisioning returned an invalid database." })
+  return value
 }
 
 export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
@@ -61,7 +73,7 @@ export function createDatabaseProvisionStep(resolveRootDir: () => string, option
       if (!planned.length) return []
 
       const request = createCloudflareProvisionClient(config, context.fetch)
-      const listed = await request<CloudflareD1Database[]>("/d1/database")
+      const listed = await request("/d1/database", { parse: parseDatabases })
       const idByName = new Map((listed.result ?? [])
         .filter((database): database is { name: string, uuid: string } => Boolean(database.name && database.uuid))
         .map(database => [database.name, database.uuid]))
@@ -75,7 +87,7 @@ export function createDatabaseProvisionStep(resolveRootDir: () => string, option
           apply: async () => {
             let id = existingId
             if (!id) {
-              const created = await request<CloudflareD1Database>("/d1/database", { method: "POST", body: { name: databaseName } })
+              const created = await request("/d1/database", { method: "POST", body: { name: databaseName }, parse: parseDatabase })
               id = created.result?.uuid
             }
             if (!id) return {}

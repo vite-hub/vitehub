@@ -35,7 +35,6 @@ Read only the references whose conditions match, but read them before writing co
 | Box, trusted host, isolation, required command, or deployment target | [Boxes and hosts](references/boxes-hosts.md) |
 | A proof has failed, generated state disagrees, or a runtime/host failure needs diagnosis | [Proof and recovery](references/proof-recovery.md) |
 | Looking for a complete public application pattern | [Project patterns](references/project-patterns.md) |
-| Existing `@vitehub/*`, `@vite-hub/vite`, or individual `hubX()` composition | [Migration quarantine](references/migration.md) |
 
 Routing is complete when every requested behavior has one primary lane and every matching reference has been read. Do not load the whole library.
 

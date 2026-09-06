@@ -14,7 +14,9 @@ export {
   setAgentChannelDeliveryWorkflowStateResolver,
 } from "./routes.ts"
 export { defineScheduledAgentTarget } from "./scheduled-turn.ts"
+export { agentGeneratedRuntimeError } from "./generated-runtime-error.ts"
 export { createAgentWebhookRequest } from "../internal/webhook-request.ts"
+export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
@@ -28,6 +30,9 @@ export type {
   AgentChannelChatRouteInputOptions,
   AgentChannelChatRouteMapInputContext,
   AgentChannelChatRouteRequestOptions,
+  AgentChannelChatRouteResumableContext,
+  AgentChannelChatRouteResumableOptions,
+  AgentChannelChatRouteResumableRequestBody,
   AgentChannelChatRouteStandardSchemaResultFailure,
   AgentChannelChatRouteStandardSchemaResultSuccess,
   AgentChannelChatRouteStandardSchemaV1,

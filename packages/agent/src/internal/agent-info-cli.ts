@@ -1,3 +1,4 @@
+import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { isAbsolute, relative, resolve, sep } from "node:path"
 
 import { isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
@@ -5,7 +6,7 @@ import { isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
 
 import type { AgentInspectionMetadata } from "../types.ts"
-import type { AgentDevLoopDiscoveryResponse } from "../invocation-stream.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 interface AgentInfoCliContext {
   env: NodeJS.ProcessEnv
@@ -48,7 +49,7 @@ function writeInfoUsage(context: AgentInfoCliContext): void {
 
 function readOptionValue(args: string[], index: number, flag: string): string {
   const value = args[index + 1]
-  if (!value || value.startsWith("-")) throw new Error(`Missing value for ${flag}.`)
+  if (!value || value.startsWith("-")) throw agentDiagnostics.AGENT_R0498({ message: `Missing value for ${flag}.` })
   return value
 }
 
@@ -87,8 +88,8 @@ function parseInfoArgs(args: string[], env: NodeJS.ProcessEnv): ParsedInfoArgs {
       parsed.url = arg.slice("--url=".length)
       continue
     }
-    if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}.`)
-    throw new Error(`Unexpected argument: ${arg}.`)
+    if (arg.startsWith("-")) throw agentDiagnostics.AGENT_R0499({ message: `Unknown option: ${arg}.` })
+    throw agentDiagnostics.AGENT_R0500({ message: `Unexpected argument: ${arg}.` })
   }
 
   return parsed
@@ -128,6 +129,10 @@ function agentInfoCapacity(config: AgentInspectionMetadata["config"]): string {
   const queue = capacity.queue
     ? `${capacity.pending}/${capacity.queue.maxPending} pending${capacity.queue.timeout ? `, ${capacity.queue.timeout}ms timeout` : ""}`
     : "queue disabled"
+  if (capacity.effectiveConcurrency !== undefined) {
+    const reason = capacity.reason ? `, ${capacity.reason}` : ""
+    return `${capacity.active} active, ${capacity.effectiveConcurrency} admitted, ${capacity.concurrency} hard max, ${queue}${reason}`
+  }
   return `${capacity.active}/${capacity.concurrency} active, ${queue}`
 }
 
@@ -146,9 +151,10 @@ function agentInfoExecutionAuthority(authority: ExecutionAuthority): string[] {
   ]
 }
 
-function agentInfoNames(values: Array<{ name: string }>, fallback: string): string {
+function agentInfoNames(values: Array<{ id?: string, name?: string }>, fallback: string): string {
   if (!values.length) return fallback
-  const names = values.slice(0, 5).map(value => value.name)
+  const names = values.slice(0, 5).map(value => value.name || value.id).filter(value => value !== undefined)
+  if (!names.length) return fallback
   return values.length > names.length ? `${names.join(", ")}, +${values.length - names.length} more` : names.join(", ")
 }
 
@@ -161,6 +167,7 @@ function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionM
     `Driver: ${agentInfoDriver(metadata.config)}`,
     `Capacity: ${agentInfoCapacity(metadata.config)}`,
     ...(isExecutionAuthority(authority) ? agentInfoExecutionAuthority(authority) : ["Execution authority: unavailable"]),
+    `Capabilities: ${plural(metadata.capabilities?.length || 0, "Capability", "Capabilities")} (${agentInfoNames(metadata.capabilities || [], "none")})`,
     `Tools: ${plural(metadata.tools?.length || 0, "tool")} (${agentInfoNames(metadata.tools || [], "none")})`,
     `Workspace files: ${plural(files.files, "file")}, ${plural(files.directories, "directory", "directories")}, ${plural(files.sources, "source")}`,
     `Instructions: ${plural(metadata.instructions?.length || 0, "document")}`,
@@ -245,24 +252,28 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
     return 1
   }
 
-  let result: AgentDevLoopDiscoveryResponse
+  let result: Record<PropertyKey, unknown>
   try {
-    result = await response.json() as AgentDevLoopDiscoveryResponse
+    const value: unknown = await response.json()
+    if (!isRuntimeRecord(value)) throw agentDiagnostics.AGENT_R0501({ message: "Invalid Agent discovery response" })
+    result = value
   }
   catch {
     context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
     return 1
   }
-  if (typeof result.root === "string" && !isCompatibleAgentDevServerRoot(context.rootDir, result.root)) {
+  if (hasRuntimeType(result.root, "string") && !isCompatibleAgentDevServerRoot(context.rootDir, result.root)) {
     context.stderr.write(`Compatible Vite Development Server root mismatch: ${result.root}\n`)
     return 1
   }
-  if (!result.inspection) {
+  if (!isRuntimeRecord(result.inspection)) {
     context.stderr.write(`Agent inspection returned an invalid response from ${parsed.url}.\n`)
     return 1
   }
+  // SAFETY: The discovery response parser verifies that inspection metadata is a record before its owned fields are rendered.
+  const inspection = asUnknownBoundary(result.inspection) as AgentInspectionMetadata
 
-  if (parsed.json) context.stdout.write(`${JSON.stringify(agentInfoMetadata(result.inspection), null, 2)}\n`)
-  else writeAgentInfo(context, result.inspection)
+  if (parsed.json) context.stdout.write(`${JSON.stringify(agentInfoMetadata(inspection), null, 2)}\n`)
+  else writeAgentInfo(context, inspection)
   return 0
 }

@@ -1,21 +1,36 @@
-import { access, cp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { fileURLToPath } from "node:url"
 
+import type { Plugin } from "esbuild"
+import { satisfies, validRange } from "semver"
+
+import { bundleEsmEntry, type ViteAlias } from "./esbuild.ts"
+import { publishProviderSourcesToDeploymentOutputs } from "./provider-output-sources.ts"
+import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 const builtinModuleNames = new Set([
   ...builtinModules,
   ...builtinModules.map((name) => `node:${name}`),
 ])
 const runtimeExtensions = new Set([".cjs", ".js", ".mjs", ".ts"])
+const activeDenoDeploymentStages = new Set<string>()
 const denoRuntimeTargets = [
   { cpu: "arm64", libc: "glibc", os: "linux" },
   { cpu: "x64", libc: "glibc", os: "linux" },
 ] as const
 
 interface FinalizeDenoDeploymentOutputOptions {
+  alias?: ViteAlias[]
+  conditions?: string[]
+  extensions?: string[]
   deploymentName?: string
+  hasScheduleIntegration?: boolean
+  mainFields?: string[]
   outputDir?: string
+  preserveSymlinks?: boolean
   rootDir: string
 }
 
@@ -43,27 +58,144 @@ function collectBundledPackageNames(source: string): Set<string> {
   return names
 }
 
-function collectBundledPackages(source: string): Map<string, string> {
-  const packages = new Map<string, string>()
+function collectBundledPackages(source: string): Array<{ name: string, path: string }> {
+  const packages: Array<{ name: string, path: string }> = []
   for (const match of source.matchAll(
     /(?:^|[\s"'`(])((?:[A-Za-z]:)?[^\s"'`()]*?node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\])?[^/\\\s"'`()]+))/gm,
   )) {
     const name = packageNameFromSpecifier(match[2]!.replaceAll("\\", "/"))
-    if (name) packages.set(name, match[1]!)
+    if (name) packages.push({ name, path: match[1]! })
   }
   return packages
 }
 
-function collectImportedPackageNames(source: string): Set<string> {
+function isStandaloneCall(source: string, start: number) {
+  const immediatePrefix = source[start - 1]
+  if (immediatePrefix && /[$_\p{ID_Continue}]/u.test(immediatePrefix))
+    return false
+
+  let prefixIndex = start - 1
+  while (prefixIndex >= 0 && /\s/.test(source[prefixIndex]!))
+    prefixIndex--
+  return source[prefixIndex] !== '.' && source[prefixIndex] !== '#'
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+const identifierStart = String.raw`(?:[$_\p{ID_Start}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
+const identifierContinue = String.raw`(?:[$\u200C\u200D\p{ID_Continue}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
+const bindingIdentifier = `${identifierStart}${identifierContinue}*`
+
+function collectCreateRequireAliases(source: string): Set<string> {
+  const factories = new Set<string>()
+  for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
+    for (const specifier of match[1]!.split(",")) {
+      const imported = /^\s*createRequire(?:\s+as\s+([A-Za-z_$][\w$]*))?\s*$/.exec(specifier)
+      if (imported) factories.add(imported[1] ?? "createRequire")
+    }
+  }
+  for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
+    factories.add(`${match[1]}.createRequire`)
+  }
+  for (const match of source.matchAll(/\b(?:const|let|var)\s*\{[^}]*\bcreateRequire(?:\s*:\s*([A-Za-z_$][\w$]*))?[^}]*\}\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {
+    factories.add(match[1] ?? "createRequire")
+  }
+  for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {
+    factories.add(`${match[1]}.createRequire`)
+  }
+  const dynamicModuleImport = String.raw`await\s+import\s*\(\s*["'](?:node:)?module["']\s*\)`
+  const dynamicDestructure = new RegExp(String.raw`\b(?:const|let|var)\s*\{[^}]*\bcreateRequire(?:\s*:\s*(${bindingIdentifier}))?[^}]*\}\s*=\s*${dynamicModuleImport}`, "gu")
+  for (const match of source.matchAll(dynamicDestructure)) {
+    factories.add(match[1] ?? "createRequire")
+  }
+  const dynamicNamespace = new RegExp(String.raw`\b(?:const|let|var)\s+(${bindingIdentifier})\s*=\s*${dynamicModuleImport}`, "gu")
+  for (const match of source.matchAll(dynamicNamespace)) {
+    factories.add(`${match[1]}.createRequire`)
+  }
+  if (factories.size === 0) return new Set()
+
+  const aliases = new Set<string>()
+  const factoryPattern = [...factories].map(escapeRegExp).join("|")
+  const declaration = new RegExp(`\\b(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:${factoryPattern})\\s*\\(`, "g")
+  for (const match of source.matchAll(declaration)) aliases.add(match[1]!)
+  return aliases
+}
+
+const staticFromPattern = new RegExp(
+  String.raw`(?:^|(?<=;))[^\S\r\n]*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+${bindingIdentifier})?|${bindingIdentifier}(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+${bindingIdentifier}))?)\s*\bfrom\b\s*["']([^"']+)["']`,
+  "gmu",
+)
+
+interface ImportSourceAnalysis {
+  createRequireAliases: Set<string>
+  executableSource: string
+}
+
+function analyzeImportSource(source: string): ImportSourceAnalysis {
+  const createRequireAliases = collectCreateRequireAliases(maskInertImportText(source))
+  return {
+    createRequireAliases,
+    executableSource: maskInertImportText(source, createRequireAliases),
+  }
+}
+
+function cachedImportSourceAnalysis(source: string, cache?: Map<string, ImportSourceAnalysis>): ImportSourceAnalysis {
+  const existing = cache?.get(source)
+  if (existing) return existing
+  const analysis = analyzeImportSource(source)
+  cache?.set(source, analysis)
+  return analysis
+}
+
+function collectImportedPackageNamesFromAnalysis(analysis: ImportSourceAnalysis): Set<string> {
   const names = new Set<string>()
-  const executableSource = maskInertImportText(source)
+  const { createRequireAliases, executableSource } = analysis
   const patterns = [
-    /(?:^|;)\s*(?:import|export)\s*["']([^"']+)["']/gm,
-    /(?:^|;)\s*(?:import|export)[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
-    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /(?:^|;)[^\S\r\n]*(?:import|export)\s*["']([^"']+)["']/gm,
+    staticFromPattern,
   ]
   for (const pattern of patterns) {
+    for (const match of executableSource.matchAll(pattern)) {
+      const name = packageNameFromSpecifier(match[1]!)
+      if (name) names.add(name)
+    }
+  }
+  const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
+  const requirePattern = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(["'\x60])((?:\\.|[^"'\x60\\])*)\1\s*(?:,|\))`, "g")
+  for (const match of executableSource.matchAll(requirePattern)) {
+    if (!isStandaloneCall(executableSource, match.index))
+      continue
+    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
+    if (name) names.add(name)
+  }
+  for (const { specifier } of findLiteralDynamicImports(executableSource)) {
+    const name = packageNameFromSpecifier(specifier)
+    if (name) names.add(name)
+  }
+  for (const match of executableSource.matchAll(
+    /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*(["'`])((?:\\.|[^"'`\\])*)\1\s*(?:,|\))/g,
+  )) {
+    if (!isStandaloneCall(executableSource, match.index))
+      continue
+    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
+    if (name) names.add(name)
+  }
+  return names
+}
+
+function collectImportedPackageNames(source: string, analysis = analyzeImportSource(source)): Set<string> {
+  return collectImportedPackageNamesFromAnalysis(analysis)
+}
+
+function collectStaticPackageNames(analysis: ImportSourceAnalysis): Set<string> {
+  const names = new Set<string>()
+  const { executableSource } = analysis
+  for (const pattern of [
+    /(?:^|;)[^\S\r\n]*(?:import|export)\s*["']([^"']+)["']/gm,
+    staticFromPattern,
+  ]) {
     for (const match of executableSource.matchAll(pattern)) {
       const name = packageNameFromSpecifier(match[1]!)
       if (name) names.add(name)
@@ -72,112 +204,697 @@ function collectImportedPackageNames(source: string): Set<string> {
   return names
 }
 
-function maskInertImportText(source: string): string {
-  let output = ""
-  for (let index = 0; index < source.length;) {
-    const character = source[index]!
-    const next = source[index + 1]
-    if (character === "/" && next === "/") {
-      const end = source.indexOf("\n", index)
-      const length = (end === -1 ? source.length : end) - index
-      output += " ".repeat(length)
-      index += length
-      continue
-    }
-    if (character === "/" && next === "*") {
-      const closing = source.indexOf("*/", index + 2)
-      const length = (closing === -1 ? source.length : closing + 2) - index
-      output += source.slice(index, index + length).replace(/[^\n]/g, " ")
-      index += length
-      continue
-    }
-    if (character === '"' || character === "'" || character === "`") {
-      const prefix = output.slice(Math.max(0, output.length - 120))
-      const keep = character !== "`" && /(?:\b(?:from|import|export)|\b(?:import|require)\s*\()\s*$/.test(prefix)
-      let end = index + 1
-      while (end < source.length) {
-        if (source[end] === "\\") end += 2
-        else if (source[end++] === character) break
-      }
-      const literal = source.slice(index, end)
-      output += keep ? literal : literal.replace(/[^\n]/g, " ")
-      index = end
-      continue
-    }
-    output += character
-    index++
+function collectOptionalDynamicPackageNames(analysis: ImportSourceAnalysis): Set<string> {
+  const { createRequireAliases, executableSource } = analysis
+  const dynamicImports = findLiteralDynamicImports(executableSource)
+  const dynamicNames = new Set(dynamicImports
+    .filter(dynamicImport => !isUnconditionalTopLevelExpression(executableSource, dynamicImport.start, dynamicImport.literalEnd))
+    .map(({ specifier }) => packageNameFromSpecifier(specifier))
+    .filter((name): name is string => Boolean(name)))
+  if (!dynamicNames.size) return dynamicNames
+
+  let withoutDynamicImports = executableSource
+  for (const dynamicImport of dynamicImports.reverse()) {
+    withoutDynamicImports = withoutDynamicImports.slice(0, dynamicImport.start)
+      + " ".repeat(dynamicImport.literalEnd - dynamicImport.start)
+      + withoutDynamicImports.slice(dynamicImport.literalEnd)
   }
+  for (const name of collectImportedPackageNamesFromAnalysis({ createRequireAliases, executableSource: withoutDynamicImports })) dynamicNames.delete(name)
+  return dynamicNames
+}
+
+function findClosingBrace(source: string, opening: number): number | undefined {
+  let depth = 0
+  for (let index = opening; index < source.length; index++) {
+    if (source[index] === "{") depth++
+    else if (source[index] === "}" && --depth === 0) return index
+  }
+}
+
+function isImmediatelyInvokedBlock(source: string, opening: number): boolean {
+  const closing = findClosingBrace(source, opening)
+  if (closing === undefined || !/^\s*(?:\)\s*(?:\?\.)?\s*)?\(/.test(source.slice(closing + 1)))
+    return false
+  const prefix = source.slice(0, opening).trimEnd()
+  return !/(?:^|[;\n])\s*(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^{};]*\)$/.test(prefix)
+}
+
+function isGuardedConciseArrow(source: string, expressionStart: number, expressionEnd: number): boolean {
+  const statementStart = source.lastIndexOf(";", expressionStart - 1) + 1
+  const prefix = source.slice(statementStart, expressionStart)
+  const arrow = prefix.lastIndexOf("=>")
+  if (arrow < 0 || /^\s*\{/.test(prefix.slice(arrow + 2))) return false
+
+  const precedingLines = prefix.slice(arrow + 2).split("\n")
+  if (precedingLines.length > 1) {
+    const completedLine = precedingLines.at(-2)!.trimEnd()
+    const continuationLine = precedingLines.at(-1)!.trimStart()
+    if (completedLine
+      && !/[([{,.:?+\-*/%&|^!~=<>]$/.test(completedLine)
+      && !/^(?:&&|\|\||\?\?|\?\.|[,+\-*/%&|^.:<>=])/.test(continuationLine)
+      && delimiterDepth(precedingLines.slice(0, -1).join("\n")) === 0) return false
+  }
+
+  let parentheses = 0
+  let brackets = 0
+  let braces = 0
+  for (const character of prefix.slice(arrow + 2)) {
+    if (character === "(") parentheses++
+    else if (character === ")") parentheses--
+    else if (character === "[") brackets++
+    else if (character === "]") brackets--
+    else if (character === "{") braces++
+    else if (character === "}") braces--
+    else if (character === "," && parentheses === 0 && brackets === 0 && braces === 0) return false
+  }
+
+  return !/^\s*\)+\s*(?:(?:\?\.)?\s*\(|\.\s*(?:call|apply)\s*\()/.test(source.slice(expressionEnd))
+}
+
+function delimiterDepth(source: string): number {
+  let depth = 0
+  for (const character of source) {
+    if (character === "(" || character === "[" || character === "{") depth++
+    else if (character === ")" || character === "]" || character === "}") depth--
+  }
+  return depth
+}
+
+function tryBlockHasCatch(source: string, opening: number): boolean {
+  const closing = findClosingBrace(source, opening)
+  return closing !== undefined && /^\s*catch\b/.test(source.slice(closing + 1))
+}
+
+function collectOptionalRequirePackageNames(analysis: ImportSourceAnalysis): Set<string> {
+  const { createRequireAliases, executableSource } = analysis
+  const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
+  const requirePattern = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(["'\x60])((?:\\.|[^"'\x60\\])*)\1\s*(?:,|\))`, "g")
+  const optionalNames = new Set<string>()
+  const requiredNames = new Set<string>()
+  const openings: number[] = []
+  let braceCursor = 0
+  for (const match of executableSource.matchAll(requirePattern)) {
+    if (!isStandaloneCall(executableSource, match.index)) continue
+    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
+    if (!name) continue
+    for (; braceCursor < match.index!; braceCursor++) {
+      if (executableSource[braceCursor] === "{") openings.push(braceCursor)
+      else if (executableSource[braceCursor] === "}") openings.pop()
+    }
+    const guarded = isGuardedConciseArrow(executableSource, match.index!, match.index! + match[0].length) || openings.some((opening) => {
+      const prefix = executableSource.slice(0, opening).trimEnd()
+      if (/\btry$/.test(prefix)) return tryBlockHasCatch(executableSource, opening)
+      if (/\b(?:catch|if|for|while|switch|with)\s*(?:\([^{}]*\))?$/.test(prefix)) return true
+      const functionBody = /\bfunction(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^{};]*\)$/.test(prefix)
+        || /=>\s*$/.test(prefix)
+      return functionBody && !isImmediatelyInvokedBlock(executableSource, opening)
+    })
+    if (guarded) optionalNames.add(name)
+    else requiredNames.add(name)
+  }
+  for (const name of requiredNames) optionalNames.delete(name)
+  return optionalNames
+}
+
+function maskBundledPackageRegions(source: string): string {
+  const regions: boolean[] = []
+  return source.split("\n").map((line) => {
+    if (/^\s*\/\/#region\b/.test(line)) {
+      regions.push(Boolean(regions.at(-1)) || /node_modules[/\\]/.test(line))
+      return regions.at(-1) ? " ".repeat(line.length) : line
+    }
+    const masked = Boolean(regions.at(-1))
+    if (/^\s*\/\/#endregion\b/.test(line)) regions.pop()
+    return masked ? " ".repeat(line.length) : line
+  }).join("\n")
+}
+
+interface LiteralDynamicImport {
+  literalEnd: number
+  specifier: string
+  start: number
+}
+
+function cookImportSpecifier(source: string): string {
+  let cooked = ""
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]!
+    if (character !== "\\") {
+      cooked += character
+      continue
+    }
+    const escape = source[++index]
+    if (escape === undefined) throw internalErrorDiagnostics.INTERNAL_B0009({ message: "Deno output contains an incomplete import escape sequence." })
+    if (escape === "\n") continue
+    if (escape === "\r") {
+      if (source[index + 1] === "\n") index++
+      continue
+    }
+    const simpleEscapes: Record<string, string> = {
+      "0": "\0",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+      v: "\v",
+    }
+    const simpleEscape = simpleEscapes[escape]
+    if (simpleEscape !== undefined) {
+      if (escape === "0" && /\d/.test(source[index + 1] || "")) {
+        throw internalErrorDiagnostics.INTERNAL_B0010({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+      }
+      cooked += simpleEscape
+      continue
+    }
+    if (escape === "x") {
+      const digits = source.slice(index + 1, index + 3)
+      if (!/^[\dA-Fa-f]{2}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0011({ message: "Deno output contains an invalid hexadecimal import escape sequence." })
+      cooked += String.fromCharCode(Number.parseInt(digits, 16))
+      index += 2
+      continue
+    }
+    if (escape === "u") {
+      if (source[index + 1] === "{") {
+        const end = source.indexOf("}", index + 2)
+        const digits = end === -1 ? "" : source.slice(index + 2, end)
+        const codePoint = /^[\dA-Fa-f]{1,6}$/.test(digits) ? Number.parseInt(digits, 16) : Number.NaN
+        if (!Number.isSafeInteger(codePoint) || codePoint > 0x10FFFF) {
+          throw internalErrorDiagnostics.INTERNAL_B0012({ message: "Deno output contains an invalid Unicode import escape sequence." })
+        }
+        cooked += String.fromCodePoint(codePoint)
+        index = end
+        continue
+      }
+      const digits = source.slice(index + 1, index + 5)
+      if (!/^[\dA-Fa-f]{4}$/.test(digits)) throw internalErrorDiagnostics.INTERNAL_B0013({ message: "Deno output contains an invalid Unicode import escape sequence." })
+      cooked += String.fromCharCode(Number.parseInt(digits, 16))
+      index += 4
+      continue
+    }
+    if (/[1-9]/.test(escape)) throw internalErrorDiagnostics.INTERNAL_B0014({ message: "Deno output contains an unsupported legacy octal import escape sequence." })
+    cooked += escape
+  }
+  return cooked
+}
+
+function findLiteralDynamicImports(source: string): LiteralDynamicImport[] {
+  const imports: LiteralDynamicImport[] = []
+  for (const match of source.matchAll(/(?:^|[^\w$.#])import\s*\(\s*(["'`])/g)) {
+    const start = match.index! + match[0].indexOf("import")
+    if (!isStandaloneCall(source, start)) continue
+    const quote = match[1]!
+    const literalStart = match.index! + match[0].length - 1
+    let literalEnd = literalStart + 1
+    let interpolated = false
+    while (literalEnd < source.length) {
+      if (source[literalEnd] === "\\") literalEnd += 2
+      else if (quote === "`" && source[literalEnd] === "$" && source[literalEnd + 1] === "{") {
+        interpolated = true
+        break
+      }
+      else if (source[literalEnd++] === quote) break
+    }
+    if (interpolated) continue
+    if (source[literalEnd - 1] !== quote) continue
+    let cursor = literalEnd
+    while (/\s/.test(source[cursor] || "")) cursor++
+    if (source[cursor] !== ")" && source[cursor] !== ",") continue
+    let depth = 1
+    while (cursor < source.length && depth > 0) {
+      if (source[cursor] === "(") depth++
+      else if (source[cursor] === ")") depth--
+      cursor++
+    }
+    if (depth !== 0) continue
+    imports.push({
+      literalEnd,
+      specifier: cookImportSpecifier(source.slice(literalStart + 1, literalEnd - 1)),
+      start,
+    })
+  }
+  return imports
+}
+
+function maskInertImportText(source: string, packageCallNames = new Set<string>()): string {
+  let output = ""
+  let recentOutput = ""
+  let index = 0
+  const packageCallPattern = packageCallNames.size
+    ? new RegExp(`(?:^|[^\\w$.#])(?:${[...packageCallNames].map(escapeRegExp).join("|")})(?:\\s*\\.\\s*resolve)?\\s*(?:\\?\\.)?\\s*\\(\\s*$`)
+    : undefined
+
+  function appendOutput(value: string): void {
+    output += value
+    const compactValue = value.replace(/\s+/g, " ")
+    recentOutput += recentOutput.endsWith(" ") ? compactValue.replace(/^ /, "") : compactValue
+    if (recentOutput.length > 320) recentOutput = recentOutput.slice(-160)
+  }
+
+  function maskLiteralText(text: string): string {
+    return text.replace(/[^\n]/g, " ")
+  }
+
+  function maskLiteralOperand(text: string): string {
+    const masked = maskLiteralText(text)
+    const lastLineCharacter = masked.search(/[^\n](?=\n*$)/)
+    return lastLineCharacter === -1
+      ? masked
+      : masked.slice(0, lastLineCharacter) + "0" + masked.slice(lastLineCharacter + 1)
+  }
+
+  function scanTemplate(): void {
+    if (/(?:^|[^\w$.#])import\s*\(\s*$/.test(recentOutput)
+      || /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*$/.test(recentOutput)
+      || /\bnew\s+URL\s*\(\s*$/.test(recentOutput)) {
+      let literalEnd = index + 1
+      while (literalEnd < source.length) {
+        if (source[literalEnd] === "\\") literalEnd += 2
+        else if (source[literalEnd] === "$" && source[literalEnd + 1] === "{") break
+        else {
+          if (source[literalEnd++] === "`") {
+            appendOutput(source.slice(index, literalEnd))
+            index = literalEnd
+            return
+          }
+        }
+      }
+    }
+    appendOutput(" ")
+    index++
+    while (index < source.length) {
+      if (source[index] === "\\") {
+        const end = Math.min(index + 2, source.length)
+        appendOutput(maskLiteralText(source.slice(index, end)))
+        index = end
+      }
+      else if (source[index] === "`") {
+        appendOutput("0")
+        index++
+        return
+      }
+      else if (source[index] === "$" && source[index + 1] === "{") {
+        appendOutput("${")
+        index += 2
+        scanCode(true)
+      }
+      else {
+        appendOutput(source[index] === "\n" ? "\n" : " ")
+        index++
+      }
+    }
+  }
+
+  function scanCode(stopAtTemplateExpressionEnd = false): void {
+    let braceDepth = 0
+    while (index < source.length) {
+      const character = source[index]!
+      const next = source[index + 1]
+      if (stopAtTemplateExpressionEnd && character === "}" && braceDepth === 0) {
+        appendOutput(character)
+        index++
+        return
+      }
+      if (character === "/" && next === "/") {
+        const end = source.indexOf("\n", index)
+        const length = (end === -1 ? source.length : end) - index
+        appendOutput(" ".repeat(length))
+        index += length
+        continue
+      }
+      if (character === "/" && next === "*") {
+        const closing = source.indexOf("*/", index + 2)
+        const length = (closing === -1 ? source.length : closing + 2) - index
+        appendOutput(maskLiteralText(source.slice(index, index + length)))
+        index += length
+        continue
+      }
+      if (character === "/" && canStartRegexLiteral(output, recentOutput)) {
+        let end = index + 1
+        let inCharacterClass = false
+        while (end < source.length) {
+          if (source[end] === "\\") end += 2
+          else if (source[end] === "[") {
+            inCharacterClass = true
+            end++
+          }
+          else if (source[end] === "]") {
+            inCharacterClass = false
+            end++
+          }
+          else if (source[end] === "/" && !inCharacterClass) {
+            end++
+            while (/[A-Za-z]/.test(source[end] || "")) end++
+            break
+          }
+          else if (source[end] === "\n" || source[end] === "\r") break
+          else end++
+        }
+        appendOutput(maskLiteralOperand(source.slice(index, end)))
+        index = end
+        continue
+      }
+      if (character === "`") {
+        const prefix = recentOutput.slice(-160)
+        const keepPackageCall = packageCallPattern?.test(prefix) === true
+        if (keepPackageCall || /\b(?:__require|require)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*$/.test(prefix)) {
+          let end = index + 1
+          while (end < source.length) {
+            if (source[end] === "\\") end += 2
+            else if (source[end] === "$" && source[end + 1] === "{") break
+            else if (source[end++] === "`") {
+              appendOutput(source.slice(index, end))
+              index = end
+              break
+            }
+            else end++
+          }
+          if (index === end) continue
+        }
+        scanTemplate()
+        continue
+      }
+      if (character === '"' || character === "'") {
+        const prefix = recentOutput.slice(-120)
+        const keepPackageCall = packageCallPattern?.test(prefix) === true
+        const keep = keepPackageCall || /(?:\b(?:from|import|export)|\b(?:__require|require)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(|\bimport\s*(?:\(|\.\s*meta\s*\.\s*resolve\s*\()|\bnew\s+URL\s*\()\s*$/.test(prefix)
+        let end = index + 1
+        while (end < source.length) {
+          if (source[end] === "\\") end += 2
+          else if (source[end++] === character) break
+        }
+        const literal = source.slice(index, end)
+        appendOutput(keep ? literal : maskLiteralOperand(literal))
+        index = end
+        continue
+      }
+      if (character === "{") braceDepth++
+      else if (character === "}") braceDepth--
+      appendOutput(character)
+      index++
+    }
+  }
+
+  scanCode()
   return output
 }
 
+function canStartRegexLiteral(output: string, recentOutput: string): boolean {
+  const recentPrefix = recentOutput.trimEnd()
+  if (!recentPrefix) return true
+  if (recentPrefix.endsWith("++") || recentPrefix.endsWith("--")) return false
+  const lastCharacter = recentPrefix.at(-1)!
+  if ("([{,:;=!?&|~%^<>*+-".includes(lastCharacter)) return true
+  if (lastCharacter === ")" || lastCharacter === "}") {
+    const prefix = output.trimEnd()
+    if (endsWithDeclaration(prefix)) return true
+    if (endsWithControlCondition(prefix)) return true
+    if (endsWithStatementBlock(prefix)) return true
+  }
+  return /\b(?:await|case|delete|do|else|in|instanceof|of|return|throw|typeof|void|yield)$/.test(recentPrefix)
+}
+
+function matchingOpeningDelimiter(source: string, opening: string, closing: string): number | undefined {
+  if (!source.endsWith(closing)) return
+  const openings: number[] = []
+  let quote: "\"" | "'" | "`" | undefined
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index]!
+    if (quote) {
+      if (character === "\\") index++
+      else if (character === quote) quote = undefined
+      continue
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      quote = character
+      continue
+    }
+    if (character === opening) openings.push(index)
+    else if (character === closing) {
+      const match = openings.pop()
+      if (index === source.length - 1) return match
+    }
+  }
+}
+
+function endsWithControlCondition(source: string): boolean {
+  const conditionStart = matchingOpeningDelimiter(source, "(", ")")
+  if (conditionStart === undefined) return false
+  return /\b(?:catch|if|for|switch|while|with)$/.test(source.slice(0, conditionStart).trimEnd())
+}
+
+function endsWithStatementBlock(source: string): boolean {
+  const bodyStart = matchingOpeningDelimiter(source, "{", "}")
+  if (bodyStart === undefined) return false
+  const header = source.slice(0, bodyStart).trimEnd()
+  return /(?:^|[;{}\n])\s*[\w$]+\s*:$/.test(header)
+    || /\b(?:catch|do|else|finally|try)$/.test(header)
+    || endsWithControlCondition(header)
+    || /(?:^|[;{}\n])\s*$/.test(header)
+}
+
+function endsWithDeclaration(source: string): boolean {
+  const bodyStart = matchingOpeningDelimiter(source, "{", "}")
+  if (bodyStart === undefined) return false
+  const header = source.slice(0, bodyStart).trimEnd()
+  return /(?:^|[;{}])\s*(?:(?:export\s+(?:default\s+)?)?(?:(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^;]*\)|class\s+[\w$]+(?:\s+extends\s+[^;{}]+)?)|export\s+default\s+(?:(?:async\s+)?function(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^;]*\)|class(?:\s+[\w$]+)?(?:\s+extends\s+[^;{}]+)?))\s*$/.test(header)
+}
+
+function packageImportPlugin(): Plugin {
+  const resolvingPackageImport = "vitehubResolvingPackageImport"
+  return {
+    name: "vitehub-package-imports",
+    setup(build) {
+      build.onResolve({ filter: /^#/ }, async (args) => {
+        if (args.pluginData?.[resolvingPackageImport]) return
+        const result = await build.resolve(args.path, {
+          importer: args.importer,
+          kind: args.kind,
+          namespace: args.namespace,
+          pluginData: { ...args.pluginData, [resolvingPackageImport]: true },
+          resolveDir: args.resolveDir,
+          with: args.with,
+        })
+        const pluginData = Object.assign({}, result.pluginData)
+        Reflect.deleteProperty(pluginData, resolvingPackageImport)
+        return { ...result, pluginData }
+      })
+    },
+  }
+}
+
+function runtimePackageResolutionPlugin(
+  rootDir: string,
+  aliases: ViteAlias[] | undefined,
+  packageJsonPaths: Map<string, string>,
+): Plugin {
+  return {
+    name: "vitehub-deno-runtime-packages",
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, async (args) => {
+        const name = packageNameFromSpecifier(args.path)
+        if (!name || aliases?.some((alias) => {
+          if (!(alias.find instanceof RegExp)) return args.path === alias.find || args.path.startsWith(`${alias.find}/`)
+          alias.find.lastIndex = 0
+          const matches = alias.find.test(args.path)
+          alias.find.lastIndex = 0
+          return matches
+        })) return
+        const fromDir = args.resolveDir || (isAbsolute(args.importer) ? dirname(args.importer) : rootDir)
+        const resolver = createRequire(isAbsolute(args.importer) ? args.importer : join(fromDir, "package.json"))
+        const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
+        if (!packageJsonPath) return
+        const resolvedPackageJsonPath = await realpath(packageJsonPath)
+        recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
+      })
+    },
+  }
+}
+
+function recordRuntimePackageResolution(packageJsonPaths: Map<string, string>, name: string, packageJsonPath: string): void {
+  const existing = packageJsonPaths.get(name)
+  if (existing && existing !== packageJsonPath) {
+    throw internalErrorDiagnostics.INTERNAL_B0015({ message: `Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.` })
+  }
+  packageJsonPaths.set(name, packageJsonPath)
+}
+
 export function collectDenoRuntimePackageNames(source: string): string[] {
+  const analysis = analyzeImportSource(source)
   return [...new Set([
     ...collectBundledPackageNames(source),
-    ...collectImportedPackageNames(source),
+    ...collectImportedPackageNames(source, analysis),
   ])].sort()
 }
 
 interface RuntimePackage {
   hoistOptionalDependencies?: boolean
+  hoistedPeer?: boolean
   includeOptionalDependencies?: boolean
   includePeerDependencies?: boolean
   name: string
   onlyIfOptionalDependencies?: boolean
   optional?: boolean
   packageJsonPath?: string
+  peerRange?: string
+  ownsTarget?: boolean
 }
 
 interface RuntimePackageJson {
   cpu?: string[]
   dependencies?: Record<string, string>
   libc?: string[]
+  name?: string
   optionalDependencies?: Record<string, string>
   os?: string[]
   peerDependencies?: Record<string, string>
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
+  version?: string
+}
+
+function parseRuntimePackageJson(source: string): RuntimePackageJson {
+  const value: unknown = JSON.parse(source)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for untrusted JSON input.
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw internalErrorDiagnostics.INTERNAL_B0016({ message: "Expected package.json to contain an object." })
+  // SAFETY: The preceding runtime validation proves the parsed value is a non-null, non-array object.
+  const record = value as Record<string, unknown>
+  const stringList = (key: string): string[] | undefined => {
+    const property = record[key]
+    if (property === undefined) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Package platform constraints accept either one string or an array of strings.
+    if (typeof property === "string") return [property]
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates every unknown package.json array item before returning it.
+    if (!Array.isArray(property) || !property.every(item => typeof item === "string")) throw internalErrorDiagnostics.INTERNAL_B0017({ message: `Expected package.json ${key} to contain strings.` })
+    return property
+  }
+  const stringRecord = (key: string): Record<string, string> | undefined => {
+    const property = record[key]
+    if (property === undefined) return
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This parser validates the unknown package.json record and each value before returning it.
+    if (!property || typeof property !== "object" || Array.isArray(property) || !Object.values(property).every(item => typeof item === "string")) throw internalErrorDiagnostics.INTERNAL_B0018({ message: `Expected package.json ${key} to contain string values.` })
+    // SAFETY: The preceding validation proves every property value is a string.
+    return property as Record<string, string>
+  }
+  const peerMeta = record.peerDependenciesMeta
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for unknown peer metadata.
+  if (peerMeta !== undefined && (!peerMeta || typeof peerMeta !== "object" || Array.isArray(peerMeta))) throw internalErrorDiagnostics.INTERNAL_B0019({ message: "Expected package.json peerDependenciesMeta to contain an object." })
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for the unknown name field.
+  if (record.name !== undefined && typeof record.name !== "string") throw internalErrorDiagnostics.INTERNAL_B0020({ message: "Expected package.json name to contain a string." })
+  return {
+    cpu: stringList("cpu"),
+    dependencies: stringRecord("dependencies"),
+    libc: stringList("libc"),
+    name: record.name,
+    optionalDependencies: stringRecord("optionalDependencies"),
+    os: stringList("os"),
+    peerDependencies: stringRecord("peerDependencies"),
+    // SAFETY: The parser above establishes that peer dependency metadata is object-shaped when present.
+    peerDependenciesMeta: peerMeta as RuntimePackageJson["peerDependenciesMeta"],
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This is the package.json parsing boundary for the unknown version field.
+    version: typeof record.version === "string" ? record.version : undefined,
+  }
+}
+
+function normalizePeerRange(range: string): string | null {
+  if (validRange(range)) return range
+  if (range === "workspace:" || range === "workspace:*") return "*"
+  const workspaceRange = range.startsWith("workspace:") ? range.slice("workspace:".length) : undefined
+  if (workspaceRange && validRange(workspaceRange)) return workspaceRange
+  return null
 }
 
 async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: string, packages: RuntimePackage[], rootDir: string }): Promise<void> {
   const copied = new Set<string>()
   const staged = new Set<string>()
+  const stagedTargets = new Set<string>()
+  const ownedTargets = new Set<string>()
+  const rootPackagePaths = new Map<string, { hoistedPeer: boolean, path: string, peerRanges: (string | null)[], version?: string }>()
   const resolver = createRequire(join(options.rootDir, "package.json"))
-  for (const runtimePackage of options.packages) {
-    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, copied, staged, runtimePackage)
+  const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
+  for (const runtimePackage of packages) {
+    if (!runtimePackage.packageJsonPath || runtimePackage.onlyIfOptionalDependencies) continue
+    const packageJsonPath = await realpath(runtimePackage.packageJsonPath)
+    const packageJson = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
+    rootPackagePaths.set(runtimePackage.name, {
+      hoistedPeer: false,
+      path: packageJsonPath,
+      peerRanges: [],
+      version: packageJson.version,
+    })
+  }
+  for (const runtimePackage of packages) {
+    const targetDir = join(options.outputNodeModules, ...runtimePackage.name.split("/"))
+    let selectedPackage = runtimePackage
+    if (!runtimePackage.packageJsonPath && stagedTargets.has(targetDir)) {
+      const stagedPackageJsonPath = await resolvePackageJson(
+        runtimePackage.name,
+        createRequire(join(options.outputNodeModules, "package.json")),
+        options.outputNodeModules,
+      )
+      if (stagedPackageJsonPath) selectedPackage = { ...runtimePackage, packageJsonPath: stagedPackageJsonPath }
+    }
+    await copyPackageToNodeModules(runtimePackage.name, resolver, options.rootDir, options.outputNodeModules, options.outputNodeModules, copied, staged, stagedTargets, ownedTargets, rootPackagePaths, selectedPackage)
   }
 }
 
-async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, copied: Set<string>, staged: Set<string>, options: RuntimePackage): Promise<void> {
+async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, fromDir: string, outputNodeModules: string, rootOutputNodeModules: string, copied: Set<string>, staged: Set<string>, stagedTargets: Set<string>, ownedTargets: Set<string>, rootPackagePaths: Map<string, { hoistedPeer: boolean, path: string, peerRanges: (string | null)[], version?: string }>, options: RuntimePackage): Promise<void> {
   let packageJsonPath = options.packageJsonPath
   if (packageJsonPath) {
     try {
       await access(packageJsonPath)
     } catch (error) {
+      // SAFETY: Node filesystem failures expose their stable code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       packageJsonPath = undefined
     }
   }
   packageJsonPath ??= await resolvePackageJson(name, resolver, fromDir)
+  packageJsonPath ??= await resolvePackageJson(name, createRequire(join(outputNodeModules, "package.json")), outputNodeModules)
   if (!packageJsonPath) {
     if (options.optional) return
-    throw new Error("Could not resolve package.json for " + name + ".")
+    throw internalErrorDiagnostics.INTERNAL_B0021({ message: "Could not resolve package.json for " + name + "." })
   }
-  const resolvedPackageJsonPath = await realpath(packageJsonPath)
-  const packageDir = dirname(resolvedPackageJsonPath)
-  const packageJson = JSON.parse(await readFile(resolvedPackageJsonPath, "utf8")) as RuntimePackageJson
+  let resolvedPackageJsonPath = await realpath(packageJsonPath)
+  let packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
   if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
+  if (outputNodeModules === rootOutputNodeModules) {
+    const existingPath = rootPackagePaths.get(name)
+    const peerRanges = [...(existingPath?.peerRanges || []), ...(options.peerRange ? [normalizePeerRange(options.peerRange)] : [])]
+    const satisfiesPeerRanges = (version: string): boolean => peerRanges.every(range => range !== null && satisfies(version, range))
+    if (existingPath && existingPath.path !== resolvedPackageJsonPath && (existingPath.hoistedPeer || options.hoistedPeer)) {
+      if (existingPath.version && satisfiesPeerRanges(existingPath.version)) {
+        resolvedPackageJsonPath = existingPath.path
+        packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
+      } else if (!existingPath.hoistedPeer || !packageJson.version || !satisfiesPeerRanges(packageJson.version)) {
+        throw internalErrorDiagnostics.INTERNAL_B0022({ message: `Conflicting runtime package installations for ${name}: ${existingPath.path} and ${resolvedPackageJsonPath}.` })
+      }
+    }
+    rootPackagePaths.set(name, {
+      hoistedPeer: Boolean(existingPath?.hoistedPeer || options.hoistedPeer),
+      path: resolvedPackageJsonPath,
+      peerRanges,
+      version: packageJson.version,
+    })
+  }
+  const packageDir = dirname(resolvedPackageJsonPath)
   const packageKey = name + "\0" + resolvedPackageJsonPath
   if (copied.has(packageKey)) return
   const targetDir = join(outputNodeModules, ...name.split("/"))
+  if (!options.ownsTarget && ownedTargets.has(targetDir)) return
+  if (options.ownsTarget) ownedTargets.add(targetDir)
   const stagedKey = packageKey + "\0" + targetDir
   if (staged.has(stagedKey)) return
   copied.add(packageKey)
-  await rm(targetDir, { force: true, recursive: true })
-  await cp(packageDir, targetDir, {
-    dereference: true,
-    filter: source => relative(packageDir, source).split(sep)[0] !== "node_modules",
-    recursive: true,
-  })
+  if (resolve(packageDir) !== resolve(targetDir)) {
+    await rm(targetDir, { force: true, recursive: true })
+    await cp(packageDir, targetDir, {
+      dereference: true,
+      filter: source => !relative(packageDir, source).split(sep).includes("node_modules"),
+      recursive: true,
+    })
+  }
   staged.add(stagedKey)
+  stagedTargets.add(targetDir)
   const packageRequire = createRequire(resolvedPackageJsonPath)
   const optionalDependencyNames = new Set(Object.keys(packageJson.optionalDependencies || {}))
   const dependencyNames = new Set(
@@ -187,26 +904,37 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
     for (const dependencyName of Object.keys(packageJson.optionalDependencies || {})) {
       const dependencyPackageJsonPath = await resolvePackageJson(dependencyName, packageRequire, packageDir)
       if (!dependencyPackageJsonPath) continue
-      const dependencyPackageJson = JSON.parse(await readFile(dependencyPackageJsonPath, "utf8")) as RuntimePackageJson
+      const dependencyPackageJson = parseRuntimePackageJson(await readFile(dependencyPackageJsonPath, "utf8"))
       if (supportsDenoRuntime(dependencyPackageJson)) dependencyNames.add(dependencyName)
     }
   }
-  if (options.includePeerDependencies) {
-    for (const dependencyName of Object.keys(packageJson.peerDependencies || {})) {
-      if (!packageJson.peerDependenciesMeta?.[dependencyName]?.optional) dependencyNames.add(dependencyName)
-    }
-  }
   for (const dependencyName of dependencyNames) {
-    const dependencyNodeModules = options.hoistOptionalDependencies && packageJson.optionalDependencies?.[dependencyName]
+    const hoistOptionalDependency = Boolean(packageJson.optionalDependencies?.[dependencyName])
+      && (options.hoistOptionalDependencies || outputNodeModules === rootOutputNodeModules)
+    const dependencyNodeModules = hoistOptionalDependency
       ? outputNodeModules
       : join(targetDir, "node_modules")
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, copied, staged, {
-      hoistOptionalDependencies: options.hoistOptionalDependencies && Boolean(packageJson.optionalDependencies?.[dependencyName]),
+    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, dependencyNodeModules, rootOutputNodeModules, copied, staged, stagedTargets, ownedTargets, rootPackagePaths, {
+      hoistOptionalDependencies: hoistOptionalDependency,
       includeOptionalDependencies: options.includeOptionalDependencies,
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
+      ownsTarget: hoistOptionalDependency,
       optional: Boolean(packageJson.optionalDependencies?.[dependencyName]),
     })
+  }
+  if (options.includePeerDependencies) {
+    for (const dependencyName of Object.keys(packageJson.peerDependencies || {})) {
+      if (packageJson.peerDependenciesMeta?.[dependencyName]?.optional) continue
+      await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, rootOutputNodeModules, rootOutputNodeModules, copied, staged, stagedTargets, ownedTargets, rootPackagePaths, {
+        hoistedPeer: true,
+        includeOptionalDependencies: options.includeOptionalDependencies,
+        includePeerDependencies: true,
+        name: dependencyName,
+        optional: false,
+        peerRange: packageJson.peerDependencies![dependencyName],
+      })
+    }
   }
   copied.delete(packageKey)
 }
@@ -239,9 +967,10 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
       const candidate = join(current, "package.json")
       try {
         await access(candidate)
-        const packageJson = JSON.parse(await readFile(candidate, "utf8")) as { name?: string }
+        const packageJson = parseRuntimePackageJson(await readFile(candidate, "utf8"))
         if (packageJson.name === name) return candidate
       } catch (error) {
+        // SAFETY: Node filesystem failures expose their stable code through ErrnoException.
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       }
       current = dirname(current)
@@ -256,6 +985,7 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
       await access(candidate)
       return candidate
     } catch (error) {
+      // SAFETY: Node filesystem failures expose their stable code through ErrnoException.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
     current = dirname(current)
@@ -263,22 +993,123 @@ async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDi
 }
 
 function isPackageResolutionMiss(error: unknown): boolean {
+  // SAFETY: Node module-resolution failures expose their stable code through ErrnoException.
   const code = (error as NodeJS.ErrnoException | undefined)?.code
   return code === "MODULE_NOT_FOUND" || code === "ERR_MODULE_NOT_FOUND" || code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
 }
 
 async function runtimeSourceFiles(serverDir: string): Promise<string[]> {
+  if ((await stat(serverDir)).isFile()) return [serverDir]
   const entries = await readdir(serverDir, { recursive: true, withFileTypes: true })
   return entries
     .filter((entry) => entry.isFile() && runtimeExtensions.has(extname(entry.name)))
     .map((entry) => resolve(entry.parentPath, entry.name))
 }
 
-async function readRuntimePackages(serverDir: string, rootDir: string): Promise<RuntimePackage[]> {
+async function recordServerRuntimePackageResolutions(
+  serverDir: string,
+  rootDir: string,
+  resolvedPackageJsonPaths: Map<string, string>,
+  sourceAnalyses?: Map<string, ImportSourceAnalysis>,
+): Promise<void> {
+  const files = await runtimeSourceFiles(serverDir)
+  const sources = await Promise.all(files.map(file => readFile(file, "utf8")))
+  const bundledPackageJsonPaths = new Map<string, Set<string>>()
+  const bundledPackageJsonPathsByFile = new Map<string, Map<string, Set<string>>>()
+  for (const [index, file] of files.entries()) {
+    const source = sources[index]!
+    for (const { name, path: packagePath } of collectBundledPackages(source)) {
+      const candidate = resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json")
+      try {
+        const packageJsonPath = await realpath(candidate)
+        const paths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
+        paths.add(packageJsonPath)
+        bundledPackageJsonPaths.set(name, paths)
+        const filePaths = bundledPackageJsonPathsByFile.get(file) ?? new Map<string, Set<string>>()
+        const packagePaths = filePaths.get(name) ?? new Set<string>()
+        packagePaths.add(packageJsonPath)
+        filePaths.set(name, packagePaths)
+        bundledPackageJsonPathsByFile.set(file, filePaths)
+      }
+      catch (error) {
+        // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      }
+    }
+  }
+  const packageResolutions = new Map<string, Promise<string | undefined>>()
+  const resolvePackageFromFile = (name: string, file: string): Promise<string | undefined> => {
+    const fromDir = dirname(file)
+    const key = `${fromDir}\0${name}`
+    const existing = packageResolutions.get(key)
+    if (existing) return existing
+    const resolution = resolvePackageJson(name, createRequire(file), fromDir)
+      .then(path => path && realpath(path))
+    packageResolutions.set(key, resolution)
+    return resolution
+  }
+  for (const [index, file] of files.entries()) {
+    const source = sources[index]!
+    const externalSource = maskBundledPackageRegions(source)
+    const externalPackageNames = collectImportedPackageNames(externalSource, cachedImportSourceAnalysis(externalSource, sourceAnalyses))
+    for (const name of collectImportedPackageNames(source, cachedImportSourceAnalysis(source, sourceAnalyses))) {
+      const bundledPaths = bundledPackageJsonPaths.get(name)
+      const localBundledPaths = bundledPackageJsonPathsByFile.get(file)?.get(name)
+      const resolvedPackageJsonPath = localBundledPaths?.size && !externalPackageNames.has(name)
+        ? localBundledPaths.values().next().value
+        : await resolvePackageFromFile(name, file)
+      const resolvedPaths = new Set(bundledPaths)
+      if (resolvedPackageJsonPath) resolvedPaths.add(resolvedPackageJsonPath)
+      if (resolvedPaths.size > 1) {
+        throw internalErrorDiagnostics.INTERNAL_B0023({ message: `Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.` })
+      }
+      const packageJsonPath = resolvedPackageJsonPath ?? resolvedPaths.values().next().value
+      if (!packageJsonPath) continue
+      recordRuntimePackageResolution(
+        resolvedPackageJsonPaths,
+        name,
+        packageJsonPath,
+      )
+    }
+  }
+}
+
+async function readRuntimePackages(
+  runtimeDirs: string[],
+  rootDir: string,
+  resolvedPackageJsonPaths: Map<string, string>,
+  sourceAnalyses?: Map<string, ImportSourceAnalysis>,
+): Promise<RuntimePackage[]> {
   const packages = new Map<string, RuntimePackage>()
-  for (const file of await runtimeSourceFiles(serverDir)) {
-    const source = await readFile(file, "utf8")
-    for (const [name, packagePath] of collectBundledPackages(source)) {
+  const bundledPackageJsonPaths = new Map<string, Set<string>>()
+  const files = (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()
+  const sources = await Promise.all(files.map(file => readFile(file, "utf8")))
+  for (const [index, source] of sources.entries()) {
+    const file = files[index]!
+    for (const { name, path: packagePath } of collectBundledPackages(source)) {
+      const candidates = isAbsolute(packagePath)
+        ? [resolve(packagePath, "package.json")]
+        : [resolve(rootDir, packagePath, "package.json"), resolve(dirname(file), packagePath, "package.json")]
+      let packageJsonPath: string | undefined
+      for (const candidate of candidates) {
+        try {
+          packageJsonPath = await realpath(candidate)
+          break
+        }
+        catch (error) {
+          // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+        }
+      }
+      if (!packageJsonPath) continue
+      const packageJson = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
+      if (!Object.keys(packageJson.optionalDependencies ?? {}).length) continue
+      const bundledPaths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
+      bundledPaths.add(packageJsonPath)
+      bundledPackageJsonPaths.set(name, bundledPaths)
+      if (bundledPaths.size > 1) {
+        throw internalErrorDiagnostics.INTERNAL_B0024({ message: `Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.` })
+      }
       const existing = packages.get(name)
       packages.set(name, {
         ...existing,
@@ -288,24 +1119,131 @@ async function readRuntimePackages(serverDir: string, rootDir: string): Promise<
         name,
         onlyIfOptionalDependencies: existing?.onlyIfOptionalDependencies ?? true,
         optional: existing?.optional ?? true,
-        packageJsonPath: resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json"),
+        packageJsonPath,
       })
     }
-    for (const name of collectImportedPackageNames(source)) {
+    for (const name of collectBundledPackageNames(source)) {
+      if (packages.has(name)) continue
+      const recordedPackageJsonPath = resolvedPackageJsonPaths.get(name)
+      const packageJsonPath = recordedPackageJsonPath
+        ?? await resolvePackageJson(name, createRequire(file), dirname(file))
+        ?? await resolvePackageJson(name, createRequire(join(rootDir, "package.json")), rootDir)
+      if (!packageJsonPath) continue
+      const resolvedPackageJsonPath = await realpath(packageJsonPath)
+      const packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
+      if (!Object.keys(packageJson.optionalDependencies ?? {}).length) continue
       packages.set(name, {
-        ...packages.get(name),
+        hoistOptionalDependencies: true,
+        includeOptionalDependencies: true,
+        includePeerDependencies: true,
+        name,
+        onlyIfOptionalDependencies: true,
+        optional: true,
+        packageJsonPath: resolvedPackageJsonPath,
+      })
+    }
+  }
+  for (const source of sources) {
+    const analysis = cachedImportSourceAnalysis(source, sourceAnalyses)
+    const staticNames = collectStaticPackageNames(analysis)
+    const optionalNames = new Set([
+      ...collectOptionalDynamicPackageNames(analysis),
+      ...collectOptionalRequirePackageNames(analysis),
+    ])
+    const requiredNames = new Set([
+      ...collectImportedPackageNames(source, analysis),
+      ...staticNames,
+    ])
+    for (const name of requiredNames) {
+      const existing = packages.get(name)
+      let resolvedPackageJsonPath = resolvedPackageJsonPaths.get(name)
+      if (resolvedPackageJsonPath) {
+        try {
+          await access(resolvedPackageJsonPath)
+        }
+        catch (error) {
+          // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+          resolvedPackageJsonPath = undefined
+        }
+      }
+      packages.set(name, {
+        ...existing,
         includeOptionalDependencies: true,
         includePeerDependencies: true,
         name,
         onlyIfOptionalDependencies: false,
-        optional: false,
+        optional: staticNames.has(name)
+          ? false
+          : (existing?.optional ?? true) && optionalNames.has(name),
+        packageJsonPath: resolvedPackageJsonPath ?? existing?.packageJsonPath,
       })
     }
   }
   return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function denoDeployRunnerSource(deploymentName?: string): string {
+export function assertSupportedRelocatedImports(source: string, outputName: string, allowedLocalImports: string[] = []): void {
+  const { createRequireAliases, executableSource } = analyzeImportSource(source)
+  for (const match of executableSource.matchAll(/new URL\(\s*(["'`])(\.[^"'`]*)\1\s*,\s*import\.meta\.url\s*\)/g)) {
+    const specifier = cookImportSpecifier(match[2]!)
+    if (allowedLocalImports.includes(specifier)) continue
+    throw internalErrorDiagnostics.INTERNAL_B0025({ message: `Deno ${outputName} contains an unsupported computed local import ${JSON.stringify(specifier)}. Use a static import so ViteHub can bundle its dependency.` })
+  }
+  let remaining = executableSource
+    .replaceAll(/import\s*\(\s*new URL\(\s*(["'`])([^"'`]+)\1\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g, (expression, _quote: string, rawSpecifier: string) => allowedLocalImports.includes(cookImportSpecifier(rawSpecifier)) ? "" : expression)
+  for (const literalImport of findLiteralDynamicImports(remaining).reverse()) {
+    remaining = remaining.slice(0, literalImport.start) + " ".repeat(literalImport.literalEnd - literalImport.start) + remaining.slice(literalImport.literalEnd)
+  }
+  for (const match of remaining.matchAll(/\bimport\s*\(/g)) {
+    if (isStandaloneCall(remaining, match.index!)) {
+      throw internalErrorDiagnostics.INTERNAL_B0026({ message: `Deno ${outputName} contains an unsupported computed import. Use a static import so ViteHub can bundle its dependency.` })
+    }
+  }
+  const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
+  const computedRequire = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(?=[^)\s])(?!["'\x60])`, "g")
+  for (const match of remaining.matchAll(computedRequire)) {
+    if (isStandaloneCall(remaining, match.index!)) {
+      throw internalErrorDiagnostics.INTERNAL_B0027({ message: `Deno ${outputName} contains an unsupported computed require. Use a static import so ViteHub can bundle its dependency.` })
+    }
+  }
+}
+
+function isUnconditionalTopLevelExpression(source: string, expressionStart: number, expressionEnd: number): boolean {
+  let braceDepth = 0
+  for (let index = 0; index < expressionStart; index++) {
+    if (source[index] === "{") braceDepth++
+    else if (source[index] === "}") braceDepth--
+  }
+  if (braceDepth !== 0) return false
+  const statementPrefix = source.slice(0, expressionStart).split(/[;\n]/).at(-1)!
+  const precedingLine = source.slice(0, expressionStart).split("\n").at(-2)?.trim() ?? ""
+  return !/(?:^|\s)(?:else\s+)?(?:if|for|while|with)\s*\(/.test(statementPrefix)
+    && !isGuardedConciseArrow(source, expressionStart, expressionEnd)
+    && !/^(?:else\s+)?(?:if|for|while|with)\s*\(/.test(precedingLine)
+    && !/&&|\|\||\?\?|\?\./.test(statementPrefix)
+    && !/(^|[^?])\?(?![?.])/.test(statementPrefix)
+}
+
+function hasTopLevelRelocatableDynamicImport(source: string, specifier: string): boolean {
+  const { executableSource } = analyzeImportSource(source)
+  if (findLiteralDynamicImports(executableSource)
+    .some(entry => entry.specifier === specifier && isUnconditionalTopLevelExpression(executableSource, entry.start, entry.literalEnd))) return true
+  return [...executableSource.matchAll(/(?:^|[^\w$.#])import\s*\(\s*new URL\(\s*(["'`])([^"'`]+)\1\s*,\s*import\.meta\.url\s*\)\.href\s*\)/g)]
+    .some(match => cookImportSpecifier(match[2]!) === specifier && isUnconditionalTopLevelExpression(executableSource, match.index! + match[0].indexOf("import"), match.index! + match[0].length))
+}
+
+function hasRelocatableStaticImport(source: string, specifier: string): boolean {
+  const { executableSource } = analyzeImportSource(source)
+  const patterns = [
+    /(?:^|;)\s*import\s*["']([^"']+)["']/gm,
+    /(?:^|;)\s*import[^;\n]*?\bfrom\s*["']([^"']+)["']/gm,
+  ]
+  return patterns.some(pattern => [...executableSource.matchAll(pattern)]
+    .some(match => cookImportSpecifier(match[1]!) === specifier))
+}
+
+function denoDeployRunnerSource(deploymentName: string | undefined, entrypoint: string): string {
   return `import { spawn } from "node:child_process"
 import { access, cp, mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -313,11 +1251,12 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const organization = process.env.DENO_DEPLOY_ORG
-const app = process.env.DENO_DEPLOY_APP || process.env.VITEHUB_DEPLOYMENT_NAME || ${JSON.stringify(deploymentName)}
+const app = process.env.DENO_DEPLOY_APP || ${JSON.stringify(deploymentName)}
 const region = process.env.DENO_DEPLOY_REGION || "global"
+const entrypoint = ${JSON.stringify(entrypoint)}
 
 if (!organization || !app) {
-  throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP (or VITEHUB_DEPLOYMENT_NAME) are required.")
+  throw new Error("DENO_DEPLOY_ORG and DENO_DEPLOY_APP are required.")
 }
 
 let activeChild
@@ -357,7 +1296,9 @@ function contains(parent, child) {
 const sourceRoot = await realpath(fileURLToPath(new URL(".", import.meta.url)))
 const uploadRoot = await realpath(await mkdtemp(join(tmpdir(), "vitehub-deno-deploy-")))
 const signals = ["SIGINT", "SIGTERM"]
+let interrupted = false
 const handleSignal = (signal) => {
+  interrupted = true
   activeChild?.kill(signal)
   void rm(uploadRoot, { force: true, recursive: true }).finally(() => {
     process.kill(process.pid, signal)
@@ -371,17 +1312,25 @@ try {
   }
   await cp(sourceRoot, uploadRoot, { recursive: true })
 
-  const common = ["--allow-node-modules", "--org", organization, "--app", app]
-  const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", "server/index.mjs", "--working-directory", ".", "--region", region, ...common], uploadRoot)
-  if (creation.code !== 0) {
-    const deployment = await run(["deploy", ".", "--prod", ...common], uploadRoot)
-    if (deployment.code !== 0) {
-      throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
+  if (!interrupted) {
+    const common = ["--allow-node-modules", "--org", organization, "--app", app]
+    const creation = await run(["deploy", "create", ".", "--source", "local", "--do-not-use-detected-build-config", "--runtime-mode", "dynamic", "--entrypoint", entrypoint, "--working-directory", ".", "--region", region, ...common], uploadRoot)
+    if (creation.signal != null && !interrupted) {
+      throw new Error("deno deploy create exited with " + creation.signal)
+    }
+    if (!interrupted && creation.code !== 0) {
+      const deployment = await run(["deploy", ".", "--prod", "--config", "deno.json", ...common], uploadRoot)
+      if (deployment.code !== 0) {
+        throw new Error("deno deploy exited with " + (deployment.signal || "code " + deployment.code))
+      }
     }
   }
 } finally {
-  for (const signal of signals) process.off(signal, handleSignal)
-  await rm(uploadRoot, { force: true, recursive: true })
+  try {
+    await rm(uploadRoot, { force: true, recursive: true })
+  } finally {
+    for (const signal of signals) process.off(signal, handleSignal)
+  }
 }
 `
 }
@@ -390,19 +1339,273 @@ export async function finalizeDenoDeploymentOutput(
   options: FinalizeDenoDeploymentOutputOptions,
 ): Promise<void> {
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
-  const serverDir = join(outputDir, "server")
-  const packages = await readRuntimePackages(serverDir, options.rootDir)
+  const releaseLock = await acquireDenoDeploymentLock(outputDir)
+  try {
+    await recoverInterruptedDenoDeploymentOutput(outputDir)
+    const stageRoot = await mkdtemp(join(dirname(outputDir), `.${basename(outputDir)}.vitehub-`))
+    activeDenoDeploymentStages.add(stageRoot)
+    const stagedOutputDir = join(stageRoot, "output")
+    const previousOutputDir = join(stageRoot, "previous")
+    try {
+      await cp(outputDir, stagedOutputDir, { recursive: true })
+      await finalizeStagedDenoDeploymentOutput({ ...options, outputDir: stagedOutputDir }, join(outputDir, "server"))
+      await rename(outputDir, previousOutputDir)
+      try {
+        await rename(stagedOutputDir, outputDir)
+      }
+      catch (error) {
+        await rename(previousOutputDir, outputDir)
+        throw error
+      }
+    }
+    finally {
+      activeDenoDeploymentStages.delete(stageRoot)
+      await rm(stageRoot, { force: true, recursive: true })
+    }
+  }
+  finally {
+    await releaseLock()
+  }
+}
 
+export async function acquireDenoDeploymentLock(outputDir: string): Promise<() => Promise<void>> {
+  const lockPath = `${outputDir}.vitehub-lock`
+  const ownerPath = join(lockPath, "owner")
+  const publishLock = async () => {
+    const candidatePath = `${lockPath}.candidate.${process.pid}.${randomUUID()}`
+    try {
+      await mkdir(candidatePath)
+      await writeFile(join(candidatePath, "owner"), `${process.pid}\n`, "utf8")
+      await rename(candidatePath, lockPath)
+    }
+    finally {
+      await rm(candidatePath, { force: true, recursive: true })
+    }
+  }
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      await publishLock()
+      return () => rm(lockPath, { force: true, recursive: true })
+    }
+    catch (error) {
+      // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+      if (!["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error
+      const inspectedOwner = await readFile(ownerPath, "utf8").catch(() => "")
+      const owner = Number.parseInt(inspectedOwner, 10)
+      let ownerAlive = Number.isSafeInteger(owner) && owner > 0
+      if (ownerAlive) {
+        try { process.kill(owner, 0) }
+        catch (signalError) {
+          // SAFETY: Node process errors expose their stable code through ErrnoException.
+          if ((signalError as NodeJS.ErrnoException).code === "ESRCH") ownerAlive = false
+          else throw signalError
+        }
+      }
+      if (ownerAlive) throw internalErrorDiagnostics.INTERNAL_B0028({ message: `Deno deployment output ${JSON.stringify(outputDir)} is already being finalized by process ${owner}.` })
+
+      const claimedLockPath = `${lockPath}.orphan.${process.pid}.${randomUUID()}`
+      try {
+        await rename(lockPath, claimedLockPath)
+      }
+      catch (claimError) {
+        // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+        if ((claimError as NodeJS.ErrnoException).code === "ENOENT") continue
+        throw claimError
+      }
+      const claimedOwner = await readFile(join(claimedLockPath, "owner"), "utf8").catch(() => "")
+      if (claimedOwner !== inspectedOwner) {
+        await rename(claimedLockPath, lockPath).catch(async (restoreError) => {
+          // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+          if ((restoreError as NodeJS.ErrnoException).code !== "EEXIST") throw restoreError
+          await rm(claimedLockPath, { force: true, recursive: true })
+        })
+        continue
+      }
+      await rm(claimedLockPath, { force: true, recursive: true })
+    }
+  }
+  throw internalErrorDiagnostics.INTERNAL_B0029({ message: `Could not acquire the Deno deployment output lock for ${JSON.stringify(outputDir)}.` })
+}
+
+async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promise<void> {
+  let outputExists = true
+  try {
+    await access(outputDir)
+  }
+  catch (error) {
+    // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    outputExists = false
+  }
+
+  const parentDir = dirname(outputDir)
+  const stagePrefix = `.${basename(outputDir)}.vitehub-`
+  const recoveries = (await Promise.all((await readdir(parentDir, { withFileTypes: true }))
+    .filter(entry => entry.isDirectory() && entry.name.startsWith(stagePrefix))
+    .map(async (entry) => {
+      const stageRoot = join(parentDir, entry.name)
+      if (activeDenoDeploymentStages.has(stageRoot)) return
+      const previousOutputDir = join(stageRoot, "previous")
+      const previous = await stat(previousOutputDir).catch((error) => {
+        // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+        throw error
+      })
+      const stage = await stat(stageRoot)
+      return { previousOutputDir: previous ? previousOutputDir : undefined, stageRoot, updatedAt: previous?.mtimeMs ?? stage.mtimeMs }
+    })))
+    .filter(recovery => recovery !== undefined)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+  if (outputExists) {
+    await Promise.all(recoveries.map(recovery => rm(recovery.stageRoot, { force: true, recursive: true })))
+    return
+  }
+  const recovery = recoveries.find(entry => entry.previousOutputDir)
+  if (!recovery?.previousOutputDir) return
+  await rename(recovery.previousOutputDir, outputDir)
+  await Promise.all(recoveries.map(entry => rm(entry.stageRoot, { force: true, recursive: true })))
+}
+
+async function finalizeStagedDenoDeploymentOutput(
+  options: FinalizeDenoDeploymentOutputOptions,
+  runtimeServerDir: string,
+): Promise<void> {
+  const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
+  const serverDir = join(outputDir, "server")
+  const scheduleSource = join(options.rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+  const applicationEntrySource = join(options.rootDir, "main.ts")
+  const resolvedPackageJsonPaths = new Map<string, string>()
+  const sourceAnalyses = new Map<string, ImportSourceAnalysis>()
+  await recordServerRuntimePackageResolutions(runtimeServerDir, options.rootDir, resolvedPackageJsonPaths, sourceAnalyses)
+  let entrypoint = "server/index.mjs"
+  let hasSchedule = false
+  try {
+    await access(scheduleSource)
+    if (options.hasScheduleIntegration === false) {
+      await rm(scheduleSource, { force: true })
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_B0030({ message: "stale Deno Schedule output" }), { code: "ENOENT" })
+    }
+    hasSchedule = true
+    await access(applicationEntrySource)
+    await mkdir(join(outputDir, "schedule"), { recursive: true })
+    const scheduleOutput = join(outputDir, "schedule", "deno-cron.mjs")
+    const temporaryScheduleOutput = `${scheduleOutput}.vitehub-tmp`
+    await bundleEsmEntry(scheduleSource, temporaryScheduleOutput, {
+      external: [...builtinModuleNames],
+      alias: options.alias,
+      conditions: options.conditions,
+      extensions: options.extensions,
+      format: "esm",
+      packages: "external",
+      platform: "neutral",
+      preserveSymlinks: options.preserveSymlinks,
+      mainFields: options.mainFields,
+      plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
+      rootDir: options.rootDir,
+      workingDir: options.rootDir,
+    })
+    await publishProviderSourcesToDeploymentOutputs({
+      destinations: [{
+        files: [temporaryScheduleOutput],
+        runtimeSourcesDir: "./.vitehub/schedule/sources",
+        sourcesDir: join(outputDir, ".vitehub/schedule/sources"),
+      }],
+      publishedSourcesDir: join(options.rootDir, ".vitehub/schedule/sources"),
+    })
+    assertSupportedRelocatedImports(await readFile(temporaryScheduleOutput, "utf8"), "Schedule bundle")
+    const applicationOutput = join(outputDir, "main.ts")
+    const temporaryApplicationOutput = `${applicationOutput}.vitehub-tmp`
+    try {
+      await bundleEsmEntry(applicationEntrySource, temporaryApplicationOutput, {
+        external: [...builtinModuleNames, "./schedule/deno-cron.mjs", "./server/index.mjs"],
+        alias: options.alias,
+        banner: "// @ts-nocheck -- generated JavaScript is emitted with a .ts entrypoint for Deno Deploy",
+        conditions: options.conditions,
+        extensions: options.extensions,
+        format: "esm",
+        packages: "external",
+        platform: "neutral",
+        preserveSymlinks: options.preserveSymlinks,
+        mainFields: options.mainFields,
+        plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
+        rootDir: options.rootDir,
+        workingDir: options.rootDir,
+      })
+      const applicationBundle = await readFile(temporaryApplicationOutput, "utf8")
+      assertSupportedRelocatedImports(
+        applicationBundle,
+        "application entrypoint",
+        ["./schedule/deno-cron.mjs", "./server/index.mjs"],
+      )
+      if (!hasTopLevelRelocatableDynamicImport(applicationBundle, "./schedule/deno-cron.mjs")
+        && !hasRelocatableStaticImport(applicationBundle, "./schedule/deno-cron.mjs")) {
+        throw internalErrorDiagnostics.INTERNAL_B0031({ message: 'Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./schedule/deno-cron.mjs".' })
+      }
+      if (!hasTopLevelRelocatableDynamicImport(applicationBundle, "./server/index.mjs")
+        && !hasRelocatableStaticImport(applicationBundle, "./server/index.mjs")) {
+        throw internalErrorDiagnostics.INTERNAL_B0032({ message: 'Deno Schedule output requires the project-root "main.ts" application entrypoint to import "./server/index.mjs".' })
+      }
+      await rename(temporaryApplicationOutput, applicationOutput)
+      await rename(temporaryScheduleOutput, scheduleOutput)
+    }
+    finally {
+      await rm(temporaryApplicationOutput, { force: true })
+      await rm(temporaryScheduleOutput, { force: true })
+    }
+    entrypoint = "main.ts"
+  }
+  catch (error) {
+    // SAFETY: filesystem access and cleanup failures expose Node's optional error code.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    if (hasSchedule) {
+      throw internalErrorDiagnostics.INTERNAL_B0033({ message: 'Deno Schedule output requires a project-root "main.ts" application entrypoint.', cause: error })
+    }
+  }
+  const packages = await readRuntimePackages([
+    runtimeServerDir,
+    ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
+  ], options.rootDir, resolvedPackageJsonPaths, sourceAnalyses)
+  sourceAnalyses.clear()
+  const nodeTypesPackageJson = await resolvePackageJson(
+    "@types/node",
+    createRequire(join(options.rootDir, "package.json")),
+    options.rootDir,
+  ) ?? await resolvePackageJson("@types/node", createRequire(import.meta.url), dirname(fileURLToPath(import.meta.url)))
+  const hasNodeTypes = nodeTypesPackageJson !== undefined
+  if (nodeTypesPackageJson && !packages.some(runtimePackage => runtimePackage.name === "@types/node")) {
+    packages.push({
+      includeOptionalDependencies: true,
+      includePeerDependencies: true,
+      name: "@types/node",
+      onlyIfOptionalDependencies: false,
+      optional: false,
+      packageJsonPath: await realpath(nodeTypesPackageJson),
+    })
+  }
   await copyRuntimePackagesToNodeModules({
     outputNodeModules: join(outputDir, "node_modules"),
     packages,
     rootDir: options.rootDir,
   })
 
-  const denoConfig = {
+  const denoConfig: {
+    compilerOptions: { types: string[] }
+    deploy: { runtime: { cwd: string, entrypoint: string, mode: string } }
+    nodeModulesDir: string
+    tasks: { start: string }
+  } = {
+    compilerOptions: { types: [] },
+    deploy: {
+      runtime: {
+        mode: "dynamic",
+        entrypoint: `./${entrypoint}`,
+        cwd: ".",
+      },
+    },
     nodeModulesDir: "manual",
-    tasks: { start: "deno run -A ./server/index.mjs" },
+    tasks: { start: `deno run ${hasSchedule ? "--unstable-cron " : ""}-A ./${entrypoint}` },
   }
+  if (hasNodeTypes) denoConfig.compilerOptions = { types: ["./node_modules/@types/node/index.d.ts"] }
   // Existing apps may retain this entrypoint; keep its import opaque to Deno's type checker.
   await writeFile(
     join(serverDir, "index.ts"),
@@ -410,5 +1613,5 @@ export async function finalizeDenoDeploymentOutput(
     "utf8",
   )
   await writeFile(join(outputDir, "deno.json"), `${JSON.stringify(denoConfig, null, 2)}\n`, "utf8")
-  await writeFile(join(outputDir, "deploy.mjs"), denoDeployRunnerSource(options.deploymentName), "utf8")
+  await writeFile(join(outputDir, "deploy.mjs"), denoDeployRunnerSource(options.deploymentName, entrypoint), "utf8")
 }

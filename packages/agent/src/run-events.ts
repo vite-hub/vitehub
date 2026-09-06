@@ -1,4 +1,5 @@
 import type { MaybePromise, ResolvedAgentRuntimeContext } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 const bindAgentRunEventsSymbol = Symbol("vitehub.bindAgentRunEvents")
 const agentRunEventsBrand: unique symbol = Symbol("vitehub.agentRunEvents")
@@ -62,13 +63,13 @@ interface BoundAgentRunEvents extends AgentRunEvents {
 
 function assertRunId(runId: string): void {
   if (typeof runId !== "string" || !runId.trim()) {
-    throw new TypeError("[vitehub] Agent Run Events require a non-empty run id.")
+    throw agentDiagnostics.AGENT_R0727({ message: "[vitehub] Agent Run Events require a non-empty run id." })
   }
 }
 
 function assertEvent(event: AgentRunEventInput): void {
   if (!event || typeof event !== "object" || typeof event.type !== "string" || !event.type.trim()) {
-    throw new TypeError("[vitehub] Agent Run Events require an event with a non-empty type.")
+    throw agentDiagnostics.AGENT_R0728({ message: "[vitehub] Agent Run Events require an event with a non-empty type." })
   }
 }
 
@@ -82,14 +83,14 @@ async function resolveStore(
 ): Promise<AgentRunEventStore> {
   const store = isStore(input) ? input : await input(context)
   if (!store || typeof store.append !== "function" || typeof store.read !== "function" || typeof store.subscribe !== "function") {
-    throw new TypeError("[vitehub] Agent Run Events require a store with append(), read(), and subscribe().")
+    throw agentDiagnostics.AGENT_R0729({ message: "[vitehub] Agent Run Events require a store with append(), read(), and subscribe()." })
   }
   return store
 }
 
 export function defineAgentRunEvents(options: AgentRunEventsOptions): AgentRunEvents {
   if (!options || typeof options !== "object" || !("store" in options)) {
-    throw new TypeError("[vitehub] defineAgentRunEvents() requires a store.")
+    throw agentDiagnostics.AGENT_R0730({ message: "[vitehub] defineAgentRunEvents() requires a store." })
   }
 
   const events: BoundAgentRunEvents = {
@@ -132,7 +133,7 @@ export function bindAgentRunEvents(events: AgentRunEvents | undefined, runtime: 
   if (!events) return
   const bind = (events as Partial<BoundAgentRunEvents>)[bindAgentRunEventsSymbol]
   if (typeof bind !== "function") {
-    throw new TypeError("[vitehub] defineAgent({ runEvents }) requires a definition created by defineAgentRunEvents().")
+    throw agentDiagnostics.AGENT_R0731({ message: "[vitehub] defineAgent({ runEvents }) requires a definition created by defineAgentRunEvents()." })
   }
   return bind.call(events, runtime)
 }

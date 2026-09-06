@@ -103,8 +103,8 @@ describe("Agent Process Schedule integration", () => {
                 "export const defineEventHandler = handler => handler",
                 "export const getRequestHeaders = event => event.headers || {}",
                 "export const getRequestURL = event => new URL(event.url)",
+                "export const getRequestWebStream = event => event.body",
                 "export const getRouterParam = (event, name) => event.params?.[name]",
-                "export const readRawBody = async event => event.body",
               ].join("\n")
             }
           },
@@ -152,11 +152,12 @@ describe("Agent Process Schedule integration", () => {
         },
         async fetch(request: Request) {
           return await route.default({
-            body: await request.text(),
+            context: { params: { agent: "mini" } },
             headers: Object.fromEntries(request.headers),
             method: request.method,
             params: { agent: "mini" },
-            url: request.url,
+            req: request,
+            url: new URL(request.url),
           })
         },
         hooks: {

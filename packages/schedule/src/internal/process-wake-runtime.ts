@@ -4,6 +4,7 @@ import { isRuntimeScheduleDue } from "../runtime/due.ts"
 
 import type { RuntimeScheduleRecord, RuntimeScheduleWake } from "../types.ts"
 import type { RuntimeScheduleWakeDriverContext } from "../runtime/driver.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export class ProcessWakeBoundaryError extends Data.TaggedError("ProcessWakeBoundaryError")<{
   readonly cause: unknown
@@ -11,7 +12,7 @@ export class ProcessWakeBoundaryError extends Data.TaggedError("ProcessWakeBound
 
 function interruptionError(signal?: AbortSignal): unknown {
   if (signal?.aborted && signal.reason !== undefined) return signal.reason
-  const error = new Error("[vitehub] Process Schedule Wake Driver operation was interrupted.")
+  const error = scheduleErrorDiagnostics.SCHEDULE_R0001({ message: "[vitehub] Process Schedule Wake Driver operation was interrupted." })
   error.name = "AbortError"
   return error
 }
@@ -293,7 +294,7 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
         if (snapshot.closed) {
           return yield* Effect.fail(
             new ProcessWakeBoundaryError({
-              cause: new Error("Process Schedule Wake Driver is closed."),
+              cause: scheduleErrorDiagnostics.SCHEDULE_R0002({ message: "Process Schedule Wake Driver is closed." }),
             }),
           )
         }

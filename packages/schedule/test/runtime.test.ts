@@ -65,7 +65,7 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    const created = await schedules.create({
+    const created = await schedules.dynamic.create({
       cron: "30 8 * * 1-5",
       id: "schedule-1",
       target: "daily-report",
@@ -91,7 +91,7 @@ describe("Runtime Schedule helper", () => {
     })
     const input = { prompt: "Morning report", settings: { concise: true } }
 
-    const created = await schedules.create({
+    const created = await schedules.dynamic.create({
       cron: "0 9 * * *",
       id: "schedule-1",
       input,
@@ -105,14 +105,14 @@ describe("Runtime Schedule helper", () => {
     expect((await schedules.get("schedule-1"))?.input).toEqual({ prompt: "Morning report", settings: { concise: true } })
 
     const replacement = { prompt: "Evening report", settings: { concise: false } }
-    const updated = await schedules.update("schedule-1", { input: replacement })
+    const updated = await schedules.dynamic.update("schedule-1", { input: replacement })
     replacement.prompt = "mutated"
     expect(updated.input).toEqual({ prompt: "Evening report", settings: { concise: false } })
 
-    await schedules.update("schedule-1", { cron: "0 18 * * *" })
+    await schedules.dynamic.update("schedule-1", { cron: "0 18 * * *" })
     expect((await schedules.get("schedule-1"))?.input).toEqual({ prompt: "Evening report", settings: { concise: false } })
 
-    const cleared = await schedules.update("schedule-1", { input: undefined })
+    const cleared = await schedules.dynamic.update("schedule-1", { input: undefined })
     expect(cleared.input).toBeUndefined()
     expect((await schedules.get("schedule-1"))?.input).toBeUndefined()
   })
@@ -131,14 +131,14 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    const created = await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
-    const updated = await schedules.update("schedule-1", { cron: "15 10 * * *", target: "cleanup", timeZone: "Europe/Copenhagen" })
+    const created = await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    const updated = await schedules.dynamic.update("schedule-1", { cron: "15 10 * * *", target: "cleanup", timeZone: "Europe/Copenhagen" })
     expect(updated).toMatchObject({ cron: "15 10 * * *", enabled: true, id: "schedule-1", target: "cleanup", timeZone: "Europe/Copenhagen" })
     expect(updated.createdAt).toEqual(created.createdAt)
     expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(created.updatedAt.getTime())
 
-    expect(await schedules.update("schedule-1", { enabled: false })).toMatchObject({ enabled: false, timeZone: "Europe/Copenhagen" })
-    expect(await schedules.update("schedule-1", { timeZone: "UTC" })).toMatchObject({ timeZone: "UTC" })
+    expect(await schedules.dynamic.update("schedule-1", { enabled: false })).toMatchObject({ enabled: false, timeZone: "Europe/Copenhagen" })
+    expect(await schedules.dynamic.update("schedule-1", { timeZone: "UTC" })).toMatchObject({ timeZone: "UTC" })
     expect(await schedules.disable("schedule-1")).toMatchObject({ enabled: false, timeZone: "UTC" })
     expect(await schedules.enable("schedule-1")).toMatchObject({ enabled: true })
     expect(await schedules.delete("schedule-1")).toBe(true)
@@ -154,8 +154,8 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
-    await expect(schedules.create({ cron: "0 10 * * *", id: "schedule-1", target: "report" })).rejects.toMatchObject({
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.dynamic.create({ cron: "0 10 * * *", id: "schedule-1", target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_ALREADY_EXISTS",
     })
   })
@@ -169,7 +169,7 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    await expect(schedules.create({ cron: "99 9 * * *", target: "report" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "99 9 * * *", target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_CRON",
     })
   })
@@ -183,29 +183,29 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    await expect(schedules.create({ cron: "0 9 * * *", target: "report", timeZone: "Not/A_Zone" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report", timeZone: "Not/A_Zone" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",
     })
-    await expect(schedules.create({ cron: "0 9 * * *", target: "report", timeZone: "+01:00" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report", timeZone: "+01:00" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",
     })
-    await expect(schedules.create({ cron: "0 9 * * *", target: "report", timeZone: "PST" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report", timeZone: "PST" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",
     })
 
-    const linked = await schedules.create({ cron: "0 9 * * *", id: "linked-zone", target: "report", timeZone: "Asia/Kolkata" })
+    const linked = await schedules.dynamic.create({ cron: "0 9 * * *", id: "linked-zone", target: "report", timeZone: "Asia/Kolkata" })
     expect(linked).toMatchObject({ timeZone: "Asia/Kolkata" })
-    await expect(schedules.update("linked-zone", { timeZone: "US/Eastern" })).resolves.toMatchObject({ timeZone: "US/Eastern" })
-    await expect(schedules.update("linked-zone", { timeZone: "Etc/UTC" })).resolves.toMatchObject({ timeZone: "Etc/UTC" })
-    await expect(schedules.update("linked-zone", { timeZone: "CET" })).resolves.toMatchObject({ timeZone: "CET" })
-    await expect(schedules.update("linked-zone", { timeZone: "EST5EDT" })).resolves.toMatchObject({ timeZone: "EST5EDT" })
-    await expect(schedules.update("linked-zone", { timeZone: "PST8PDT" })).resolves.toMatchObject({ timeZone: "PST8PDT" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "US/Eastern" })).resolves.toMatchObject({ timeZone: "US/Eastern" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "Etc/UTC" })).resolves.toMatchObject({ timeZone: "Etc/UTC" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "CET" })).resolves.toMatchObject({ timeZone: "CET" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "EST5EDT" })).resolves.toMatchObject({ timeZone: "EST5EDT" })
+    await expect(schedules.dynamic.update("linked-zone", { timeZone: "PST8PDT" })).resolves.toMatchObject({ timeZone: "PST8PDT" })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
-    await expect(schedules.update("schedule-1", { timeZone: "Not/A_Zone" })).rejects.toMatchObject({
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.dynamic.update("schedule-1", { timeZone: "Not/A_Zone" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",
     })
-    await expect(schedules.update("schedule-1", { timeZone: "-05:30" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.update("schedule-1", { timeZone: "-05:30" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_TIME_ZONE",
     })
   })
@@ -219,13 +219,13 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    await expect(schedules.create({ cron: "0 9 * * *", target: "report", timezone: "UTC" } as never)).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report", timezone: "UTC" } as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
       message: "Runtime Schedule input is invalid.",
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
-    await expect(schedules.update("schedule-1", { timezone: "UTC" } as never)).rejects.toMatchObject({
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.dynamic.update("schedule-1", { timezone: "UTC" } as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
       message: "Runtime Schedule input is invalid.",
     })
@@ -240,10 +240,10 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    await expect(schedules.create({ cron: "0 9 * * *", id: "", target: "report" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", id: "", target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_ID",
     })
-    await expect(schedules.create({ cron: "0 9 * * *", id: 123 as never, target: "report" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", id: 123 as never, target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_ID",
     })
   })
@@ -257,24 +257,24 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    await expect(schedules.create({ cron: "0 9 * * *", enabled: "false" as never, target: "report" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", enabled: "false" as never, target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_ENABLED",
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
-    await expect(schedules.update("schedule-1", { enabled: "false" as never })).rejects.toMatchObject({
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await expect(schedules.dynamic.update("schedule-1", { enabled: "false" as never })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_ENABLED",
     })
   })
 
   it("rejects non-object runtime schedule create and update inputs", async () => {
-    await expect(schedules.create(null as never)).rejects.toMatchObject({
+    await expect(schedules.dynamic.create(null as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
     })
-    await expect(schedules.create("bad" as never)).rejects.toMatchObject({
+    await expect(schedules.dynamic.create("bad" as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
     })
-    await expect(schedules.update("schedule-1", null as never)).rejects.toMatchObject({
+    await expect(schedules.dynamic.update("schedule-1", null as never)).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_INPUT",
     })
   })
@@ -289,7 +289,7 @@ describe("Runtime Schedule helper", () => {
   })
 
   it("fails clearly for unknown targets", async () => {
-    await expect(schedules.create({ cron: "0 9 * * *", target: "missing" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "missing" })).rejects.toMatchObject({
       code: "SCHEDULE_TARGET_NOT_FOUND",
     })
   })
@@ -302,7 +302,7 @@ describe("Runtime Schedule helper", () => {
       }),
     })
 
-    await expect(schedules.create({ cron: "0 9 * * *", target: "report" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "report" })).rejects.toMatchObject({
       code: "SCHEDULE_TARGET_NOT_ELIGIBLE",
     })
   })
@@ -372,7 +372,7 @@ describe("Runtime Schedule helper", () => {
     registry.report = async () => ({ cron: "0 9 * * *", handler: async () => {}, options: { allowRuntimeSchedules: true } })
     setScheduleRuntimeRegistry(registry as Parameters<typeof setScheduleRuntimeRegistry>[0])
 
-    await expect(schedules.create({ cron: "0 9 * * *", target: "__proto__" })).rejects.toMatchObject({
+    await expect(schedules.dynamic.create({ cron: "0 9 * * *", target: "__proto__" })).rejects.toMatchObject({
       code: "SCHEDULE_TARGET_NOT_FOUND",
     })
   })
@@ -391,8 +391,8 @@ describe("Runtime Schedule helper", () => {
   })
 
   it("fails clearly when updating an unknown schedule", async () => {
-    await expect(schedules.update("missing", { enabled: false })).rejects.toBeInstanceOf(ViteHubError)
-    await expect(schedules.update("missing", { enabled: false })).rejects.toMatchObject({
+    await expect(schedules.dynamic.update("missing", { enabled: false })).rejects.toBeInstanceOf(ViteHubError)
+    await expect(schedules.dynamic.update("missing", { enabled: false })).rejects.toMatchObject({
       code: "SCHEDULE_NOT_FOUND",
     })
   })
@@ -549,7 +549,7 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", input: { prompt: "Daily report" }, target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", input: { prompt: "Daily report" }, target: "report" })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const run = await schedules.run("schedule-1", { scheduledAt })
     const attempts = await schedules.listAttempts(run.id)
@@ -585,7 +585,7 @@ describe("Schedule Run bookkeeping", () => {
         options: { allowRuntimeSchedules: true },
       }),
     })
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
 
     await expect(schedules.run("schedule-1", { scheduledAt: new Date("bad") })).rejects.toMatchObject({
       code: "SCHEDULE_INVALID_SCHEDULED_AT",
@@ -608,7 +608,7 @@ describe("Schedule Run bookkeeping", () => {
         options: { allowRuntimeSchedules: true },
       }),
     })
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
 
     setScheduleRuntimeRegistry({
       report: async () => ({
@@ -630,7 +630,7 @@ describe("Schedule Run bookkeeping", () => {
         options: { allowRuntimeSchedules: true },
       }),
     })
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await schedules.disable("schedule-1")
 
     await expect(schedules.run("schedule-1")).rejects.toMatchObject({
@@ -650,7 +650,7 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const first = await schedules.run("schedule-1", { scheduledAt })
     await schedules.delete("schedule-1")
@@ -695,7 +695,7 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const first = await schedules.run("schedule-1", { scheduledAt })
     const second = await schedules.run("schedule-1", { scheduledAt })
@@ -737,7 +737,7 @@ describe("Schedule Run bookkeeping", () => {
         options: { allowRuntimeSchedules: true },
       }),
     })
-    await schedules.create({ cron: "0 9 * * *", id: "shared-id", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "shared-id", target: "report" })
 
     const runtimeRun = await schedules.run("shared-id", { scheduledAt })
     const staticRun = await executeStaticSchedule({
@@ -778,7 +778,7 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     const run = await schedules.run("schedule-1", { scheduledAt })
 
@@ -800,7 +800,7 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     await expect(schedules.run("schedule-1", { scheduledAt })).rejects.toThrow("boom")
 
@@ -827,7 +827,7 @@ describe("Schedule Run bookkeeping", () => {
       }),
     })
 
-    await schedules.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
+    await schedules.dynamic.create({ cron: "0 9 * * *", id: "schedule-1", target: "report" })
     await expect(schedules.run("schedule-1", { scheduledAt: new Date("2026-05-23T09:00:00.000Z") })).rejects.toThrow("boom")
     const [run] = await schedules.listRuns()
     run!.error!.message = "mutated"

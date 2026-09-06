@@ -9,13 +9,10 @@ import type {
   WranglerWorkerLoader,
   WranglerWorkflow,
 } from './cloudflare-target'
+import { sandboxErrorDiagnostics } from "../../error-diagnostics.ts"
 
 function compareNumericStrings(left: string, right: string) {
   return left.localeCompare(right, undefined, { numeric: true })
-}
-
-function compareMigrationTags(left: WranglerMigration, right: WranglerMigration) {
-  return compareNumericStrings(left.tag, right.tag)
 }
 
 function isSameKVNamespace(left: WranglerKVNamespace, right: WranglerKVNamespace) {
@@ -37,6 +34,8 @@ function isSameContainer(left: WranglerContainer, right: WranglerContainer) {
 function isSameDurableObjectBinding(left: WranglerDurableObjectBinding, right: WranglerDurableObjectBinding) {
   return left.name === right.name
     && left.class_name === right.class_name
+    && left.script_name === right.script_name
+    && left.environment === right.environment
 }
 
 function isSameWorkerLoader(left: WranglerWorkerLoader, right: WranglerWorkerLoader) {
@@ -73,7 +72,7 @@ function dedupeByKey<T>(
     }
 
     if (!equals(existing, entry)) {
-      throw new Error(`[vitehub] Conflicting Cloudflare ${conflictLabel} "${key}".`)
+      throw sandboxErrorDiagnostics.SANDBOX_R0045({ message: `[vitehub] Conflicting Cloudflare ${conflictLabel} "${key}".` })
     }
   }
 
@@ -84,21 +83,39 @@ function mergeMigrations(migrations: WranglerMigration[] | undefined) {
   if (!migrations?.length)
     return undefined
 
-  const byTag = new Map<string, Set<string>>()
+  const byTag = new Map<string, WranglerMigration>()
 
   for (const migration of migrations) {
-    const classes = byTag.get(migration.tag) || new Set<string>()
-    for (const className of migration.new_sqlite_classes || [])
-      classes.add(className)
-    byTag.set(migration.tag, classes)
+    const existing = byTag.get(migration.tag)
+    if (!existing) {
+      byTag.set(migration.tag, migration)
+      continue
+    }
+    const mergeStrings = (left: string[] | undefined, right: string[] | undefined) => {
+      const values = new Set([...(left || []), ...(right || [])])
+      return values.size ? [...values] : undefined
+    }
+    const mergeObjects = <T>(left: T[] | undefined, right: T[] | undefined) => {
+      const values = new Map<string, T>()
+      for (const value of [...(left || []), ...(right || [])]) values.set(JSON.stringify(value), value)
+      return values.size ? [...values.values()] : undefined
+    }
+    const deletedClasses = mergeStrings(existing.deleted_classes, migration.deleted_classes)
+    const newClasses = mergeStrings(existing.new_classes, migration.new_classes)
+    const newSqliteClasses = mergeStrings(existing.new_sqlite_classes, migration.new_sqlite_classes)
+    const renamedClasses = mergeObjects(existing.renamed_classes, migration.renamed_classes)
+    const transferredClasses = mergeObjects(existing.transferred_classes, migration.transferred_classes)
+    byTag.set(migration.tag, {
+      ...existing,
+      ...(deletedClasses ? { deleted_classes: deletedClasses } : {}),
+      ...(newClasses ? { new_classes: newClasses } : {}),
+      ...(newSqliteClasses ? { new_sqlite_classes: newSqliteClasses } : {}),
+      ...(renamedClasses ? { renamed_classes: renamedClasses } : {}),
+      ...(transferredClasses ? { transferred_classes: transferredClasses } : {}),
+    })
   }
 
-  return [...byTag.entries()]
-    .map(([tag, classes]) => ({
-      tag,
-      ...(classes.size ? { new_sqlite_classes: [...classes].sort(compareNumericStrings) } : {}),
-    } satisfies WranglerMigration))
-    .sort(compareMigrationTags)
+  return [...byTag.values()]
 }
 
 function validateDurableObjectMigrations(wrangler: MutableWranglerConfig) {
@@ -106,18 +123,25 @@ function validateDurableObjectMigrations(wrangler: MutableWranglerConfig) {
   if (!bindings?.length)
     return
 
-  const declaredClasses = new Set(
-    (wrangler.migrations || [])
-      .flatMap(migration => migration.new_sqlite_classes || []),
-  )
-  const missingClasses = [...new Set(bindings.map(binding => binding.class_name))]
+  const declaredClasses = new Set<string>()
+  for (const migration of wrangler.migrations || []) {
+    for (const className of [...(migration.new_sqlite_classes || []), ...(migration.new_classes || [])])
+      declaredClasses.add(className)
+    for (const entry of migration.renamed_classes || []) {
+      declaredClasses.delete(entry.from)
+      declaredClasses.add(entry.to)
+    }
+    for (const className of migration.deleted_classes || [])
+      declaredClasses.delete(className)
+    for (const entry of migration.transferred_classes || [])
+      declaredClasses.add(entry.to)
+  }
+  const missingClasses = [...new Set(bindings.filter(binding => !binding.script_name).map(binding => binding.class_name))]
     .filter(className => !declaredClasses.has(className))
     .sort(compareNumericStrings)
 
   if (missingClasses.length) {
-    throw new Error(
-      `[vitehub] Missing Cloudflare durable object migration entries for: ${missingClasses.join(', ')}.`,
-    )
+    throw sandboxErrorDiagnostics.SANDBOX_R0046({ message: `[vitehub] Missing Cloudflare durable object migration entries for: ${missingClasses.join(', ')}.` })
   }
 }
 

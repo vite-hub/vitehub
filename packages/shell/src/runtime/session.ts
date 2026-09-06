@@ -11,6 +11,7 @@ import type {
   ShellSession,
   ShellSessionPolicy,
 } from "./types.ts"
+import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
   if (!maxLength) return result
@@ -92,12 +93,12 @@ class RuntimeShellSession implements ShellSession {
   }
 
   async startProcess(command: string, options: ShellRuntimeExecOptions = {}) {
-    if (this.#disposed) throw new Error(shellSessionDisposedMessage)
+    if (this.#disposed) throw shellErrorDiagnostics.SHELL_R0008({ message: shellSessionDisposedMessage })
     if (!this.provider.startProcess || !this.boundary.processes.background) {
-      throw new Error("[vitehub] Shell provider does not support long-running processes.")
+      throw shellErrorDiagnostics.SHELL_R0009({ message: "[vitehub] Shell provider does not support long-running processes." })
     }
     if (typeof this.policy.maxProcesses === "number" && this.#processes.size >= this.policy.maxProcesses) {
-      throw new Error(`[vitehub] Shell session process budget exhausted after ${this.policy.maxProcesses} processes.`)
+      throw shellErrorDiagnostics.SHELL_R0010({ message: `[vitehub] Shell session process budget exhausted after ${this.policy.maxProcesses} processes.` })
     }
     let finishStart!: () => void
     const start = new Promise<void>((resolve) => {
@@ -143,11 +144,11 @@ class RuntimeShellSession implements ShellSession {
       }
       catch (error) {
         throw new AggregateError(
-          [new Error(shellSessionDisposedMessage), error],
+          [shellErrorDiagnostics.SHELL_R0011({ message: shellSessionDisposedMessage }), error],
           "[vitehub] Shell session was disposed while starting a background process, and stopping it failed.",
         )
       }
-      throw new Error(shellSessionDisposedMessage)
+      throw shellErrorDiagnostics.SHELL_R0012({ message: shellSessionDisposedMessage })
     }
     return trackedProcess
   }

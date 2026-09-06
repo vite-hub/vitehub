@@ -1,12 +1,15 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { array, object, optional, record, string } from "valibot"
 import { describe, expect, it } from "vitest"
 import {
   packageDir,
   packageInfo,
   packageInfoByPublishName,
   packageInfos,
+  packageManifestSchema,
   packageNames,
   readJson,
   readPackageManifest,
@@ -15,6 +18,7 @@ import {
   walkFiles,
   type PackageName,
 } from "./utils/repo"
+import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "./utils/release-artifacts"
 
 const ignoredGeneratedDirs = new Set([
   ".nuxt",
@@ -24,6 +28,16 @@ const ignoredGeneratedDirs = new Set([
   "dist",
   "node_modules",
 ])
+
+const showcaseManifestSchema = object({
+  label: optional(string()),
+  frameworks: optional(record(string(), object({
+    modes: optional(record(string(), object({
+      phases: optional(record(string(), string())),
+      supplementalFiles: optional(array(string())),
+    }))),
+  }))),
+})
 
 function exportTargetPath(packageName: PackageName, target: string) {
   return join(packageDir(packageName), target.replace(/^\.\//, ""))
@@ -73,7 +87,21 @@ describe("package manifest contracts", () => {
       expect(manifest.name).toBe(packageInfo(packageName).packageName)
       expect(manifest.description, `${packageName} should describe its package`).toEqual(expect.any(String))
       expect(manifest.license).toBe("Apache-2.0")
-      expect(manifest.sideEffects).toEqual(packageName === "vite-hub" ? ["./dist/bin.js"] : false)
+      if (manifest.sideEffects !== false) {
+        expect(manifest.sideEffects, `${packageName} side effects should name published artifacts`)
+          .toEqual(expect.arrayContaining([expect.any(String)]))
+
+        const publishedArtifacts = new Set([
+          ...Object.values(manifest.bin || {}),
+          ...Object.values(manifest.exports || {})
+            .map(exportTarget)
+            .filter((target): target is string => Boolean(target)),
+        ])
+        for (const sideEffect of manifest.sideEffects as string[]) {
+          expect(publishedArtifacts, `${packageName} side effect ${sideEffect} should be exported or executable`)
+            .toContain(sideEffect)
+        }
+      }
       expect(manifest.type).toBe("module")
       expect(manifest.types).toBe("./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
@@ -85,12 +113,81 @@ describe("package manifest contracts", () => {
     }
   })
 
+  it("uses the repository Apache license and source metadata for every public package", () => {
+    const rootManifest = readJson(packageManifestSchema, join(repoRoot, "package.json"))
+    const expectedRepository = {
+      type: "git",
+      url: "git+https://github.com/vite-hub/vitehub.git",
+    }
+
+    expect(rootManifest).toMatchObject({
+      license: "Apache-2.0",
+      repository: expectedRepository,
+    })
+    expect(readFileSync(join(repoRoot, "LICENSE"), "utf8")).toContain("Apache License\n                           Version 2.0, January 2004")
+
+    for (const info of packageInfos) {
+      const manifest = readPackageManifest(info.name)
+      expect(manifest.license, `${info.packageName} should use the repository license`).toBe("Apache-2.0")
+      expect(manifest.repository, `${info.packageName} should identify its monorepo source`).toEqual({
+        ...expectedRepository,
+        directory: `packages/${info.name}`,
+      })
+    }
+  })
+
+  it("includes the repository license in every packed public package", () => {
+    const packDir = mkdtempSync(join(tmpdir(), "vitehub-license-pack-"))
+    const license = readFileSync(join(repoRoot, "LICENSE"), "utf8")
+    const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
+
+    try {
+      for (const info of packageInfos) {
+        const tarball = resolveReleaseArtifactTarball(releaseTarballs, info.packageName, () => {
+          const before = new Set(readdirSync(packDir))
+          execFileSync("pnpm", ["--filter", info.packageName, "pack", "--pack-destination", packDir], {
+            cwd: repoRoot,
+            encoding: "utf8",
+            stdio: "pipe",
+          })
+          const tarballs = readdirSync(packDir).filter(file => !before.has(file))
+          expect(tarballs, `${info.packageName} should create one tarball`).toHaveLength(1)
+          return join(packDir, tarballs[0]!)
+        })
+        const listing = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8" }).split("\n")
+        expect(listing, `${info.packageName} should include the root license`).toContain("package/LICENSE")
+        expect(execFileSync("tar", ["-xOf", tarball, "package/LICENSE"], { encoding: "utf8" }))
+          .toBe(license)
+      }
+      if (releaseTarballs) expect(releaseTarballs.size).toBe(packageInfos.length)
+    }
+    finally {
+      rmSync(packDir, { recursive: true })
+    }
+  }, 30_000)
+
+  it("publishes security reporting and project policy links", () => {
+    const security = readFileSync(join(repoRoot, "SECURITY.md"), "utf8")
+    const readme = readFileSync(join(repoRoot, "README.md"), "utf8")
+    const contact = readFileSync(join(repoRoot, "docs/content/trust/contact.md"), "utf8")
+
+    expect(security).toContain("https://github.com/vite-hub/vitehub/security/advisories")
+    expect(security).toContain("https://github.com/vite-hub/vitehub/issues/new")
+    expect(security).toContain("https://discord.gg/YTRDsRP3")
+    expect(security).toContain("Published 0.x versions | No backports")
+    expect(security).not.toMatch(/mailto:|[\w.+-]+@[\w.-]+/)
+    expect(readme).toContain("[Apache License 2.0](LICENSE)")
+    expect(readme).toContain("[security policy](SECURITY.md)")
+    expect(contact).toContain("https://github.com/vite-hub/vitehub/security/policy")
+    expect(contact).not.toContain("/security/advisories/new")
+  })
+
   it("publishes required package dependencies before their consumers", () => {
-    const order = execFileSync(process.execPath, [join(repoRoot, ".github/scripts/package-release-order.mjs")], {
+    const order = execFileSync(process.execPath, [join(repoRoot, ".github/scripts/release-packages.mjs"), "order", "--workspace", repoRoot], {
       cwd: repoRoot,
       encoding: "utf8",
     }).trim().split("\n")
-    const positions = new Map(order.map((path, index) => [readJson<{ name: string }>(join(repoRoot, path)).name, index]))
+    const positions = new Map(order.map((path, index) => [readJson(packageManifestSchema, join(repoRoot, path)).name, index]))
 
     expect(positions.size).toBe(packageInfos.length)
     for (const info of packageInfos) {
@@ -108,7 +205,7 @@ describe("package manifest contracts", () => {
     }
   })
 
-  it("keeps export targets under dist except package.json", () => {
+  it("keeps code exports under dist and publishes static asset exports explicitly", () => {
     for (const packageName of packageNames) {
       const manifest = readPackageManifest(packageName)
 
@@ -122,9 +219,17 @@ describe("package manifest contracts", () => {
           continue
         }
 
-        if (packageName === "vite-hub" && subpath === "./tsconfig") {
-          expect(target).toBe("./tsconfig.json")
+        if (subpath === "./tsconfig") {
+          expect(target, `${packageName} ${subpath} should expose a root TypeScript config`).toMatch(
+            /^\.\/tsconfig(?:\.[^.]+)?\.json$/,
+          )
           expect(existsSync(exportTargetPath(packageName, target))).toBe(true)
+          continue
+        }
+
+        if (target.endsWith(".css")) {
+          expect(subpath, `${packageName} ${subpath} should expose CSS through a CSS subpath`).toMatch(/\.css$/)
+          expect(target, `${packageName} ${subpath} should point to a built CSS asset`).toMatch(/^\.\/dist\/.+\.css$/)
           continue
         }
 
@@ -136,15 +241,30 @@ describe("package manifest contracts", () => {
   it("keeps the private Vercel Blob runtime owned by the blob package", () => {
     const manifest = readPackageManifest("blob")
     const frameworkManifest = readPackageManifest("vite-hub")
+    const kvManifest = readPackageManifest("kv")
+    const workspaceManifest = readPackageManifest("workspace")
 
     expect(manifest.dependencies?.["files-sdk"]).toBeUndefined()
-    expect(manifest.peerDependencies?.["files-sdk"]).toEqual(expect.any(String))
-    expect(manifest.peerDependenciesMeta?.["files-sdk"]?.optional).toBe(true)
+    expect(manifest.peerDependencies?.["files-sdk"]).toBeUndefined()
+    expect(manifest.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
     expect(manifest.devDependencies?.["files-sdk"]).toEqual(expect.any(String))
-    expect(manifest.dependencies?.["@vercel/blob"]).toEqual(expect.any(String))
-    expect(frameworkManifest.dependencies?.["files-sdk"]).toEqual(expect.any(String))
-    expect(frameworkManifest.dependencies?.["@netlify/blobs"]).toEqual(expect.any(String))
+    expect(manifest.dependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(manifest.devDependencies?.["@vercel/blob"]).toEqual(expect.any(String))
+    expect(frameworkManifest.dependencies?.["files-sdk"]).toBeUndefined()
+    expect(frameworkManifest.dependencies?.["@vite-hub/netlify-blobs-runtime"]).toBeUndefined()
+    expect(manifest.dependencies?.["@vite-hub/netlify-blobs-runtime"]).toBeUndefined()
+    expect(manifest.devDependencies?.["@vite-hub/netlify-blobs-runtime"]).toMatch(/^npm:@netlify\/blobs@/)
+    expect(kvManifest.dependencies?.unstorage).toEqual(expect.any(String))
+    expect(kvManifest.devDependencies?.unstorage).toBeUndefined()
+    expect(workspaceManifest.dependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(workspaceManifest.peerDependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(workspaceManifest.devDependencies?.["@vercel/blob"]).toEqual(expect.any(String))
   })
+})
+
+it("loads the built framework entry with its embedded export map", () => {
+  const output = execFileSync(process.execPath, ["--input-type=module", "-e", "import('vite-hub').then(module => console.log(typeof module.vitehub))"], { cwd: repoRoot, encoding: "utf8" })
+  expect(output.trim()).toBe("function")
 })
 
 describe("docs import contracts", () => {
@@ -243,10 +363,7 @@ describe("showcase contracts", () => {
         continue
       }
 
-      const manifest = readJson<{
-        label?: string
-        frameworks?: Record<string, { modes?: Record<string, { phases?: Record<string, string>, supplementalFiles?: string[] }> }>
-      }>(manifestPath)
+      const manifest = readJson(showcaseManifestSchema, manifestPath)
 
       expect(manifest.label, `${packageName} showcase should have a label`).toEqual(expect.any(String))
       expect(manifest.frameworks, `${packageName} showcase should list frameworks`).toEqual(expect.any(Object))

@@ -8,6 +8,7 @@ import type {
   AgentToolExecutionContext,
   AgentToolSchema,
 } from "../types.ts"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export type GmailCapabilityMode = "read" | "draft"
 
@@ -119,20 +120,20 @@ function gmailEmail(value: unknown, tool: string): string {
     || character.charCodeAt(0) < 32
     || character.charCodeAt(0) === 127)
   if (unsafe || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
-    throw new TypeError(`[vitehub] ${tool} requires a valid email address.`)
+    throw agentDiagnostics.AGENT_R0077({ message: `[vitehub] ${tool} requires a valid email address.` })
   }
   return email
 }
 
 function gmailText(value: unknown, label: string): string {
   const text = typeof value === "string" ? value.trim() : ""
-  if (!text || text.includes("\0")) throw new TypeError(`[vitehub] ${label} must be non-empty text.`)
+  if (!text || text.includes("\0")) throw agentDiagnostics.AGENT_R0078({ message: `[vitehub] ${label} must be non-empty text.` })
   return text
 }
 
 function gmailDraftBody(value: unknown): string {
   if (typeof value !== "string" || !value.trim() || value.includes("\0")) {
-    throw new TypeError("[vitehub] gmail_draft body must be non-empty text.")
+    throw agentDiagnostics.AGENT_R0079({ message: "[vitehub] gmail_draft body must be non-empty text." })
   }
   return value
 }
@@ -143,13 +144,13 @@ function gmailRedirectUrl(value: unknown): string {
     url = new URL(typeof value === "string" ? value : "")
   }
   catch {
-    throw new TypeError("[vitehub] gmail_auth complete requires the full localhost redirect URL.")
+    throw agentDiagnostics.AGENT_R0080({ message: "[vitehub] gmail_auth complete requires the full localhost redirect URL." })
   }
   if (url.protocol !== "http:"
     || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
     || !url.searchParams.has("code")
     || !url.searchParams.has("state")) {
-    throw new TypeError("[vitehub] gmail_auth complete requires an HTTP localhost URL containing code and state.")
+    throw agentDiagnostics.AGENT_R0081({ message: "[vitehub] gmail_auth complete requires an HTTP localhost URL containing code and state." })
   }
   return url.href
 }
@@ -160,10 +161,10 @@ function gmailAuthorizationUrl(value: unknown): string {
     url = new URL(typeof value === "string" ? value : "")
   }
   catch {
-    throw new Error("missing authorization URL")
+    throw agentDiagnostics.AGENT_R0082({ message: "missing authorization URL" })
   }
   if (url.protocol !== "https:" || url.hostname !== "accounts.google.com") {
-    throw new Error("invalid authorization URL")
+    throw agentDiagnostics.AGENT_R0083({ message: "invalid authorization URL" })
   }
   return url.href
 }
@@ -205,15 +206,15 @@ function gmailAuthScopeArgs(mode: GmailCapabilityMode): string[] {
 
 async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext, mode: GmailCapabilityMode, execution?: AgentToolExecutionContext) {
   if (input?.action !== "start" && input?.action !== "complete") {
-    throw new TypeError("[vitehub] gmail_auth action must be start or complete.")
+    throw agentDiagnostics.AGENT_R0084({ message: "[vitehub] gmail_auth action must be start or complete." })
   }
   const account = gmailEmail(input.account, "gmail_auth")
   const access = input.access || mode
   if (access !== "read" && access !== "draft") {
-    throw new TypeError("[vitehub] gmail_auth access must be read or draft.")
+    throw agentDiagnostics.AGENT_R0085({ message: "[vitehub] gmail_auth access must be read or draft." })
   }
   if (access === "draft" && mode !== "draft") {
-    throw new TypeError('[vitehub] gmail_auth access "draft" requires gmail({ mode: "draft" }).')
+    throw agentDiagnostics.AGENT_R0086({ message: '[vitehub] gmail_auth access "draft" requires gmail({ mode: "draft" }).' })
   }
   if (input.action === "start") {
     if (gmailConnectedAccount(await gmailAccounts(context, execution), account, access)) {
@@ -232,7 +233,7 @@ async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext,
       if (gmailConfigurationRequired(error)) {
         return { setupUrl: gmailOAuthSetupUrl, status: "configuration_required" as const }
       }
-      throw new Error("[vitehub] gmail_auth could not start authorization.")
+      throw agentDiagnostics.AGENT_R0087({ message: "[vitehub] gmail_auth could not start authorization." })
     }
   }
 
@@ -248,7 +249,7 @@ async function gmailAuth(input: GmailAuthInput, context: AgentCapabilityContext,
     return { account, status: "connected" as const }
   }
   catch {
-    throw new Error("[vitehub] gmail_auth could not complete authorization.")
+    throw agentDiagnostics.AGENT_R0088({ message: "[vitehub] gmail_auth could not complete authorization." })
   }
 }
 
@@ -261,13 +262,13 @@ async function gmailSearch(input: GmailSearchInput, context: AgentCapabilityCont
   const requestedAccount = gmailRequestedAccount(input?.account, "gmail_search")
   const max = input?.max === undefined ? 10 : input.max
   if (!Number.isInteger(max) || max < 1 || max > 50) {
-    throw new TypeError("[vitehub] gmail_search max must be an integer from 1 to 50.")
+    throw agentDiagnostics.AGENT_R0089({ message: "[vitehub] gmail_search max must be an integer from 1 to 50." })
   }
   if (input?.query !== undefined && typeof input.query !== "string") {
-    throw new TypeError("[vitehub] gmail_search query must be a string.")
+    throw agentDiagnostics.AGENT_R0090({ message: "[vitehub] gmail_search query must be a string." })
   }
   const query = input?.query?.trim() || "in:inbox"
-  if (query.includes("\0")) throw new TypeError("[vitehub] gmail_search query cannot contain null bytes.")
+  if (query.includes("\0")) throw agentDiagnostics.AGENT_R0091({ message: "[vitehub] gmail_search query cannot contain null bytes." })
 
   const accounts = (await gmailAccounts(context, execution)).filter(candidate => candidate.valid === true
     && Array.isArray(candidate.services)
@@ -292,13 +293,13 @@ async function gmailSearch(input: GmailSearchInput, context: AgentCapabilityCont
     }
   }
   catch {
-    throw new Error("[vitehub] gmail_search failed.")
+    throw agentDiagnostics.AGENT_R0092({ message: "[vitehub] gmail_search failed." })
   }
 }
 
 function gmailRecipients(value: unknown, label: string): string[] {
   if (!Array.isArray(value) || value.length === 0) {
-    throw new TypeError(`[vitehub] gmail_draft ${label} requires at least one email address.`)
+    throw agentDiagnostics.AGENT_R0093({ message: `[vitehub] gmail_draft ${label} requires at least one email address.` })
   }
   return Array.from(value).map(email => gmailEmail(email, "gmail_draft"))
 }
@@ -342,14 +343,14 @@ async function gmailDraft(input: GmailDraftInput, context: AgentCapabilityContex
     }
   }
   catch {
-    throw new Error("[vitehub] gmail_draft failed.")
+    throw agentDiagnostics.AGENT_R0094({ message: "[vitehub] gmail_draft failed." })
   }
 }
 
 export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefinition {
   const mode = options.mode || "read"
   if (mode !== "read" && mode !== "draft") {
-    throw new TypeError('[vitehub] gmail({ mode }) must be "read" or "draft".')
+    throw agentDiagnostics.AGENT_R0095({ message: '[vitehub] gmail({ mode }) must be "read" or "draft".' })
   }
   const skillPath = "skills/gmail/SKILL.md"
   const sourceKey = "skill.gmail"

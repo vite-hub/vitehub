@@ -1,0 +1,21 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -38,7 +38,10 @@
+     "./config": "./dist/runtime/config.mjs",
+     "./context": "./dist/runtime/context.mjs",
+     "./database": "./dist/runtime/database.mjs",
+-    "./h3": "./lib/h3.mjs",
++    "./h3": {
++      "types": "./h3.d.ts",
++      "default": "./lib/h3.mjs"
++    },
+     "./meta": "./dist/runtime/meta.mjs",
+     "./package.json": "./package.json",
+     "./runtime-config": "./dist/runtime/runtime-config.mjs",
+diff --git a/h3.d.ts b/h3.d.ts
+new file mode 100644
+--- /dev/null
++++ b/h3.d.ts
+@@ -0,0 +1 @@
++export * from './lib/h3.mjs'

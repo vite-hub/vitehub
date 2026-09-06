@@ -6,7 +6,7 @@ interface RenderDatabaseRuntimeModuleOptions {
 
 export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModuleOptions): string {
   return [
-    `import { createAgentDatabase } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
+    `import { createAgentDatabase, defaultDatabaseNotConfiguredError } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
     ...options.imports,
     "",
     "const configuredDatabases = {",
@@ -14,7 +14,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "}",
     "const defaultDatabase = configuredDatabases.default || {",
     "  db: new Proxy({}, {",
-    "    get() { throw new Error(\"[vitehub] Database \\\"default\\\" is not configured.\") },",
+    "    get() { throw defaultDatabaseNotConfiguredError() },",
     "  }),",
     "  schema: {},",
     "}",

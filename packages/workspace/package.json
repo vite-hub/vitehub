@@ -129,20 +129,21 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/box": "workspace:*",
-    "@vite-hub/history": "workspace:*",
     "@vercel/nft": "catalog:vercel",
+    "@vite-hub/box": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
+    "esbuild": "catalog:esbuild-v27",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
-    "mountx": "catalog:workspace",
     "minimatch": "catalog:workspace",
+    "mountx": "catalog:workspace",
     "mrmime": "catalog:workspace",
+    "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs"
   },
   "devDependencies": {
@@ -161,16 +162,12 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "@vercel/blob": "catalog:storage",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
-    "@vercel/blob": {
-      "optional": true
-    },
     "@vite-hub/shell": {
       "optional": true
     },

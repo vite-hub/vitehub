@@ -4,19 +4,21 @@ import { basename, dirname, relative, resolve } from "node:path"
 import {
   createDirectoryDefinitionSource,
   discoverDefinitions,
+  isGitRepositoryDirectory,
   listMatchingFiles,
   mergeDefinitions,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
 
 import type { DiscoveredAgentDefinition } from "./types.ts"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const folderAgentPattern = /^agent\.(?:c|m)?[jt]s$/i
-const legacyFolderAgentPattern = /^config\.(?:c|m)?[jt]s$/i
 const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
 const indexDefinitionPattern = /^index\.(?:c|m)?[jt]s$/i
-const colocatedAgentResourceDirectories = new Set(["home", "skills"])
+const colocatedAgentResourceDirectories = new Set(["skills"])
+const maxAgentNameLength = 512
 
 export const agentEvalFileConvention = {
   include: [
@@ -51,9 +53,17 @@ export function discoverAgentEvalFiles(rootDirs: string[]): string[] {
   ))].sort()
 }
 
+function normalizeDiscoveredAgentName(name: string): string {
+  const normalized = name.trim()
+  if (normalized.length > maxAgentNameLength) {
+    throw agentDiagnostics.AGENT_R0401({ message: "[vitehub] Agent names cannot exceed 512 characters." })
+  }
+  return normalized
+}
+
 function normalizeSuffixAgentName(rootDir: string, file: string) {
   const name = normalizeSuffixDefinitionName(rootDir, file, agentSuffixPattern, { stripPrefix: "src/" })
-  return name.startsWith("server/") ? undefined : name
+  return name.startsWith("server/") ? undefined : normalizeDiscoveredAgentName(name)
 }
 
 function stripComments(source: string) {
@@ -103,6 +113,7 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
       entries = readdirSync(current, { withFileTypes: true })
     }
     catch (error) {
+      // SAFETY: Node filesystem errors expose `code`; other errors simply fail this comparison.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return
       throw error
     }
@@ -110,13 +121,14 @@ function discoverFolderAgentDefinitions(scanDirs: string[]): DiscoveredAgentDefi
     for (const entry of entries) {
       const file = resolve(current, entry.name)
       if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith(".")) {
+        if (isGitRepositoryDirectory(file)) continue
         walk(agentsRoot, file)
         continue
       }
 
       if (!entry.isFile() || (!folderAgentPattern.test(basename(file)) && !indexDefinitionPattern.test(basename(file)))) continue
       const source = readFileSync(file, "utf8")
-      const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
+      const agent = normalizeDiscoveredAgentName(relative(agentsRoot, dirname(file)).replace(/\\/g, "/"))
       if (!agent || agent === ".") continue
       const workspace = isWorkspaceAgentDefinition(source)
       candidates.push({
@@ -165,13 +177,13 @@ export function discoverAgentDefinitions(options:
         normalizeName(directory, file) {
           const fileName = basename(file)
           if (folderAgentPattern.test(fileName) && dirname(file) !== directory) return
-          if (legacyFolderAgentPattern.test(fileName) || indexDefinitionPattern.test(fileName) || isEvalDefinitionFile(file)) return
+          if (indexDefinitionPattern.test(fileName) || isEvalDefinitionFile(file)) return
           for (const agentDir of folderAgentDirs) {
             const path = relative(agentDir, file).replace(/\\/g, "/")
             if (isColocatedAgentResourcePath(path)) return
           }
           if (isInsideFolderAgent(file, folderAgentDirs)) return
-          return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")
+          return normalizeDiscoveredAgentName(relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, ""))
         },
         createDefinition({ file, name }) {
           return {

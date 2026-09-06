@@ -31,6 +31,13 @@ export default defineAgent({
 })
 ```
 
+## Agent-visible tool contract
+
+This definition is resolved from the real Capability during the docs build with the example `node` and `pnpm` allowlist above.
+
+::agent-capability-tools{name="sandbox"}
+::
+
 ## How sandbox sessions work
 
 ViteHub validates the command allowlist before the Capability attaches.

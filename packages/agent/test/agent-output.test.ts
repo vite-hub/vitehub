@@ -70,7 +70,10 @@ describe("agent output helpers", () => {
       modelId,
       provider: "custom-provider",
       usage: { inputTokens: 1 },
-    }).usageRecord?.model).toBe(`custom-provider/${modelId}`)
+    }).usageRecord).toMatchObject({
+      model: `custom-provider/${modelId}`,
+      provider: "custom-provider",
+    })
   })
 
   it("normalizes provider-reported cost with canonical precedence", () => {
@@ -104,6 +107,7 @@ describe("agent output helpers", () => {
     const canonicalCost = {
       display: "$0.02",
       estimated: false,
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       source: "custom" as const,
       usd: "0.02",
     }
@@ -344,6 +348,25 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("drops blank tool titles during stream normalization", () => {
+    expect(toAgentStreamEvent({ title: " ", toolCallId: "call-1", toolName: "search", type: "tool-call" })).not.toHaveProperty("title")
+  })
+
+  it("restores configured activities on normalized tool events", () => {
+    const toolNames = new Map<string, string>()
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const activities = new Map([["repository_host_write", { kind: "action" as const, name: "repository-host.write" }]])
+
+    expect(toAgentStreamEvent({ toolCallId: "call-1", toolName: "repository_host_write", type: "tool-call" }, toolNames, undefined, activities)).toMatchObject({
+      activity: { kind: "action", name: "repository-host.write" },
+      type: "tool-call",
+    })
+    expect(toAgentStreamEvent({ output: "ok", toolCallId: "call-1", type: "tool-result" }, toolNames, undefined, activities)).toMatchObject({
+      activity: { kind: "action", name: "repository-host.write" },
+      type: "tool-result",
+    })
+  })
+
   it("normalizes AI SDK stream aliases", () => {
     expect(toAgentStreamEvent({ textDelta: "x", type: "text" })).toEqual({
       id: undefined,
@@ -355,6 +378,18 @@ describe("agent output helpers", () => {
       input: { ok: true },
       name: "confirm",
       type: "tool-call",
+    })
+  })
+
+  it("propagates AI SDK message start identity to text parts", () => {
+    const messageState: { messageId?: string } = {}
+
+    expect(toAgentStreamEvent({ messageId: "message-1", type: "start" }, undefined, undefined, undefined, messageState)).toBeUndefined()
+    expect(toAgentStreamEvent({ id: "part-1", text: "Hello", type: "text-delta" }, undefined, undefined, undefined, messageState)).toEqual({
+      id: "part-1",
+      messageId: "message-1",
+      text: "Hello",
+      type: "text-delta",
     })
   })
 
@@ -610,6 +645,7 @@ describe("agent output helpers", () => {
             durationMs: 1000,
           },
           model: "anthropic/claude-opus-4-8",
+          provider: "google-vertex",
           response: {
             id: "resp_1",
             timestamp: "2026-06-22T20:00:00.000Z",
@@ -844,6 +880,7 @@ describe("agent output helpers", () => {
         type: "usage",
         usageRecord: {
           model: "anthropic/claude-opus-4-8",
+          provider: "google-vertex",
           usage: {
             inputTokens: 16,
             outputTokens: 4,

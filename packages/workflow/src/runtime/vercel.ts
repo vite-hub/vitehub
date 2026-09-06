@@ -1,8 +1,10 @@
 import { createWorkflowError } from "../errors.ts"
 
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowSignalResult } from "../types.ts"
+import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface VercelRun {
   cancel: () => Promise<void>
@@ -52,18 +54,21 @@ interface VercelWorkflowRuntimeModule {
 }
 
 async function loadVercelWorkflowRuntime(): Promise<VercelWorkflowRuntime> {
-  const importVercelWorkflow = new Function("specifier", "return import(specifier)") as <T>(specifier: string) => Promise<T>
+  // SAFETY: The generated function performs the platform dynamic import and always returns its module promise.
+  const importVercelWorkflow = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<unknown>
   const [api, runtime] = await Promise.all([
-    importVercelWorkflow<VercelWorkflowApiModule>("workflow/api"),
-    importVercelWorkflow<VercelWorkflowRuntimeModule>("workflow/runtime"),
+    importVercelWorkflow("workflow/api"),
+    importVercelWorkflow("workflow/runtime"),
   ])
-  return createVercelWorkflowRuntime(api, runtime)
+  // SAFETY: workflow/api and workflow/runtime own these module contracts.
+  return createVercelWorkflowRuntime(api as VercelWorkflowApiModule, runtime as VercelWorkflowRuntimeModule)
 }
 
 function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: VercelWorkflowRuntimeModule): VercelWorkflowRuntime {
   const { getRun, resumeHook, start } = api
   const { getWorld } = runtime
   return {
+    // SAFETY: Vercel's workflow/api module defines getRun with the VercelRun contract normalized below.
     getRun: getRun as (id: string) => VercelRun,
     async listSteps(id) {
       const steps: VercelStep[] = []
@@ -74,12 +79,14 @@ function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: Verc
           resolveData: "none",
           runId: id,
         })
+        // SAFETY: normalizeSteps validates every provider step before public use.
         steps.push(...(page.data as VercelStep[]))
         cursor = page.hasMore && page.cursor ? page.cursor : undefined
       } while (cursor)
       return steps
     },
     resumeHook,
+    // SAFETY: Vercel's workflow/api module defines start with this runtime contract.
     start: start as VercelWorkflowRuntime["start"],
   }
 }
@@ -117,17 +124,17 @@ const statusMap: Record<string, WorkflowRunStatus> = {
   running: "running",
 }
 
-function invalidVercelResult(field: string): TypeError {
-  return new TypeError(`Vercel Workflow provider returned an invalid ${field}.`)
+function invalidVercelResult(field: string): Error {
+  return workflowErrorDiagnostics.WORKFLOW_R0026({ message: `Vercel Workflow provider returned an invalid ${field}.` })
 }
 
 function normalizeStatus(status: unknown): WorkflowRunStatus {
-  if (typeof status !== "string") throw invalidVercelResult("status")
+  if (!hasRuntimeType(status, "string")) throw invalidVercelResult("status")
   return statusMap[status.toLowerCase()] || "unknown"
 }
 
 function normalizeRunId(id: unknown): string {
-  if (typeof id !== "string" || !id) throw invalidVercelResult("run ID")
+  if (!hasRuntimeType(id, "string") || !id) throw invalidVercelResult("run ID")
   return id
 }
 
@@ -140,7 +147,7 @@ function normalizeDate(value: unknown, field: string): Date | undefined {
 function normalizeStepError(error: unknown): { code?: string; message: string } | undefined {
   if (error === undefined || error === null) return undefined
   if (error instanceof Error) return { message: error.message }
-  if (typeof error === "string") {
+  if (hasRuntimeType(error, "string")) {
     try {
       return normalizeStepError(JSON.parse(error)) || { message: error }
     }
@@ -148,13 +155,13 @@ function normalizeStepError(error: unknown): { code?: string; message: string } 
       return { message: error }
     }
   }
-  if (typeof error === "object") {
+  if (hasRuntimeType(error, "object") && error) {
+    // SAFETY: The object check establishes a provider error record whose members are validated below.
     const value = error as { code?: unknown, error?: unknown, message?: unknown }
-    if (typeof value.message === "string") {
-      return {
-        ...(typeof value.code === "string" ? { code: value.code } : {}),
-        message: value.message,
-      }
+    if (hasRuntimeType(value.message, "string")) {
+      const normalized: { code?: string; message: string } = { message: value.message }
+      if (hasRuntimeType(value.code, "string")) normalized.code = value.code
+      return normalized
     }
     if (value.error !== undefined) return normalizeStepError(value.error)
   }
@@ -165,11 +172,12 @@ function normalizeSteps(steps: unknown): WorkflowRunStep[] {
   if (!Array.isArray(steps)) throw invalidVercelResult("step list")
 
   return steps.map((step) => {
-    if (typeof step !== "object" || step === null) throw invalidVercelResult("step")
+    if (!hasRuntimeType(step, "object") || step === null) throw invalidVercelResult("step")
+    // SAFETY: The object check establishes a provider step record whose members are validated below.
     const value = step as Partial<VercelStep>
-    if (typeof value.attempt !== "number" || !Number.isFinite(value.attempt)) throw invalidVercelResult("step attempt")
-    if (typeof value.stepId !== "string" || !value.stepId) throw invalidVercelResult("step ID")
-    if (typeof value.stepName !== "string" || !value.stepName) throw invalidVercelResult("step name")
+    if (!hasRuntimeType(value.attempt, "number") || !Number.isFinite(value.attempt)) throw invalidVercelResult("step attempt")
+    if (!hasRuntimeType(value.stepId, "string") || !value.stepId) throw invalidVercelResult("step ID")
+    if (!hasRuntimeType(value.stepName, "string") || !value.stepName) throw invalidVercelResult("step name")
 
     return {
       attempt: value.attempt,
@@ -185,14 +193,15 @@ function normalizeSteps(steps: unknown): WorkflowRunStep[] {
 
 async function readRunIdentity(run: VercelRun): Promise<{ exists: false } | { exists: true, workflowName: string }> {
   const exists = await run.exists
-  if (typeof exists !== "boolean") throw invalidVercelResult("existence state")
+  if (!hasRuntimeType(exists, "boolean")) throw invalidVercelResult("existence state")
   if (!exists) return { exists }
   const workflowName = await run.workflowName
-  if (typeof workflowName !== "string") throw invalidVercelResult("workflow name")
+  if (!hasRuntimeType(workflowName, "string")) throw invalidVercelResult("workflow name")
   return { exists, workflowName }
 }
 
 function getNativeWorkflowName<TPayload, TResult>(name: string, definition: WorkflowDefinition<TPayload, TResult>): string {
+  // SAFETY: Vercel's transform attaches workflowId to the generated native handler.
   const workflowName = (definition.options?.native as WorkflowDefinition<TPayload, TResult>["handler"] & { workflowId?: string } | undefined)?.workflowId
   if (!workflowName) {
     throw createWorkflowError({
@@ -229,6 +238,7 @@ export async function inspectVercelWorkflowRun<TPayload = unknown, TResult = unk
     runWorkflowProviderOperation("vercel", "list-steps", async () => normalizeSteps(await runtime.listSteps(id))),
   ])
   const result = snapshot.status === "completed"
+    // SAFETY: A completed run's return value has the Workflow definition's declared result contract.
     ? await runWorkflowProviderOperation("vercel", "get-run", () => run.returnValue) as TResult
     : undefined
   return {
@@ -245,7 +255,12 @@ export async function inspectVercelWorkflowRun<TPayload = unknown, TResult = unk
   }
 }
 
-export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>(name: string, definition: WorkflowDefinition<TPayload, TResult>, payload?: TPayload): Promise<WorkflowRun<TPayload, TResult>> {
+export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>(
+  name: string,
+  definition: WorkflowDefinition<TPayload, TResult>,
+  payload?: TPayload,
+  observeSettlement?: (promise: PromiseLike<unknown>) => void,
+): Promise<WorkflowRun<TPayload, TResult>> {
   const native = definition.options?.native
   if (!native) {
     throw createWorkflowError({
@@ -255,14 +270,17 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
   }
   const context: WorkflowExecutionContext<TPayload> = {
     name,
+    // SAFETY: The optional payload belongs to this Workflow definition's payload contract.
     payload: payload as TPayload,
     provider: "vercel",
   }
   const runtime = await getVercelWorkflowRuntime()
-  const id = await runWorkflowProviderOperation("vercel", "start", async () => {
+  const { id, run } = await runWorkflowProviderOperation("vercel", "start", async () => {
+    // SAFETY: Vercel's native transform produces the handler signature accepted by runtime.start.
     const run = await runtime.start(native as never, [context])
-    return normalizeRunId(run.runId)
+    return { id: normalizeRunId(run.runId), run }
   })
+  observeSettlement?.(Promise.resolve(run.returnValue).then(() => undefined, () => undefined))
   return {
     id,
     metadata: { workflow: name },

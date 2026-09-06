@@ -1,6 +1,11 @@
 import { registerWorkspace } from "@vite-hub/workspace/runtime"
 
-import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot, workspaceNameFromOptions } from "../workspace-agent.ts"
+import {
+  markWorkspaceAgentDefinitionRegistered,
+  workspaceAgentOwnsWorkspaceDefinition,
+  workspaceAgentWithSourceRoot,
+  workspaceNameFromOptions,
+} from "../workspace-agent.ts"
 
 import type { AgentRuntimeConfig } from "../types.ts"
 import type { WorkspaceAgentDefinition } from "../workspace-agent.ts"
@@ -30,5 +35,6 @@ export function registerWorkspaceAgent<
     ...registeredAgent,
     sourceRootDir,
   } as never)
+  markWorkspaceAgentDefinitionRegistered(agent, workspaceName)
   return agent
 }

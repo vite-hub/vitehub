@@ -136,7 +136,7 @@ export function chatSummary(options: ChatSummaryOptions = {}): AgentCapabilityDe
       const invocation = findInputCommandInvocation(target.text, command.trigger, {
         [command.name]: {
           description: command.description,
-          run: () => undefined,
+          call: () => undefined,
         },
       })
       if (!invocation) return

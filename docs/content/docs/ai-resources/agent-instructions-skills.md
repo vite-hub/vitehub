@@ -6,7 +6,7 @@ icon: i-lucide-scroll-text
 ---
 
 The public ViteHub skill helps coding agents build complete applications from current documentation and the application's installed package contract.
-It keeps one compact proof loop in `SKILL.md`, then loads only the project-shape, feature, authority, host, migration, or recovery references that match the task.
+It keeps one compact proof loop in `SKILL.md`, then loads only the project-shape, feature, authority, host, or recovery references that match the task.
 
 ## Install the skill
 
@@ -23,7 +23,7 @@ Run `npx skills list` to inspect installed project skills.
 
 The skill orients in the current project, routes the smallest matching reference set, validates every planned import and option against installed exports and types, builds a coherent file set, and proves every requested behavior through its real runtime path.
 
-The bundled references teach reusable composition rather than copying the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Boxes and hosts, proof and recovery, public project patterns, and migration from older package generations.
+The bundled references teach reusable composition rather than copying the API reference. They cover project shapes, preview contracts, Server Primitives, framework composition, Agent Definitions and Drivers, Workspaces and Sources, Channels and Triggers, Capabilities, orchestration, Boxes and hosts, proof and recovery, and public project patterns.
 
 Links inside a reference are selection menus. The agent opens the smallest live raw page for the current behavior instead of loading the full reference library or documentation set.
 

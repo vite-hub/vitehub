@@ -1,3 +1,4 @@
+import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 type ConditionOperator = "!" | "!=" | "!==" | "&&" | "(" | ")" | "==" | "===" | "||"
 type ConditionToken =
   | { type: "literal", value: unknown }
@@ -72,7 +73,7 @@ function createConditionParser(
   data: Record<string, unknown>,
 ) {
   let index = 0
-  const error = () => new Error(`[vitehub] Invalid Markdown template condition "${expression}".`)
+  const error = () => markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0001({ message: `[vitehub] Invalid Markdown template condition "${expression}".` })
   const peek = () => tokens[index]
   const take = (value?: string) => {
     const token = tokens[index]
@@ -159,5 +160,5 @@ function nestedPathValue(value: unknown, segments: string[]): unknown {
 }
 
 function unsafeConditionError(expression: string): Error {
-  return new Error(`[vitehub] Unsafe Markdown template condition "${expression}". Conditions can only read data paths and use literals, ===, !==, &&, ||, !, and parentheses.`)
+  return markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0002({ message: `[vitehub] Unsafe Markdown template condition "${expression}". Conditions can only read data paths and use literals, ===, !==, &&, ||, !, and parentheses.` })
 }

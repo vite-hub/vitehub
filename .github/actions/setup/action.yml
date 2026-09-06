@@ -3,7 +3,7 @@ description: Install Vite+ and project dependencies
 runs:
   using: composite
   steps:
-    - uses: voidzero-dev/setup-vp@v1
+    - uses: voidzero-dev/setup-vp@1b32467adbe183473499fd9d5d372c3ed9641754 # v1.18.0
       with:
         node-version: "24"
         cache: true

@@ -2,6 +2,7 @@ import type { CloudflareBoxOptions } from '@vite-hub/box'
 import { resolveCloudflareBox } from '@vite-hub/box/_internal/cloudflare'
 import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import type { CloudflareSandboxDefinitionProviderOptions, SandboxDefinitionOptions } from '../../module-types'
+import { sandboxErrorDiagnostics } from "../../error-diagnostics.ts"
 
 type SandboxOptions = {
   local: SandboxDefinitionOptions
@@ -21,7 +22,7 @@ export async function resolveCloudflareSandboxBox(options: SandboxOptions, conte
   const namespace = env?.[bindingName]
 
   if (!namespace) {
-    throw new Error(`Cloudflare sandbox requires the "${bindingName}" binding. Set sandbox.binding or run inside Cloudflare.`)
+    throw sandboxErrorDiagnostics.SANDBOX_R0071({ message: `Cloudflare sandbox requires the "${bindingName}" binding. Set sandbox.binding or run inside Cloudflare.` })
   }
 
   return {

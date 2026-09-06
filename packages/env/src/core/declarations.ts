@@ -1,4 +1,5 @@
 import type { EnvSource, EnvSourceResolver, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
+import { envErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface DefaultStringSchema {
   __vitehubDefaultRuntimeSchema: string
@@ -10,7 +11,7 @@ export const defaultStringSchema: DefaultStringSchema = {
   safeParse(input: unknown): { data: string, success: true } | { error: Error, success: false } {
     return typeof input === "string"
       ? { data: input, success: true as const }
-      : { error: new Error("Expected string"), success: false as const }
+      : { error: envErrorDiagnostics.ENV_R0001({ message: "Expected string" }), success: false as const }
   },
 }
 
@@ -30,6 +31,7 @@ interface EnvNamespace {
   gitSha: (options?: { short?: boolean }) => EnvSource
   gitTag: () => EnvSource
   packageJson: (path: string) => EnvSource
+  provider: (provider: string, key: string) => EnvSource
   source: (name: string | string[]) => EnvSource
   variable: (options?: EnvVariableOptions) => EnvVariableDeclaration
 }
@@ -37,7 +39,7 @@ interface EnvNamespace {
 function source(name: string | string[]): EnvSource {
   const names = Array.isArray(name) ? name : [name]
   if (!names.length || names.some(value => typeof value !== "string" || !value.trim())) {
-    throw new TypeError("env.source() requires one or more non-empty env variable names.")
+    throw envErrorDiagnostics.ENV_R0002({ message: "env.source() requires one or more non-empty env variable names." })
   }
   const normalized = names.map(value => value.trim())
   return {
@@ -117,12 +119,28 @@ function packageJson(path: string): EnvSource {
   }
 }
 
+function provider(provider: string, key: string): EnvSource {
+  if (typeof provider !== "string" || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(provider.trim())) {
+    throw envErrorDiagnostics.ENV_R0003({ message: "env.provider() requires a provider name that starts with a letter and contains only letters, numbers, underscores, or hyphens." })
+  }
+  if (typeof key !== "string" || !key.trim() || key.length > 512) {
+    throw envErrorDiagnostics.ENV_R0004({ message: "env.provider() requires a non-empty provider key." })
+  }
+  return {
+    key: key.trim(),
+    kind: "provider",
+    label: "provider",
+    provider: provider.trim(),
+    serializable: true,
+  }
+}
+
 function variable(options: EnvVariableOptions = {}): EnvVariableDeclaration {
   if (typeof options !== "object" || options === null || Array.isArray(options)) {
-    throw new TypeError("env() only accepts a single options object.")
+    throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object." })
   }
   if (options.optional && typeof options.required !== "undefined") {
-    throw new TypeError("env() cannot use both optional and required.")
+    throw envErrorDiagnostics.ENV_R0006({ message: "env() cannot use both optional and required." })
   }
 
   const required = options.optional ? false : options.required ?? true
@@ -163,18 +181,25 @@ export const env: EnvNamespace = Object.assign(variable, {
   gitSha: gitSha,
   gitTag: gitTag,
   packageJson: packageJson,
+  provider: provider,
   source: source,
   variable: variable,
 })
 
 export function isDefaultStringEnvVariable(declaration: EnvVariableDeclaration): boolean {
+  const declarationToken = Object.getOwnPropertyDescriptor(declaration, defaultStringSchemaProperty)?.value
+  const schemaObject = typeof declaration.schema === "object" && declaration.schema !== null
+    ? declaration.schema
+    : undefined
+  const schemaToken = schemaObject
+    ? Object.getOwnPropertyDescriptor(schemaObject, defaultStringSchemaProperty)?.value
+    : undefined
   return defaultStringSchemas.get(declaration) === declaration.schema
     || (
-      (declaration as unknown as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
-      && typeof declaration.schema === "object"
-      && declaration.schema !== null
-      && (declaration.schema as Record<string, unknown>)[defaultStringSchemaProperty] === defaultStringSchemaToken
-      && hasOnlyDefaultStringSchemaKeys(declaration.schema)
+      declarationToken === defaultStringSchemaToken
+      && schemaToken === defaultStringSchemaToken
+      && schemaObject !== undefined
+      && hasOnlyDefaultStringSchemaKeys(schemaObject)
     )
 }
 

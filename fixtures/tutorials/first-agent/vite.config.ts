@@ -8,7 +8,7 @@ export default defineConfig({
   appType: "custom",
   build: {
     outDir: "dist",
-    rollupOptions: {
+    rolldownOptions: {
       input: resolve(import.meta.dirname, "src/server.ts"),
       output: { entryFileNames: "server.js" },
     },

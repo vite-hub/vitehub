@@ -15,7 +15,7 @@ export function configureCloudflareKV(
   config: ResolvedKVModuleOptions,
 ): void {
   for (const store of Object.values(config.stores || { default: config.store })) {
-    if (store.driver !== "cloudflare-kv-binding" || !store.namespaceId) continue
+    if (store.driver !== "cloudflare-kv-binding") continue
 
     const { binding, namespaceId } = store
 
@@ -25,7 +25,7 @@ export function configureCloudflareKV(
 
     pushUnique(
       target.cloudflare.wrangler.kv_namespaces,
-      { binding, id: namespaceId },
+      { binding, ...(namespaceId ? { id: namespaceId } : {}) },
       entry => entry.binding,
     )
   }

@@ -1,21 +1,33 @@
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { createExecutionContext, getViteHubErrorShape } from "@vite-hub/runtime"
 
 import { createAgentRuntimeContext } from "./context.ts"
 import { workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 import { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
-import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
+import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule, loadConfiguredAgentWorkflowCapabilities } from "../internal/workflow-runtime-loaders.ts"
 import { agentInvocationRunId } from "../invocation-context.ts"
 import { agentInvocationRecoveryTasks } from "../internal/invocation-recovery.ts"
 import { bindAgentInvocations } from "../invocations.ts"
 import { cloneWorkflowJsonValue, workflowBytesToBase64 } from "../internal/workflow-portability.ts"
 import { restoreResolvedAgentInvokerInput } from "../invoker.ts"
+import { hasParsedAgentMessageMeta, restoreParsedAgentMessageMeta } from "../internal/message-meta.ts"
+import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentErrorProperty, toAgentPublicError } from "../agent-error.ts"
-import { agentChannelDeliveryWorkflowContextKey, resumeWorkflowAgentChannelDelivery, withAgentChannelDelivery } from "../internal/channel-delivery.ts"
+import {
+  agentChannelDeliveryWorkflowContextKey,
+  isAgentChannelDeliveryWorkflowBinding,
+  resumeAgentChannelDeliveryWorkflowOwnership,
+  resumeWorkflowAgentChannelDelivery,
+  withAgentChannelDelivery,
+  withAgentChannelDeliveryOwnershipVerifier,
+} from "../internal/channel-delivery.ts"
 import { agentWorkflowExecutionContextKey } from "../internal/workflow-execution.ts"
+import { agentWorkflowRetryRegistrar } from "../internal/workflow-retry.ts"
+import { isRuntimeBoolean, isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString, isRuntimeSymbol } from "../internal/runtime-value.ts"
 
 import type {
+  AgentChannelDeliveryEventInput,
   AgentHostIdentity,
   AgentInput,
   AgentRunInput,
@@ -24,11 +36,11 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   AgentRuntimeName,
+  ResolvedAgentRuntimeContext,
 } from "../types.ts"
 
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
-import type { AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
-
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 export { workspaceAgentWithSourceRoot }
 
 export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameters<typeof decodeColocatedAgentSkills>[0]): Agent {
@@ -37,7 +49,7 @@ export function agentWithColocatedSkills<Agent>(agent: Agent, sources: Parameter
 
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   agentIdentity?: AgentHostIdentity
-  capabilities?: Record<string, false>
+  capabilities?: Record<string, boolean>
   input?: AgentRunInput<CALL_OPTIONS>
   invocationRecovery?: {
     agentName?: string
@@ -46,6 +58,7 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
     workflowName: string
   }
   requestUrl?: string
+  parsedMessageMeta?: ParsedAgentMessageMetaState
   resolvedInvoker?: boolean
   run?: Partial<AgentRunMetadata>
   trace?: AgentRuntimeContext["trace"]
@@ -53,7 +66,7 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   runtimeConfig?: AgentRuntimeConfig
 }
 
-function workflowRecoveryDelay(attempt: number): { duration: string, milliseconds: number } {
+function workflowRecoveryDelay(attempt: number): { duration: string; milliseconds: number } {
   if (attempt < 60) return { duration: "1 second", milliseconds: 1_000 }
   if (attempt < 120) return { duration: "1 minute", milliseconds: 60_000 }
   return { duration: "30 minutes", milliseconds: 1_800_000 }
@@ -62,7 +75,7 @@ function workflowRecoveryDelay(attempt: number): { duration: string, millisecond
 async function sleepForWorkflowRecovery(context: WorkflowExecutionContext, attempt: number): Promise<void> {
   const delay = workflowRecoveryDelay(attempt)
   if (context.step?.sleep) return await context.step.sleep(`agent-invocation-recovery-${attempt + 1}`, delay.duration)
-  await new Promise<void>(resolve => setTimeout(resolve, delay.milliseconds))
+  await new Promise<void>((resolve) => setTimeout(resolve, delay.milliseconds))
 }
 
 async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -71,13 +84,17 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
   runtimeContext: AgentRuntimeContext<TRuntimeConfig>,
   recovery: NonNullable<AgentWorkflowInvocationPayload["invocationRecovery"]>,
 ): Promise<void> {
-  if (!agent || typeof agent !== "object" || !("invocations" in agent)) return
+  if (!agent || !isRuntimeObject(agent) || !("invocations" in agent)) return
   const invocations = agent.invocations
   if (!invocations) return
-  const journal = await bindAgentInvocations(invocations, {
-    ...runtimeContext,
-    run: { ...runtimeContext.run, runId: recovery.sourceRunId },
-  }, { agentName: recovery.agentName, deferClaim: true, terminalTakeover: true })
+  const journal = await bindAgentInvocations(
+    invocations,
+    {
+      ...runtimeContext,
+      run: { ...runtimeContext.run, runId: recovery.sourceRunId },
+    },
+    { agentName: recovery.agentName, deferClaim: true, terminalTakeover: true },
+  )
   if (!journal) return
   const { getWorkflowRun } = await loadAgentWorkflowModule()
   // ponytail: Recovery is bounded to one day; add provider events or re-enqueueing if runs routinely exceed it.
@@ -90,16 +107,12 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
         const record = await invocations.getByRunId(recovery.sourceRunId, recovery.agentName)
         if (record?.status === run.status) return
       }
-    }
-    catch {}
+    } catch {}
     if (attempt < 165) await sleepForWorkflowRecovery(context, attempt)
   }
 }
 
-export type AgentWorkflowRunner<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-> = (
+export type AgentWorkflowRunner<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> = (
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -114,18 +127,21 @@ function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRunt
 const unportableWorkflowValue = Symbol("vitehub.agent.unportable-workflow-value")
 
 function isJsonWorkflowValue(value: unknown, seen = new WeakSet<object>()): boolean {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return true
-  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0)
-  if (!value || typeof value !== "object" || seen.has(value)) return false
-  if (Reflect.ownKeys(value).some(key => typeof key === "symbol")) return false
+  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return true
+  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0)
+  if (!value || !isRuntimeObject(value) || seen.has(value)) return false
+  if (Reflect.ownKeys(value).some((key) => isRuntimeSymbol(key))) return false
   seen.add(value)
   let portable = false
   if (Array.isArray(value)) {
-    portable = value.length === Object.keys(value).length
-      && Array.from({ length: value.length }, (_, index) => Object.hasOwn(value, index) && value[index] !== undefined && isJsonWorkflowValue(value[index], seen)).every(Boolean)
-  }
-  else if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) {
-    portable = Object.values(value).every(item => item !== undefined && isJsonWorkflowValue(item, seen))
+    portable =
+      value.length === Object.keys(value).length &&
+      Array.from(
+        { length: value.length },
+        (_, index) => Object.hasOwn(value, index) && value[index] !== undefined && isJsonWorkflowValue(value[index], seen),
+      ).every(Boolean)
+  } else if (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) {
+    portable = Object.values(value).every((item) => item !== undefined && isJsonWorkflowValue(item, seen))
   }
   seen.delete(value)
   return portable
@@ -137,62 +153,57 @@ function jsonWorkflowValue(value: unknown): unknown | typeof unportableWorkflowV
     if (!isJsonWorkflowValue(cloned)) return unportableWorkflowValue
     const serialized = JSON.stringify(cloned)
     return serialized === undefined ? unportableWorkflowValue : JSON.parse(serialized)
-  }
-  catch {
+  } catch {
     return unportableWorkflowValue
   }
 }
 
 function unsupportedWorkflowResult(): never {
-  const error = new TypeError("Agent Workflow results must contain only JSON-compatible values.") as TypeError & { isRetryable: false }
-  error.isRetryable = false
+  const error = Object.assign(
+    agentDiagnostics.AGENT_R0744({ message: "Agent Workflow results must contain only JSON-compatible values." }),
+    { isRetryable: false as const },
+  )
   throw error
 }
 
 function nonRetryableAgentWorkflowError(error: unknown): unknown {
   if (readAgentErrorProperty(error, "isRetryable") === false) return error
-  const nestedNonRetryable = error instanceof AggregateError
-    && error.errors.some(candidate => readAgentErrorProperty(nonRetryableAgentWorkflowError(candidate), "isRetryable") === false)
+  const nestedNonRetryable =
+    error instanceof AggregateError &&
+    error.errors.some((candidate) => readAgentErrorProperty(nonRetryableAgentWorkflowError(candidate), "isRetryable") === false)
   const code = getViteHubErrorShape(error)?.code
   const publicError = toAgentPublicError(error, "invocation")
-  const terminalProvider = publicError.code === "PROVIDER_AUTHENTICATION_FAILED"
-    || publicError.code === "PROVIDER_QUOTA_EXHAUSTED"
-  const retry = readAgentErrorProperty(error, "name") === "AI_RetryError"
-    ? readAgentErrorProperty(error, "lastError")
-    : error
+  const terminalProvider = publicError.code === "PROVIDER_AUTHENTICATION_FAILED" || publicError.code === "PROVIDER_QUOTA_EXHAUSTED"
+  const retry = readAgentErrorProperty(error, "name") === "AI_RetryError" ? readAgentErrorProperty(error, "lastError") : error
   const exhaustedProviderRetries = retry !== error
   const name = readAgentErrorProperty(retry, "name")
   const status = readAgentErrorProperty(retry, "statusCode")
-  const permanentProviderRequest = name === "AI_LoadAPIKeyError"
-    || name === "AI_APICallError"
-    && typeof status === "number"
-    && status >= 400
-    && status < 500
-    && ![408, 409, 425, 429].includes(status)
-  const exhaustedOutput = code === "AGENT_OUTPUT_INVALID_JSON"
-    || code === "AGENT_OUTPUT_SCHEMA_INVALID"
-    || name === "AI_NoObjectGeneratedError"
+  const permanentProviderRequest =
+    name === "AI_LoadAPIKeyError" ||
+    (name === "AI_APICallError" && isRuntimeNumber(status) && status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status))
+  const exhaustedOutput = code === "AGENT_OUTPUT_INVALID_JSON" || code === "AGENT_OUTPUT_SCHEMA_INVALID" || name === "AI_NoObjectGeneratedError"
   if (!nestedNonRetryable && !terminalProvider && !permanentProviderRequest && !exhaustedProviderRetries && !exhaustedOutput) return error
 
-  const value = error instanceof Error ? error : new Error(String(error), { cause: error })
+  const value = error instanceof Error ? error : agentDiagnostics.AGENT_R0745({ message: String(error), cause: error })
   try {
     Object.defineProperty(value, "isRetryable", { configurable: true, value: false })
     return value
-  }
-  catch {
-    return Object.assign(new Error(value.message, { cause: value }), { isRetryable: false as const })
+  } catch {
+    return Object.assign(agentDiagnostics.AGENT_R0746({ message: value.message, cause: value }), {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      isRetryable: false as const,
+    })
   }
 }
 
 function isTextResponseMediaType(mediaType: string): boolean {
-  return mediaType.toLowerCase().startsWith("text/")
-    || /^(?:application\/(?:[^;]+\+)?(?:json|xml|yaml|javascript)|image\/svg\+xml)(?:;|$)/i.test(mediaType)
+  return mediaType.toLowerCase().startsWith("text/") || /^(?:application\/(?:[^;]+\+)?(?:json|xml|yaml|javascript)|image\/svg\+xml)(?:;|$)/i.test(mediaType)
 }
 
 function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return value
-  if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
-  if (!value || typeof value !== "object") return unportableWorkflowValue
+  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return value
+  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0) ? value : unportableWorkflowValue
+  if (!value || !isRuntimeObject(value)) return unportableWorkflowValue
   if (value instanceof Map || value instanceof Set || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return unportableWorkflowValue
   if (value instanceof Date) return unportableWorkflowValue
   if (seen.has(value)) return unportableWorkflowValue
@@ -219,146 +230,222 @@ function portableWorkflowValue(value: unknown, seen = new WeakMap<object, unknow
 
 async function portableWorkflowResult(result: unknown): Promise<unknown> {
   try {
-  if (result instanceof Response) {
-    const headers = Array.from(result.headers)
-    const mediaType = result.headers.get("content-type") || "application/octet-stream"
-    const bytes = new Uint8Array(await result.arrayBuffer())
-    return {
-      raw: {
-        body: { data: workflowBytesToBase64(bytes), encoding: "base64", mediaType },
-        headers,
-        status: result.status,
-        statusText: result.statusText,
-      },
-      ...(isTextResponseMediaType(mediaType) ? { text: new TextDecoder().decode(bytes) } : {}),
-    } satisfies AgentRunResult
-  }
-  const jsonResult = jsonWorkflowValue(result)
-  if (jsonResult !== unportableWorkflowValue) return jsonResult
-  const agentResultKeys = ["artifacts", "finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
-  const providerResultMarkerKeys = ["_output", "content", "output", "provider", "steps", "totalUsage"]
-  const aiSdkTextResultMarkerKeys = ["_output", "steps", "totalUsage"]
-  const providerResultKeys = [...providerResultMarkerKeys, "initialResponseMessages"]
-  const normalizedAgentResultKeys = ["finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
-  if (!result || typeof result !== "object" || !agentResultKeys.some(key => key in result)) unsupportedWorkflowResult()
-  if (!Object.keys(result).every(key => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
-  if (Object.hasOwn(result, "initialResponseMessages")) {
-    const prototype = Object.getPrototypeOf(result)
-    const aiSdkTextResultGetterKeys = ["content", "finalStep", "text"]
-    if (!aiSdkTextResultMarkerKeys.every(key => Object.hasOwn(result, key)) || !aiSdkTextResultGetterKeys.every(key => typeof Object.getOwnPropertyDescriptor(prototype, key)?.get === "function")) unsupportedWorkflowResult()
-  }
-  if (!providerResultMarkerKeys.some(key => key in result) && !normalizedAgentResultKeys.every(key => Object.hasOwn(result, key))) unsupportedWorkflowResult()
-  const normalizedResult = toAgentRunResult(result)
-  if (Object.hasOwn(result, "initialResponseMessages")) {
-    const { initialResponseMessages: _initialResponseMessages, ...raw } = result as Record<string, unknown>
-    normalizedResult.finishReason = (result as Record<string, unknown>).finishReason
-    normalizedResult.raw = raw
-    normalizedResult.warnings = (result as Record<string, unknown>).warnings
-  }
-  const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(normalizedResult)
-  const jsonProjected = jsonWorkflowValue(projected)
-  if (jsonProjected !== unportableWorkflowValue) return jsonProjected
-  const { raw: _raw, ...normalized } = toAgentRunResult(result)
-  const portable = portableWorkflowValue(normalized)
-  if (jsonWorkflowValue(portable) === unportableWorkflowValue) unsupportedWorkflowResult()
-  return portable
-  }
-  catch (error) {
-    if (error && typeof error === "object" && (error as { isRetryable?: unknown }).isRetryable === false) throw error
+    if (result instanceof Response) {
+      const headers = Array.from(result.headers)
+      const mediaType = result.headers.get("content-type") || "application/octet-stream"
+      const bytes = new Uint8Array(await result.arrayBuffer())
+      const responseResult: AgentRunResult = {
+        raw: {
+          body: { data: workflowBytesToBase64(bytes), encoding: "base64", mediaType },
+          headers,
+          status: result.status,
+          statusText: result.statusText,
+        },
+      }
+      if (isTextResponseMediaType(mediaType)) responseResult.text = new TextDecoder().decode(bytes)
+      return responseResult
+    }
+    const jsonResult = jsonWorkflowValue(result)
+    if (jsonResult !== unportableWorkflowValue) return jsonResult
+    const agentResultKeys = ["artifacts", "finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
+    const providerResultMarkerKeys = ["_output", "content", "output", "provider", "steps", "totalUsage"]
+    const aiSdkTextResultMarkerKeys = ["_output", "steps", "totalUsage"]
+    const providerResultKeys = [...providerResultMarkerKeys, "initialResponseMessages"]
+    const normalizedAgentResultKeys = ["finishReason", "raw", "text", "usage", "usageRecord", "warnings"]
+    if (!result || !isRuntimeObject(result) || !agentResultKeys.some((key) => key in result)) unsupportedWorkflowResult()
+    if (!Object.keys(result).every((key) => agentResultKeys.includes(key) || providerResultKeys.includes(key))) unsupportedWorkflowResult()
+    if (Object.hasOwn(result, "initialResponseMessages")) {
+      const prototype = Object.getPrototypeOf(result)
+      const aiSdkTextResultGetterKeys = ["content", "finalStep", "text"]
+      if (
+        !aiSdkTextResultMarkerKeys.every((key) => Object.hasOwn(result, key)) ||
+        !aiSdkTextResultGetterKeys.every((key) => isRuntimeFunction(Object.getOwnPropertyDescriptor(prototype, key)?.get))
+      )
+        unsupportedWorkflowResult()
+    }
+    if (!providerResultMarkerKeys.some((key) => key in result) && !normalizedAgentResultKeys.every((key) => Object.hasOwn(result, key)))
+      unsupportedWorkflowResult()
+    const normalizedResult = toAgentRunResult(result)
+    if (Object.hasOwn(result, "initialResponseMessages")) {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      const { initialResponseMessages: _initialResponseMessages, ...raw } = result as Record<string, unknown>
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      normalizedResult.finishReason = (result as Record<string, unknown>).finishReason
+      normalizedResult.raw = raw
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      normalizedResult.warnings = (result as Record<string, unknown>).warnings
+    }
+    const projected = "raw" in result ? portableWorkflowValue(result) : portableWorkflowValue(normalizedResult)
+    const jsonProjected = jsonWorkflowValue(projected)
+    if (jsonProjected !== unportableWorkflowValue) return jsonProjected
+    const { raw: _raw, ...normalized } = toAgentRunResult(result)
+    const portable = portableWorkflowValue(normalized)
+    if (jsonWorkflowValue(portable) === unportableWorkflowValue) unsupportedWorkflowResult()
+    return portable
+  } catch (error) {
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    if (error && isRuntimeObject(error) && (error as { isRetryable?: unknown }).isRetryable === false) throw error
     unsupportedWorkflowResult()
   }
 }
 
-export async function runAgentWorkflowDefinition<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
->(
+export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: WorkflowExecutionContext<AgentWorkflowInvocationPayload<CALL_OPTIONS> | undefined>,
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
-  const waitUntil = (promise: Promise<unknown>): void => {
-    void Promise.resolve(promise).catch(() => {})
-  }
   const { getWorkflowRuntimeEvent } = await loadAgentWorkflowRuntimeStateModule()
-  const cloudflareEnv = context.provider === "cloudflare"
-    ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
-    : undefined
-  const runId = context.id || payload.run?.runId
+  const cloudflareEnv = context.provider === "cloudflare" ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent()) : undefined
+  const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
+  const runId = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding) ? payload.run?.runId || context.id : context.id || payload.run?.runId
   const backgroundTasks: Promise<unknown>[] = []
-  let runtimeContext = createAgentRuntimeContext<TRuntimeConfig>({
-    ...(payload.agentIdentity ? { agentIdentity: payload.agentIdentity } : {}),
-    ...(payload.capabilities ? { capabilities: payload.capabilities } : {}),
-    ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}),
-    ...(payload.requestUrl ? { request: new Request(payload.requestUrl) } : {}),
-    ...(runId
-      ? { run: { origin: `workflow:${context.provider}`, ...payload.run, runId } }
-      : {}),
-    ...(payload.trace ? { trace: payload.trace } : {}),
+  const workflowRetryTasks: Promise<unknown>[] = []
+  // SAFETY: The workflow payload's runtimeConfig was serialized from the same generic Agent runtime definition.
+  const runtimeConfig = (payload.runtimeConfig ?? {}) as TRuntimeConfig
+  const runtimeInput: Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & { memo?: AgentRuntimeContext<TRuntimeConfig>["memo"] } = {
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
-    runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
+    runtimeConfig,
     waitUntil(promise: Promise<unknown>) {
       backgroundTasks.push(Promise.resolve(promise).catch(() => undefined))
     },
-  } as never)
+  }
+  if (payload.agentIdentity) runtimeInput.agentIdentity = payload.agentIdentity
+  const capabilities = await loadConfiguredAgentWorkflowCapabilities(payload.capabilities)
+  if (Object.keys(capabilities).length) runtimeInput.capabilities = capabilities
+  if (cloudflareEnv) runtimeInput.cloudflare = { env: cloudflareEnv }
+  if (payload.requestUrl) runtimeInput.request = new Request(payload.requestUrl)
+  if (runId) runtimeInput.run = { origin: `workflow:${context.provider}`, ...payload.run, runId }
+  if (payload.trace) runtimeInput.trace = payload.trace
+  // SAFETY: runtimeConfig was normalized to TRuntimeConfig above before the Runtime boundary completes the context.
+  let runtimeContext = createExecutionContext({
+    ...createAgentRuntimeContext<TRuntimeConfig>(runtimeInput),
+    runtimeConfig,
+  }) as ResolvedAgentRuntimeContext<TRuntimeConfig>
   if (payload.run?.runId && payload.run.runId !== runId) {
-    ;(runtimeContext as AgentRuntimeContext<TRuntimeConfig> & { [agentInvocationRunId]: string })[agentInvocationRunId] = payload.run.runId
+    Object.defineProperty(runtimeContext, agentInvocationRunId, {
+      enumerable: true,
+      value: payload.run.runId,
+    })
   }
 
-  Object.defineProperty(runtimeContext, agentWorkflowExecutionContextKey, { enumerable: true, value: true })
+  Object.defineProperty(runtimeContext, agentWorkflowExecutionContextKey, {
+    enumerable: true,
+    value: true,
+  })
+  Object.defineProperty(runtimeContext, agentWorkflowRetryRegistrar, {
+    enumerable: false,
+    value(promise: Promise<unknown>) {
+      workflowRetryTasks.push(promise)
+    },
+  })
 
   if (payload.invocationRecovery) {
     await reconcileAgentWorkflowInvocation(agent, context, runtimeContext, payload.invocationRecovery)
     return
   }
 
-  const channelDeliveryBinding = payload.input?.context?.[agentChannelDeliveryWorkflowContextKey]
   const channelDelivery = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
-    ? await resumeWorkflowAgentChannelDelivery(
-        agent as never,
-        runtimeContext as never,
-        channelDeliveryBinding,
-      )
+    ? // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      await resumeWorkflowAgentChannelDelivery(agent as never, runtimeContext as never, channelDeliveryBinding)
     : undefined
   if (isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding) && !channelDelivery) {
-    throw new Error(`[vitehub] Durable Agent Channel delivery "${channelDeliveryBinding.deliveryId}" could not be resumed.`)
+    throw agentDiagnostics.AGENT_R0747({ message: `[vitehub] Durable Agent Channel delivery "${channelDeliveryBinding.deliveryId}" could not be resumed.` })
   }
   if (channelDelivery) runtimeContext = withAgentChannelDelivery(runtimeContext, channelDelivery)
+  const channelOwnership = isAgentChannelDeliveryWorkflowBinding(channelDeliveryBinding)
+    ? await resumeAgentChannelDeliveryWorkflowOwnership(agent, runtimeContext, channelDeliveryBinding)
+    : undefined
+  if (channelOwnership?.verify) runtimeContext = withAgentChannelDeliveryOwnershipVerifier(runtimeContext, channelOwnership.verify)
+  const workflowInput = channelOwnership?.abortSignal
+    ? {
+        ...payload.input,
+        abortSignal: payload.input?.abortSignal ? AbortSignal.any([payload.input.abortSignal, channelOwnership.abortSignal]) : channelOwnership.abortSignal,
+      }
+    : (payload.input ?? {})
 
+  let channelDeliveryStatus: "completed" | "failed" = "failed"
+  let channelDeliveryJournaled = !channelDelivery
   try {
+    if (channelOwnership?.handedOff) return
+    if (channelOwnership?.settlementStatus) {
+      channelDeliveryStatus = channelOwnership.settlementStatus
+      if (channelDelivery) {
+        const settlementEvent: AgentChannelDeliveryEventInput = {
+          type: channelDeliveryStatus,
+          runId,
+        }
+        if (channelOwnership.settlementError) settlementEvent.error = channelOwnership.settlementError
+        await channelDelivery.event(settlementEvent)
+        channelDeliveryJournaled = true
+      }
+      return
+    }
     if (channelDelivery) await channelDelivery.event({ type: "invocation.started", runId }).catch(() => undefined)
-    const result = await portableWorkflowResult(await runAgentInline(
+    // SAFETY: the Workflow payload preserves the originating Agent call options while crossing the portable runtime boundary.
+    let restoredWorkflowInput = workflowInput as AgentRunInput<CALL_OPTIONS>
+    if (payload.parsedMessageMeta !== undefined) {
+      restoredWorkflowInput = restoreParsedAgentMessageMeta(agent, restoredWorkflowInput, runtimeContext.run, payload.parsedMessageMeta)
+    }
+    const derivedInvokerNeedsResolution = payload.parsedMessageMeta?.derivedInvoker
+      && !hasParsedAgentMessageMeta(agent, restoredWorkflowInput, runtimeContext.run)
+    if (payload.resolvedInvoker && !derivedInvokerNeedsResolution) {
+      restoredWorkflowInput = restoreResolvedAgentInvokerInput(restoredWorkflowInput)
+    }
+    const inlineResult = await runAgentInline(
       agent,
       runtimeContext,
-      payload.resolvedInvoker
-        ? restoreResolvedAgentInvokerInput((payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>)
-        : (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
-    ))
-    if (channelDelivery) {
+      // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+      restoredWorkflowInput,
+    )
+    channelOwnership?.abortSignal?.throwIfAborted()
+    const result = await portableWorkflowResult(inlineResult)
+    await channelOwnership?.verify?.()
+    channelDeliveryStatus = "completed"
+    await channelOwnership?.checkpoint?.(channelDeliveryStatus)
+    if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
       await channelDelivery.event({ type: "invocation.completed", runId }).catch(() => undefined)
-      await channelDelivery.event({ type: "completed", runId }).catch(() => undefined)
+      await channelDelivery.event({ type: "completed", runId })
+      channelDeliveryJournaled = true
     }
     return result
-  }
-  catch (error) {
-    if (channelDelivery) {
-      await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "invocation.failed", runId }).catch(() => undefined)
-      await channelDelivery.event({ error: error instanceof Error ? error.message : String(error), type: "failed", runId }).catch(() => undefined)
+  } catch (error) {
+    if (channelDeliveryStatus === "completed") throw error
+    await channelOwnership?.verify?.()
+    await channelOwnership?.checkpoint?.(channelDeliveryStatus)
+    if (channelDelivery && !channelOwnership?.abortSignal?.aborted) {
+      await channelDelivery
+        .event({
+          error: error instanceof Error ? error.message : String(error),
+          type: "invocation.failed",
+          runId,
+        })
+        .catch(() => undefined)
+      await channelDelivery
+        .event({
+          error: error instanceof Error ? error.message : String(error),
+          type: "failed",
+          runId,
+        })
+      channelDeliveryJournaled = true
     }
     throw nonRetryableAgentWorkflowError(error)
-  }
-  finally {
-    while (backgroundTasks.length) {
-      await Promise.allSettled(backgroundTasks.splice(0))
+  } finally {
+    while (backgroundTasks.length || agentInvocationRecoveryTasks(runtimeContext).length) {
+      await Promise.allSettled([...backgroundTasks.splice(0), ...agentInvocationRecoveryTasks(runtimeContext)])
     }
+    // Recovery must establish replacement custody before terminal settlement
+    // can acknowledge the owner-fenced pending claim.
+    if (workflowRetryTasks.length) await Promise.all(workflowRetryTasks)
+    if (channelDeliveryJournaled) {
+      await channelOwnership?.settle(channelDeliveryStatus).catch((error) => {
+        if (channelOwnership.retrySettlementFailures) throw error
+      })
+    } else {
+      await channelOwnership?.releaseExecutionCustody?.()
+    }
+    // Settlement can register a successor start after the first retry drain.
+    // Keep that retry inside the durable Workflow completion boundary too.
+    if (workflowRetryTasks.length) await Promise.all(workflowRetryTasks)
   }
-}
-
-function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
-  return Boolean(value && typeof value === "object"
-    && (typeof (value as AgentChannelDeliveryWorkflowBinding).channelId === "string" || (value as AgentChannelDeliveryWorkflowBinding).channelId === undefined)
-    && typeof (value as AgentChannelDeliveryWorkflowBinding).deliveryId === "string"
-    && typeof (value as AgentChannelDeliveryWorkflowBinding).provider === "string"
-    && ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"))
 }

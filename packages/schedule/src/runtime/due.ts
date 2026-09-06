@@ -1,6 +1,7 @@
 import { parseCronExpression } from "cron-schedule"
 
 import type { RuntimeScheduleRecord } from "../types.ts"
+import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 const weekdayIndexes = new Map([
   ["Sun", 0],
@@ -39,7 +40,7 @@ function scheduleDateFields(scheduledAt: Date, timeZone: string | undefined) {
   const minute = Number(values.get("minute"))
   const month = Number(values.get("month")) - 1
   if (weekday === undefined || [day, hour, minute, month].some(value => !Number.isInteger(value))) {
-    throw new TypeError(`Runtime Schedule time zone could not resolve calendar fields: ${timeZone}`)
+    throw scheduleErrorDiagnostics.SCHEDULE_R0022({ message: `Runtime Schedule time zone could not resolve calendar fields: ${timeZone}` })
   }
   return { day, hour, minute, month, weekday }
 }
@@ -49,7 +50,7 @@ export function isRuntimeScheduleDue(schedule: RuntimeScheduleRecord, scheduledA
     return false
   }
   if (schedule.cron.trim().split(/\s+/).length !== 5) {
-    throw new TypeError(`Runtime Schedule "${schedule.id}" must use a five-field cron expression.`)
+    throw scheduleErrorDiagnostics.SCHEDULE_R0023({ message: `Runtime Schedule "${schedule.id}" must use a five-field cron expression.` })
   }
   const cron = parseCronExpression(schedule.cron)
   const { day, hour, minute, month, weekday } = scheduleDateFields(scheduledAt, schedule.timeZone)

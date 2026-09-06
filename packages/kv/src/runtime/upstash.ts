@@ -4,6 +4,7 @@ import type {
   ResolvedKVModuleOptions,
   ResolvedUpstashKVStoreConfig,
 } from "../types.ts"
+import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 function isMaskedValue(value: string | undefined) {
   return !value || /^\*+$/.test(value)
@@ -11,7 +12,7 @@ function isMaskedValue(value: string | undefined) {
 
 function assertRuntimeValue(value: string | undefined, envName: string) {
   if (isMaskedValue(value)) {
-    throw new Error(`Missing runtime environment variable \`${envName}\` for Upstash KV.`)
+    throw kvErrorDiagnostics.KV_R0012({ message: `Missing runtime environment variable \`${envName}\` for Upstash KV.` })
   }
 }
 

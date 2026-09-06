@@ -19,6 +19,7 @@ import type {
   MaybePromise,
   WorkspaceSourceResolutionContext,
 } from "../core/types.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export type FetchSourceMethod = "GET" | "HEAD" | "POST"
 export type FetchSourceResponseType = "json" | "text"
@@ -52,6 +53,7 @@ type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof 
 export interface FetchSourceCredentialOptions {
   cookies?: Record<string, string>
   headers?: Record<string, string>
+  maxResponseBytes?: number
   timeout?: number
 }
 
@@ -85,6 +87,7 @@ export interface FetchSourceOptions<TResponse = unknown, TOutput = TResponse> ex
   cookies?: Record<string, string>
   headers?: Record<string, string>
   method?: FetchSourceMethod
+  maxResponseBytes?: number
   query?: Record<string, unknown>
   querySchema?: FetchSourceStandardJsonSchemaV1<Record<string, unknown>>
   request?: FetchSourceRequest
@@ -135,6 +138,7 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
     },
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: mountPath,
+    name: "fetch",
     probeKeys: options.probeKeys || (key ? [key] : undefined),
     sync: options.sync,
     async getKeys() {
@@ -143,10 +147,10 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
     },
     async getItem(sourcePath, ctx) {
       if (!workspacePath) {
-        throw new Error("[vitehub] Request-only fetch source does not expose a default Source-Backed Path.")
+        throw workspaceErrorDiagnostics.WORKSPACE_R0046({ message: "[vitehub] Request-only fetch source does not expose a default Source-Backed Path." })
       }
       if (sourcePath !== key) {
-        throw new Error(`[vitehub] Fetch source item does not exist: ${sourcePath}.`)
+        throw workspaceErrorDiagnostics.WORKSPACE_R0047({ message: `[vitehub] Fetch source item does not exist: ${sourcePath}.` })
       }
       const request = await defaultFetchSourceRequest(options, method, ctx)
       const result = await executeHttpRequest({
@@ -194,16 +198,14 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
       sourceResolution: "fetch",
     },
     materialize: "lazy",
+    name: "fetch",
     async getKeys() {
       return []
     },
     async getItem(key) {
-      throw new Error(`[vitehub] fetch() resolver did not resolve before reading ${JSON.stringify(key)}.`)
+      throw workspaceErrorDiagnostics.WORKSPACE_R0048({ message: `[vitehub] fetch() resolver did not resolve before reading ${JSON.stringify(key)}.` })
     },
     async getItems() {
-      return []
-    },
-    async search() {
       return []
     },
     async resolve(ctx) {
@@ -215,7 +217,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
 
 function normalizePublicResponseType(responseType: string): FetchSourceResponseType {
   if (responseType !== "json" && responseType !== "text") {
-    throw new TypeError(`[vitehub] fetch() responseType "${responseType}" is not supported in v1. Use json or text.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0049({ message: `[vitehub] fetch() responseType "${responseType}" is not supported in v1. Use json or text.` })
   }
   return responseType
 }
@@ -223,7 +225,7 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
   const normalized = (method || "GET").toUpperCase()
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    throw new TypeError(`[vitehub] fetch() method "${normalized}" is not supported in v1. Use GET, HEAD, or POST.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0050({ message: `[vitehub] fetch() method "${normalized}" is not supported in v1. Use GET, HEAD, or POST.` })
   }
   return normalized
 }
@@ -234,13 +236,13 @@ function normalizeFetchWorkspacePath(options: Pick<FetchSourceOptions, "workspac
 
 function assertRequestShape(options: FetchSourceOptions<any, any>, method: FetchSourceMethod): void {
   if ((options.query !== undefined || urlHasQuery(options.url)) && options.querySchema !== undefined) {
-    throw new TypeError("[vitehub] fetch() accepts either query or querySchema, not both.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0051({ message: "[vitehub] fetch() accepts either query or querySchema, not both." })
   }
   if (options.body !== undefined && options.bodySchema !== undefined) {
-    throw new TypeError("[vitehub] fetch() accepts either body or bodySchema, not both.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0052({ message: "[vitehub] fetch() accepts either body or bodySchema, not both." })
   }
   if ((method === "GET" || method === "HEAD") && (options.body !== undefined || options.bodySchema !== undefined)) {
-    throw new TypeError(`[vitehub] fetch() ${method} requests cannot declare body or bodySchema.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0053({ message: `[vitehub] fetch() ${method} requests cannot declare body or bodySchema.` })
   }
 }
 
@@ -290,7 +292,7 @@ function descriptorCredentials(options: Pick<FetchSourceOptions<any, any>, "cook
 function schemaProjection(schema: FetchSourceStandardJsonSchemaV1, option: string): Record<string, unknown> {
   const project = schema["~standard"].jsonSchema?.input
   if (typeof project !== "function") {
-    throw new TypeError(`[vitehub] fetch() ${option} must expose a Standard JSON Schema-compatible input projection.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0054({ message: `[vitehub] fetch() ${option} must expose a Standard JSON Schema-compatible input projection.` })
   }
   return project({ target: "draft-2020-12" })
 }
@@ -298,7 +300,7 @@ function schemaProjection(schema: FetchSourceStandardJsonSchemaV1, option: strin
 function concreteQueryFromOptions(options: Pick<FetchSourceOptions<any, any>, "query" | "url">): Record<string, unknown> | undefined {
   const parsed = options.url instanceof URL ? options.url : new URL(options.url)
   const query: Record<string, unknown> = {}
-  for (const key of new Set([...parsed.searchParams.keys()])) {
+  for (const key of new Set(parsed.searchParams.keys())) {
     const values = parsed.searchParams.getAll(key)
     query[key] = values.length > 1 ? values : values[0]
   }
@@ -336,6 +338,7 @@ async function defaultFetchSourceRequest(
       ...additions?.headers,
     },
     method,
+    maxResponseBytes: additions?.maxResponseBytes ?? options.maxResponseBytes,
     query,
     timeout: additions?.timeout ?? options.timeout,
   }
@@ -374,7 +377,7 @@ async function executeFetchSourceRequest(
   ctx: SourceContext,
 ): Promise<WorkspaceSourceRequestExecutionResult> {
   if (input.method !== method) {
-    throw new Error(`[vitehub] Source request method ${input.method} does not match declared method ${method}.`)
+    throw workspaceErrorDiagnostics.WORKSPACE_R0055({ message: `[vitehub] Source request method ${input.method} does not match declared method ${method}.` })
   }
 
   const query = await validateFetchRequestQuery(options, input.url)
@@ -408,7 +411,7 @@ async function validateFetchRequestQuery(
   const declared = requestBaseUrl(options.url)
   const requested = new URL(inputUrl)
   if (requested.origin !== declared.origin || requested.pathname !== declared.pathname) {
-    throw new Error("[vitehub] Source request URL does not match the declared Source target.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0056({ message: "[vitehub] Source request URL does not match the declared Source target." })
   }
 
   const requestedQuery = queryFromUrl(requested)
@@ -418,7 +421,7 @@ async function validateFetchRequestQuery(
 
   const expectedQuery = concreteQueryFromOptions(options)
   if (!jsonEqual(requestedQuery || {}, serializedQuery(expectedQuery) || {})) {
-    throw new Error("[vitehub] Source request query does not match the declared Source request shape.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0057({ message: "[vitehub] Source request query does not match the declared Source request shape." })
   }
   return expectedQuery
 }
@@ -432,12 +435,12 @@ async function validateFetchRequestBody(
   }
   if (typeof options.body !== "undefined") {
     if (typeof body !== "undefined" && !jsonEqual(body, options.body)) {
-      throw new Error("[vitehub] Source request body does not match the declared Source request shape.")
+      throw workspaceErrorDiagnostics.WORKSPACE_R0058({ message: "[vitehub] Source request body does not match the declared Source request shape." })
     }
     return options.body
   }
   if (typeof body !== "undefined") {
-    throw new Error("[vitehub] Source request does not declare a body.")
+    throw workspaceErrorDiagnostics.WORKSPACE_R0059({ message: "[vitehub] Source request does not declare a body." })
   }
 }
 
@@ -450,7 +453,7 @@ function requestBaseUrl(url: string | URL): URL {
 
 function queryFromUrl(url: URL): Record<string, unknown> | undefined {
   const query: Record<string, unknown> = {}
-  for (const key of new Set([...url.searchParams.keys()])) {
+  for (const key of new Set(url.searchParams.keys())) {
     const values = url.searchParams.getAll(key)
     query[key] = values.length > 1 ? values : values[0]
   }

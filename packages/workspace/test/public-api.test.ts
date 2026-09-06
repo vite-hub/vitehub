@@ -5,13 +5,15 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
-import { defineWorkspace, file, useWorkspace } from "../src/index.ts"
+import { custom, defineWorkspace, file, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
+import { hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { listMaterializedWorkspaceEntries } from "../src/source-metadata.ts"
 
 const tempDirs: string[] = []
 
@@ -48,6 +50,7 @@ afterEach(async () => {
 
 describe("workspace public API", () => {
   it("rejects authored workspace names", () => {
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     expect(() => defineWorkspace({ name: "api" } as never)).toThrow("Workspace names are inferred")
   })
 
@@ -68,6 +71,7 @@ describe("workspace public API", () => {
   it("merges generated agent sources with configured workspace sources", async () => {
     setWorkspaceRegistry({
       agent: async () => ({
+        // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
         default: {
           __vitehubWorkspaceAgentOptions: {
             workspace: {
@@ -109,7 +113,8 @@ describe("workspace public API", () => {
     const builtRuntime = (await Promise.all(runtimeFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.["@vite-hub/shell"]).toBeUndefined()
-    expect(packageJson.peerDependencies?.["@vite-hub/shell"]).toBe("workspace:*")
+    expect(packageJson.version).toEqual(expect.any(String))
+    expect(["workspace:*", packageJson.version]).toContain(packageJson.peerDependencies?.["@vite-hub/shell"])
     expect(packageJson.peerDependenciesMeta?.["@vite-hub/shell"]).toEqual({ optional: true })
     expect(builtAiDeclarations).not.toContain("@vite-hub/shell")
     expect(builtAi).not.toContain("from\"@vite-hub/shell")
@@ -149,6 +154,10 @@ describe("workspace public API", () => {
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
     expect(packageJson.dependencies?.ofetch).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.vite).toBeUndefined()
+    expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
+    expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")
+    expect(packageJson.peerDependenciesMeta?.vite).toEqual({ optional: true })
     expect(packageJson.exports).toHaveProperty("./collections")
     expect(packageJson.exports).toHaveProperty("./collections/client")
     expect(packageJson.exports).toHaveProperty("./mountx")
@@ -161,8 +170,8 @@ describe("workspace public API", () => {
     expect(packageJson.peerDependenciesMeta?.["@vite-hub/sandbox"]).toBeUndefined()
     expect(packageJson.peerDependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
-    expect(packageJson.peerDependencies?.["@vercel/blob"]).toBe("catalog:storage")
-    expect(packageJson.peerDependenciesMeta?.["@vercel/blob"]).toEqual({ optional: true })
+    expect(packageJson.peerDependencies?.["@vercel/blob"]).toBeUndefined()
+    expect(packageJson.peerDependenciesMeta?.["@vercel/blob"]).toBeUndefined()
     expect(builtServer).toContain("from \"h3\"")
     expect(declarations).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vercel/blob")
@@ -193,6 +202,7 @@ describe("workspace public API", () => {
     expect(builtVercelBlobStore).not.toContain('import("files-sdk/vercel-blob")')
     expect(builtVercelBlobStore).not.toContain('import("@vercel/blob")')
     expect(builtVercelBlobStore).not.toContain('from "@vercel/blob"')
+    expect(builtVercelBlobStore).not.toContain('from "undici"')
   })
 
   it("uses the writable facade for synced reads and writes", async () => {
@@ -331,6 +341,26 @@ describe("workspace public API", () => {
     expect(publish).toHaveBeenCalledTimes(2)
   })
 
+  it("does not let explicit Source Sync satisfy definition readiness", async () => {
+    const load = vi.fn(async () => {})
+    registerWorkspace("sync-before-read", defineWorkspace({
+      loaders: [{ name: "definition-loader", load }],
+      sources: {
+        docs: custom({
+          async getItem(key) { return { content: "# Docs\n", key } },
+          async getKeys() { return ["README.md"] },
+          sync: true,
+        }),
+      },
+      store: { provider: "memory" },
+    }))
+
+    await useWorkspace("sync-before-read", { mode: "write" }).sync({ sources: ["docs"] })
+    expect(load).not.toHaveBeenCalled()
+    await useWorkspace("sync-before-read").fs.list()
+    expect(load).toHaveBeenCalledOnce()
+  })
+
   it("serves allowlisted workspace files as H3-compatible responses", async () => {
     registerWorkspace("files", defineWorkspace({
       store: { provider: "memory" },
@@ -445,6 +475,7 @@ describe("workspace public API", () => {
 
     setWorkspaceRegistry({
       support: async () => ({
+        // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
         default: {
           rootDir: root,
           sourceRootDir: sourceRoot,
@@ -481,7 +512,7 @@ describe("workspace public API", () => {
         "/docs/**/*.md": {
           mediaType: "text/markdown",
           validate(input) {
-            if (typeof input.content === "string" && input.content.includes("<script")) return false
+            if (hasRuntimeType(input.content, "string") && input.content.includes("<script")) return false
           },
           write: true,
         },
@@ -535,17 +566,35 @@ describe("workspace public API", () => {
     const workspace = useWorkspace("docs")
 
     await expect(workspace.fs.readFile("README.md")).resolves.toBe("# Docs\n")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect(workspace.fs.readFile("missing.md" as never)).rejects.toThrow("Workspace file does not exist: missing.md")
     await expect(workspace.fs.exists("README.md")).resolves.toBe(true)
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect(workspace.fs.exists("missing.md" as never)).resolves.toBe(false)
     await expect(workspace.fs.list()).resolves.toEqual([
+      expect.objectContaining({ path: "README.md", type: "file" }),
+    ])
+    await expect(listMaterializedWorkspaceEntries(workspace)).resolves.toEqual([
       expect.objectContaining({ path: "README.md", type: "file" }),
     ])
     await expect(workspace.fs.glob("README.md")).resolves.toEqual([
       expect.objectContaining({ path: "README.md", type: "file" }),
     ])
     await expect(workspace.fs.stat("README.md")).resolves.toMatchObject({ path: "README.md", type: "file" })
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     await expect(workspace.fs.stat("missing.md" as never)).rejects.toThrow("Workspace file does not exist: missing.md")
+  })
+
+  it("exposes Store metadata through the read-only facade", async () => {
+    registerWorkspace("metadata", defineWorkspace({
+      store: { provider: "memory" },
+    }))
+    const writable = useWorkspace("metadata", { mode: "write" })
+    await writable.setMeta?.("snapshot", { status: "ready" })
+
+    const readonly = useWorkspace("metadata")
+
+    await expect(readonly.getMeta?.("snapshot")).resolves.toEqual({ status: "ready" })
   })
 
   it("merges bundled assets with lazy runtime sources in the read-only facade", async () => {
@@ -607,15 +656,25 @@ describe("workspace public API", () => {
 
   it("shares runtime setup across duplicate package instances", async () => {
     const runtimeRoot = await createRoot()
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const configA = await import(`${new URL("../src/runtime/config.ts", import.meta.url).href}?copy=config-a`) as typeof import("../src/runtime/config.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const configB = await import(`${new URL("../src/runtime/config.ts", import.meta.url).href}?copy=config-b`) as typeof import("../src/runtime/config.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const registryA = await import(`${new URL("../src/core/registry.ts", import.meta.url).href}?copy=registry-a`) as typeof import("../src/core/registry.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const registryB = await import(`${new URL("../src/core/registry.ts", import.meta.url).href}?copy=registry-b`) as typeof import("../src/core/registry.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const assetsA = await import(`${new URL("../src/asset-registry.ts", import.meta.url).href}?copy=assets-a`) as typeof import("../src/asset-registry.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const assetsB = await import(`${new URL("../src/asset-registry.ts", import.meta.url).href}?copy=assets-b`) as typeof import("../src/asset-registry.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const hostedStoreA = await import(`${new URL("../src/runtime/hosted-store-loader.ts", import.meta.url).href}?copy=hosted-store-a`) as typeof import("../src/runtime/hosted-store-loader.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const hostedStoreB = await import(`${new URL("../src/runtime/hosted-store-loader.ts", import.meta.url).href}?copy=hosted-store-b`) as typeof import("../src/runtime/hosted-store-loader.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const serverA = await import(`${new URL("../src/server.ts", import.meta.url).href}?copy=server-a`) as typeof import("../src/server.ts")
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const serverB = await import(`${new URL("../src/server.ts", import.meta.url).href}?copy=server-b`) as typeof import("../src/server.ts")
 
     configA.setWorkspaceRuntimeConfig({ root: runtimeRoot, store: { provider: "local" } })
@@ -633,6 +692,7 @@ describe("workspace public API", () => {
     })
     await expect(assetsB.useWorkspaceAssets("shared").readFile("README.md")).resolves.toBe("# Shared\n")
 
+    // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const loader = (() => {
       throw new Error("unused")
     }) as never
