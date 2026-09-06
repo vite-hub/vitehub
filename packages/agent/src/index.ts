@@ -1742,6 +1742,7 @@ function defineBaseAgent<
 
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = {
+    box: options.box,
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentDriverKind]: driver.kind,
     ...(driver.output ? { [baseAgentOutput]: driver.output } : {}),
