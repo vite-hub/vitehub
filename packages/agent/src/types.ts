@@ -509,7 +509,6 @@ export interface AgentTriggerDefinition<
   CALL_OPTIONS = unknown,
   TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
-  health: AgentHealthDescriptor
   input?: unknown
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
@@ -1231,6 +1230,7 @@ type AgentSharedSettings<
   TOutput = unknown,
 > = {
   box?: AgentBoxDefinitions<TRuntimeConfig>
+  health?: AgentHealthDescriptor
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
@@ -1271,6 +1271,7 @@ export interface AgentDefinition<
 > {
   [agentOutputType]?: TOutput
   box?: AgentBoxDefinitions<TRuntimeConfig>
+  health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
