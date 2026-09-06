@@ -185,7 +185,7 @@ describe("Provider Agent Driver", () => {
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
     vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
-    const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected" }, provider: "codex" })
+    const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected", CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY }, provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)

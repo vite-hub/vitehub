@@ -282,10 +282,6 @@ const providerHostEnvironmentKeys = [
   "XDG_CACHE_HOME",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
-  // CLIProxy is a local OpenAI-compatible provider. Forward its credential
-  // like the host's other provider settings so process-owned agents work
-  // without per-user environment plumbing.
-  "CLIPROXY_API_KEY",
 ] as const
 
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
