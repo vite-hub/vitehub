@@ -57,9 +57,9 @@ export function filterAgentObservability(level: NonNullable<AgentObservabilityOp
   return filtered
 }
 
-export function observability(options: AgentObservabilityOptions): AgentEvlog {
+export function observability(options: AgentObservabilityOptions): AgentCapabilityDefinition {
   if (options.preset !== "evlog") throw new TypeError("[vitehub] Unsupported observability preset.")
-  return createAgentEvlog(options)
+  return createAgentEvlog(options).capability
 }
 
 /** One shared exporter per host. Capability invocations keep their metadata separate. */
