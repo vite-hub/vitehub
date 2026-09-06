@@ -510,7 +510,7 @@ export interface AgentTriggerDefinition<
   CALL_OPTIONS = unknown,
   TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
-  health: AgentHealthDescriptor
+  health?: AgentHealthDescriptor
   input?: unknown
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
