@@ -1,15 +1,12 @@
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
-import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
-import { hostname, tmpdir } from "node:os"
+import { tmpdir } from "node:os"
 import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
-import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
+import { getViteHubErrorShape, normalizeExecutionAuthority } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
-import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspectProvider } from "@t3tools/provider-runtime"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
@@ -17,24 +14,17 @@ import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
-import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
-import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
-import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
-import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
-import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
-import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
+import { agentInvocationControlId, registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, getMessageText, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
-import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
 
 import type {
   ProviderApprovalDecision,
   ProviderRuntime,
   ProviderRuntimeEvent,
-  ProviderRuntimeSessionStore,
   ProviderUserInputAnswers,
   RuntimeMode,
   ThreadId,
@@ -46,18 +36,8 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentAdapterRunContext,
-  AgentProviderCredentialContext,
-  AgentProviderStatus,
-  AgentProviderCredentialResolver,
-  AgentProviderEnvironment,
-  AgentProviderEnvironmentResolver,
-  AgentProviderLaunchCommand,
-  AgentProviderLaunchContext,
-  AgentProviderLaunchResolver,
   AgentProviderPermissions,
   AgentRuntimeConfig,
-  CodexReasoningEffort,
-  CodexReasoningSummary,
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolSet,
@@ -70,28 +50,14 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
-import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
-import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
-import { agentDiagnostics } from "./agent-diagnostics.ts"
 
-export interface ProviderAgentAdapterOptions<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  _CALL_OPTIONS = unknown,
-> {
-  credentialProfile?: string
-  credentials?: AgentProviderCredentialResolver<TRuntimeConfig>
-  /** Provider process environment. Every resolved value is treated as a credential in persisted diagnostics. */
-  env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
+export interface ProviderAgentAdapterOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  env?: Record<string, string | undefined>
   execution?: { attachments?: { maxBytes?: number } }
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
-  launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
   permissions?: AgentProviderPermissions
   provider: "claude-code" | "codex"
-  providerSettings?: Record<string, unknown>
-  reasoningEffort?: CodexReasoningEffort
-  reasoningSummary?: CodexReasoningSummary
-  sessionStorePath?: string
 }
 
 interface GeneratedProviderFile {
@@ -109,13 +75,13 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   for (const segment of relative(root, dirname(path)).split(/[\\/]/).filter(Boolean)) {
     parent = join(parent, segment)
     const parentEntry = await lstat(parent).catch(() => undefined)
-    if (parentEntry?.isSymbolicLink()) throw agentDiagnostics.AGENT_R0669({ message: `[vitehub] Generated provider file parent must not be a symbolic link: ${parent}` })
-    if (parentEntry && !parentEntry.isDirectory()) throw agentDiagnostics.AGENT_R0670({ message: `[vitehub] Generated provider file parent must be a directory: ${parent}` })
+    if (parentEntry?.isSymbolicLink()) throw new Error(`[vitehub] Generated provider file parent must not be a symbolic link: ${parent}`)
+    if (parentEntry && !parentEntry.isDirectory()) throw new Error(`[vitehub] Generated provider file parent must be a directory: ${parent}`)
     if (!parentEntry) directories.push(parent)
   }
   const entry = await lstat(path).catch(() => undefined)
   if (entry && !entry.isFile() && !entry.isSymbolicLink()) {
-    throw agentDiagnostics.AGENT_R0671({ message: `[vitehub] Generated provider file collides with a non-file entry: ${path}` })
+    throw new Error(`[vitehub] Generated provider file collides with a non-file entry: ${path}`)
   }
   const generated = {
     content: entry?.isFile() ? await readFile(path) : undefined,
@@ -146,7 +112,6 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
   }
   for (const directory of generated.directories.reverse()) {
     await rmdir(directory).catch((error) => {
-      // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
       const code = (error as NodeJS.ErrnoException).code
       if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error
     })
@@ -172,96 +137,6 @@ const providerRuntimeMode: Record<AgentProviderPermissions, RuntimeMode> = {
   ask: "approval-required",
 }
 
-const providerSessionStores = new Map<string, Promise<ProviderRuntimeSessionStore>>()
-const invalidatedProviderSessions = new WeakMap<ProviderRuntimeSessionStore, Set<ThreadId>>()
-const providerSessionCursorRecordKey = "__vitehubProviderSessionCursor"
-
-interface ProviderSessionCursorRecord {
-  [providerSessionCursorRecordKey]: "invalidated" | "ready"
-  value?: unknown
-}
-
-function providerSessionCursorRecord(value: unknown): ProviderSessionCursorRecord {
-  return { [providerSessionCursorRecordKey]: "ready", value }
-}
-
-function isProviderSessionCursorRecord(value: unknown): value is ProviderSessionCursorRecord {
-  return isRuntimeRecord(value)
-    && (value[providerSessionCursorRecordKey] === "invalidated" || value[providerSessionCursorRecordKey] === "ready")
-}
-
-function providerSessionStore(
-  path: string,
-  create: (path: string) => Promise<ProviderRuntimeSessionStore>,
-): Promise<ProviderRuntimeSessionStore> {
-  const resolvedPath = resolve(path)
-  let store = providerSessionStores.get(resolvedPath)
-  if (!store) {
-    store = create(resolvedPath).catch((error) => {
-      providerSessionStores.delete(resolvedPath)
-      throw error
-    })
-    providerSessionStores.set(resolvedPath, store)
-  }
-  return store
-}
-
-interface PartitionedProviderSessionStore {
-  commit: (resumeCursor: unknown) => Promise<void>
-  consume: () => Promise<unknown | undefined>
-  invalidate: () => Promise<void>
-  runtime: ProviderRuntimeSessionStore
-}
-
-function partitionProviderSessionStore(
-  store: ProviderRuntimeSessionStore,
-  sessionKey: string,
-): PartitionedProviderSessionStore {
-  // SAFETY: The provider runtime treats thread IDs as opaque non-empty storage keys.
-  const persistedThreadId = sessionKey as ThreadId
-  let invalidatedSessions = invalidatedProviderSessions.get(store)
-  if (!invalidatedSessions) {
-    invalidatedSessions = new Set()
-    invalidatedProviderSessions.set(store, invalidatedSessions)
-  }
-  const invalidate = async () => {
-    invalidatedSessions.add(persistedThreadId)
-    await store.set(persistedThreadId, { [providerSessionCursorRecordKey]: "invalidated" })
-    await store.delete(persistedThreadId)
-    invalidatedSessions.delete(persistedThreadId)
-  }
-  const consume = async () => {
-    if (invalidatedSessions.has(persistedThreadId)) {
-      await invalidate()
-      return undefined
-    }
-    const storedCursor = await store.get(persistedThreadId)
-    if (isProviderSessionCursorRecord(storedCursor) && storedCursor[providerSessionCursorRecordKey] === "invalidated") {
-      await invalidate()
-      return undefined
-    }
-    const resumeCursor = isProviderSessionCursorRecord(storedCursor) ? storedCursor.value : storedCursor
-    if (resumeCursor !== undefined) await invalidate()
-    return resumeCursor
-  }
-  return {
-    async commit(resumeCursor) {
-      await store.set(persistedThreadId, providerSessionCursorRecord(resumeCursor))
-      invalidatedSessions.delete(persistedThreadId)
-    },
-    consume,
-    invalidate,
-    runtime: {
-      async delete() {},
-      get: consume,
-      async set() {},
-    },
-  }
-}
-
-const providerCleanupTimeoutMs = 10_000
-
-// SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const providerHostEnvironmentKeys = [
   "APPDATA",
   "ComSpec",
@@ -282,763 +157,19 @@ const providerHostEnvironmentKeys = [
   "XDG_CACHE_HOME",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
+  // CLIProxy is opt-in. Require its endpoint marker before forwarding the
+  // credential so unrelated provider processes never receive it.
+  "CLIPROXY_BASE_URL",
+  "CLIPROXY_API_KEY",
 ] as const
 
 function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
-  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
-  return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
-}
-
-function normalizedProviderEnvironment(value: unknown): AgentProviderEnvironment {
-  if (!isRuntimeRecord(value) || Array.isArray(value)) {
-    throw agentDiagnostics.AGENT_R0672({ message: "[vitehub] driver.env must resolve to an object containing only string or undefined values." })
-  }
-  const entries = Object.entries(value)
-  if (entries.some(([, item]) => item !== undefined && !hasRuntimeType(item, "string"))) {
-    throw agentDiagnostics.AGENT_R0673({ message: "[vitehub] driver.env must resolve to an object containing only string or undefined values." })
-  }
-  // SAFETY: Every resolved entry was validated as string or undefined above.
-  return Object.fromEntries(entries) as AgentProviderEnvironment
-}
-
-function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
-  if (!isRuntimeRecord(value) || !hasRuntimeType(value.command, "string") || !value.command.trim()) {
-    throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch must resolve to a non-empty command." })
-  }
-  if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(item => hasRuntimeType(item, "string")))) {
-    throw agentDiagnostics.AGENT_R0675({ message: "[vitehub] driver.launch args must contain only strings." })
-  }
-  const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
-  if (value.args !== undefined) launch.args = [...value.args]
-  return launch
-}
-
-const providerLaunchStderrMaxBytes = 16_384
-
-interface MaterializedProviderLauncher {
-  diagnosticPath: string
-  path: string
-}
-
-interface ProviderLaunchDiagnostic {
-  exitCode?: number
-  signal?: string
-  spawnError?: string
-  stderr?: string
-  stderrBytes?: number
-  stderrTruncated?: boolean
-}
-
-function parsedProviderLaunchDiagnostic(value: unknown): ProviderLaunchDiagnostic | undefined {
-  if (!isRuntimeRecord(value) || Array.isArray(value)) return
-  const diagnostic: ProviderLaunchDiagnostic = {}
-  if (hasRuntimeType(value.exitCode, "number")) diagnostic.exitCode = value.exitCode
-  if (hasRuntimeType(value.signal, "string")) diagnostic.signal = value.signal
-  if (hasRuntimeType(value.spawnError, "string")) diagnostic.spawnError = value.spawnError
-  if (hasRuntimeType(value.stderr, "string")) diagnostic.stderr = value.stderr
-  if (hasRuntimeType(value.stderrBytes, "number")) diagnostic.stderrBytes = value.stderrBytes
-  if (hasRuntimeType(value.stderrTruncated, "boolean")) diagnostic.stderrTruncated = value.stderrTruncated
-  return diagnostic
-}
-
-function providerSecretEnvironmentKeys(environment: AgentProviderEnvironment | undefined, requiredEnvironment: readonly string[]): string[] {
-  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment])]
-}
-
-function providerLauncherSource(
-  launch: AgentProviderLaunchCommand,
-  diagnosticPath: string,
-  secretEnvironmentKeys: readonly string[],
-  cwd: string,
-): string {
-  return `import { spawn } from "node:child_process"
-import { writeFileSync } from "node:fs"
-import { setTimeout as delay } from "node:timers/promises"
-
-const child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {
-  cwd: ${JSON.stringify(cwd)},
-  detached: true,
-  env: process.env,
-  stdio: ["inherit", "inherit", "pipe"],
-})
-
-const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
-let termination
-let childClosed = false
-let childExit
-let processGroupTerminated = false
-let stderr = Buffer.alloc(0)
-let stderrBytes = 0
-const secretEnvironmentKeys = ${JSON.stringify(secretEnvironmentKeys)}
-const diagnosticSecrets = [...new Set(secretEnvironmentKeys
-  .map(key => process.env[key])
-  .filter(item => typeof item === "string" && item.length > 0))]
-  .sort((left, right) => right.length - left.length)
-const diagnosticSecretBuffers = diagnosticSecrets.map(secret => Buffer.from(secret))
-const stderrRetentionBytes = ${providerLaunchStderrMaxBytes} + Math.max(0, ...diagnosticSecrets.map(secret => Buffer.byteLength(secret)))
-
-function redactDiagnostic(value) {
-  let redacted = String(value)
-  for (const secret of diagnosticSecrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
-  return redacted
-    .replace(/\\b(Bearer|Basic)\\s+[^\\s]+/gi, "$1 [REDACTED]")
-    .replace(/\\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\\s]+)/g, "$1=[REDACTED]")
-}
-
-function secretSafeStderrTail(value) {
-  let start = Math.max(0, value.length - ${providerLaunchStderrMaxBytes})
-  while (true) {
-    let safeStart = start
-    for (const secret of diagnosticSecretBuffers) {
-      let match = value.indexOf(secret, Math.max(0, start - secret.length + 1))
-      while (match >= 0 && match < start) {
-        safeStart = Math.max(safeStart, match + secret.length)
-        match = value.indexOf(secret, match + 1)
-      }
-    }
-    if (safeStart === start) return value.subarray(start)
-    start = safeStart
-  }
-}
-
-function recordDiagnostic(diagnostic) {
-  try {
-    const redactedStderr = Buffer.from(redactDiagnostic(secretSafeStderrTail(stderr).toString("utf8")))
-      .subarray(-${providerLaunchStderrMaxBytes})
-      .toString("utf8")
-    writeFileSync(${JSON.stringify(diagnosticPath)}, JSON.stringify({
-      ...diagnostic,
-      ...(diagnostic.spawnError ? { spawnError: redactDiagnostic(diagnostic.spawnError) } : {}),
-      stderr: redactedStderr,
-      stderrBytes,
-      stderrTruncated: stderrBytes > ${providerLaunchStderrMaxBytes},
-    }), { mode: 0o600 })
-  }
-  catch {}
-}
-
-child.stderr.on("data", (chunk) => {
-  stderrBytes += chunk.length
-  stderr = Buffer.concat([stderr, chunk]).subarray(-stderrRetentionBytes)
-  if (!process.stderr.write(chunk)) {
-    child.stderr.pause()
-    process.stderr.once("drain", () => child.stderr.resume())
-  }
-})
-
-function signalProcessGroup(signal) {
-  if (!child.pid) return false
-  try {
-    process.kill(-child.pid, signal)
-    return true
-  }
-  catch (error) {
-    if (error?.code === "ESRCH") return false
-    throw error
-  }
-}
-
-function processGroupExists() {
-  return signalProcessGroup(0)
-}
-
-function terminateProcessGroup(signal = "SIGTERM") {
-  return termination ??= (async () => {
-    if (!signalProcessGroup(signal) || !processGroupExists()) return
-    await delay(250)
-    if (processGroupExists()) signalProcessGroup("SIGKILL")
-    for (let elapsed = 0; elapsed < 250 && processGroupExists(); elapsed += 10) await delay(10)
-  })()
-}
-
-const handlers = new Map(signals.map(signal => [signal, () => {
-  void terminateProcessGroup(signal).catch((error) => {
-    console.error(error)
-    process.exit(1)
-  })
-}]))
-for (const signal of signals) process.on(signal, handlers.get(signal))
-
-child.once("error", (error) => {
-  recordDiagnostic({ spawnError: error?.code || error?.message || String(error) })
-  console.error(error)
-  process.exit(1)
-})
-child.once("exit", (code, signal) => {
-  childExit = { code, signal }
-  void terminateProcessGroup().then(() => {
-    processGroupTerminated = true
-    finish()
-  }, (error) => {
-    console.error(error)
-    process.exit(1)
-  })
-})
-child.once("close", (code, signal) => {
-  childClosed = true
-  recordDiagnostic({ exitCode: code ?? undefined, signal: signal ?? undefined })
-  finish()
-})
-
-function finish() {
-  if (!childClosed || !childExit || !processGroupTerminated) return
-  for (const name of signals) process.off(name, handlers.get(name))
-  if (childExit.signal) process.kill(process.pid, childExit.signal)
-  else process.exit(childExit.code ?? 1)
-}
-`
-}
-
-async function materializeProviderLauncher(
-  root: string,
-  launch: AgentProviderLaunchCommand,
-  secretEnvironmentKeys: readonly string[],
-  cwd: string,
-): Promise<MaterializedProviderLauncher> {
-  if (process.platform === "win32") {
-    throw agentDiagnostics.AGENT_R0676({ message: "[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable." })
-  }
-  const sourcePath = join(root, "provider-launcher.mjs")
-  const path = join(root, "provider-launcher")
-  const diagnosticPath = join(root, "provider-launch-failure.json")
-  const shellArgument = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
-  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys, cwd), { mode: 0o600 })
-  await writeFile(path, `#!/bin/sh\nexec ${shellArgument(process.execPath)} ${shellArgument(sourcePath)} "$@"\n`, { mode: 0o700 })
-  return { diagnosticPath, path }
-}
-
-function redactProviderDiagnostic(
-  value: string,
-  environment: NodeJS.ProcessEnv,
-  secretEnvironmentKeys: readonly string[],
-): string {
-  let redacted = value
-  const secrets = [...new Set(secretEnvironmentKeys.map(key => environment[key])
-    .filter((item): item is string => hasRuntimeType(item, "string") && item.length > 0))]
-    .sort((left, right) => right.length - left.length)
-  for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
-  return redacted
-    .replace(/\b(Bearer|Basic)\s+[^\s]+/gi, "$1 [REDACTED]")
-    .replace(/\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\s]+)/g, "$1=[REDACTED]")
-}
-
-async function providerLaunchFailure(
-  diagnosticPath: string | undefined,
-  environment: NodeJS.ProcessEnv | undefined,
-  secretEnvironmentKeys: readonly string[],
-  cause: unknown,
-): Promise<ViteHubError<"PROVIDER_LAUNCH_FAILED"> | undefined> {
-  if (!diagnosticPath || !environment) return
-  let diagnostic: ProviderLaunchDiagnostic
-  try {
-    const serialized: unknown = JSON.parse(await readFile(diagnosticPath, "utf8"))
-    const parsed = parsedProviderLaunchDiagnostic(serialized)
-    if (!parsed) return
-    diagnostic = parsed
-  }
-  catch {
-    return
-  }
-  const stderr = hasRuntimeType(diagnostic.stderr, "string")
-    ? redactProviderDiagnostic(diagnostic.stderr, environment, secretEnvironmentKeys).trim()
-    : undefined
-  const requestId = `provider-${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`
-  return new ViteHubError("PROVIDER_LAUNCH_FAILED", "[vitehub] Provider launch command failed.", {
-    cause,
-    details: {
-      phase: "launch",
-      ...(hasRuntimeType(diagnostic.exitCode, "number") ? { exitCode: diagnostic.exitCode } : {}),
-      ...(hasRuntimeType(diagnostic.signal, "string") ? { signal: diagnostic.signal } : {}),
-      ...(hasRuntimeType(diagnostic.spawnError, "string") ? { spawnError: redactProviderDiagnostic(diagnostic.spawnError, environment, secretEnvironmentKeys) } : {}),
-      ...(stderr ? { stderr } : {}),
-      ...(hasRuntimeType(diagnostic.stderrBytes, "number") ? { stderrBytes: diagnostic.stderrBytes } : {}),
-      ...(diagnostic.stderrTruncated === true ? { stderrTruncated: true } : {}),
-    },
-    requestId,
-  })
-}
-
-interface CodexCredentialHome {
-  homePath: string
-  release(reason?: unknown): Promise<void>
-}
-
-const codexCredentialProfileLocks = new Map<string, Promise<void>>()
-const codexCredentialProfilesByInvocation = new WeakMap<object, Set<string>>()
-const unavailableCodexCredentialProfiles = new Map<string, unknown>()
-const codexCredentialUnknownProcessIdentity = "unavailable"
-const codexCredentialProcessIdentity = processStartIdentity(process.pid)
-  .then(identity => identity ?? codexCredentialUnknownProcessIdentity)
-const codexCredentialProcessNamespace = readlink("/proc/self/ns/pid").catch(() => undefined)
-const codexCredentialTemporaryPrefix = "vitehub-codex-process-"
-const codexCredentialSeedMaxBytes = 65
-const codexCredentialAuthMaxBytes = 1_048_576
-const codexCredentialConfigMaxBytes = 1_048_576
-const codexCredentialNextFilePattern = /^\.(?:auth\.json|config\.toml|\.vitehub-seed\.sha256)-[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}\.next$/i
-let codexCredentialScavenging = Promise.resolve()
-
-function codexRuntimeCleanupFailure(reason: unknown): unknown {
-  return reason ?? agentDiagnostics.AGENT_R0677({ message: "[vitehub] Codex Driver runtime cleanup rejected without a reason." })
-}
-
-function normalizeCodexCredentials(value: unknown): string {
-  const unseal = value && hasRuntimeType(value, "object") ? Reflect.get(value, "unseal") : undefined
-  const unsealed = hasRuntimeType(unseal, "function")
-    ? Reflect.apply(unseal, value, [])
-    : value
-  if (!hasRuntimeType(unsealed, "string") || !unsealed.trim()) {
-    throw agentDiagnostics.AGENT_R0678({ message: "[vitehub] Codex Driver credentials are missing." })
-  }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(unsealed)
-  }
-  catch {
-    throw agentDiagnostics.AGENT_R0679({ message: "[vitehub] Codex Driver credentials must be valid JSON." })
-  }
-  if (!parsed || !hasRuntimeType(parsed, "object") || Array.isArray(parsed)) {
-    throw agentDiagnostics.AGENT_R0680({ message: "[vitehub] Codex Driver credentials must contain a JSON object." })
-  }
-  return `${JSON.stringify(parsed)}\n`
-}
-
-function codexCredentialSeedHash(credentials: string): string {
-  return createHash("sha256").update(credentials).digest("hex")
-}
-
-function decodeTomlBasicKey(key: string): string | undefined {
-  const simpleEscapes: Record<string, string> = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", '"': '"', "\\": "\\" }
-  let decoded = ""
-  for (let index = 1; index < key.length - 1; index++) {
-    const character = key[index]!
-    if (character !== "\\") {
-      if (character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7F) return undefined
-      decoded += character
-      continue
-    }
-    const escape = key[++index]
-    const simple = escape && simpleEscapes[escape]
-    if (simple !== undefined) {
-      decoded += simple
-      continue
-    }
-    const digits = escape === "u" ? 4 : escape === "U" ? 8 : 0
-    const hexadecimal = key.slice(index + 1, index + 1 + digits)
-    if (!digits || hexadecimal.length !== digits || !/^[\dA-Fa-f]+$/.test(hexadecimal)) return undefined
-    const codePoint = Number.parseInt(hexadecimal, 16)
-    if (codePoint > 0x10FFFF || codePoint >= 0xD800 && codePoint <= 0xDFFF) return undefined
-    decoded += String.fromCodePoint(codePoint)
-    index += digits
-  }
-  return decoded
-}
-
-function multilineTomlValueEnd(lines: string[], startLine: number, valueOffset: number, delimiter: `'''` | `"""`): number | undefined {
-  for (let lineIndex = startLine; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex]!
-    const offset = lineIndex === startLine ? valueOffset : 0
-    for (let index = offset; index < line.length - 2; index++) {
-      if (line.slice(index, index + 3) !== delimiter) continue
-      if (delimiter === '"""' && /(?:^|[^\\])(?:\\\\)*\\$/.test(line.slice(0, index))) continue
-      return lineIndex
-    }
-  }
-}
-
-async function writeProtectedCodexFile(homePath: string, name: string, contents: string): Promise<void> {
-  const nextPath = join(homePath, `.${name}-${crypto.randomUUID()}.next`)
-  try {
-    await writeFile(nextPath, contents, { mode: 0o600 })
-    await chmod(nextPath, 0o600)
-    await rename(nextPath, join(homePath, name))
-  }
-  catch (error) {
-    await rm(nextPath, { force: true })
-    throw error
-  }
-}
-
-async function writeCodexCredentials(homePath: string, credentials: string): Promise<void> {
-  const seedHash = codexCredentialSeedHash(credentials)
-  await rm(join(homePath, ".vitehub-seed.sha256"), { force: true })
-  await writeProtectedCodexFile(homePath, "auth.json", credentials)
-  await writeProtectedCodexFile(homePath, ".vitehub-seed.sha256", `${seedHash}\n`)
-}
-
-function codexFileCredentialStoreConfig(config: string): string {
-  const lines = config.match(/.*(?:\r?\n|$)/g)?.filter(Boolean) || []
-  const assignment = 'cli_auth_credentials_store = "file"'
-  let multiline: `'''` | `"""` | undefined
-  let arrayDepth = 0
-  for (const [index, line] of lines.entries()) {
-    if (!multiline) {
-      if (arrayDepth === 0 && /^\s*\[/.test(line)) break
-      const assignmentMatch = line.match(/^\s*(cli_auth_credentials_store|'cli_auth_credentials_store'|"(?:\\.|[^"\\])*")\s*=/)
-      const [, key = ""] = assignmentMatch || []
-      const decodedKey = key.startsWith('"')
-        ? decodeTomlBasicKey(key)
-        : key.startsWith("'") ? key.slice(1, -1) : key
-      if (assignmentMatch && decodedKey === "cli_auth_credentials_store") {
-        const newline = line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : ""
-        const valueStart = assignmentMatch[0].length
-        const matchedDelimiter = line.slice(valueStart).match(/^\s*("""|''')/)?.[1]
-        const multilineValue = matchedDelimiter === '"""' || matchedDelimiter === "'''" ? matchedDelimiter : undefined
-        const end = multilineValue
-          ? multilineTomlValueEnd(lines, index, valueStart + line.slice(valueStart).indexOf(multilineValue) + 3, multilineValue)
-          : index
-        if (end === undefined) break
-        const endNewline = lines[end]!.endsWith("\r\n") ? "\r\n" : lines[end]!.endsWith("\n") ? "\n" : newline
-        lines.splice(index, end - index + 1, `${assignment}${endNewline}`)
-        return lines.join("")
-      }
-    }
-    let quoted: `'` | `"` | undefined
-    for (let offset = 0; offset < line.length; offset++) {
-      const delimiter = offset + 2 < line.length ? line.slice(offset, offset + 3) : ""
-      if (multiline) {
-        if (delimiter !== multiline || (multiline === '"""' && /(?:^|[^\\])(?:\\\\)*\\$/.test(line.slice(0, offset)))) continue
-        const quote = multiline[0]!
-        while (line[offset + 3] === quote) offset++
-        multiline = undefined
-        offset += 2
-        continue
-      }
-      const character = line[offset]
-      if (quoted) {
-        if (character === quoted && (quoted === `'` || !/(?:^|[^\\])(?:\\\\)*\\$/.test(line.slice(0, offset)))) quoted = undefined
-        continue
-      }
-      if (character === "#") break
-      if (delimiter === '"""' || delimiter === "'''") {
-        multiline = delimiter
-        offset += 2
-        continue
-      }
-      if (character === `"` || character === `'`) quoted = character
-      else if (character === "[") arrayDepth++
-      else if (character === "]" && arrayDepth > 0) arrayDepth--
-    }
-  }
-  const newline = config.includes("\r\n") ? "\r\n" : "\n"
-  return `${assignment}${newline}${config}`
-}
-
-async function configureCodexCredentialHome(homePath: string): Promise<void> {
-  await chmod(homePath, 0o700)
-  const configPath = join(homePath, "config.toml")
-  const configEntry = await lstat(configPath).catch(() => undefined)
-  if (configEntry?.isSymbolicLink()) throw agentDiagnostics.AGENT_R0681({ message: `[vitehub] Codex Driver profile config must not be a symbolic link: ${configPath}` })
-  if (configEntry && (!configEntry.isFile() || configEntry.nlink !== 1)) throw agentDiagnostics.AGENT_R0682({ message: `[vitehub] Codex Driver profile config must be a singly linked file: ${configPath}` })
-  if (configEntry && configEntry.size > codexCredentialConfigMaxBytes) throw agentDiagnostics.AGENT_R0683({ message: `[vitehub] Codex Driver profile config must not exceed ${codexCredentialConfigMaxBytes} bytes: ${configPath}` })
-  const config = await readFile(configPath, "utf8").catch((error) => {
-    if (hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ENOENT") return ""
-    throw error
-  })
-  const nextConfig = codexFileCredentialStoreConfig(config)
-  if (nextConfig !== config) await writeProtectedCodexFile(homePath, "config.toml", nextConfig)
-  else await chmod(configPath, 0o600)
-}
-
-async function processStartIdentity(pid: number): Promise<string | undefined> {
-  const child = spawn("ps", ["-o", "lstart=", "-p", String(pid)], {
-    env: { ...process.env, LC_ALL: "C", LANG: "C" },
-    stdio: ["ignore", "pipe", "ignore"],
-  })
-  let stdout = ""
-  child.stdout.setEncoding("utf8")
-  child.stdout.on("data", chunk => stdout += chunk)
-  const code = await new Promise<number | null | undefined>((resolve) => {
-    child.once("close", resolve)
-    child.once("error", () => resolve(undefined))
-  })
-  const identity = stdout.trim()
-  if (code !== 0 || !identity) return
-  return identity
-}
-
-async function codexCredentialOwnerIsRunning(owner: { hostname: string, pid: number, processNamespace?: string, startedAt: string }): Promise<boolean> {
-  if (owner.hostname !== hostname()) return true
-  const processNamespace = await codexCredentialProcessNamespace
-  if (process.platform === "linux" && processNamespace === undefined) return true
-  if (processNamespace !== undefined && owner.processNamespace !== processNamespace) return true
-  if (owner.pid === process.pid) return owner.startedAt === await codexCredentialProcessIdentity
-  try {
-    process.kill(owner.pid, 0)
-    if (owner.startedAt === codexCredentialUnknownProcessIdentity) return true
-    const liveIdentity = await processStartIdentity(owner.pid).catch(() => undefined)
-    return liveIdentity === undefined || liveIdentity === owner.startedAt
-  }
-  catch (error) {
-    return !(hasRuntimeType(error, "object") && error !== null && "code" in error && error.code === "ESRCH")
-  }
-}
-
-async function scavengeCodexCredentialHomes(): Promise<void> {
-  const entries = await readdir(tmpdir(), { withFileTypes: true }).catch(() => [])
-  await Promise.all(entries
-    .filter(entry => entry.isDirectory() && entry.name.startsWith(codexCredentialTemporaryPrefix))
-    .map(async (entry) => {
-      const root = join(tmpdir(), entry.name)
-      const rootEntry = await lstat(root).catch(() => undefined)
-      if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return
-      if (process.getuid && rootEntry.uid !== process.getuid()) return
-      const ownerPath = join(root, ".vitehub-owner.json")
-      const ownerEntry = await lstat(ownerPath).catch(() => undefined)
-      if (!ownerEntry?.isFile() || ownerEntry.isSymbolicLink() || ownerEntry.nlink !== 1 || ownerEntry.size > 4_096) return
-      const owner = await readFile(ownerPath, "utf8")
-        .then((value): unknown => JSON.parse(value))
-        .catch(() => undefined)
-      if (!isRuntimeRecord(owner)
-        || !hasRuntimeType(owner.hostname, "string")
-        || !hasRuntimeType(owner.pid, "number")
-        || !Number.isSafeInteger(owner.pid)
-        || owner.pid < 1
-        || owner.processNamespace !== undefined && !hasRuntimeType(owner.processNamespace, "string")
-        || !hasRuntimeType(owner.startedAt, "string")
-        || !owner.startedAt
-        || await codexCredentialOwnerIsRunning({ hostname: owner.hostname, pid: owner.pid, processNamespace: owner.processNamespace, startedAt: owner.startedAt })) return
-      await rm(root, { force: true, recursive: true }).catch(() => undefined)
-    }))
-}
-
-async function runCodexCredentialHomeScavenger(): Promise<void> {
-  const scavenging = codexCredentialScavenging.then(scavengeCodexCredentialHomes, scavengeCodexCredentialHomes)
-  codexCredentialScavenging = scavenging.then(() => undefined, () => undefined)
-  await scavenging
-}
-
-async function createTemporaryCodexCredentialHome(credentials: string): Promise<CodexCredentialHome> {
-  const root = await mkdtemp(join(tmpdir(), codexCredentialTemporaryPrefix))
-  const homePath = join(root, "home")
-  try {
-    await chmod(root, 0o700)
-    const startedAt = await codexCredentialProcessIdentity
-    const processNamespace = await codexCredentialProcessNamespace
-    await writeProtectedCodexFile(root, ".vitehub-owner.json", `${JSON.stringify({ hostname: hostname(), pid: process.pid, processNamespace, startedAt })}\n`)
-    await mkdir(homePath, { mode: 0o700 })
-    await configureCodexCredentialHome(homePath)
-    await writeCodexCredentials(homePath, credentials)
-    return {
-      homePath,
-      async release() {
-        if (dirname(root) !== tmpdir() || !basename(root).startsWith(codexCredentialTemporaryPrefix)) {
-          throw agentDiagnostics.AGENT_R0684({ message: `[vitehub] Refusing to remove unexpected Codex credential root: ${root}` })
-        }
-        await rm(root, { force: true, recursive: true })
-      },
-    }
-  }
-  catch (error) {
-    await rm(root, { force: true, recursive: true })
-    throw error
-  }
-}
-
-async function ensureCodexProfileHome(profile: string): Promise<string> {
-  const dataRoot = resolve(process.cwd(), ".vitehub", "data", "codex")
-  let current = process.cwd()
-  for (const segment of relative(current, join(dataRoot, profile)).split(/[\\/]/).filter(Boolean)) {
-    current = join(current, segment)
-    const entry = await lstat(current).catch(() => undefined)
-    if (entry?.isSymbolicLink()) throw agentDiagnostics.AGENT_R0685({ message: `[vitehub] Codex Driver profile directory must not be a symbolic link: ${current}` })
-    if (entry && !entry.isDirectory()) throw agentDiagnostics.AGENT_R0686({ message: `[vitehub] Codex Driver profile path must contain only directories: ${current}` })
-    if (!entry) {
-      await mkdir(current, { mode: 0o700 }).catch(async (error) => {
-        const raced = await lstat(current).catch(() => undefined)
-        if (!raced?.isDirectory() || raced.isSymbolicLink()) throw error
-      })
-    }
-  }
-  await configureCodexCredentialHome(current)
-  return current
-}
-
-async function openCodexProfileHome(profile: string, credentials: string): Promise<string> {
-  const homePath = await ensureCodexProfileHome(profile)
-  await Promise.all((await readdir(homePath, { withFileTypes: true }))
-    .filter(entry => entry.isFile() && codexCredentialNextFilePattern.test(entry.name))
-    .map(async (entry) => {
-      const nextPath = join(homePath, entry.name)
-      const next = await lstat(nextPath).catch(() => undefined)
-      if (next?.isFile() && !next.isSymbolicLink() && next.nlink === 1) await rm(nextPath, { force: true })
-    }))
-  const seedPath = join(homePath, ".vitehub-seed.sha256")
-  const seed = await lstat(seedPath).catch(() => undefined)
-  if (seed && (!seed.isFile() || seed.isSymbolicLink() || seed.nlink !== 1)) throw agentDiagnostics.AGENT_R0687({ message: `[vitehub] Codex Driver profile seed must be a singly linked file: ${seedPath}` })
-  if (seed && seed.size > codexCredentialSeedMaxBytes) throw agentDiagnostics.AGENT_R0688({ message: `[vitehub] Codex Driver profile seed must not exceed ${codexCredentialSeedMaxBytes} bytes: ${seedPath}` })
-  const seedHash = seed ? (await readFile(seedPath, "utf8")).trim() : ""
-  const authPath = join(homePath, "auth.json")
-  const auth = await lstat(authPath).catch(() => undefined)
-  if (auth && (!auth.isFile() || auth.isSymbolicLink() || auth.nlink !== 1)) throw agentDiagnostics.AGENT_R0689({ message: `[vitehub] Codex Driver profile auth must be a singly linked file: ${authPath}` })
-  const persistedCredentialsAreValid = auth?.isFile() && !auth.isSymbolicLink() && auth.size <= codexCredentialAuthMaxBytes
-    ? await readFile(authPath, "utf8")
-        .then((value) => {
-          const parsed: unknown = JSON.parse(value)
-          return parsed !== null && hasRuntimeType(parsed, "object") && !Array.isArray(parsed)
-        })
-        .catch(() => false)
-    : false
-  if (seedHash === codexCredentialSeedHash(credentials) && persistedCredentialsAreValid) {
-    await chmod(authPath, 0o600)
-    return homePath
-  }
-  await writeCodexCredentials(homePath, credentials)
-  return homePath
-}
-
-function providerMetadataContext<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
-  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
-  // SAFETY: The invocation context and normalized provider runtime establish every metadata field below.
-  return {
-    ...agentInvocationCallbackContextValues(context.context),
-    ...runtime,
-    actor: context.actor,
-    context: context.context,
-    fs: context.workspace?.fs,
-    invoker: context.invoker,
-    workspace: context.workspace,
-  } as AgentAdapterMetadataContext<TRuntimeConfig>
-}
-
-async function prepareCodexCredentialHome<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<CodexCredentialHome | undefined> {
-  if (options.provider !== "codex") return
-  if (options.credentials === undefined) return
-  if (process.platform === "win32") {
-    throw agentDiagnostics.AGENT_R0690({ message: "[vitehub] Codex Driver provisioned credentials are not supported on Windows because ViteHub cannot guarantee owner-only file access." })
-  }
-  return prepareCodexCredentials(options, { ...providerMetadataContext(context), abortSignal: context.input.abortSignal, purpose: "invocation" }, isAuxiliaryAgentAdapterContext(context))
-}
-
-async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig>(
-  options: ProviderAgentAdapterOptions<TRuntimeConfig>,
-  context: AgentProviderCredentialContext<TRuntimeConfig>,
-  auxiliary = false,
-): Promise<CodexCredentialHome | undefined> {
-  if (options.provider !== "codex" || options.credentials === undefined) return
-  if (process.platform === "win32") throw agentDiagnostics.AGENT_R0905({ message: "[vitehub] Provisioned Codex credentials require owner-only file access." })
-  const requestedProfile = options.credentialProfile?.trim()
-  const requestedProfileKey = requestedProfile ? `${process.cwd()}:${requestedProfile}` : undefined
-  // Auxiliary Drivers run inside their parent invocation. Isolate only a Home
-  // that this invocation already owns; unrelated named profiles remain durable.
-  const profile = auxiliary
-    && requestedProfileKey
-    && codexCredentialProfilesByInvocation.get(context.context)?.has(requestedProfileKey)
-    ? undefined
-    : requestedProfile
-  const resolveCredentials = async () => {
-    context.abortSignal?.throwIfAborted()
-    const resolved = await resolveRuntimeValue(options.credentials, context)
-    context.abortSignal?.throwIfAborted()
-    return normalizeCodexCredentials(resolved)
-  }
-  if (!profile) return await createTemporaryCodexCredentialHome(await resolveCredentials())
-
-  const key = `${process.cwd()}:${profile}`
-  const unavailableReason = unavailableCodexCredentialProfiles.get(key)
-  if (unavailableReason !== undefined) {
-    throw agentDiagnostics.AGENT_R0691({ message: `[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, cause: unavailableReason })
-  }
-  const release = await acquireProviderSessionLock(codexCredentialProfileLocks, key, context.abortSignal)
-  try {
-    const credentials = await waitForProviderOperation(resolveCredentials(), context.abortSignal)
-    const unavailableReason = unavailableCodexCredentialProfiles.get(key)
-    if (unavailableReason !== undefined) {
-      throw agentDiagnostics.AGENT_R0692({ message: `[vitehub] Codex Driver credential profile ${JSON.stringify(profile)} is unavailable until this process restarts because its previous runtime did not shut down.`, cause: unavailableReason })
-    }
-    const homePath = await openCodexProfileHome(profile, credentials)
-    const invocationProfiles = codexCredentialProfilesByInvocation.get(context.context) || new Set<string>()
-    invocationProfiles.add(key)
-    codexCredentialProfilesByInvocation.set(context.context, invocationProfiles)
-    return {
-      homePath,
-      async release(reason) {
-        if (reason !== undefined) unavailableCodexCredentialProfiles.set(key, reason)
-        invocationProfiles.delete(key)
-        if (!invocationProfiles.size) codexCredentialProfilesByInvocation.delete(context.context)
-        release()
-      },
-    }
-  }
-  catch (error) {
-    release()
-    throw error
-  }
-}
-
-/** Uses the invocation credential and launcher paths, without opening a provider session. */
-export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeConfig>(
-  options: ProviderAgentAdapterOptions<TRuntimeConfig>,
-  context: AgentProviderCredentialContext<TRuntimeConfig>,
-): Promise<AgentProviderStatus> {
-  const signal = context.abortSignal
-  let home: CodexCredentialHome | undefined
-  let root: string | undefined
-  try {
-    signal?.throwIfAborted()
-    home = await prepareCodexCredentials(options, context)
-    signal?.throwIfAborted()
-    const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await resolveRuntimeValue(options.env, context))
-    signal?.throwIfAborted()
-    if (home && overrides?.CODEX_HOME !== undefined) throw agentDiagnostics.AGENT_R0906({ message: "[vitehub] driver.credentials owns CODEX_HOME." })
-    const environment = providerEnvironment({
-      ...(options.provider === "codex" && !home ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
-      ...overrides,
-    })
-    const binary = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
-    let binaryPath = binary
-    if (options.launch !== undefined) {
-      root = await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
-      const command = hasRuntimeType(binary, "string") && binary.trim() ? binary : options.provider === "codex" ? "codex" : "claude"
-      const launch = normalizedProviderLaunch(await resolveRuntimeValue(options.launch, {
-        ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [],
-      }))
-      signal?.throwIfAborted()
-      binaryPath = (await materializeProviderLauncher(root, launch, providerSecretEnvironmentKeys(overrides, []), root)).path
-    }
-    const launchArgs = [options.providerSettings?.launchArgs, ...(home ? ['-c "cli_auth_credentials_store=\\"file\\""'] : [])].filter(Boolean).join(" ")
-    signal?.throwIfAborted()
-    const snapshot = await inspectProvider({
-      provider: options.provider, environment, signal,
-      settings: { ...options.providerSettings, ...(binaryPath ? { binaryPath } : {}), ...(home ? { homePath: home.homePath } : {}), ...(launchArgs ? { launchArgs } : {}) },
-    })
-    const authenticated = snapshot.auth.status === "unknown" ? undefined : snapshot.auth.status === "authenticated"
-    const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
-    const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted
-    const readiness = unavailable ? "unavailable" : authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
-    return {
-      agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
-      checkedAt: snapshot.checkedAt, stale: false, installed: snapshot.installed, authenticated, readiness,
-      reason: exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : readiness === "unknown" ? "Provider readiness could not be fully verified." : undefined,
-      ...(snapshot.usageLimits ? { usageLimits: {
-        checkedAt: snapshot.usageLimits.checkedAt,
-        windows: snapshot.usageLimits.windows,
-        ...(snapshot.usageLimits.unavailable ? { unavailable: { reason: snapshot.usageLimits.unavailable.reason } } : {}),
-      } } : {}),
-    }
-  }
-  finally {
-    try { await home?.release() }
-    finally { if (root) await rm(root, { recursive: true, force: true }) }
-  }
-}
-
-function codexLaunchArgs(options: ProviderAgentAdapterOptions): string | undefined {
-  const values = [
-    options.reasoningEffort && ["model_reasoning_effort", options.reasoningEffort],
-    options.reasoningSummary && ["model_reasoning_summary", options.reasoningSummary],
-  ].filter((value): value is [string, string] => Boolean(value))
-  return values.length
-    ? values.map(([key, value]) => {
-        const config = `${key}=${JSON.stringify(value)}`
-        return `-c "${config.replace(/["\\$`]/g, "\\$&")}"`
-      }).join(" ")
-    : undefined
+  const cliproxyEnabled = typeof process.env.CLIPROXY_BASE_URL === "string" && process.env.CLIPROXY_BASE_URL.length > 0
+  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => {
+    if ((key === "CLIPROXY_BASE_URL" || key === "CLIPROXY_API_KEY") && !cliproxyEnabled) return []
+    return typeof process.env[key] === "string" ? [[key, process.env[key]]] : []
+  }))
+  return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
 }
 
 async function waitForProviderOperation<T>(
@@ -1048,11 +179,6 @@ async function waitForProviderOperation<T>(
   observeLateCleanup?: (cleanup: Promise<void>) => void,
   disposeLateError?: () => void | Promise<void>,
 ): Promise<T> {
-  if (signal?.aborted && disposeLateResult) {
-    const cleanup = operation.then(disposeLateResult, disposeLateError)
-    observeLateCleanup?.(cleanup)
-    void cleanup.catch(() => undefined)
-  }
   signal?.throwIfAborted()
   if (!signal) return await operation
   let rejectAbort: ((reason: unknown) => void) | undefined
@@ -1077,51 +203,6 @@ async function waitForProviderOperation<T>(
   }
 }
 
-function createProviderCleanupSignal(invocationSignal: AbortSignal | undefined): { dispose: () => void, signal: AbortSignal } {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => {
-    controller.abort(new DOMException("[vitehub] Provider Agent Driver cleanup timed out.", "TimeoutError"))
-  }, providerCleanupTimeoutMs)
-  const abort = () => controller.abort(invocationSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
-  if (invocationSignal?.aborted) abort()
-  else invocationSignal?.addEventListener("abort", abort, { once: true })
-  return {
-    dispose() {
-      clearTimeout(timeout)
-      invocationSignal?.removeEventListener("abort", abort)
-    },
-    signal: controller.signal,
-  }
-}
-
-function providerCleanupTimedOut(error: unknown): boolean {
-  return error instanceof DOMException
-    && error.name === "TimeoutError"
-    && error.message === "[vitehub] Provider Agent Driver cleanup timed out."
-}
-
-async function removeProviderRoot(root: string): Promise<void> {
-  if (dirname(root) !== tmpdir() || !basename(root).startsWith("vitehub-provider-")) {
-    throw agentDiagnostics.AGENT_R0693({ message: `[vitehub] Refusing to remove unexpected Provider Agent Driver root: ${root}` })
-  }
-  if (process.platform === "win32") return await rm(root, { force: true, recursive: true })
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn("rm", ["-rf", "--", root], { stdio: "ignore" })
-    let settled = false
-    const finish = (error?: unknown) => {
-      if (settled) return
-      settled = true
-      if (error) reject(error)
-      else resolve()
-    }
-    child.once("error", finish)
-    child.once("close", (code, childSignal) => {
-      if (code === 0) finish()
-      else finish(agentDiagnostics.AGENT_R0694({ message: `[vitehub] Provider Agent Driver root cleanup exited with ${childSignal ? `signal ${childSignal}` : `code ${code}`}.` }))
-    })
-  })
-}
-
 async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key: string, signal?: AbortSignal): Promise<() => void> {
   const previous = locks.get(key) || Promise.resolve()
   let release!: () => void
@@ -1142,16 +223,13 @@ async function acquireProviderSessionLock(locks: Map<string, Promise<void>>, key
   return releaseLock
 }
 
-// SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
 const emptyToolInputSchema = { additionalProperties: false, properties: {}, type: "object" } as const
 
 function toolJsonSchema(schema: AgentToolSchema | undefined): Record<string, unknown> {
   if (!schema) return emptyToolInputSchema
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   if (!("~standard" in schema)) return schema as Record<string, unknown>
   const jsonSchema = schema["~standard"]?.jsonSchema
-  if (!jsonSchema?.input) throw agentDiagnostics.AGENT_R0695({ message: "[vitehub] Provider Agent Driver tools require JSON Schema-compatible input validation." })
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  if (!jsonSchema?.input) throw new Error("[vitehub] Provider Agent Driver tools require JSON Schema-compatible input validation.")
   return jsonSchema.input({ target: "draft-07" }) as Record<string, unknown>
 }
 
@@ -1159,15 +237,14 @@ async function validateToolInput(tool: AgentToolDefinition, input: unknown): Pro
   if (!tool.inputSchema) return input
   if ("~standard" in tool.inputSchema) {
     const standard = tool.inputSchema["~standard"]
-    if (!standard) throw agentDiagnostics.AGENT_R0696({ message: `[vitehub] Invalid schema for Agent tool "${tool.name}".` })
+    if (!standard) throw new TypeError(`[vitehub] Invalid schema for Agent tool "${tool.name}".`)
     const result = await standard.validate(input)
-    if (result.issues?.length) throw agentDiagnostics.AGENT_R0697({ message: `[vitehub] Invalid input for Agent tool "${tool.name}".` })
+    if (result.issues?.length) throw new TypeError(`[vitehub] Invalid input for Agent tool "${tool.name}".`)
     return "value" in result ? result.value : input
   }
   const { Validator } = await import("@cfworker/json-schema")
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const result = new Validator(tool.inputSchema as never, "7").validate(input)
-  if (!result.valid) throw agentDiagnostics.AGENT_R0698({ message: `[vitehub] Invalid input for Agent tool "${tool.name}": ${result.errors.map(error => error.error).join("; ")}` })
+  if (!result.valid) throw new TypeError(`[vitehub] Invalid input for Agent tool "${tool.name}": ${result.errors.map(error => error.error).join("; ")}`)
   return input
 }
 
@@ -1187,8 +264,7 @@ async function validateToolInputUntilCanceled(tool: AgentToolDefinition, input: 
 }
 
 function toolResult(value: unknown) {
-  const text = hasRuntimeType(value, "string") ? value : JSON.stringify(value) ?? String(value)
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  const text = typeof value === "string" ? value : JSON.stringify(value) ?? String(value)
   return { content: [{ text, type: "text" as const }] }
 }
 
@@ -1206,87 +282,68 @@ async function startToolServer(
   ])
   const token = crypto.randomUUID()
   const mcp = new McpServer({ name: "vitehub-agent", version: "1" }, { capabilities: { tools: {} } })
-  const activeExecutions = new Set<Promise<unknown>>()
   mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: Object.entries(tools).map(([name, tool]) => ({
       description: tool.description,
-      // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
       inputSchema: toolJsonSchema(tool.inputSchema) as never,
       name,
     })),
   }))
-  mcp.setRequestHandler(CallToolRequestSchema, (request, extra) => {
-    const execution = (async () => {
-      const tool = tools[request.params.name]
-      if (!tool?.execute) return { content: [{ text: `Unknown Agent tool: ${request.params.name}`, type: "text" }], isError: true }
-      const executionSignal = AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])])
-      try {
-        const input = await validateToolInputUntilCanceled(tool, request.params.arguments || {}, executionSignal)
-        executionSignal.throwIfAborted()
-        return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
-      }
-      catch (error) {
-        let toolError = error
-        const shape = getViteHubErrorShape(error)
-        const approvalRequest = shape?.code === "APPROVAL_REQUIRED" && error instanceof Error && error.cause && hasRuntimeType(error.cause, "object")
-          // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-          ? error.cause as { capability?: unknown, id?: unknown, input?: unknown, reason?: unknown }
-          : undefined
-        if (approvalRequest && hasRuntimeType(approvalRequest.id, "string")) {
-          capabilityApprovalIds.add(approvalRequest.id)
-          emit({
-            id: approvalRequest.id,
-            input: approvalRequest.input,
-            name: hasRuntimeType(approvalRequest.capability, "string") ? approvalRequest.capability : request.params.name,
-            reason: hasRuntimeType(approvalRequest.reason, "string") ? approvalRequest.reason : undefined,
-            type: "approval-request",
-          })
-          let abortApproval: (() => void) | undefined
-          const approved = await new Promise<boolean>((resolve) => {
-            abortApproval = () => resolve(false)
-            // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-            approvals.set(approvalRequest.id as string, (approved) => {
-              // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-              approvals.delete(approvalRequest.id as string)
-              if (executionSignal.aborted) {
-                resolve(false)
-                return false
-              }
-              resolve(approved)
-              return true
-            })
-            executionSignal.addEventListener("abort", abortApproval, { once: true })
-            if (executionSignal.aborted) abortApproval()
-          }).finally(() => {
-            executionSignal.removeEventListener("abort", abortApproval!)
-            // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  mcp.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const tool = tools[request.params.name]
+    if (!tool?.execute) return { content: [{ text: `Unknown Agent tool: ${request.params.name}`, type: "text" }], isError: true }
+    const executionSignal = AbortSignal.any([extra.signal, ...(abortSignal ? [abortSignal] : [])])
+    try {
+      const input = await validateToolInputUntilCanceled(tool, request.params.arguments || {}, executionSignal)
+      executionSignal.throwIfAborted()
+      return toolResult(await tool.execute(input, { abortSignal: executionSignal }))
+    }
+    catch (error) {
+      const shape = getViteHubErrorShape(error)
+      const approvalRequest = shape?.code === "APPROVAL_REQUIRED" && error instanceof Error && error.cause && typeof error.cause === "object"
+        ? error.cause as { capability?: unknown, id?: unknown, input?: unknown, reason?: unknown }
+        : undefined
+      if (approvalRequest && typeof approvalRequest.id === "string") {
+        capabilityApprovalIds.add(approvalRequest.id)
+        emit({
+          id: approvalRequest.id,
+          input: approvalRequest.input,
+          name: typeof approvalRequest.capability === "string" ? approvalRequest.capability : request.params.name,
+          reason: typeof approvalRequest.reason === "string" ? approvalRequest.reason : undefined,
+          type: "approval-request",
+        })
+        let abortApproval: (() => void) | undefined
+        const approved = await new Promise<boolean>((resolve) => {
+          abortApproval = () => resolve(false)
+          approvals.set(approvalRequest.id as string, (approved) => {
             approvals.delete(approvalRequest.id as string)
-          })
-          if (approved) {
-            // Let an MCP cancellation already in transit settle before turning
-            // the user's approval into a side effect.
-            await new Promise<void>(resolve => setImmediate(resolve))
-            executionSignal.throwIfAborted()
-            // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-            const approve = (tool as AgentToolDefinition & { [agentToolPolicyApproveSymbol]?: (input: unknown) => void })[agentToolPolicyApproveSymbol]
-            if (approve) {
-              approve(approvalRequest.input)
-              try {
-                return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: executionSignal }))
-              }
-              catch (approvedError) {
-                if (executionSignal.aborted) throw approvedError
-                toolError = approvedError
-              }
+            if (executionSignal.aborted) {
+              resolve(false)
+              return false
             }
+            resolve(approved)
+            return true
+          })
+          executionSignal.addEventListener("abort", abortApproval, { once: true })
+          if (executionSignal.aborted) abortApproval()
+        }).finally(() => {
+          executionSignal.removeEventListener("abort", abortApproval!)
+          approvals.delete(approvalRequest.id as string)
+        })
+        if (approved) {
+          // Let an MCP cancellation already in transit settle before turning
+          // the user's approval into a side effect.
+          await new Promise<void>(resolve => setImmediate(resolve))
+          executionSignal.throwIfAborted()
+          const approve = (tool as AgentToolDefinition & { [agentToolPolicyApproveSymbol]?: (input: unknown) => void })[agentToolPolicyApproveSymbol]
+          if (approve) {
+            approve(approvalRequest.input)
+            return toolResult(await tool.execute!(approvalRequest.input, { abortSignal: executionSignal }))
           }
         }
-        return { content: [{ text: formatRuntimeDiagnosticError(toolError), type: "text" }], isError: true }
       }
-    })()
-    activeExecutions.add(execution)
-    void execution.finally(() => activeExecutions.delete(execution)).catch(() => undefined)
-    return execution
+      return { content: [{ text: error instanceof Error ? error.message : String(error), type: "text" }], isError: true }
+    }
   })
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() })
   await mcp.connect(transport)
@@ -1303,7 +360,7 @@ async function startToolServer(
   http.listen(0, "127.0.0.1")
   await once(http, "listening")
   const address = http.address()
-  if (!address || hasRuntimeType(address, "string")) throw agentDiagnostics.AGENT_R0699({ message: "[vitehub] Provider Agent Driver failed to start its Capability tool server." })
+  if (!address || typeof address === "string") throw new Error("[vitehub] Provider Agent Driver failed to start its Capability tool server.")
   return {
     async close() {
       http.closeAllConnections()
@@ -1311,7 +368,6 @@ async function startToolServer(
         mcp.close(),
         new Promise<void>((resolve, reject) => http.close(error => error ? reject(error) : resolve())),
       ])
-      await Promise.allSettled(activeExecutions)
     },
     mcp: { authorizationHeader: `Bearer ${token}`, endpoint: `http://127.0.0.1:${address.port}/mcp` },
   }
@@ -1328,31 +384,16 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
       processes: "arbitrary",
     }),
     files: {
-      async exists(path, options) {
-        options?.signal?.throwIfAborted()
-        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-        const exists = await lstat(path).then(() => true, error => (error as NodeJS.ErrnoException).code === "ENOENT" ? false : Promise.reject(error))
-        options?.signal?.throwIfAborted()
-        return exists
+      async exists(path) {
+        return await lstat(path).then(() => true, error => (error as NodeJS.ErrnoException).code === "ENOENT" ? false : Promise.reject(error))
       },
       async list(path, options) {
-        options?.signal?.throwIfAborted()
         const entries: WorkspaceSessionHostFileEntry[] = []
-        const excluded = options?.exclude?.map(item => resolve(item)) || []
-        const isExcluded = (target: string) => excluded.some(item => target === item || target.startsWith(`${item}/`))
         const visit = async (directory: string) => {
-          options?.signal?.throwIfAborted()
           for (const entry of await readdir(directory, { withFileTypes: true })) {
-            options?.signal?.throwIfAborted()
             const target = join(directory, entry.name)
-            if (isExcluded(resolve(target))) continue
             const type = entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file"
-            const stats = type === "file" ? await lstat(target) : undefined
-            entries.push({
-              path: target,
-              ...(stats ? { executable: Boolean(stats.mode & 0o100), size: stats.size } : {}),
-              type,
-            })
+            entries.push({ path: target, ...(type === "file" ? { size: (await lstat(target)).size } : {}), type })
             if (options?.recursive && type === "directory") await visit(target)
           }
         }
@@ -1360,23 +401,17 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
         return entries
       },
       async mkdir(path, options) {
-        options?.signal?.throwIfAborted()
         await mkdir(path, options)
-        options?.signal?.throwIfAborted()
       },
-      async read(path, options) {
-        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-        return await readFile(path, { signal: options?.signal }).then(value => new Uint8Array(value), error => (error as NodeJS.ErrnoException).code === "ENOENT" ? null : Promise.reject(error))
+      async read(path) {
+        return await readFile(path).then(value => new Uint8Array(value), error => (error as NodeJS.ErrnoException).code === "ENOENT" ? null : Promise.reject(error))
       },
       async remove(path, options) {
-        options?.signal?.throwIfAborted()
         await rm(path, { force: true, recursive: options?.recursive })
-        options?.signal?.throwIfAborted()
       },
-      async write(path, content, options) {
-        options?.signal?.throwIfAborted()
+      async write(path, content) {
         await mkdir(dirname(path), { recursive: true })
-        await writeFile(path, content, { signal: options?.signal })
+        await writeFile(path, content)
       },
     },
     async exec(command, args = [], options = {}) {
@@ -1390,7 +425,6 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
           cwd,
           detached: true,
           env: {
-            // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
             ...providerEnvironment(options.env as Record<string, string> | undefined),
             INIT_CWD: cwd,
             OLDPWD: cwd,
@@ -1452,12 +486,10 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
 
 function workspaceSessionStarter(workspace: ReadonlyWorkspaceFacade) {
   type StartSession = (options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const facade = workspace as ReadonlyWorkspaceFacade & { startSession?: StartSession }
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const files = workspace.fs as typeof workspace.fs & { startSession?: StartSession }
   const startSession = facade.startSession || files.startSession
-  if (!startSession) throw agentDiagnostics.AGENT_R0700({ message: "[vitehub] Provider Agent Driver workspace requires Workspace Session support." })
+  if (!startSession) throw new Error("[vitehub] Provider Agent Driver workspace requires Workspace Session support.")
   return startSession.bind(facade.startSession ? workspace : files)
 }
 
@@ -1470,82 +502,61 @@ function selectedWorkspacePaths(context: AgentAdapterRunContext): readonly strin
   return paths.length ? paths : []
 }
 
-function workspaceSetupObserverOptions(context: AgentAdapterRunContext) {
-  // SAFETY: Agent invocation setup stores this context value as the invocation trace ID string.
-  const invocationId = context.context.get(agentInvocationTraceIdContextKey) as string | undefined
-  return {
-    invocationId,
-    runId: context.runtime.run?.runId,
-    trace: context.runtime.trace,
-    traceLog: context.runtime.traceLog,
-    workspace: context.workspaceDefinition?.name,
-  }
-}
-
 async function materializeWorkspaceSources(context: AgentAdapterRunContext, paths: readonly string[] | undefined) {
   const workspace = context.workspaceMaterializationSource || context.workspace
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const materialize = (workspace as ReadonlyWorkspaceFacade & { materializeSources?: ReadonlyWorkspaceFacade["fs"]["materializeSources"] } | undefined)?.materializeSources
     || workspace?.fs.materializeSources
-  if (!materialize || (paths && !paths.length)) return false
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+  if (!materialize || (paths && !paths.length)) return
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
-  const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
-  const results = await Promise.allSettled((paths || [""]).map(path => materialize.call(owner, {
-    abortSignal: context.input.abortSignal,
-    onProgress: observers.materialization,
-    path,
-  })))
-  const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
-  if (failure) throw failure.reason
-  return results.every(result => result.status === "fulfilled"
-    && result.value.sources.every(source => source.status === "ready"))
+  await Promise.all((paths || [""]).map(path => materialize.call(owner, { abortSignal: context.input.abortSignal, path })))
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
-    throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
+    throw new Error("[vitehub] Provider Agent Driver Workspaces require a POSIX Node host.")
   }
   const paths = selectedWorkspacePaths(context)
-  const materializedSources = await materializeWorkspaceSources(context, paths)
-  const sessionOptions: WorkspaceSessionOptions = {
+  await materializeWorkspaceSources(context, paths)
+  const session = await workspaceSessionStarter(context.workspace)({
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
-    ...(materializedSources ? { materializeSources: false } : {}),
-    onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,
-  }
-  if (context.workspaceMode !== "write") sessionOptions.writeBack = false
-  const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
+  })
   await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
   return session
 }
 
-async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
+async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error?: unknown) {
   if (!session) return
   try {
     if (error || !context.workspaceDefinition || context.workspaceMode !== "write") return
-    const diff = await session.diff({ abortSignal })
+    const diff = await session.diff()
     const definition = workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
     const commit = resolveWorkspaceAutoCommit(definition, diff)
     if (!commit) return
-    await session.commit({ abortSignal, message: commit.message || "provider-workspace-session" })
+    await session.commit({ message: commit.message || "provider-workspace-session" })
     setAgentWorkspaceDiff(context.context, diff)
   }
   finally {
-    await session.close({ abortSignal })
+    await session.close()
   }
 }
 
-async function resolveInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
-  const metadataContext = providerMetadataContext(context)
+async function resolveInstructions(options: ProviderAgentAdapterOptions, context: AgentAdapterRunContext): Promise<string | undefined> {
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  const metadataContext = {
+    ...agentInvocationCallbackContextValues(context.context),
+    ...runtime,
+    actor: context.actor,
+    context: context.context,
+    fs: context.workspace?.fs,
+    invoker: context.invoker,
+    workspace: context.workspace,
+  } as AgentAdapterMetadataContext
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
+  const configured = await Promise.all(parts.map(part => typeof part === "function" ? part(metadataContext) : part))
   const content = [
     ...configured.flatMap(value => Array.isArray(value) ? value : [value]),
     context.instructions,
@@ -1563,35 +574,15 @@ function latestUserMessages(messages: Message[]): Message[] {
   return index === -1 ? messages.slice(-1) : messages.slice(index)
 }
 
-function providerPrompt(messages: Message[], resumed: boolean, prompt?: string, replayAttachments = false): string | undefined {
+function providerPrompt(messages: Message[], resumed: boolean, prompt?: string): string | undefined {
   if (!messages.length) return prompt?.trim() || undefined
   const selected = resumed ? latestUserMessages(messages) : messages
-  if (selected.length === 1 && selected[0]?.role === "user") return providerMessageContent(selected[0], false).trim() || undefined
+  if (selected.length === 1 && selected[0]?.role === "user") return getMessageText(selected[0]).trim() || undefined
   const content = selected.flatMap((message) => {
-    const text = providerMessageContent(message, replayAttachments).trim()
+    const text = getMessageText(message).trim()
     return text ? [`<message role="${message.role}">\n${text}\n</message>`] : []
   }).join("\n")
   return content || prompt?.trim() || undefined
-}
-
-function providerMessageContent(message: Message, includeAttachments: boolean): string {
-  return message.parts.flatMap((part) => {
-    if (part.type === "text") return part.text
-    if (includeAttachments && isAttachmentPart(part)) {
-      return JSON.stringify({ mediaType: part.mediaType, name: part.name, type: part.type })
-    }
-    if (part.type === "error") return part.error
-    if (part.type === "source") return part.url || part.title || ""
-    if (part.type === "tool-call") return JSON.stringify({ input: part.input, toolCallId: part.id, toolName: part.name, type: part.type })
-    if (part.type === "tool-result") return JSON.stringify({ error: part.error, output: part.output, toolCallId: part.id, toolName: part.name, type: part.type })
-    if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.toolCallId || part.id, toolName: part.name, type: part.type })
-    if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: part.type })
-    if (part.type === "data" || part.type.startsWith("data-")) {
-      if (message.role === "assistant" && !part.type.startsWith("data-chat-reply-") && part.type !== "data-chat-user-message-context") return []
-      return JSON.stringify(part.data)
-    }
-    return []
-  }).filter(Boolean).join("\n")
 }
 
 function attachmentId(threadId: string): string {
@@ -1602,19 +593,19 @@ function attachmentId(threadId: string): string {
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
 
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
-  if (hasRuntimeType(part.size, "number") && part.size > maxBytes) throw agentDiagnostics.AGENT_R0702({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
+  if (typeof part.size === "number" && part.size > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
   const data = await resolveAttachmentData(part)
   if (data === undefined && part.url) {
-    throw agentDiagnostics.AGENT_R0703({ message: "[vitehub] Provider attachment URLs require application-owned fetchData() resolution." })
+    throw new TypeError("[vitehub] Provider attachment URLs require application-owned fetchData() resolution.")
   }
-  if (data === undefined) throw agentDiagnostics.AGENT_R0704({ message: `[vitehub] Provider ${part.type} attachment requires data or fetchData().` })
+  if (data === undefined) throw new TypeError(`[vitehub] Provider ${part.type} attachment requires data or fetchData().`)
   const declaredSize = data instanceof Blob ? data.size : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? data.byteLength : undefined
-  if (declaredSize !== undefined && declaredSize > maxBytes) throw agentDiagnostics.AGENT_R0705({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
-  if (hasRuntimeType(data, "string") && data.length > maxBytes * 2) throw agentDiagnostics.AGENT_R0706({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
+  if (declaredSize !== undefined && declaredSize > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
+  if (typeof data === "string" && data.length > maxBytes * 2) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
   const bytes = data instanceof Blob
     ? new Uint8Array(await data.arrayBuffer())
     : data instanceof ArrayBuffer ? new Uint8Array(data) : data instanceof Uint8Array ? data : attachmentStringBytes(data, part.mediaType)
-  if (bytes.byteLength > maxBytes) throw agentDiagnostics.AGENT_R0707({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
+  if (bytes.byteLength > maxBytes) throw new Error(`[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).`)
   return bytes
 }
 
@@ -1625,7 +616,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
   const attachments = []
   for (const part of parts) {
-    if (part.type !== "image") throw agentDiagnostics.AGENT_R0708({ message: "[vitehub] Provider Agent Drivers currently support image attachments only." })
+    if (part.type !== "image") throw new TypeError("[vitehub] Provider Agent Drivers currently support image attachments only.")
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
     const bytes = await attachmentBytes(part, remaining)
@@ -1636,7 +627,6 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
       mimeType: part.mediaType,
       name: part.name || basename(`${id}${extension}`),
       sizeBytes: bytes.byteLength,
-      // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
       type: "image" as const,
     })
   }
@@ -1657,16 +647,13 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
       }
       else if (!capabilityApprovalIds.has(part.id)) {
         responded = true
-        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         await runtime.respondToRequest(threadId, part.id as never, approvalDecision(part.approved))
       }
     }
-    if (part.type === "data-agent-input" && part.data && hasRuntimeType(part.data, "object")) {
-      // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+    if (part.type === "data-agent-input" && part.data && typeof part.data === "object") {
       const data = part.data as { answers?: unknown, requestId?: unknown }
-      if (hasRuntimeType(data.requestId, "string") && data.answers && hasRuntimeType(data.answers, "object")) {
+      if (typeof data.requestId === "string" && data.answers && typeof data.answers === "object") {
         responded = true
-        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         await runtime.respondToUserInput(threadId, data.requestId as never, data.answers as ProviderUserInputAnswers)
       }
     }
@@ -1681,7 +668,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   return {
     type: "usage",
     usageRecord: {
-      ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
+      latency: usage.durationMs === undefined ? undefined : { durationMs: usage.durationMs },
       raw: usage,
       usage: {
         details: {
@@ -1698,15 +685,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
 }
 
 function providerDataEvent(event: ProviderRuntimeEvent): StreamEvent {
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-  const payload = event.payload as Record<string, unknown>
-  const id = event.itemId
-    || (hasRuntimeType(payload.toolUseId, "string") ? payload.toolUseId : undefined)
-    || (hasRuntimeType(payload.taskId, "string") ? payload.taskId : undefined)
-    || event.requestId
-    || event.turnId
-    || event.eventId
-  return { data: { kind: event.type, value: event.payload }, id, type: "data-agent-event" }
+  return { data: { kind: event.type, value: event.payload }, type: "data-agent-event" }
 }
 
 const providerDataItemTypes = new Set(["user_message", "assistant_message", "reasoning", "plan", "review_entered", "review_exited", "context_compaction", "error", "unknown"])
@@ -1715,91 +694,22 @@ function isProviderToolItem(itemId: string | undefined, itemType: string): itemI
   return Boolean(itemId) && !providerDataItemTypes.has(itemType)
 }
 
-function record(value: unknown): Record<string, unknown> | undefined {
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-  return value && hasRuntimeType(value, "object") && !Array.isArray(value) ? value as Record<string, unknown> : undefined
-}
-
-function providerResultError(value: unknown): string | undefined {
-  const content = record(value)?.content
-  if (hasRuntimeType(content, "string")) return content || undefined
-  if (!Array.isArray(content)) return
-  const text = content.flatMap((part) => {
-    const block = record(part)
-    return hasRuntimeType(block?.text, "string") && block.text ? [block.text] : []
-  }).join("\n")
-  return text || undefined
-}
-
-function providerToolName(event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>): string | undefined {
-  const data = record(event.payload.data)
-  const item = record(data?.item)
-  return hasRuntimeType(data?.toolName, "string")
-    ? data.toolName
-    : hasRuntimeType(item?.tool, "string")
-      ? item.tool
-      : undefined
-}
-
-function providerToolDetails(event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>) {
-  const data = record(event.payload.data)
-  const item = record(data?.item)
-  const error = record(item?.error)
-  const errorMessage = hasRuntimeType(error?.message, "string") ? error.message : providerResultError(data?.result)
-  const isMcpTool = event.payload.itemType === "mcp_tool_call"
-  const isCodexMcpTool = isMcpTool && item?.type === "mcpToolCall"
-  const title = event.payload.title
-  const failed = event.payload.status === "failed"
-    || event.payload.status === "declined"
-    || item?.status === "failed"
-    || item?.status === "declined"
-  return {
-    durationMs: hasRuntimeType(item?.durationMs, "number") ? item.durationMs : undefined,
-    error: failed
-      ? errorMessage || event.payload.detail || "Provider tool failed."
-      : undefined,
-    input: isCodexMcpTool ? item.arguments : isMcpTool && data?.input !== undefined ? data.input : event.payload.data,
-    output: isCodexMcpTool ? item.result : isMcpTool && data?.result !== undefined ? data.result : event.payload.data ?? event.payload.detail,
-    title: isMcpTool && hasRuntimeType(title, "string") && title !== "MCP tool call" && title.trim() ? title : undefined,
-  }
-}
-
-function providerToolActivity(
-  event: Extract<ProviderRuntimeEvent, { type: "item.completed" | "item.started" }>,
-  tools: AgentToolSet | undefined,
-) {
-  const name = providerToolName(event)
-  // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
-  return name && tools?.[name]?.activity ? tools[name].activity : { kind: "tool" as const }
-}
-
-function providerMessagePhase(event: Extract<ProviderRuntimeEvent, { type: "item.started" }>) {
-  const data = record(event.payload.data)
-  const item = record(data?.item)
-  const phase = item?.phase ?? data?.phase
-  if (phase === "commentary") return "commentary"
-  if (phase === "final" || phase === "final_answer") return "final"
-}
-
-function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefined, messagePhases: ReadonlyMap<string, "commentary" | "final">): StreamEvent[] {
+function providerEvent(event: ProviderRuntimeEvent): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
-      if (event.payload.streamKind === "assistant_text") return [{ phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
-      if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
-      return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
-    case "item.started": {
-      const details = providerToolDetails(event)
+      if (event.payload.streamKind === "assistant_text") return [{ phase: "final", text: event.payload.delta, type: "text-delta" }]
+      return [{ data: { kind: "content", value: event.payload.delta }, type: "data-agent-event" }]
+    case "item.started":
       return isProviderToolItem(event.itemId, event.payload.itemType)
-        ? [{ activity: providerToolActivity(event, tools), id: event.itemId, input: details.input, name: providerToolName(event) || event.payload.title || event.payload.itemType, title: details.title, type: "tool-call" }]
+        ? [{ id: event.itemId, input: event.payload.data, name: event.payload.title || event.payload.itemType, type: "tool-call" }]
         : [providerDataEvent(event)]
-    }
     case "item.completed":
       return isProviderToolItem(event.itemId, event.payload.itemType)
         ? [{
-            activity: providerToolActivity(event, tools),
-            ...providerToolDetails(event),
+            error: event.payload.status === "failed" ? event.payload.detail || "Provider tool failed." : undefined,
             id: event.itemId,
-            name: providerToolName(event) || event.payload.title || event.payload.itemType,
+            name: event.payload.title || event.payload.itemType,
+            output: event.payload.data ?? event.payload.detail,
             type: "tool-result",
           }]
         : event.payload.itemType === "error" && event.payload.detail
@@ -1833,9 +743,9 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
     case "turn.aborted":
       return [{ error: `Provider turn aborted${event.payload.reason ? `: ${event.payload.reason}` : "."}`, type: "error" }]
     case "turn.plan.updated":
-      return [{ data: event.payload, id: event.turnId ? `plan:${event.turnId}` : undefined, type: "data-agent-plan" }]
+      return [{ data: event.payload, type: "data-agent-plan" }]
     case "turn.diff.updated":
-      return [{ data: event.payload, id: event.turnId ? `change:${event.turnId}` : undefined, type: "data-agent-diff" }]
+      return [{ data: event.payload, type: "data-agent-diff" }]
     case "item.updated":
     case "tool.progress":
     case "tool.summary":
@@ -1853,23 +763,20 @@ function isTerminalEvent(event: ProviderRuntimeEvent, turnId: TurnId): boolean {
   return event.turnId === turnId && (event.type === "turn.completed" || event.type === "turn.aborted")
 }
 
-async function* runProvider<
-  CALL_OPTIONS,
-  TRuntimeConfig extends AgentRuntimeConfig,
->(
-  options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
+async function* runProvider(
+  options: ProviderAgentAdapterOptions,
   resumeCursors: Map<string, unknown>,
   sessionLocks: Map<string, Promise<void>>,
-  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+  context: AgentAdapterRunContext,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
-    throw agentDiagnostics.AGENT_R0709({ message: `[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.` })
+    throw new Error(`[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.`)
   }
   if (context.providerTools?.length) {
-    throw agentDiagnostics.AGENT_R0710({ message: "[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools." })
+    throw new Error("[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools.")
   }
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
-    throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
+    throw new TypeError("[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds.")
   }
   const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
   const effectiveSignal = context.input.abortSignal && timeoutSignal
@@ -1877,37 +784,17 @@ async function* runProvider<
     : context.input.abortSignal || timeoutSignal
   context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
   effectiveSignal?.throwIfAborted()
-  if (options.provider === "codex") {
-    await waitForProviderOperation(runCodexCredentialHomeScavenger(), effectiveSignal)
-  }
   const transportSessionId = context.runtime.run?.threadId
-  const chatSessionId = context.context.get("chat.sessionId")
+  const chatSessionId = context.context.get<string>("chat.sessionId")
   const sessionId = chatSessionId || transportSessionId
   const sessionKey = sessionId
     ? JSON.stringify([context.runtime.run?.origin || "unknown", context.invoker.kind, context.invoker.id, sessionId])
     : undefined
-  // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
-  const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
-  const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  const preservesProviderSession = !auxiliary && (options.provider !== "codex"
-    || options.credentials === undefined
-    || Boolean(options.credentialProfile?.trim()))
-  const releaseSessionLock = sessionKey && !auxiliary
-    ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal)
-    : undefined
+  const releaseSessionLock = sessionKey ? await acquireProviderSessionLock(sessionLocks, sessionKey, effectiveSignal) : undefined
   let root: string
-  let launchRoot: string | undefined
   try {
     effectiveSignal?.throwIfAborted()
-    const providerRoot = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
-    try {
-      launchRoot = options.launch === undefined ? undefined : await mkdtemp(join(tmpdir(), "vitehub-provider-launch-"))
-    }
-    catch (error) {
-      await removeProviderRoot(providerRoot).catch(() => undefined)
-      throw error
-    }
-    root = providerRoot
+    root = await mkdtemp(join(tmpdir(), "vitehub-provider-"))
   }
   catch (error) {
     releaseSessionLock?.()
@@ -1915,11 +802,6 @@ async function* runProvider<
   }
   let workspaceSession: WorkspaceSession | undefined
   let runtime: ProviderRuntime | undefined
-  let providerLaunchDiagnosticPath: string | undefined
-  let providerLaunchSecretEnvironmentKeys: readonly string[] = []
-  let providerRuntimeEnvironment: NodeJS.ProcessEnv | undefined
-  let sessionStore: PartitionedProviderSessionStore | undefined
-  let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
@@ -1938,22 +820,13 @@ async function* runProvider<
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
   const generatedProviderFiles: GeneratedProviderFile[] = []
-  let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
-  let deferredSessionConsume: Promise<void> | undefined
+  let pendingResumeCursor = sessionKey ? resumeCursors.get(sessionKey) : undefined
   let runtimeCleanupDeferred = false
   let deferredRuntimeCleanup: Promise<void> | undefined
-  let deferredRuntimeFailure: unknown
   let releaseDeferredRuntimeStopped: (() => void) | undefined
   const deferredRuntimeStopped = new Promise<void>((resolve) => {
     releaseDeferredRuntimeStopped = resolve
   })
-  let rootCleanup: Promise<void> | undefined
-  const cleanupRoot = () => rootCleanup ??= launchRoot
-    ? Promise.all([
-        removeProviderRoot(root),
-        rm(launchRoot, { force: true, recursive: true }),
-      ]).then(() => undefined)
-    : removeProviderRoot(root)
   let workspaceCleanupDeferred = false
   let deferredWorkspaceCleanup: Promise<void> | undefined
   const activeWorkspaceCommands = new Set<Promise<unknown>>()
@@ -1963,33 +836,16 @@ async function* runProvider<
   })
   let clearActiveWorkspaceCommands: (() => void) | undefined
   let clearActiveWorkspaceFiles: (() => void) | undefined
-  const observeLateCleanup = (cleanup: Promise<void>) => {
-    Object.defineProperty(cleanup, agentProviderCleanupTask, { value: true })
-    void cleanup.catch(() => undefined)
-    try {
-      context.runtime.waitUntil(cleanup)
-    }
-    catch {}
-  }
+  const observeLateCleanup = (cleanup: Promise<void>) => context.runtime.waitUntil(cleanup)
   const deferRuntimeCleanup = (cleanup: Promise<void>) => {
     runtimeCleanupDeferred = true
     deferredRuntimeCleanup = cleanup
-    observeLateCleanup(cleanup)
-  }
-  const deferSessionConsume = (cleanup: Promise<void>) => {
-    deferredSessionConsume = cleanup
     observeLateCleanup(cleanup)
   }
   const deferWorkspaceSessionCleanup = (cleanup: Promise<void>) => {
     workspaceCleanupDeferred = true
     deferredWorkspaceCleanup = cleanup
     observeLateCleanup(cleanup)
-  }
-  const releaseCodexCredentialHome = async (reason?: unknown) => {
-    const home = codexCredentialHome
-    if (!home) return
-    await home.release(reason)
-    if (codexCredentialHome === home) codexCredentialHome = undefined
   }
   const finalizeDeferredRuntime = async (sessionThreadId?: ThreadId, turnId?: TurnId) => {
     try {
@@ -2000,14 +856,10 @@ async function* runProvider<
       try {
         await runtime!.close()
       }
-      catch (error) {
-        deferredRuntimeFailure = codexRuntimeCleanupFailure(error)
-        throw error
-      }
       finally {
         releaseDeferredRuntimeStopped?.()
         await workspaceCleanup
-        await cleanupRoot()
+        await rm(root, { force: true, recursive: true })
       }
     }
   }
@@ -2021,11 +873,11 @@ async function* runProvider<
           await lateSession?.close()
         }
         finally {
-          await cleanupRoot()
+          await rm(root, { force: true, recursive: true })
         }
       },
       deferWorkspaceSessionCleanup,
-      cleanupRoot,
+      async () => await rm(root, { force: true, recursive: true }),
     )
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
@@ -2046,37 +898,19 @@ async function* runProvider<
       })
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
-    let materializeInstructions = Boolean(instructions)
     if (!instructions && options.provider === "claude-code") {
-      const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
-      if (nativeInstructions !== undefined) instructions = nativeInstructions
-      else {
-        instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
-        materializeInstructions = Boolean(instructions)
-      }
+      const hasNativeInstructions = await lstat(join(root, "CLAUDE.md")).then(() => true, () => false)
+      if (!hasNativeInstructions) instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
     }
-    const inspectedTools = inspectAgentTools(context.tools)
-    await updateAgentTelemetryConfiguration(context.context, {
-      driver: {
-        ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
-        provider: options.provider,
-      },
-      ...(instructions ? { instructions: [instructions] } : {}),
-      ...(inspectedTools ? { tools: inspectedTools } : {}),
-    })
-    if (instructions && materializeInstructions) {
+    if (instructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))
     }
-    const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
+    const colocatedSkills = context.context.get<Record<string, { content?: string | Uint8Array, workspacePath?: string }>>(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {
-      if (!isRuntimeRecord(source)
-        || !("content" in source)
-        || !("workspacePath" in source)
-        || !(hasRuntimeType(source.content, "string") || source.content instanceof Uint8Array)
-        || !hasRuntimeType(source.workspacePath, "string")) continue
+      if (source.content === undefined || !source.workspacePath) continue
       const target = resolve(root, source.workspacePath)
-      if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
+      if (target !== root && !target.startsWith(`${root}/`)) throw new Error("[vitehub] Colocated Skill path must stay inside the provider Workspace.")
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     if (workspaceSession) {
@@ -2084,129 +918,18 @@ async function* runProvider<
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
     }
     effectiveSignal?.throwIfAborted()
-    codexCredentialHome = await waitForProviderOperation(
-      prepareCodexCredentialHome(options, context),
-      effectiveSignal,
-      async (home) => {
-        codexCredentialHome = home
-        try {
-          await releaseCodexCredentialHome()
-        }
-        catch {
-          await releaseCodexCredentialHome()
-        }
-      },
-      observeLateCleanup,
-    )
-    const resolverContext: AgentProviderCredentialContext<TRuntimeConfig> = {
-      ...providerMetadataContext(context),
-      abortSignal: effectiveSignal,
-    }
-    const providerEnvironmentOverrides = options.env === undefined
-      ? undefined
-      : normalizedProviderEnvironment(await waitForProviderOperation(
-          Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
-          effectiveSignal,
-        ))
-    if (codexCredentialHome && providerEnvironmentOverrides?.CODEX_HOME !== undefined) {
-      throw agentDiagnostics.AGENT_R0713({ message: "[vitehub] driver.credentials owns CODEX_HOME and cannot be combined with resolved driver.env.CODEX_HOME." })
-    }
-    if ((options.reasoningEffort !== undefined || options.reasoningSummary !== undefined)
-      && providerEnvironmentOverrides?.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
-      throw agentDiagnostics.AGENT_R0714({ message: "[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
-    }
+    const { createProviderRuntime } = await import("@t3tools/provider-runtime")
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
-      await cleanupRoot()
-    }
-    if (options.sessionStorePath !== undefined && (!hasRuntimeType(options.sessionStorePath, "string") || !options.sessionStorePath.trim())) {
-      throw agentDiagnostics.AGENT_R0715({ message: "[vitehub] driver.sessionStorePath must be a non-empty string." })
-    }
-    sessionStore = options.sessionStorePath && preservesProviderSession && sessionKey
-      ? partitionProviderSessionStore(
-          await waitForProviderOperation(
-            providerSessionStore(options.sessionStorePath, createSqliteProviderRuntimeSessionStore),
-            effectiveSignal,
-          ),
-          sessionKey,
-        )
-      : undefined
-    const durableResumeCursor = sessionStore
-      ? await waitForProviderOperation(
-          sessionStore.consume(),
-          effectiveSignal,
-          () => undefined,
-          deferSessionConsume,
-        )
-      : undefined
-    const resumeCursor = pendingResumeCursor ?? durableResumeCursor
-    if (pendingResumeCursor === undefined && durableResumeCursor !== undefined) {
-      pendingResumeCursor = durableResumeCursor
-    }
-    const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
-    const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
-      ? (options.provider === "codex" ? "codex" : "claude")
-      : providerExecutable
-    providerRuntimeEnvironment = providerEnvironment({
-      ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
-      ...providerEnvironmentOverrides,
-    })
-    let providerLauncher: string | undefined
-    if (options.launch !== undefined) {
-      if (!hasRuntimeType(providerCommand, "string")) {
-        throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
-      }
-      const requiredEnvironment = Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
-      const launchContext: AgentProviderLaunchContext<TRuntimeConfig> = {
-        ...resolverContext,
-        command: providerCommand,
-        cwd: root,
-        environment: Object.freeze({ ...providerRuntimeEnvironment }),
-        requiredEnvironment,
-      }
-      const launch = normalizedProviderLaunch(await waitForProviderOperation(
-        Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
-        effectiveSignal,
-      ))
-      if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
-      const materializedLauncher = await waitForProviderOperation(
-        materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, root),
-        effectiveSignal,
-      )
-      providerLauncher = materializedLauncher.path
-      providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
-    }
-    const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
-    const launchArgs = [
-      options.providerSettings?.launchArgs,
-      generatedLaunchArgs,
-      ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
-    ].filter(Boolean).join(" ") || undefined
-    const settings = Object.fromEntries(Object.entries({
-      ...options.providerSettings,
-      binaryPath: providerLauncher || providerExecutable,
-      ...(codexCredentialHome ? { homePath: codexCredentialHome.homePath } : {}),
-      ...(launchArgs === undefined ? {} : { launchArgs }),
-    }).filter(([, value]) => value !== undefined))
-    const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
-      cwd: root,
-      environment: providerRuntimeEnvironment,
-      provider: options.provider,
-      ...(sessionStore ? { sessionStore: sessionStore.runtime } : {}),
-      ...(Object.keys(settings).length ? { settings } : {}),
+      await rm(root, { force: true, recursive: true })
     }
     runtime = await waitForProviderOperation(
-      createProviderRuntime(runtimeOptions),
+      createProviderRuntime({ cwd: root, environment: providerEnvironment(options.env), provider: options.provider }),
       effectiveSignal,
       async lateRuntime => {
         try {
           await lateRuntime.close()
-        }
-        catch (error) {
-          deferredRuntimeFailure = codexRuntimeCleanupFailure(error)
-          throw error
         }
         finally {
           await finalizeLateRuntimeCreation()
@@ -2216,24 +939,18 @@ async function* runProvider<
       finalizeLateRuntimeCreation,
     )
     effectiveSignal?.throwIfAborted()
-    if (Object.keys(context.tools || {}).length) {
-      toolServer = await waitForProviderOperation(
-        startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds),
-        effectiveSignal,
-        lateToolServer => lateToolServer.close(),
-        observeLateCleanup,
-      )
-    }
+    if (Object.keys(context.tools || {}).length) toolServer = await startToolServer(context.tools!, effectiveSignal, emitToolEvent, capabilityApprovals, capabilityApprovalIds)
     const events = runtime.events[Symbol.asyncIterator]()
     let nextEvent = events.next()
-    const resumed = resumeCursor !== undefined
+    const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
+    const resumed = Boolean(sessionKey && resumeCursors.has(sessionKey))
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: root,
       mcp: toolServer?.mcp,
       model: options.model,
-      resumeCursor,
-      runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
+      resumeCursor: sessionKey ? resumeCursors.get(sessionKey) : undefined,
+      runtimeMode: providerRuntimeMode[options.permissions || "allow-all"],
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
@@ -2244,18 +961,17 @@ async function* runProvider<
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
-    const replayAttachments = !preservesProviderSession && context.messages.length > 1
-    const prompt = providerPrompt(context.messages, resumed, context.prompt, replayAttachments) || (attachments?.length ? "Inspect the attached image." : undefined)
-    if (!prompt) throw agentDiagnostics.AGENT_R0718({ message: "[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment." })
+    const prompt = providerPrompt(context.messages, resumed, context.prompt) || (attachments?.length ? "Inspect the attached image." : undefined)
+    if (!prompt) throw new Error("[vitehub] Provider Agent Driver invocation requires a prompt, user message, or image attachment.")
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
-    const invocationId = ownedAgentInvocationControlId(context.runtime)
+    const invocationId = agentInvocationControlId(context.runtime)
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
-            const messages = input.messages || (hasRuntimeType(input.message, "object") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
+            const messages = input.messages || (typeof input.message === "object" ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
             return await respondToInput(activeRuntime, threadId, messages, capabilityApprovals, capabilityApprovalIds) ? "accepted" : "unsupported"
           }
           catch {
@@ -2281,7 +997,6 @@ async function* runProvider<
       void activeRuntime.interruptTurn(threadId, turn.turnId).catch(() => undefined)
       rejectAbort?.(effectiveSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
     }
-    const messagePhases = new Map<string, "commentary" | "final">()
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
     for (;;) {
@@ -2291,7 +1006,6 @@ async function* runProvider<
       }
       const raced = await Promise.race([
         nextEvent.then(result => ({ provider: result })),
-        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
         waitForToolEvent().then(() => ({ tool: true as const })),
         aborted,
       ])
@@ -2300,30 +1014,19 @@ async function* runProvider<
         continue
       }
       const current = raced.provider
-      if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
-      if (current.value.threadId && current.value.threadId !== threadId) {
-        nextEvent = events.next()
-        continue
-      }
-      if ((!invocationId || isAuxiliaryAgentAdapterContext(context)) && current.value.type === "request.opened" && current.value.requestId) {
-        // SAFETY: A request.opened event always carries the provider approval request identifier expected by respondToRequest.
-        await activeRuntime.respondToRequest(threadId, current.value.requestId as never, "decline")
-      }
-      if (current.value.type === "item.started" && current.value.itemId) {
-        const phase = providerMessagePhase(current.value)
-        if (phase) messagePhases.set(current.value.itemId, phase)
-      }
-      const normalized = providerEvent(current.value, context.tools, messagePhases)
-      if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
+      if (current.done) throw new Error("[vitehub] Provider Agent Driver event stream ended before the turn completed.")
+      nextEvent = events.next()
+      if (current.value.threadId && current.value.threadId !== threadId) continue
+      const normalized = providerEvent(current.value)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
-      if (failure?.type === "error") caught = agentDiagnostics.AGENT_R0720({ message: failure.error })
+      if (failure?.type === "error") caught = new Error(failure.error)
       if (current.value.type === "session.exited") {
-        caught = agentDiagnostics.AGENT_R0721({ message: `[vitehub] Provider Agent Driver session exited before the turn completed${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
+        caught = new Error(`[vitehub] Provider Agent Driver session exited before the turn completed${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}`)
       }
       if (current.value.turnId === turn.turnId && current.value.type === "turn.aborted") {
         caught = effectiveSignal?.aborted
           ? effectiveSignal.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError")
-          : agentDiagnostics.AGENT_R0722({ message: `[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
+          : new Error(`[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}`)
         if (effectiveSignal?.aborted) throw caught
       }
       if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
@@ -2331,18 +1034,11 @@ async function* runProvider<
       for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
-      nextEvent = events.next()
     }
   }
   catch (error) {
-    const launchFailure = await providerLaunchFailure(
-      providerLaunchDiagnosticPath,
-      providerRuntimeEnvironment,
-      providerLaunchSecretEnvironmentKeys,
-      error,
-    )
-    caught = launchFailure ?? error
-    throw caught
+    caught = error
+    throw error
   }
   finally {
     unregister?.()
@@ -2350,215 +1046,65 @@ async function* runProvider<
     clearActiveWorkspaceFiles?.()
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
-    const cleanup = createProviderCleanupSignal(completed ? undefined : effectiveSignal)
-    let cleanupTimedOut = false
-    let invocationCleanupDeferred: Promise<void> | undefined
-    let forcedRootCleanup: Promise<void> | undefined
-    let runtimeCleanupSettled = false
-    let runtimeCleanupFailure: unknown
-    if (runtimeCleanupDeferred) {
-      observeLateCleanup((async () => {
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        const stopped = await Promise.race([
-          deferredRuntimeStopped.then(() => true),
-          new Promise<false>(resolve => timeout = setTimeout(() => resolve(false), providerCleanupTimeoutMs)),
-        ])
-        if (timeout) clearTimeout(timeout)
-        if (stopped) runtimeCleanupSettled = true
-        await releaseCodexCredentialHome(stopped
-          ? deferredRuntimeFailure
-          : agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver deferred runtime cleanup timed out." }))
-      })())
+    for (const result of await Promise.allSettled([runtimeCleanupDeferred ? undefined : runtime?.close(), toolServer?.close()])) {
+      if (result.status === "rejected") cleanupErrors.push(result.reason)
     }
-    let workspaceFinalization: Promise<void> | undefined
-    const finalizeWorkspace = () => workspaceFinalization ??= (async () => {
-        try {
-          for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-        try {
-          await closeWorkspace(
-            context,
-            workspaceSession,
-            caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
-            cleanup.signal,
-          )
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-        finally {
-          releaseWorkspaceCleanup?.()
-        }
-      })()
-    const toolCleanup = Promise.resolve().then(() => toolServer?.close())
-    const cleanupTask = (async () => {
-      const runtimeCleanup = runtimeCleanupDeferred
-        ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
-        : Promise.resolve()
-            .then(() => runtime?.close())
-            .catch((error) => {
-              runtimeCleanupFailure = codexRuntimeCleanupFailure(error)
-              throw error
-            })
-            .finally(() => runtimeCleanupSettled = true)
-      const runtimeAndToolCleanup = await Promise.allSettled([
-        runtimeCleanup,
-        toolCleanup,
-      ])
-      for (const result of runtimeAndToolCleanup) {
-        const repeatsInvocationFailure = caught !== undefined
-          && result.status === "rejected"
-          && (result.reason === caught || result.reason === effectiveSignal?.reason)
-        if (result.status === "rejected" && !repeatsInvocationFailure) cleanupErrors.push(result.reason)
+    for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
+      if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
+    }
+    const finalizeWorkspace = async () => {
+      try {
+        for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
       }
-      if (!runtimeCleanupDeferred) {
-        try {
-          const runtimeResult = runtimeAndToolCleanup[0]
-          await releaseCodexCredentialHome(runtimeResult?.status === "rejected" ? codexRuntimeCleanupFailure(runtimeResult.reason) : undefined)
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
+      catch (error) {
+        cleanupErrors.push(error)
       }
-      for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
-        if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
+      try {
+        await closeWorkspace(context, workspaceSession, caught ?? cleanupErrors[0] ?? (completed ? undefined : new Error("[vitehub] Provider Agent Driver invocation did not complete.")))
       }
-      await finalizeWorkspace()
-      if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
-        try {
-          await cleanupRoot()
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
+      catch (error) {
+        cleanupErrors.push(error)
       }
-    })()
-    try {
-      await waitForProviderOperation(cleanupTask, cleanup.signal)
-      if (codexCredentialHome) {
-        try {
-          await releaseCodexCredentialHome()
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
+      finally {
+        releaseWorkspaceCleanup?.()
       }
     }
-    catch (error) {
-      cleanupTimedOut = providerCleanupTimedOut(error)
-      const repeatsInvocationFailure = caught !== undefined && (error === caught || error === effectiveSignal?.reason)
-      if (!repeatsInvocationFailure) cleanupErrors.push(error)
-      if (cleanupTimedOut) {
-        if (runtimeCleanupFailure !== undefined) cleanupErrors.push(runtimeCleanupFailure)
-        try {
-          await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : error))
-        }
-        catch (releaseError) {
-          cleanupErrors.push(releaseError)
-        }
-        forcedRootCleanup = toolCleanup
-          .catch(() => undefined)
-          .then(finalizeWorkspace)
-          .finally(cleanupRoot)
-        observeLateCleanup(forcedRootCleanup)
-        void cleanupTask.catch(() => undefined)
+    if (runtimeCleanupDeferred) void deferredRuntimeStopped.then(finalizeWorkspace)
+    else await finalizeWorkspace()
+    if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+      try {
+        await rm(root, { force: true, recursive: true })
       }
-      else if (repeatsInvocationFailure && !runtimeCleanupDeferred && !workspaceCleanupDeferred) {
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        const cleanupTimeout = agentDiagnostics.AGENT_R0725({ message: "[vitehub] Provider Agent Driver invocation cleanup timed out." })
-        invocationCleanupDeferred = Promise.race([
-          cleanupTask,
-          new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
-        ]).finally(async () => {
-          if (timeout) clearTimeout(timeout)
-          try {
-            await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : cleanupTimeout))
-          }
-          finally {
-            await cleanupRoot()
-          }
-        })
-        observeLateCleanup(invocationCleanupDeferred)
-        void cleanupTask.catch(() => undefined)
+      catch (error) {
+        cleanupErrors.push(error)
       }
     }
-    finally {
-      cleanup.dispose()
-    }
-    const deferredResourceCleanup = forcedRootCleanup || invocationCleanupDeferred || (cleanupTimedOut ? cleanupTask : deferredRuntimeCleanup || deferredWorkspaceCleanup)
-    const deferredCleanup = deferredSessionConsume && deferredResourceCleanup
-      ? Promise.allSettled([deferredSessionConsume, deferredResourceCleanup]).then(() => undefined)
-      : deferredSessionConsume || deferredResourceCleanup
-    if (preservesProviderSession && sessionKey) {
-      if (completed && caught === undefined && cleanupErrors.length === 0 && !deferredCleanup && pendingResumeCursor !== undefined) {
-        try {
-          await sessionStore?.commit(pendingResumeCursor)
-          resumeCursors.set(sessionKey, pendingResumeCursor)
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-          resumeCursors.delete(sessionKey)
-          try {
-            await sessionStore?.invalidate()
-          }
-          catch (invalidationError) {
-            cleanupErrors.push(invalidationError)
-          }
-        }
+    const deferredCleanup = deferredRuntimeCleanup || deferredWorkspaceCleanup
+    if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
+    else releaseSessionLock?.()
+    if (sessionKey) {
+      if (completed && caught === undefined && cleanupErrors.length === 0 && pendingResumeCursor !== undefined) {
+        resumeCursors.set(sessionKey, pendingResumeCursor)
       }
       else {
         resumeCursors.delete(sessionKey)
-        try {
-          await sessionStore?.invalidate()
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
       }
     }
-    if (deferredCleanup) void deferredCleanup.then(releaseSessionLock, releaseSessionLock)
-    else releaseSessionLock?.()
     if (cleanupErrors.length) {
-      const cleanupError = new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
-      if (completed && caught === undefined && cleanupErrors.every(providerCleanupTimedOut)) {
-        yield { error: cleanupError.message, recoverable: true, type: "error" }
-      }
-      else throw cleanupError
+      throw new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
     }
   }
 }
 
-async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntimeConfig>(
-  iterable: AsyncIterable<StreamEvent>,
-  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
-): Promise<AgentAdapterResult> {
+async function generateProvider(iterable: AsyncIterable<StreamEvent>): Promise<AgentAdapterResult> {
   let text = ""
   let finishReason: unknown
   let usageRecord: AgentAdapterResult["usageRecord"]
-  const tracer = context.runtime.traceLog
-    ? createAgentStreamEventTracer({
-        context: context.context,
-        driverContributions: context.driverContributions,
-        input: context.input,
-        invoker: context.invoker,
-        run: context.runtime.run,
-        runtime: context.runtime,
-      })
-    : undefined
-  try {
-    for await (const event of iterable) {
-      await tracer?.write(event)
-      if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
-      else if (event.type === "usage") usageRecord = event.usageRecord
-      else if (event.type === "finish") finishReason = event.reason
-      else if (event.type === "error" && !event.recoverable) throw agentDiagnostics.AGENT_R0726({ message: event.error })
-    }
-  }
-  finally {
-    await tracer?.flush()
+  for await (const event of iterable) {
+    if (event.type === "text-delta" && event.phase !== "commentary") text += event.text
+    else if (event.type === "usage") usageRecord = event.usageRecord
+    else if (event.type === "finish") finishReason = event.reason
+    else if (event.type === "error" && !event.recoverable) throw new Error(event.error)
   }
   return { finishReason, text, usageRecord }
 }
@@ -2566,14 +1112,14 @@ async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntim
 export function createProviderAgentAdapter<
   CALL_OPTIONS = unknown,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
->(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
+>(options: ProviderAgentAdapterOptions<TRuntimeConfig>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
   const resumeCursors = new Map<string, unknown>()
   const sessionLocks = new Map<string, Promise<void>>()
   return {
-    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context), context),
+    generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context)),
     async metadata(context) {
       const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-      const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
+      const instructions = await Promise.all(parts.map(part => typeof part === "function" ? part(context) : part))
       return {
         instructions: instructions.flatMap(value => Array.isArray(value) ? value : value ? [value] : []),
       }
