@@ -1669,6 +1669,32 @@ describe("lazy sources", () => {
     await expect(view.readFile("AGENTS.md")).resolves.toBe("# Source\n")
   })
 
+  it("keeps user-owned ancestors when clearing a nested source mount", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.mkdir("docs")
+    let keys = ["nested/stale.md"]
+    const view = createWorkspaceSourceView({
+      name: "nested-source-cleanup",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }, store)
+    await view.materializeSources()
+    await expect(store.stat("docs/generated/nested/stale.md")).resolves.toMatchObject({ type: "file" })
+
+    keys = []
+    await view.materializeSources()
+
+    await expect(store.stat("docs/generated/nested/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it("removes stale root-mounted lazy source files on refresh", async () => {
     let keys = ["AGENTS.md", "nested/stale.md"]
     registerWorkspace("lazy-root-refresh", defineWorkspace({

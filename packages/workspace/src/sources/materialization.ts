@@ -285,7 +285,9 @@ async function removeStaleMaterializedSourceFiles(
       && sourceMountContainsPath(candidate, entry.path),
     )
     if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || (Boolean(source.mountPath) && !overlapsAnotherSource)))) {
-      for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
+      for (const directory of parentDirectoryPaths(entry.path)) {
+        if (!source.mountPath || sourceMountContainsPath(source, directory)) staleDirectories.add(directory)
+      }
       await control.mutate(() => store.rm(entry.path, { force: true }))
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }

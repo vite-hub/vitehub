@@ -1164,6 +1164,21 @@ describe("defineAgent workspace option", () => {
       .toBe(sourceRootDir)
   })
 
+  it("preserves own __proto__ sources and user precedence when applying discovered roots", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+    const source = { content: "user source", materialize: "startup" as const, mount: "", workspacePath: "user.md" }
+    const agent = workspaceAgentWithSourceRoot(defineAgent({
+      workspace: { sources: { ["__proto__"]: source, __vitehubAgentInstructions: source } },
+      driver: { model: {} as never },
+    }), "/workspace", "Generated instructions") as { sources?: Record<string, unknown> }
+
+    expect(Object.keys(agent.sources!)).toContain("__proto__")
+    expect(Object.getPrototypeOf(agent.sources)).toBe(Object.prototype)
+    expect(agent.sources?.["__proto__"]).toEqual(source)
+    expect(agent.sources?.__vitehubAgentInstructions).toEqual(source)
+  })
+
   it("does not replay capability workspace sources when applying discovered roots", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

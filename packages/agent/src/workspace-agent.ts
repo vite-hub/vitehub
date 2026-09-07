@@ -270,11 +270,13 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
   // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
   const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
-  const sources: Record<string, WorkspaceSourceInput> = {}
-  if (colocatedInstructions) {
-    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
+  const sources: Record<string, WorkspaceSourceInput> = {
+    ...(colocatedInstructions ? {
+      __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" },
+    } : {}),
+    ...colocatedSkills,
+    ...ownedWorkspace.sources,
   }
-  Object.assign(sources, colocatedSkills, ownedWorkspace.sources)
   const workspaceOptions = {
     ...options,
     workspace: {
