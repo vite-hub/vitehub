@@ -144,7 +144,11 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
     const entry = await lstat(generated.path).catch(() => undefined)
     if (entry?.isFile()) {
       const content = await readFile(generated.path, "utf8")
-      const offset = content.lastIndexOf(generated.appendedContent)
+      const expectedOffset = (generated.content?.length ?? 0) + (generated.content?.length ? 2 : 0)
+      let offset = -1
+      for (let candidate = content.indexOf(generated.appendedContent); candidate !== -1; candidate = content.indexOf(generated.appendedContent, candidate + 1)) {
+        if (offset === -1 || Math.abs(candidate - expectedOffset) < Math.abs(offset - expectedOffset)) offset = candidate
+      }
       if (offset !== -1) {
         await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
       }
