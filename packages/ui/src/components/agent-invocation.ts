@@ -1469,12 +1469,6 @@ function renderInvocationActivities(
   const prompt = orderedActivities[firstUser]!;
   const tail = orderedActivities.slice(firstUser + 1);
   const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
-  const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
-    if (firstUser + 1 + offset === lastAssistant) return false;
-    if (activity.kind === "delivery" || activity.kind === "action") return false;
-    if (activity.kind === "message" && activity.role === "assistant" && activity.body?.trim() === finalBody) return false;
-    return true;
-  })]);
   const finalDelivery = tail.findLast(activity => activity.kind === "delivery"
     && activity.status === "completed"
     && activity.attributes["channel.effect.supported"] !== false
@@ -1482,6 +1476,12 @@ function renderInvocationActivities(
     && stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase() === "reply"
     && (activity.attributes["channel.effect.primary"] === true
       || stringAttribute(activity.attributes, "channel.effect.content") === finalBody));
+  const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
+    if (firstUser + 1 + offset === lastAssistant) return false;
+    if (activity === finalDelivery) return false;
+    if (activity.kind === "message" && activity.role === "assistant" && activity.body?.trim() === finalBody) return false;
+    return true;
+  })]);
   const finalDeliveryReceipt = finalDelivery
     ? { ...finalDelivery, attributes: Object.fromEntries(Object.entries(finalDelivery.attributes).filter(([key]) => key !== "channel.effect.content")) }
     : undefined;

@@ -38,6 +38,6 @@ export function channelIcon(channel: string) {
   const label = channelMarks[normalized]?.label ?? channel;
   return h("span", { class: "vh-channel-icon vh-invocation-list__channel", title: label, "aria-label": label }, [
     // Only bundled SVG constants enter innerHTML; channel labels never become markup.
-    h("svg", { viewBox: "0 0 256 256", fill: "currentColor", "aria-hidden": "true", innerHTML: mark.body }),
+    h("svg", { width: "1em", height: "1em", viewBox: "0 0 256 256", fill: "currentColor", "aria-hidden": "true", innerHTML: mark.body }),
   ]);
 }

@@ -656,6 +656,9 @@ describe("Agent Invocation UI", () => {
         },
         { attributes: { "message.content": "Done.", "message.id": "assistant", "message.role": "assistant" }, name: "agent.message", sequence: 6, timestamp, type: "lifecycle" as const },
         { attributes: { "tool.id": "verify", "tool.output": "clean", "tool.name": "verify" }, name: "agent.tool.finish", sequence: 7, timestamp, type: "run" as const },
+        { attributes: { "channel.effect.kind": "reply", "channel.effect.content": "Unsent reply", "error.message": "Telegram disconnected" }, name: "agent.channel.delivery", sequence: 8, timestamp, type: "error" as const },
+        { attributes: { "channel.effect.kind": "status", "channel.effect.content": "Working" }, name: "agent.channel.delivery", sequence: 9, timestamp, type: "run" as const },
+        { attributes: { "vitehub.activity.kind": "action", "vitehub.activity.title": "Updated issue" }, name: "product.issue.completed", sequence: 10, timestamp, type: "run" as const },
       ],
       startedAt: timestamp,
       status: "cancelled" as const,
@@ -682,6 +685,12 @@ describe("Agent Invocation UI", () => {
     await work.trigger("toggle");
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Shell");
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Verify");
+    expect(wrapper.get(".vh-invocation-work__activities").findAll('[data-kind="delivery"]')).toHaveLength(3);
+    expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Unsent reply");
+    expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Updated issue");
+    const failedReply = wrapper.get('[data-kind="delivery"][data-status="failed"]');
+    await failedReply.get("summary").trigger("click");
+    expect(failedReply.text()).toContain("Telegram disconnected");
     expect(rows[2]!.text()).toContain("Reply sent");
     expect(rows[3]!.text()).toContain("Done.");
     expect(wrapper.find('[data-kind="delivery"]').exists()).toBe(true);
@@ -2607,7 +2616,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-framework-mark").attributes("style")).toBeUndefined();
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Checked the diff.");
     expect(wrapper.findAll('.vh-invocation-message[data-role="assistant"]').at(-1)!.text()).toContain("Merged after checks passed.");
-    expect(wrapper.find('[data-kind="delivery"]').exists()).toBe(false);
+    expect(wrapper.find('[data-kind="delivery"]').exists()).toBe(true);
   });
 
   it("renders unsafe pull request annotations as text and failed preparation as failed", () => {
