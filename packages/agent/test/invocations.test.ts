@@ -3103,6 +3103,16 @@ describe("Agent Invocations", () => {
                 name: "agent.usage",
                 type: "run",
               })
+              await context.traceLog?.append({
+                attributes: {
+                  "message.content": "Private title",
+                  "message.id": "answer",
+                  "message.role": "assistant",
+                  "vitehub.auxiliary.kind": "title",
+                },
+                name: "agent.message.delta",
+                type: "run",
+              })
             }
           }
           return "done"
@@ -3123,6 +3133,7 @@ describe("Agent Invocations", () => {
     expect(content.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join(""))
       .toContain("Authorization: Bearer [REDACTED]")
     expect(JSON.stringify(content)).not.toContain(secret)
+    expect(JSON.stringify(content)).not.toContain("Private title")
     expect(JSON.stringify(traceEventsToOpenTelemetrySpans(content, { content: "metadata" }))).not.toContain(secret)
   })
 

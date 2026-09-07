@@ -1253,8 +1253,7 @@ function journalTraceLog(
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const messageDeltaChunkCharacters = maxMessageDeltaCharacters
   const messageDeltaChunkEvents = 32
-  let pendingMessageDelta: TraceEventLogEntry | undefined
-  let pendingMessageDeltaEvents = 0
+  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1266,56 +1265,63 @@ function journalTraceLog(
       sequence,
     })
   }
-  const flushMessageDelta = (final = true) => {
-    if (!pendingMessageDelta) return
-    const content = pendingMessageDelta.attributes?.["message.content"]
+  const messageDeltaKey = (entry: TraceEventLogEntry) => JSON.stringify([
+    entry.attributes?.["message.id"],
+    entry.attributes?.["message.phase"],
+    entry.attributes?.["message.role"],
+    entry.attributes?.["vitehub.auxiliary.kind"],
+  ])
+  const flushMessageDelta = (key: string, final = true) => {
+    const pending = pendingMessageDeltas.get(key)
+    if (!pending) return
+    const content = pending.entry.attributes?.["message.content"]
     if (hasRuntimeType(content, "string")) {
       if (!final && credentialTextMayContinue(content)) return
       const redacted = redactCredentialText(content)
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
         emit({
-          ...pendingMessageDelta,
+          ...pending.entry,
           attributes: {
-            ...pendingMessageDelta.attributes,
+            ...pending.entry.attributes,
             "message.content": redacted.slice(offset, offset + messageDeltaChunkCharacters),
           },
         })
       }
     } else {
-      emit(pendingMessageDelta)
+      emit(pending.entry)
     }
-    pendingMessageDelta = undefined
-    pendingMessageDeltaEvents = 0
+    pendingMessageDeltas.delete(key)
+  }
+  const flushMessageDeltas = (final = true) => {
+    for (const key of pendingMessageDeltas.keys()) flushMessageDelta(key, final)
   }
   const queueMessageDelta = (entry: TraceEventLogEntry) => {
+    const key = messageDeltaKey(entry)
     const rawContent = entry.attributes?.["message.content"]
     const content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
-    const pending = pendingMessageDelta
-    const rawPreviousContent = pending?.attributes?.["message.content"]
+    const pending = pendingMessageDeltas.get(key)
+    const rawPreviousContent = pending?.entry.attributes?.["message.content"]
     const previousContent = Object.prototype.toString.call(rawPreviousContent) === "[object String]"
       ? String(rawPreviousContent)
       : undefined
-    const sameMessage = pending
-      && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
-      && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
-      && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
-      && pending.attributes?.["vitehub.auxiliary.kind"] === entry.attributes?.["vitehub.auxiliary.kind"]
-    if (sameMessage && (previousContent === undefined) === (content === undefined)) {
-      const attributes = { ...pending.attributes, ...entry.attributes }
+    if (pending && (previousContent === undefined) === (content === undefined)) {
+      const attributes = { ...pending.entry.attributes, ...entry.attributes }
       if (previousContent !== undefined && content !== undefined) {
         attributes["message.content"] = `${previousContent}${content}`
       }
-      pendingMessageDelta = { ...entry, attributes }
+      pending.entry = { ...entry, attributes }
     }
     else {
-      flushMessageDelta()
-      pendingMessageDelta = entry
+      flushMessageDelta(key)
+      pendingMessageDeltas.set(key, { entry, events: 0 })
     }
-    pendingMessageDeltaEvents++
-    const pendingContent = pendingMessageDelta.attributes?.["message.content"]
-    if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
+    const current = pendingMessageDeltas.get(key)
+    if (!current) return
+    current.events++
+    const pendingContent = current.entry.attributes?.["message.content"]
+    if (current.events >= messageDeltaChunkEvents
       || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
-      flushMessageDelta(false)
+      flushMessageDelta(key, false)
     }
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
@@ -1340,7 +1346,7 @@ function journalTraceLog(
           queueMessageDelta(safeEntry)
         }
         else {
-          flushMessageDelta(false)
+          flushMessageDeltas(safeEntry.name === "agent.invocation.finish")
           emit(safeEntry)
         }
       }
@@ -1348,7 +1354,7 @@ function journalTraceLog(
       return entry
     },
     entries() {
-      flushMessageDelta()
+      flushMessageDeltas(false)
       return traceLog.entries()
     },
   } as TraceEventLog
