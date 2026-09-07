@@ -106,11 +106,6 @@ export function sanitizeMcpMetadata(value: unknown, seen = new WeakSet<object>()
   return output
 }
 
-async function createMcpClient(config: McpClientConfig): Promise<McpClient> {
-  const runtime = await import("@ai-sdk/mcp")
-  return await runtime.createMCPClient(config)
-}
-
 async function assertMcpToolIntegrity(server: string, tools: Record<string, unknown>, baseline: McpToolFingerprints, integrityLabel: string): Promise<void> {
   const aiSdk = await loadAiSdk()
   if (!hasRuntimeType(aiSdk.fingerprintTools, "function") || !hasRuntimeType(aiSdk.detectToolDrift, "function")) {
@@ -127,6 +122,7 @@ async function assertMcpToolIntegrity(server: string, tools: Record<string, unkn
 async function resolveMcpToolServer(
   resolved: ResolvedMcpToolServer,
   invalidServerMessage: string,
+  createMcpClient?: (config: McpClientConfig) => Promise<McpClient>,
 ): Promise<{ client: McpClient, metadata: unknown, owned: boolean }> {
   if (isMcpClient(resolved.connection)) {
     return {
@@ -139,6 +135,7 @@ async function resolveMcpToolServer(
     }
   }
   if (isMcpClientConfig(resolved.connection)) {
+    if (!createMcpClient) throw agentDiagnostics.AGENT_R0562({ message: invalidServerMessage })
     return {
       client: await createMcpClient(resolved.connection),
       metadata: sanitizeMcpMetadata(resolved.connection),
@@ -160,10 +157,23 @@ export function defineMcpToolCapability<
       const tools: AgentToolSet = {}
       const clients: McpClient[] = []
       clientsByContext.set(context, clients)
+      const definitions = await Promise.allSettled(options.servers.map(server => server.resolve(context)))
+      const definitionFailure = definitions.find(result => result.status === "rejected")
+      if (definitionFailure?.status === "rejected") throw definitionFailure.reason
+      const needsMcpRuntime = definitions.some(result => result.status === "fulfilled"
+        && result.value
+        && isMcpClientConfig(result.value.connection))
+      const mcpRuntime = needsMcpRuntime ? await import("@ai-sdk/mcp") : undefined
       const results = await Promise.allSettled(options.servers.map(async (server, index) => {
-        const serverDefinition = await server.resolve(context)
+        const definition = definitions[index]
+        if (definition?.status !== "fulfilled") return
+        const serverDefinition = definition.value
         if (serverDefinition === false || serverDefinition === null || serverDefinition === undefined) return
-        const { client, metadata, owned } = await resolveMcpToolServer(serverDefinition, options.invalidServerMessage)
+        const { client, metadata, owned } = await resolveMcpToolServer(
+          serverDefinition,
+          options.invalidServerMessage,
+          mcpRuntime ? config => mcpRuntime.createMCPClient(config) : undefined,
+        )
         if (owned) clients[index] = client
         const serverTools = await client.tools()
         if (serverDefinition.integrity) {
