@@ -16206,7 +16206,12 @@ describe("server helpers", () => {
     }
   })
 
-  it.each([false, true])("steers a follow-up into the active inline Channel invocation (failure: %s)", async (failInvocation) => {
+  it.each([
+    { failInvocation: false, lateAcceptance: false },
+    { failInvocation: true, lateAcceptance: false },
+    { failInvocation: false, lateAcceptance: true },
+    { failInvocation: true, lateAcceptance: true },
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance)", async ({ failInvocation, lateAcceptance }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16216,6 +16221,7 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter()
     let runs = 0
+    const acceptance = deferred<void>()
     let steeredPrompt: string | undefined
     let releaseFirst!: () => void
     const firstReleased = new Promise<void>(resolve => { releaseFirst = resolve })
@@ -16233,10 +16239,11 @@ describe("server helpers", () => {
           const runId = context.run?.runId
           if (!runId) throw new Error("Expected an invocation run ID")
           const unregister = registerAgentInvocationInputHandler(runId, {
-            sendInput(input, options) {
+            async sendInput(input, options) {
               if (options.mode !== "steer") return "unsupported"
               steeredPrompt = input.messages?.map(message => message.parts.find(part => typeof part === "string" || part.type === "text") && message.parts.map(part => typeof part === "string" ? part : "text" in part ? part.text : "").join("")).join("\n")
-              if (failInvocation) releaseFirst()
+              if (failInvocation || lateAcceptance) releaseFirst()
+              if (lateAcceptance) await acceptance.promise
               return "accepted"
             },
             support: { steer: true },
@@ -16291,8 +16298,15 @@ describe("server helpers", () => {
       expect(runs).toBe(1)
       expect(steeredPrompt).toBeUndefined()
       const followUp = handler(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+      if (lateAcceptance) {
+        // Completion and owner release must not wait for the in-flight handler.
+        await firstResult
+        await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
+        expect(steeredPrompt).toBe("hello")
+        acceptance.resolve()
+      }
       await expect(followUp).resolves.toMatchObject({ status: 200 })
-      if (!failInvocation) {
+      if (!failInvocation && !lateAcceptance) {
         const pending = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
         const followUpDelivery = pending.find(delivery => delivery.sourceId === "91107")
         expect(followUpDelivery).toBeDefined()
@@ -16311,6 +16325,7 @@ describe("server helpers", () => {
       expect(runs).toBe(2)
       expect(steeredPrompt).toBe("hello")
     } finally {
+      acceptance.resolve()
       releaseFirst()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
