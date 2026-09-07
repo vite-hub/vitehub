@@ -71,6 +71,8 @@ describe("public package export contracts", () => {
       ["@vite-hub/auth/vite", "vite"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
+      ["@vite-hub/browser/internal/chromium", "playwright-core"],
+      ["@vite-hub/browser/internal/chromium.workerd", "playwright-core"],
       ["@vite-hub/browser/vite", "vite"],
       ["@vite-hub/channels/vite", "vite"],
       ["@vite-hub/database/vite", "vite"],
