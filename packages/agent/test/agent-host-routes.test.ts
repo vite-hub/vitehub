@@ -1,4 +1,6 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
+import { getAgentHostWorkspaceInspector, agentHostWorkspaceRoute } from '../src/server/host-workspace.ts'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -43,4 +45,26 @@ it.each([
   { health: { exportName: 'health', route: '/:id' }, workspace: { exportName: 'workspace', route: '/:id' } },
 ])('rejects malformed or colliding route configuration', async configured => {
   await expect(configure({ entry: 'agent.ts', ...configured }, {})).rejects.toThrow()
+})
+
+it('registers the configured Workspace inspector at host startup without replacing other routes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'agent-host-inspector-'))
+  const route = `/host-${crypto.randomUUID()}/:id/workspace`
+  const previous = getAgentHostWorkspaceInspector(agentHostWorkspaceRoute)
+  try {
+    await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+    await symlink(process.cwd(), join(root, 'node_modules/@vite-hub/agent'), 'dir')
+    await writeFile(join(root, 'agent.ts'), 'export const workspace = (id, path) => Response.json({ id, path })')
+    const result = await configure({ entry: 'agent.ts', workspace: { exportName: 'workspace', route } }, { root })
+    // SAFETY: This config hook contributes the Nitro startup plugins asserted by this integration test.
+    const plugins = (result as { nitro: { plugins: string[] } }).nitro.plugins
+    expect(plugins).toHaveLength(1)
+    const plugin = await import(pathToFileURL(plugins[0]!).href)
+    plugin.default()
+    const inspect = getAgentHostWorkspaceInspector(route)
+    expect(inspect).toBeDefined()
+    const response = await inspect!('retained-run', 'src/index.ts')
+    expect(await response.json()).toEqual({ id: 'retained-run', path: 'src/index.ts' })
+    expect(getAgentHostWorkspaceInspector(agentHostWorkspaceRoute)).toBe(previous)
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
