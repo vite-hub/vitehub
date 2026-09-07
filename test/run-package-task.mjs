@@ -104,6 +104,20 @@ function signalExitCode(signal) {
 }
 
 function executePackage(pkg, phase, options) {
+  if (phase === "test") {
+    const packageScript = pkg.manifest.scripts.test
+    let testScript = packageScript.trim()
+    // Only remove leading build tasks that this runner has already completed.
+    for (;;) {
+      const build = /^vp run -t ([@\w./-]+)#build(?:\s*&&\s*|$)/.exec(testScript)
+      if (!build || options.buildResults?.get(build[1])?.status !== "passed") break
+      testScript = testScript.slice(build[0].length)
+    }
+    if (!testScript) return Promise.resolve({ code: 0, signal: undefined })
+    if (testScript !== packageScript.trim()) {
+      return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "--shell-mode", "exec", testScript], options.workspaceRoot, options.signal)
+    }
+  }
   return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "run", phase], options.workspaceRoot, options.signal)
 }
 
@@ -238,6 +252,7 @@ export async function runPackageTask(options) {
   const controller = options.controller ?? new AbortController()
   const execute = options.execute ?? ((pkg, phase, executionOptions) => executePackage(pkg, phase, {
     ...executionOptions,
+    buildResults,
     workspaceRoot,
   }))
   let buildResults
