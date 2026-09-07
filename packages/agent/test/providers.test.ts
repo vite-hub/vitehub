@@ -16253,12 +16253,24 @@ describe("server helpers", () => {
       hooks: { "agent:finish": event => event.reply("Steered reply") },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (messageId: number, threadId = 456) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+      body: JSON.stringify({
+        update_id: messageId,
+        message: {
+          chat: { id: threadId, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: messageId,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
 
     try {
       await state.connect()
       const remoteOwner = await state.acquireLock("chat:calories:telegram:inline-steer:agent:owner", 60_000)
       if (!remoteOwner) throw new Error("Expected a simulated remote inline owner lock")
-      const first = handler(chatWebhookRequest(91_106), "telegram", { agentIdentity: { name: "calories" } })
+      const first = handler(request(91_106), "telegram", { agentIdentity: { name: "calories" } })
       const firstResult = failInvocation
         ? expect(first).rejects.toThrow("steered invocation failed")
         : expect(first).resolves.toMatchObject({ status: 200 })
@@ -16267,7 +16279,7 @@ describe("server helpers", () => {
       await state.releaseLock(remoteOwner)
       await vi.waitFor(() => expect(runs).toBe(1))
       const otherInvoker = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
-        body: JSON.stringify({ message: {
+        body: JSON.stringify({ update_id: 91_108, message: {
           chat: { id: 458, type: "private" },
           from: { id: 456, username: "other" },
           message_id: 91_108,
@@ -16278,10 +16290,10 @@ describe("server helpers", () => {
       await new Promise(resolve => setTimeout(resolve, 75))
       expect(runs).toBe(1)
       expect(steeredPrompt).toBeUndefined()
-      const followUp = handler(chatWebhookRequest(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+      const followUp = handler(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
       await expect(followUp).resolves.toMatchObject({ status: 200 })
       if (!failInvocation) {
-        const pending = await handler.deliveries(chatWebhookRequest(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+        const pending = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
         const followUpDelivery = pending.find(delivery => delivery.sourceId === "91107")
         expect(followUpDelivery).toBeDefined()
         expect(followUpDelivery?.events.some(event => ["completed", "failed", "invocation.completed", "invocation.failed"].includes(event.type))).toBe(false)
@@ -16290,7 +16302,7 @@ describe("server helpers", () => {
       await firstResult
       await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
 
-      const deliveries = await handler.deliveries(chatWebhookRequest(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+      const deliveries = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
       const followUpDelivery = deliveries.find(delivery => delivery.sourceId === "91107")
       const outcome = failInvocation ? "failed" : "completed"
       expect(followUpDelivery?.status).toBe(outcome)
