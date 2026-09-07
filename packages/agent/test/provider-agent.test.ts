@@ -3082,6 +3082,14 @@ cli_auth_credentials_store = "keyring"
     let validationStarted!: () => void
     const validationReady = new Promise<void>(resolve => validationStarted = resolve)
     const validationRelease = new Promise<void>(resolve => finishValidation = resolve)
+    let reportServerCancellation!: () => void
+    const serverCancellation = new Promise<void>(resolve => reportServerCancellation = resolve)
+    const combineSignals = AbortSignal.any.bind(AbortSignal)
+    vi.spyOn(AbortSignal, "any").mockImplementation((signals) => {
+      const signal = combineSignals(signals)
+      signal.addEventListener("abort", reportServerCancellation, { once: true })
+      return signal
+    })
     const controller = new AbortController()
     const execute = vi.fn(async () => undefined)
     runtime("thread-tool-validation-cancel", [event("turn.completed", "thread-tool-validation-cancel", { state: "completed" }, { turnId: "turn-1" })], {
@@ -3095,9 +3103,9 @@ cli_auth_credentials_store = "keyring"
         const toolCallResult = toolCall.then(value => ({ value }), error => ({ error }))
         await validationReady
         controller.abort()
-        await new Promise(resolve => setTimeout(resolve, 20))
-        finishValidation()
         await expect(toolCallResult).resolves.toMatchObject({ error: expect.objectContaining({ message: expect.stringMatching(/AbortError/) }) })
+        await serverCancellation
+        finishValidation()
         await client.close()
       },
     })
