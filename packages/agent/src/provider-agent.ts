@@ -2298,8 +2298,8 @@ async function* runProvider<
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const messages = input.messages ?? (input.message && typeof input.message !== "string" ? [input.message] : [])
-            const text = typeof input.prompt === "string" ? input.prompt : typeof input.message === "string" ? input.message : messages.map(message => getMessageText(message)).join("\n")
+            const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : [])
+            const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
             if (!text.trim()) return "unsupported"
             try {
               const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
@@ -2307,8 +2307,8 @@ async function* runProvider<
                 await activeRuntime.interruptTurn(threadId, steeredTurn.turnId).catch(() => undefined)
                 return "unsupported"
               }
-              emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } } as StreamEvent)
-              emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } } as StreamEvent)
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
               return "accepted"
             } catch {
               return "unavailable"
