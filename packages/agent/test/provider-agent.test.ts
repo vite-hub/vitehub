@@ -3575,7 +3575,11 @@ cli_auth_credentials_store = "keyring"
     { sourceRoot: "docs//./guide/", expectedRoot: "docs/guide", conflicting: false },
     { sourceRoot: "../docs", expectedRoot: undefined, conflicting: false },
     { sourceRoot: "docs", expectedRoot: undefined, conflicting: true },
-  ])("preserves native instructions with source root $sourceRoot and conflicting revisions $conflicting", async ({ sourceRoot, expectedRoot, conflicting }) => {
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs" },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs/nested" },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "" },
+    { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs-other" },
+  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount }) => {
     const threadId = "thread-native-codex-provenance"
     let root = ""
     let instructions = ""
@@ -3606,7 +3610,15 @@ cli_auth_credentials_store = "keyring"
 
     const runContext = context(threadId, {
       workspace,
-      workspaceDefinition: { name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }) } },
+      workspaceDefinition: {
+        name: "docs",
+        sources: {
+          docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }),
+          ...(overlappingMount === undefined ? {} : {
+            other: { mount: overlappingMount, source: github({ repo: "owner/other" }) },
+          }),
+        },
+      },
     })
     runContext.context.set("access", { workspaceScope: { all: false, paths: ["docs/a.md", "docs/b.md"] } })
     // SAFETY: This fixture supplies the trusted access context expected by the helper.

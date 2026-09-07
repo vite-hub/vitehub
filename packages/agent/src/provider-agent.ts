@@ -1561,6 +1561,12 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
     if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(status.revision.id)) return []
     const source = metadata.get(status.source)
     if (!source || source.mountPath !== status.mountPath) return []
+    // A mount alone cannot identify file ownership when another Source overlaps it.
+    if ([...metadata.values()].some(candidate => candidate.key !== source.key
+      && (candidate.mountPath === source.mountPath
+        || !candidate.mountPath || !source.mountPath
+        || candidate.mountPath.startsWith(`${source.mountPath}/`)
+        || source.mountPath.startsWith(`${candidate.mountPath}/`)))) return []
     const sourceFingerprint = source.source.fingerprint
     if (!isRuntimeRecord(sourceFingerprint)) return []
     let fingerprint = sourceFingerprint
