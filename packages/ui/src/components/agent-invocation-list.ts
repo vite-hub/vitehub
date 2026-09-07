@@ -67,6 +67,7 @@ function renderItem(
   return h("li", { key: item.id }, [
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
+      "aria-description": item.description,
       class: "vh-invocation-list__item",
       "data-invocation-id": item.id,
       "data-relative-time": time?.short,
@@ -98,6 +99,7 @@ export const AgentInvocationList = defineComponent({
     ariaLabel: { default: "Agent sessions", type: String },
     continuationKey: [Number, String],
     hasMore: Boolean,
+    /** @deprecated The flat list paginates independently of lifecycle status. */
     remainingStatuses: { default: () => [], type: Array as PropType<readonly AgentInvocationStatus[]> },
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
     loading: Boolean,

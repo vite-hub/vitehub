@@ -2288,6 +2288,16 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 
+  it.each(["failed", "cancelled"] as const)("exposes the %s reason on the focusable session button", (status) => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "terminal", status, title: "Session", description: "Provider disconnected" }],
+      },
+    });
+
+    expect(wrapper.get('button[data-invocation-id="terminal"]').attributes("aria-description")).toBe("Provider disconnected");
+  });
+
   it("shows active and failed statuses while visually hiding completed status", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {

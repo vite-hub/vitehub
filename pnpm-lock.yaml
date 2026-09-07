@@ -2233,6 +2233,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      katex:
+        specifier: ^0.17.0
+        version: 0.17.0
       nitro:
         specifier: catalog:unjs
         version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
