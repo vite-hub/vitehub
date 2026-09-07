@@ -3349,6 +3349,62 @@ cli_auth_credentials_store = "keyring"
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
   })
 
+  it.each([
+    { provider: "codex" as const, file: "AGENTS.md" },
+    { provider: "claude-code" as const, file: "CLAUDE.md" },
+  ])("preserves native $file changes while removing transient provenance", async ({ provider, file }) => {
+    for (const change of ["unchanged", "edit", "replace", "delete", "empty"]) {
+      const threadId = `thread-native-${provider}-${change}`
+      let root = ""
+      let committed: string | undefined
+      const original = change === "empty" ? "" : "native workspace instructions"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onStartSession() {
+          const path = `${root}/${file}`
+          const content = await readFile(path, "utf8")
+          expect(content).toContain("Mounted source provenance")
+          if (change === "edit") await writeFile(path, content.replace(original, "edited instructions") + "\nprovider addition")
+          if (change === "replace") await writeFile(path, "replacement instructions")
+          if (change === "delete") await rm(path)
+        },
+      })
+      const session = {
+        close: vi.fn(async () => undefined),
+        commit: vi.fn(async () => undefined),
+        diff: vi.fn(async () => {
+          committed = await readFile(`${root}/${file}`, "utf8").catch(() => undefined)
+          return { entries: [] }
+        }),
+        exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+        readFile: vi.fn(async () => new Uint8Array()),
+      }
+      const workspace = {
+        fs: {},
+        materializeSources: vi.fn(async () => ({
+          bytes: 0, directories: 0, durationMs: 0, files: 1, path: "",
+          sources: [{ mountPath: "docs", provider: "github", revision: { id: "d".repeat(40), immutable: true }, source: "docs", status: "ready" }],
+        })),
+        startSession: vi.fn(async (options: { target: string }) => {
+          root = options.target
+          await mkdir(root, { recursive: true })
+          await writeFile(`${root}/${file}`, original)
+          return session
+        }),
+        tools: {},
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider }).generate(context(threadId, {
+        workspace,
+        workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
+        workspaceMode: "write",
+      }) as never)
+      expect(session.diff).toHaveBeenCalled()
+      expect(committed).toBe(change === "delete" ? undefined
+        : change === "edit" ? "edited instructions\nprovider addition"
+          : change === "replace" ? "replacement instructions" : original)
+    }
+  })
+
   it("materializes AGENTS.md fallback instructions for Claude", async () => {
     const threadId = "thread-claude-agents-fallback"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

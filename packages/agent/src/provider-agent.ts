@@ -96,6 +96,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
+  appendedContent?: string
   content?: Uint8Array
   directories: string[]
   existed: boolean
@@ -139,6 +140,17 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  if (generated.appendedContent !== undefined) {
+    const entry = await lstat(generated.path).catch(() => undefined)
+    if (entry?.isFile()) {
+      const content = await readFile(generated.path, "utf8")
+      const offset = content.indexOf(generated.appendedContent)
+      if (offset !== -1) {
+        await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
+      }
+    }
+    return
+  }
   await rm(generated.path, { force: true, recursive: true })
   if (generated.link !== undefined) await symlink(generated.link, generated.path)
   else if (generated.existed) {
@@ -2160,6 +2172,7 @@ async function* runProvider<
         materializeInstructions = Boolean(instructions)
       }
     }
+    const preserveNativeInstructions = !materializeInstructions
     const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
     if (!instructions && provenanceInstructions && options.provider === "codex") {
       instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
@@ -2179,7 +2192,12 @@ async function* runProvider<
     })
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
-      generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))
+      const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
+      if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
+        // Remove only the injected text so native instruction edits reach Workspace write-back.
+        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+      }
+      generatedProviderFiles.push(generated)
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {
