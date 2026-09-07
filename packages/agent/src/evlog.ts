@@ -25,6 +25,7 @@ export interface AgentEvlogOptions {
   maxPending?: number
   deliveryTimeoutMs?: number
   trustedErrorCodes?: readonly string[]
+  level?: "minimal" | "standard" | "full"
   sessionUrl?: (invocation: { agentName: string, id: string }) => string
 }
 
@@ -71,7 +72,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new TypeError("[vitehub] evlog deliveryTimeoutMs must be a positive timer duration.")
   const exporter = options.exporter
-  const level = (options as AgentObservabilityOptions).level ?? "standard"
+  const level = options.level ?? "standard"
   const metadata = { ...options.metadata, service: options.service, environment: options.environment }
   const pending = new Set<Promise<unknown>>()
   const counts = { accepted: 0, failed: 0, dropped: 0 }

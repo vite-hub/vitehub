@@ -1,5 +1,6 @@
 import { inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentInput, AgentRuntimeContext, AgentSettings } from "./types.ts"
 
 export type AgentHealthStatus = "ready" | "degraded" | "unsupported" | "unavailable" | "stale" | "missing-credentials" | "missing-executable" | "quota-exhausted" | "timeout"
@@ -22,11 +23,14 @@ export interface AgentHealthHandlerOptions {
   agentName?: string
 }
 
-function settingsOf(agent: AgentInput): AgentSettings | undefined {
-  return (agent as AgentInput & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
+type AgentHealthTarget = Pick<AgentInput, "workspace" | "box" | "name" | "version">
+
+function settingsOf(agent: AgentHealthTarget): AgentSettings | undefined {
+  // SAFETY: defineAgent attaches this optional private settings field to its callable Agent definition.
+  return (agent as AgentHealthTarget & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
 }
 
-export async function resolveAgentHealth(agent: AgentInput, options: AgentHealthHandlerOptions = {}): Promise<AgentHealthReport> {
+export async function resolveAgentHealth(agent: AgentHealthTarget, options: AgentHealthHandlerOptions = {}): Promise<AgentHealthReport> {
   const settings = settingsOf(agent)
   const checks: AgentHealthReport["checks"] = {}
   let driver: ReturnType<typeof normalizeAgentDriver> | undefined
@@ -41,10 +45,10 @@ export async function resolveAgentHealth(agent: AgentInput, options: AgentHealth
   checks.workspace = { status: workspaceConfigured ? "ready" : "unsupported" }
   const box = agent.box || settings?.box
   const integrations: AgentHealthReport["integrations"] = {}
-  if (box && typeof box === "object") {
+  if (box && hasRuntimeType(box, "object")) {
     for (const key of Object.keys(box)) integrations[key] = { configured: true, status: "ready" }
   }
-  const capacity = inspectAgentCapacity(agent as object)
+  const capacity = inspectAgentCapacity(agent)
   if (capacity && capacity.queue && capacity.pending >= capacity.queue.maxPending) {
     checks.capacity = { status: "quota-exhausted" }
   }
@@ -56,8 +60,8 @@ export async function resolveAgentHealth(agent: AgentInput, options: AgentHealth
     ok: status === "ready" || status === "unsupported",
     timestamp: new Date().toISOString(),
     agent: { name: options.agentName || agent.name, version: agent.version },
-    runtime: { node: typeof process !== "undefined", ...(typeof process !== "undefined" ? { pid: process.pid } : {}) },
-    ...(driver ? { driver: { kind: driver.kind, model: "model" in driver && typeof driver.model === "string" ? driver.model : undefined, provider: driver.kind === "provider" ? driver.provider : undefined } } : {}),
+    runtime: { node: Boolean(globalThis.process), ...(globalThis.process ? { pid: globalThis.process.pid } : {}) },
+    ...(driver ? { driver: { kind: driver.kind, model: "model" in driver && hasRuntimeType(driver.model, "string") ? driver.model : undefined, provider: driver.kind === "provider" ? driver.provider : undefined } } : {}),
     ...(capacity ? { capacity } : {}),
     workspace: { configured: workspaceConfigured, ready: workspaceConfigured },
     integrations,
@@ -65,7 +69,7 @@ export async function resolveAgentHealth(agent: AgentInput, options: AgentHealth
   }
 }
 
-export function createAgentHealthHandler(agent: AgentInput, defaults: AgentHealthHandlerOptions = {}) {
+export function createAgentHealthHandler(agent: AgentHealthTarget, defaults: AgentHealthHandlerOptions = {}) {
   return async (request: Request, options: AgentHealthHandlerOptions = {}): Promise<Response> => {
     if (request.method !== "GET" && request.method !== "HEAD") return Response.json({ status: 405, message: "Method not allowed." }, { status: 405 })
     const report = await resolveAgentHealth(agent, { ...defaults, ...options })

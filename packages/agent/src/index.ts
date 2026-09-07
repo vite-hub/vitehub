@@ -767,16 +767,14 @@ function withAgentBox<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): AgentRuntimeContext<TRuntimeConfig> {
   if (context.box) return context
-  const input = hasAgentDefinition(agent)
-    ? (agent as AgentDefinition<TRuntimeConfig> & { box?: AgentSettings<TRuntimeConfig>["box"] }).box
-    : undefined
-  const configured = typeof input === "function" ? input() : input
+  const input = agent.box
+  const configured = hasRuntimeType(input, "function") ? input() : input
   if (!configured) return context
   const box = Object.freeze({
     ...configured,
     definitions: configured,
-    get<T = unknown>(name: string): T | undefined {
-      return configured[name] as T | undefined
+    get(name: string): unknown {
+      return configured[name]
     },
   })
   return { ...context, box }
@@ -1631,17 +1629,24 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   for (const [id, input] of Object.entries(inputs)) {
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const value = input as unknown
-    if (typeof value === "object" && value && "kind" in value && typeof value.kind === "string") continue
-    const channel = typeof input === "function"
+    if (hasRuntimeType(value, "object") && value && "kind" in value && hasRuntimeType(value.kind, "string")) continue
+    const channel = hasRuntimeType(input, "function")
       ? (() => {
           const resolved = input()
-          if (resolved && typeof resolved === "object" && "kind" in resolved) return resolved
+          if (resolved && hasRuntimeType(resolved, "object") && "kind" in resolved) return resolved
+          // SAFETY: Each built-in constructor validates the callback configuration selected by its channel key.
           return id === "discord" ? builtInDiscord<TRuntimeConfig>(resolved as never)
+            // SAFETY: The constructor validates the GitHub callback configuration.
             : id === "github" ? builtInGitHub<TRuntimeConfig>(resolved as never)
+              // SAFETY: The constructor validates the HTTP callback configuration.
               : id === "http" ? builtInHttp<TRuntimeConfig>(resolved as never)
+                // SAFETY: The constructor validates the Slack callback configuration.
                 : id === "slack" ? builtInSlack<TRuntimeConfig>(resolved as never)
+                  // SAFETY: The constructor validates the Teams callback configuration.
                   : id === "teams" ? builtInTeams<TRuntimeConfig>(resolved as never)
+                    // SAFETY: The constructor validates the Telegram callback configuration.
                     : id === "telegram" ? builtInTelegram<TRuntimeConfig>(resolved as never)
+                      // SAFETY: The constructor validates the web chat callback configuration.
                       : id === "webChat" ? builtInWebChat<TRuntimeConfig>(resolved as never)
                         : undefined
         })()
@@ -1788,7 +1793,7 @@ function defineBaseAgent<
     ...(driver.output ? { [baseAgentOutput]: driver.output } : {}),
     ...(capabilitiesResolver ? { [baseAgentCapabilitiesResolver]: capabilitiesResolver } : {}),
     [baseAgentResolve]: resolveBaseAgent,
-    health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition as any)(request, healthOptions as any) },
+    health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
     box,
     channels,
     chat,

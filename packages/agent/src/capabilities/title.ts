@@ -13,6 +13,7 @@ import {
 } from "../internal/channels.ts"
 import { createAgentChatData, createMessage, getMessageText } from "../messages.ts"
 import { normalizeAgentDriver } from "../internal/agent-driver.ts"
+import type { NormalizedAgentDriver } from "../internal/agent-driver.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { toReadableAsyncIterableStream, withAsyncIterator } from "../internal/stream-result.ts"
 import { responseTitleFallbackContextKey } from "../internal/final-channel-output.ts"
@@ -429,14 +430,17 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   // enclosing provider driver so title generation keeps its credentials,
   // environment, launch path, and permissions. A string model override only
   // changes the model name on that inherited driver.
-  const inheritedDriver = context.agentDriver as { kind?: string, model?: string, [key: string]: unknown } | undefined
+  // SAFETY: The invocation runtime supplies the normalized enclosing driver.
+  const inheritedDriver = context.agentDriver as NormalizedAgentDriver | undefined
   if (inheritedDriver?.kind === "provider") {
     try {
       const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
-      const providerDriver = typeof options.model === "string"
+      const providerDriver = hasRuntimeType(options.model, "string")
         ? { ...inheritedDriver, model: options.model }
         : inheritedDriver
-      return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, { ...options, driver: providerDriver as never }, timedInput, prompt)), maxLength, fallback)
+      const { createProviderAgentAdapter } = await import("../provider-agent.ts")
+      const result = await raceTimeout(Promise.resolve(createProviderAgentAdapter(providerDriver).generate(titleAdapterRunContext(context, timedInput, prompt))))
+      return cleanGeneratedTitle(await titleResultText(result), maxLength, fallback)
     }
     catch (error) {
       return recoverGeneration(error, true)

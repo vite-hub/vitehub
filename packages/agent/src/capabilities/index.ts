@@ -1,11 +1,6 @@
 export {
   access,
 } from "./access.ts"
-export { cost } from "./cost.ts"
-export type { CostOptions } from "./cost.ts"
-export { repositoryHost } from "./repository-host.ts"
-export { repositoryHostContext } from "./repository-host-context.ts"
-export { subagents } from "./subagents.ts"
 export {
   createAgentEvlog,
   observability,
@@ -295,39 +290,6 @@ export type {
   PapercutSeverity,
   PosthogPapercutsOptions,
 } from "./papercuts.ts"
-export type {
-  RepositoryHostClient,
-  RepositoryHostOptions,
-  RepositoryHostProvider,
-  RepositoryHostReadOperation,
-  RepositoryHostReadRequest,
-  RepositoryHostTarget,
-  RepositoryHostTargetKind,
-  RepositoryHostToolPolicy,
-  RepositoryHostWriteOperation,
-  RepositoryHostWriteRequest,
-} from "./repository-host.ts"
-export type {
-  AsyncRecord,
-  JsonObject,
-  JsonPrimitive,
-  JsonValue,
-  PullRequestContextComment,
-  PullRequestContextFile,
-  PullRequestContextMetadata,
-  PullRequestContextRef,
-  PullRequestContextUser,
-  PullRequestContextValue,
-  RepositoryHostContextCapabilityFactory,
-  RepositoryHostContextInput,
-  RepositoryHostContextOptions,
-  RepositoryHostContextResolver,
-  RepositoryHostContextTarget,
-  RepositoryHostContextTargetResolver,
-  RepositoryHostContextTargetValue,
-  RepositoryHostContextValue,
-  RepositoryHostIssueContext,
-} from "./repository-host-context.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,

@@ -16,16 +16,16 @@ describe("agent-owned Box", () => {
     const configured = { github: { credentials } }
     const agent = defineAgent({
       box: configured,
-      driver: { run: async context => context.box?.get<typeof configured.github>("github")?.credentials?.() },
+      driver: { run: context => context.box?.get("github") },
       runtime: false,
     })
 
     expect(agent.box).toBe(configured)
-    expect(await runAgentInline(agent, runtime(), {})).toEqual({ token: "secret" })
+    expect(await runAgentInline(agent, runtime(), {})).toBe(configured.github)
   })
 
   it("preserves an explicitly supplied runtime Box context", async () => {
-    const supplied = { definitions: { custom: { value: 1 } }, get: <T>(name: string) => name === "custom" ? { value: 1 } as T : undefined }
+    const supplied = { definitions: { custom: { value: 1 } }, get: (name: string) => name === "custom" ? { value: 1 } : undefined }
     const agent = defineAgent({ box: { own: { value: 2 } }, driver: { run: context => context.box?.get("custom") }, runtime: false })
     const context = { ...runtime(), box: supplied }
     const seen = await runAgentInline(agent, context, {})

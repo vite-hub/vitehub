@@ -80,7 +80,7 @@ export type AgentBoxInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRunti
 export interface AgentBoxContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   readonly definitions: AgentBoxDefinitions
   readonly [name: string]: unknown
-  get<T = unknown>(name: string): T | undefined
+  get(name: string): unknown
 }
 
 export interface AgentHostIdentity {
