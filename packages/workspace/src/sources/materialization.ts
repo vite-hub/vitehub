@@ -327,6 +327,7 @@ export async function reconcileRemovedStartupSources(
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
   for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath)) {
     const snapshot = await readSourceSnapshotMetadata(store, source.key)
+    if (snapshot?.mountPath !== source.mountPath) continue
     const staleDirectories = new Set<string>()
     for (const path of Object.keys(snapshot?.items || {})) {
       const file = await store.readFile(path)

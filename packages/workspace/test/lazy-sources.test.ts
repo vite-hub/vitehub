@@ -253,6 +253,13 @@ describe("lazy sources", () => {
     await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
 
+    await store.setMeta?.("workspace:startup-sources", [{ key: "skill", mountPath: ".agents/skills/old" }])
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/new") },
+    }, store).materializeSources({ sources: ["skill"] })
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
+
     await createWorkspaceSourceView({ name: "moved-startup-source", sources: {} }, store).materializeSources({ sources: [] })
     await expect(store.stat(".agents/skills/new/SKILL.md")).resolves.toBeUndefined()
   })
