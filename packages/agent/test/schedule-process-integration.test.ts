@@ -103,7 +103,7 @@ describe("Agent Process Schedule integration", () => {
                 "export const defineEventHandler = handler => handler",
                 "export const getRequestHeaders = event => event.headers || {}",
                 "export const getRequestURL = event => new URL(event.url)",
-                "export const getRequestWebStream = event => event.body",
+                "export const getRequestWebStream = event => event.req.body",
                 "export const getRouterParam = (event, name) => event.params?.[name]",
               ].join("\n")
             }
@@ -121,6 +121,7 @@ describe("Agent Process Schedule integration", () => {
           { find: /^@vite-hub\/schedule\/runtime$/, replacement: join(scheduleSourceRoot, "runtime.ts") },
           { find: /^@vite-hub\/schedule\/runtime\/driver$/, replacement: join(scheduleSourceRoot, "runtime", "driver.ts") },
           { find: /^@vite-hub\/schedule\/runtime\/process$/, replacement: join(scheduleSourceRoot, "runtime", "process.ts") },
+          { find: /^@vite-hub\/schedule\/runtime\/static$/, replacement: join(scheduleSourceRoot, "runtime", "static.ts") },
           { find: /^@vite-hub\/kv$/, replacement: join(kvSourceRoot, "index.ts") },
           { find: /^@vite-hub\/workspace\/runtime$/, replacement: join(workspaceSourceRoot, "runtime.ts") },
         ],
