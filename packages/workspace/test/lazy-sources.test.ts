@@ -1691,6 +1691,36 @@ describe("lazy sources", () => {
     await expect(workspace.readFile("AGENTS.md")).resolves.toBe("# AGENTS.md\n")
   })
 
+  it.each(["getMeta", "setMeta", "both"] as const)("cleans owned root files without %s snapshot support", async (missing) => {
+    const store: WorkspaceStore = createMemoryWorkspaceStore()
+    if (missing === "getMeta" || missing === "both") store.getMeta = undefined
+    if (missing === "setMeta" || missing === "both") store.setMeta = undefined
+    let keys = ["AGENTS.md", "nested/stale.md"]
+    const definition = {
+      name: "root-without-snapshot",
+      sources: {
+        rootFiles: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }
+    await store.writeFile("user.md", { path: "user.md", content: "user content" })
+    await store.writeFile("other.md", { path: "other.md", content: "other source", metadata: { source: "other" } })
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["AGENTS.md"]
+
+    await createWorkspaceSourceView(definition, store).materializeSources()
+
+    await expect(store.stat("nested/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("nested")).resolves.toBeUndefined()
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "AGENTS.md" })
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user content" })
+    await expect(store.readFile("other.md")).resolves.toMatchObject({ content: "other source" })
+  })
+
   it("materializes root-mounted lazy sources for scoped paths", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
     registerWorkspace("lazy-root-scoped", defineWorkspace({
