@@ -696,6 +696,14 @@ function boundedObservationAttributeValue(
   maxStringLength: number,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
+  if (key === "message.content") {
+    // Message chunks can fill the capture limit without consuming identity metadata space.
+    const contentBudget = { ...budget, stringLength: maxStringLength }
+    const content = boundedObservationValue(value, contentBudget, 0, maxStringLength, builtIns)
+    budget.items = contentBudget.items
+    budget.truncated ||= contentBudget.truncated
+    return content
+  }
   if (key !== "vitehub.agent.configuration") return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
   const configurationBudget: ObservationBudget = {
     items: 65_536,

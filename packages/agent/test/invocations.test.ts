@@ -3137,6 +3137,45 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(traceEventsToOpenTelemetrySpans(content, { content: "metadata" }))).not.toContain(secret)
   })
 
+  it.each([true, false])("preserves chunk content and identity with content-first attributes %s", async (contentFirst) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const expected = "message text ".repeat(40)
+    const identity = {
+      "agent.run.id": "budget-order",
+      "message.id": "answer",
+      "message.phase": "final",
+      "message.role": "assistant",
+    }
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: contentFirst
+            ? { "message.content": expected, ...identity }
+            : { ...identity, "message.content": expected },
+          name: "agent.message.delta",
+          type: "run",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("budget-order"), {})
+    const observations = (await invocations.getByRunId("budget-order"))?.observations ?? []
+    const deltas = observations.filter(entry => entry.name === "agent.message.delta")
+    expect(deltas.length).toBeGreaterThan(1)
+    expect(deltas.map(entry => entry.attributes?.["message.content"]).join("")).toBe(expected)
+    for (const delta of deltas) {
+      expect(delta.attributes).toMatchObject(identity)
+      expect(delta.attributes?.["vitehub.observation.truncated"]).toBeUndefined()
+      expect(String(delta.attributes?.["message.content"]).length).toBeLessThanOrEqual(128)
+    }
+  })
+
   it.each(["Bearer", "Basic"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
     const invocations = defineAgentInvocations({
       content: "content",
