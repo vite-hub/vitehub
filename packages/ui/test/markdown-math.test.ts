@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { defineComponent, h, Suspense } from "vue";
 import { mount, flushPromises } from "@vue/test-utils";
 import { AgentMarkdown } from "../src/components/agent-markdown.ts";
+import { Markdown } from "@comark/vue";
 
 async function render(value: string) {
   const wrapper = mount(defineComponent({
@@ -15,6 +16,25 @@ async function render(value: string) {
 }
 
 describe("AgentMarkdown math", () => {
+  it("registers top-level and option plugins once alongside math", async () => {
+    const topLevelPlugin = vi.fn();
+    const optionPlugin = vi.fn();
+    const wrapper = mount(defineComponent({
+      setup() {
+        return () => h(Suspense, null, { default: () => h(AgentMarkdown, {
+          value: "Plugin registration $x^2$",
+          plugins: [{ name: "top-level-test", markdownItPlugins: [topLevelPlugin] }],
+          options: { plugins: [{ name: "option-test", markdownItPlugins: [optionPlugin] }] },
+        }) });
+      },
+    }));
+    await vi.waitFor(() => expect(wrapper.find(".katex").exists()).toBe(true));
+    expect(topLevelPlugin).toHaveBeenCalledTimes(1);
+    expect(optionPlugin).toHaveBeenCalledTimes(1);
+    expect(wrapper.findComponent(Markdown).props("options")).not.toHaveProperty("plugins");
+    wrapper.unmount();
+  });
+
   it("renders dollar and backslash inline/display formulas", async () => {
     const wrapper = await render(String.raw`Use $x^2$ and \(\sigma_w\).
 
