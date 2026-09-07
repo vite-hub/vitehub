@@ -232,6 +232,41 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
   })
 
+  it.each([true, false])("restores overlapping startup files after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
+    const store = createMemoryWorkspaceStore()
+    const retainedKeys = vi.fn(async () => ["shared.md"])
+    const retained = custom({
+      cache: { maxAge: 3600 },
+      materialize: "startup",
+      mount: "",
+      getKeys: retainedKeys,
+      async getItem(key) { return { key, content: "retained" } },
+    })
+    const initial = {
+      name: "overlapping-startup-sources",
+      sources: {
+        retained,
+        removed: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return ["shared.md"] },
+          async getItem(key) { return { key, content: "removed" } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "removed" })
+
+    const next = { name: initial.name, sources: { retained } }
+    await syncWorkspaceDefinition(next, store)
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "shared.md", type: "file" }),
+    ]))
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "retained" })
+    expect(retainedKeys).toHaveBeenCalledTimes(2)
+  })
+
   it.each([true, false])("preserves removed startup history through lazy-only refresh with retained source %s", async (retainStartup) => {
     const store = createMemoryWorkspaceStore()
     const source = (materialize: "startup" | "lazy", workspacePath: string) => ({

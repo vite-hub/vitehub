@@ -332,6 +332,11 @@ export async function reconcileRemovedStartupSources(
     for (const path of Object.keys(snapshot?.items || {})) {
       const file = await store.readFile(path)
       if (file?.metadata?.source !== source.key) continue
+      for (const currentSource of currentSources) {
+        const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
+        if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
+        await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
+      }
       for (const directory of parentDirectoryPaths(path)) {
         if (sourceOwnsDirectory(source, directory)) staleDirectories.add(directory)
       }
