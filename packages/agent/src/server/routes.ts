@@ -4902,13 +4902,47 @@ async function handleChatSdkMessage(
           const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
           const activeRunId = active.runId
           // Once submitted, only the Driver can determine whether input was accepted.
-          const outcome = steerMessage
-            ? await sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
-            : "unsupported"
-          if (outcome === "accepted") {
-            await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: activeRunId })
-            if (active.settleDelivery) await active.settleDelivery(delivery)
-            else (active.steeredDeliveries ??= []).push(delivery)
+          let timedOut = false
+          let timeoutEvidence: Promise<void> | undefined
+          const submission = (steerMessage
+            ? sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
+            : Promise.resolve("unsupported" as const)).then(async (result) => {
+              await timeoutEvidence
+              if (result === "accepted") {
+                // A late authoritative result reconciles the failed wait with the real invocation.
+                if (timedOut) await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: activeRunId })
+                await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: activeRunId })
+                if (active.settleDelivery) await active.settleDelivery(delivery)
+                else (active.steeredDeliveries ??= []).push(delivery)
+              }
+              return result
+            })
+          let steeringTimer: ReturnType<typeof setTimeout> | undefined
+          const steeringWait = Math.max(0, Math.min(options?.timeout ?? 28_000, 28_000, maximumInvocationDeadline === undefined ? Infinity : maximumInvocationDeadline - Date.now()))
+          let outcome: Awaited<typeof submission> | "timed-out"
+          try {
+            outcome = await Promise.race([
+              submission,
+              new Promise<"timed-out">((resolve) => {
+                steeringTimer = setTimeout(() => {
+                  timedOut = true
+                  timeoutEvidence = recordChannelDeliveryEvidence(delivery, {
+                    error: "Timed out waiting for steering confirmation; submission may still be accepted.",
+                    type: "failed",
+                    runId: activeRunId,
+                  })
+                  resolve("timed-out")
+                }, steeringWait)
+              }),
+            ])
+          } finally {
+            if (steeringTimer) clearTimeout(steeringTimer)
+          }
+          if (outcome === "timed-out") {
+            await timeoutEvidence
+            // Do not add an unbounded task to flushWaitUntil, which some webhook hosts await.
+            void submission.catch(() => undefined)
+            return
           }
           if (outcome === "accepted") return
           if (outcome === "invalid-state") {

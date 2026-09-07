@@ -16210,8 +16210,11 @@ describe("server helpers", () => {
     { failInvocation: false, lateAcceptance: false },
     { failInvocation: true, lateAcceptance: false },
     { failInvocation: false, lateAcceptance: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true },
+    { failInvocation: true, lateAcceptance: true, timeoutAcceptance: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, neverAccepts: true },
     { failInvocation: true, lateAcceptance: true },
-  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance)", async ({ failInvocation, lateAcceptance }) => {
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16230,7 +16233,7 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
           adapter: () => adapter as never,
-            messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state },
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 500 },
         }),
       },
       driver: {
@@ -16303,7 +16306,13 @@ describe("server helpers", () => {
         await firstResult
         await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
         expect(steeredPrompt).toBe("hello")
-        acceptance.resolve()
+        if (timeoutAcceptance) {
+          // The webhook must finish even while the authoritative input is unresolved.
+          await expect(followUp).resolves.toMatchObject({ status: 200 })
+          const timedOut = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+          expect(timedOut.find(delivery => delivery.sourceId === "91107")?.status).toBe("failed")
+        }
+        if (!neverAccepts) acceptance.resolve()
       }
       await expect(followUp).resolves.toMatchObject({ status: 200 })
       if (!failInvocation && !lateAcceptance) {
@@ -16316,16 +16325,24 @@ describe("server helpers", () => {
       await firstResult
       await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
 
+      if (neverAccepts) {
+        expect(runs).toBe(2)
+        return
+      }
+      if (lateAcceptance) await vi.waitFor(async () => {
+        const settled = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+        expect(settled.find(delivery => delivery.sourceId === "91107")?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual(timeoutAcceptance ? ["failed", failInvocation ? "failed" : "completed"] : [failInvocation ? "failed" : "completed"])
+      })
       const deliveries = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
       const followUpDelivery = deliveries.find(delivery => delivery.sourceId === "91107")
       const outcome = failInvocation ? "failed" : "completed"
       expect(followUpDelivery?.status).toBe(outcome)
       expect(followUpDelivery?.events.filter(event => event.type === "invocation.completed" || event.type === "invocation.failed").map(event => event.type)).toEqual([`invocation.${outcome}`])
-      expect(followUpDelivery?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual([outcome])
+      expect(followUpDelivery?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual(timeoutAcceptance ? ["failed", outcome] : [outcome])
       expect(runs).toBe(2)
       expect(steeredPrompt).toBe("hello")
     } finally {
-      acceptance.resolve()
+      if (!neverAccepts) acceptance.resolve()
       releaseFirst()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
