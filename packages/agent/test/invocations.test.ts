@@ -3081,7 +3081,8 @@ describe("Agent Invocations", () => {
 
   it("preserves privacy filtering when coalesced message content crosses the former chunk boundary", async () => {
     const first = `${"x".repeat(8)}Authorization: Bear`
-    const second = "er sensitive-value"
+    const secret = `sensitive-${"x".repeat(256)}`
+    const deltas = [first, `er ${secret.slice(0, 140)}`, `${secret.slice(140)} complete`]
     const run = async (runId: string, content: "content" | "metadata") => {
       const invocations = defineAgentInvocations({
         content,
@@ -3090,12 +3091,19 @@ describe("Agent Invocations", () => {
       })
       const agent = defineAgent({
         driver: { async run(context) {
-          for (const value of [first, second]) {
+          for (const value of deltas) {
             await context.traceLog?.append({
               attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
               name: "agent.message.delta",
               type: "run",
             })
+            if (value === first) {
+              await context.traceLog?.append({
+                attributes: { "usage.total_tokens": 12 },
+                name: "agent.usage",
+                type: "run",
+              })
+            }
           }
           return "done"
         } },
@@ -3107,15 +3115,15 @@ describe("Agent Invocations", () => {
     }
 
     const metadata = await run("private-coalesced-message", "metadata")
-    expect(JSON.stringify(metadata)).not.toContain("sensitive-value")
+    expect(JSON.stringify(metadata)).not.toContain(secret)
     expect(metadata.find(entry => entry.name === "agent.message.delta")?.attributes?.["content.omitted"]).toBeDefined()
 
     const content = await run("exported-coalesced-message", "content")
     expect(content.filter(entry => entry.name === "agent.message.delta").length).toBeGreaterThan(1)
     expect(content.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join(""))
       .toContain("Authorization: Bearer [REDACTED]")
-    expect(JSON.stringify(content)).not.toContain("sensitive-value")
-    expect(JSON.stringify(traceEventsToOpenTelemetrySpans(content, { content: "metadata" }))).not.toContain("sensitive-value")
+    expect(JSON.stringify(content)).not.toContain(secret)
+    expect(JSON.stringify(traceEventsToOpenTelemetrySpans(content, { content: "metadata" }))).not.toContain(secret)
   })
 
   it("persists bounded message chunks while an invocation is still running", async () => {

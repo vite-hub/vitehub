@@ -5,9 +5,9 @@ export function redactCredentialText(value: string): string {
 }
 
 export function credentialTextMayContinue(value: string): boolean {
+  if (/\b(?:Bearer|Basic)\s+\S*$/i.test(value)) return true
+  if (/\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)=\S*$/.test(value)) return true
   const tail = value.slice(-128)
-  if (/\b(?:Bearer|Basic)\s+\S*$/i.test(tail)) return true
-  if (/\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)=\S*$/.test(tail)) return true
   const trailingWord = /\b([A-Za-z][A-Za-z0-9_]*)$/.exec(tail)?.[1]
   if (!trailingWord) return false
   const normalized = trailingWord.toUpperCase()

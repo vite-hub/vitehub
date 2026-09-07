@@ -1340,7 +1340,7 @@ function journalTraceLog(
           queueMessageDelta(safeEntry)
         }
         else {
-          flushMessageDelta()
+          flushMessageDelta(false)
           emit(safeEntry)
         }
       }
