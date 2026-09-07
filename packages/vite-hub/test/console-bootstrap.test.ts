@@ -94,6 +94,7 @@ it("selects an Invocation returned by the active Capability filter", async () =>
 
 it("clears Capability filters for external Agent and Invocation route transitions", () => {
   const selectedCapabilityId = ref<string | undefined>("papercuts");
+  const selectedTriggeredBy = ref<string | undefined>("Ferdinand");
   let refreshes = 0;
 
   expect(resetCapabilityFilterForRouteTransition({
@@ -101,9 +102,19 @@ it("clears Capability filters for external Agent and Invocation route transition
     routeChanged: true,
     scheduleRefresh: () => refreshes++,
     selectedCapabilityId,
+    selectedTriggeredBy,
   })).toBe(true);
   expect(selectedCapabilityId.value).toBeUndefined();
+  expect(selectedTriggeredBy.value).toBeUndefined();
   expect(refreshes).toBe(1);
+});
+
+it("uses server-backed session filters and a larger initial page", () => {
+  expect(consolePage).toContain("query.triggeredBy = selectedTriggeredBy.value");
+  expect(consolePage).toContain("limit: 50");
+  expect(consolePage).toContain("Used capability");
+  expect(consolePage).toContain("Triggered by");
+  expect(consolePage).not.toContain('icon: "i-ph-robot-light"');
 });
 
 it("preserves Capability filters during their own route transition", () => {

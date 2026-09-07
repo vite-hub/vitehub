@@ -61,8 +61,10 @@ const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
 const newChatAgentName = ref<string>();
 const selectedCapabilityId = ref<string>();
+const selectedTriggeredBy = ref<string>();
 const filterOpen = ref(false);
 const capabilityIds = ref<string[]>([]);
+const triggeredByValues = ref<string[]>([]);
 const capabilitiesLoading = ref(false);
 const capabilitiesError = ref<unknown>();
 const initialBootstrapPending = ref(!selectedAgentName.value);
@@ -113,11 +115,13 @@ const list = useAgentInvocations({
   request: requestConsole,
   requestSummaries: requestConsole,
   watch: false,
-  query: computed(() => ({
-    ...(selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
-    ...(selectedCapabilityId.value ? { capability: selectedCapabilityId.value } : {}),
-    limit: 10,
-  })),
+  query: computed(() => {
+    const query: { agent?: string; capability?: string; limit: number; triggeredBy?: string } = { limit: 50 };
+    if (selectedAgentName.value) query.agent = selectedAgentName.value;
+    if (selectedCapabilityId.value) query.capability = selectedCapabilityId.value;
+    if (selectedTriggeredBy.value) query.triggeredBy = selectedTriggeredBy.value;
+    return query;
+  }),
 });
 const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
@@ -196,15 +200,13 @@ const selectedAgentLabel = computed(
 );
 const agentMenuItems = computed<DropdownMenuItem[]>(() =>
   agentNames.value.map((name) => ({
-    icon: "i-ph-robot-light",
     label: name,
     onSelect: () => selectAgent(name),
     trailingIcon: selectedAgentName.value === name ? "i-ph-check-light" : undefined,
   })),
 );
-const capabilityFilterLabel = computed(() =>
-  selectedCapabilityId.value ? `Used ${selectedCapabilityId.value}` : "All capabilities",
-);
+const activeFilterCount = computed(() => Number(Boolean(selectedCapabilityId.value)) + Number(Boolean(selectedTriggeredBy.value)));
+const capabilityOptions = computed(() => capabilityIds.value.map(id => ({ label: capabilityLabel(id), value: id })));
 const routeInvocation = computed(() => {
   const value = route.params.invocation;
   return Array.isArray(value) ? value[0] : value;
@@ -297,11 +299,19 @@ async function loadCapabilityIds(): Promise<void> {
     const ids = Array.isArray(value?.capabilities)
       ? value.capabilities.map(stringValue).filter((id): id is string => Boolean(id?.trim()))
       : [];
+    const people = Array.isArray(value?.triggeredBy)
+      ? value.triggeredBy.map(stringValue).filter((name): name is string => Boolean(name?.trim()))
+      : [];
     if (capabilityIdsRequest === controller) {
       capabilityIds.value = [...new Set(ids.map((id) => id.trim()))].sort();
+      triggeredByValues.value = [...new Set(people.map((name) => name.trim()))].sort((left, right) => left.localeCompare(right));
       capabilitiesError.value = undefined;
       if (selectedCapabilityId.value && !capabilityIds.value.includes(selectedCapabilityId.value)) {
         selectedCapabilityId.value = undefined;
+        scheduleInvocationListRefresh();
+      }
+      if (selectedTriggeredBy.value && !triggeredByValues.value.includes(selectedTriggeredBy.value)) {
+        selectedTriggeredBy.value = undefined;
         scheduleInvocationListRefresh();
       }
     }
@@ -325,6 +335,16 @@ function record(value: unknown): Record<string, unknown> | undefined {
 function stringValue(value: unknown): string | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate strings at the capability boundary.
   return typeof value === "string" ? value : undefined;
+}
+
+function capabilityLabel(id: string): string {
+  const packageSuffix = id.match(/(?:^|_)s([a-z][a-z0-9-]*)$/i)?.[1];
+  const source = packageSuffix || id.split(/[/:]/).at(-1) || id;
+  return source
+    .replace(/^@/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b(api|github|mcp|ui)\b/gi, value => value.toLowerCase() === "github" ? "GitHub" : value.toUpperCase())
+    .replace(/(^|\s)\p{Ll}/gu, value => value.toUpperCase());
 }
 
 function numericValue(value: unknown): number | undefined {
@@ -420,17 +440,15 @@ async function selectAgent(name: string): Promise<void> {
   updateSelectedAgentName(name);
   selectedInvocationId.value = undefined;
   selectedCapabilityId.value = undefined;
+  selectedTriggeredBy.value = undefined;
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
   });
 }
 
-async function selectCapability(capabilityId?: string): Promise<void> {
-  if (selectedCapabilityId.value === capabilityId) return;
+async function applySessionFilters(): Promise<void> {
   newChatAgentName.value = undefined;
-  selectedCapabilityId.value = capabilityId;
-  filterOpen.value = false;
   selectedInvocationId.value = undefined;
   closeDetails();
   const transition = {
@@ -454,6 +472,25 @@ async function selectCapability(capabilityId?: string): Promise<void> {
       pendingCapabilityFilterRouteTransition = undefined;
     }
   }
+}
+
+function selectCapability(capabilityId?: string): void {
+  if (selectedCapabilityId.value === capabilityId) return;
+  selectedCapabilityId.value = capabilityId;
+  void applySessionFilters();
+}
+
+function selectTriggeredBy(triggeredBy?: string): void {
+  if (selectedTriggeredBy.value === triggeredBy) return;
+  selectedTriggeredBy.value = triggeredBy;
+  void applySessionFilters();
+}
+
+function resetSessionFilters(): void {
+  if (!activeFilterCount.value) return;
+  selectedCapabilityId.value = undefined;
+  selectedTriggeredBy.value = undefined;
+  void applySessionFilters();
 }
 
 async function toggleUsage(): Promise<void> {
@@ -624,6 +661,7 @@ watch(
       routeChanged,
       scheduleRefresh: scheduleInvocationListRefresh,
       selectedCapabilityId,
+      selectedTriggeredBy,
     });
     const availableFirstInvocation = filterReset ? undefined : firstInvocation;
     if (requestedInvocation || requestedAgent) {
@@ -809,7 +847,7 @@ onBeforeUnmount(() => {
       resizable
     >
       <template #header>
-        <div class="flex min-w-0 items-center gap-2 px-2">
+        <div class="flex min-w-0 items-center gap-2 px-[0.625rem]">
           <ConsoleMark class="size-4" />
           <span class="shrink-0 text-xs font-medium text-muted">ViteHub Agent</span>
           <UDropdownMenu
@@ -847,7 +885,7 @@ onBeforeUnmount(() => {
             ]"
           />
         </div>
-        <div class="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
+        <div class="flex shrink-0 items-center gap-1 px-[0.625rem] pb-2 pt-1">
           <UDashboardSearchButton
             block
             class="vitehub-console__search min-w-0 flex-1 rounded-md bg-transparent px-2 ring-0 hover:bg-elevated/60"
@@ -868,73 +906,78 @@ onBeforeUnmount(() => {
           <UPopover
             v-model:open="filterOpen"
             :content="{ align: 'start', collisionPadding: 12 }"
-            :ui="{ content: 'w-64 p-2' }"
+            :ui="{ content: 'w-80 max-w-[calc(100vw-1.5rem)] p-3' }"
           >
             <UButton
               aria-label="Filter sessions"
-              :color="selectedCapabilityId ? 'primary' : 'neutral'"
+              :color="activeFilterCount ? 'primary' : 'neutral'"
               icon="i-ph-funnel-light"
               size="xs"
               square
-              :variant="selectedCapabilityId ? 'soft' : 'ghost'"
+              :variant="activeFilterCount ? 'soft' : 'ghost'"
             />
             <template #content>
-              <div class="grid gap-1">
-                <div class="flex items-center justify-between gap-3 px-2 py-1">
+              <div class="grid gap-3">
+                <div class="flex items-start justify-between gap-3">
                   <div>
                     <p class="text-sm font-medium">Filter sessions</p>
-                    <p class="text-xs text-muted">Capability actually used</p>
+                    <p class="text-xs text-muted">Narrow the complete session history.</p>
                   </div>
-                  <UBadge v-if="selectedCapabilityId" color="primary" size="sm" variant="subtle"
-                    >1</UBadge
-                  >
+                  <UBadge v-if="activeFilterCount" color="primary" size="sm" variant="subtle">{{ activeFilterCount }}</UBadge>
                 </div>
-                <UButton
-                  block
-                  class="justify-start"
-                  color="neutral"
-                  label="All capabilities"
-                  :trailing-icon="!selectedCapabilityId ? 'i-ph-check-light' : undefined"
-                  variant="ghost"
-                  @click="selectCapability()"
-                />
-                <USeparator />
                 <div
                   v-if="capabilitiesLoading"
-                  class="grid gap-2 px-2 py-2"
-                  aria-label="Loading capabilities"
+                  class="grid gap-2 py-1"
+                  aria-label="Loading session filters"
                   role="status"
                 >
-                  <USkeleton v-for="index in 3" :key="index" class="h-7 rounded" />
+                  <USkeleton v-for="index in 2" :key="index" class="h-8 rounded" />
                 </div>
-                <p v-else-if="errorMessage(capabilitiesError)" class="px-2 py-2 text-xs text-error">
+                <p v-else-if="errorMessage(capabilitiesError)" class="py-1 text-xs text-error">
                   {{ errorMessage(capabilitiesError) }}
                 </p>
-                <p v-else-if="!capabilityIds.length" class="px-2 py-2 text-xs text-muted">
-                  No capability use recorded yet.
-                </p>
                 <template v-else>
-                  <UButton
-                    v-for="capabilityId in capabilityIds"
-                    :key="capabilityId"
-                    block
-                    class="justify-start font-mono"
-                    color="neutral"
-                    :label="capabilityId"
-                    :trailing-icon="
-                      selectedCapabilityId === capabilityId ? 'i-ph-check-light' : undefined
-                    "
-                    variant="ghost"
-                    @click="selectCapability(capabilityId)"
-                  />
+                  <label class="grid gap-1.5 text-xs font-medium">
+                    <span>Used capability</span>
+                    <USelectMenu
+                      :model-value="selectedCapabilityId"
+                      :items="capabilityOptions"
+                      value-key="value"
+                      label-key="label"
+                      placeholder="Any capability"
+                      :search-input="{ placeholder: 'Search capabilities…' }"
+                      clear
+                      size="sm"
+                      @update:model-value="selectCapability"
+                    />
+                  </label>
+                  <label class="grid gap-1.5 text-xs font-medium">
+                    <span>Triggered by</span>
+                    <USelectMenu
+                      :model-value="selectedTriggeredBy"
+                      :items="triggeredByValues"
+                      placeholder="Anyone"
+                      :search-input="{ placeholder: 'Search people…' }"
+                      clear
+                      size="sm"
+                      @update:model-value="selectTriggeredBy"
+                    />
+                  </label>
+                  <p v-if="!capabilityIds.length && !triggeredByValues.length" class="text-xs text-muted">
+                    No filter values recorded yet.
+                  </p>
                 </template>
-                <p
-                  v-if="selectedCapabilityId"
-                  class="truncate px-2 pt-1 text-xs text-muted"
-                  :title="capabilityFilterLabel"
-                >
-                  {{ capabilityFilterLabel }}
-                </p>
+                <div class="flex items-center justify-between gap-2 border-t border-default pt-2">
+                  <p class="text-xs text-muted">Filters apply to all sessions.</p>
+                  <UButton
+                    color="neutral"
+                    label="Reset"
+                    size="xs"
+                    variant="ghost"
+                    :disabled="!activeFilterCount"
+                    @click="resetSessionFilters"
+                  />
+                </div>
               </div>
             </template>
           </UPopover>
