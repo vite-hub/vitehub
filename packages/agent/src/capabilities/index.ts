@@ -2,16 +2,6 @@ export {
   access,
 } from "./access.ts"
 export {
-  createAgentEvlog,
-  observability,
-} from "../evlog.ts"
-export type {
-  AgentEvlog,
-  AgentEvlogExporter,
-  AgentEvlogOptions,
-  AgentObservabilityOptions,
-} from "../evlog.ts"
-export {
   agentChatContextKey,
   chat,
   getAgentChatContext,
