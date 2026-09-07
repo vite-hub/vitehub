@@ -3551,7 +3551,9 @@ async function createAgentInvocationContext<
     }
     callbackContext = createAgentCallbackContext(runtimeContext)
     const preparationController = new AbortController()
-    input = { ...input, abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, preparationController.signal]) : preparationController.signal }
+    if (driverKind === "provider" && definition?.status) {
+      input = { ...input, abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, preparationController.signal]) : preparationController.signal }
+    }
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,

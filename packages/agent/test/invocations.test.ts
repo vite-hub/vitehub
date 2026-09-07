@@ -7,7 +7,7 @@ import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
 import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
-import { applyAgentInvocationStoreUpdate, bindAgentInvocations } from "../src/invocations.ts"
+import { applyAgentInvocationStoreUpdate, bindAgentInvocations, byteBoundedObservations, observationLimits } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
@@ -45,6 +45,21 @@ function inspectableToolCapability() {
 }
 
 describe("Agent Invocations", () => {
+  it("retains a configuration truncation marker when earlier observations fill the byte budget", () => {
+    const timestamp = "2026-09-07T00:00:00.000Z"
+    const result = byteBoundedObservations([
+      { name: "agent.invocation.finish", sequence: 2, timestamp, type: "run", attributes: { note: "x".repeat(170) } },
+      { name: "vitehub.agent.configured", sequence: 1, timestamp, type: "run", attributes: { "vitehub.agent.configuration": { instructions: "x".repeat(1_000) } } },
+    ], observationLimits({ maxBytes: 400 }))
+
+    expect(result.truncated).toBe(true)
+    expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(400)
+    expect(result.observations).toContainEqual(expect.objectContaining({
+      name: "vitehub.agent.configured",
+      attributes: { "vitehub.agent.configurationTruncated": true },
+    }))
+  })
+
   it("does not mark a full journal truncated when retrying an identified observation", () => {
     const createdAt = "2026-02-02T02:02:02.000Z"
     const observations = Array.from({ length: 256 }, (_, index) => ({

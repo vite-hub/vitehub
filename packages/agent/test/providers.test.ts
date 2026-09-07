@@ -2270,7 +2270,7 @@ describe("agent Vite plugin", () => {
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(webhookRoute).toContain("import { createAgentWebhookRequest, createChannelChatRouteHandler")
+      expect(webhookRoute).toMatch(/import \{[^}]*createAgentWebhookRequest[^}]*createChannelChatRouteHandler[^}]*\} from "@vite-hub\/agent\/server\/internal"/)
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
       expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
