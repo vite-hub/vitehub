@@ -656,10 +656,10 @@ watch(
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
     const preserveCapabilityFilter =
       routeChanged &&
-      isCapabilityFilterRouteTransition(pendingCapabilityFilterRouteTransition, {
-        agent: requestedAgent,
-        invocation: requestedInvocation,
-      });
+      (requestedAgent === agentName || isCapabilityFilterRouteTransition(pendingCapabilityFilterRouteTransition, {
+          agent: requestedAgent,
+          invocation: requestedInvocation,
+        }));
     if (routeChanged) pendingCapabilityFilterRouteTransition = undefined;
     const filterReset = resetCapabilityFilterForRouteTransition({
       preserve: preserveCapabilityFilter,
@@ -853,7 +853,7 @@ onBeforeUnmount(() => {
       resizable
     >
       <template #header>
-        <div class="flex min-w-0 items-center gap-2 px-[0.625rem]">
+        <div class="flex min-w-0 items-center gap-2 px-[0.875rem]">
           <ConsoleMark class="size-4" />
           <span class="shrink-0 text-xs font-medium text-muted">ViteHub Agent</span>
           <UDropdownMenu
@@ -891,7 +891,7 @@ onBeforeUnmount(() => {
             ]"
           />
         </div>
-        <div class="flex shrink-0 items-center gap-1 px-[0.625rem] pb-2 pt-1">
+        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
           <UDashboardSearchButton
             block
             class="vitehub-console__search min-w-0 flex-1 rounded-md bg-transparent px-2 ring-0 hover:bg-elevated/60"
@@ -945,6 +945,7 @@ onBeforeUnmount(() => {
                   <label class="grid gap-1.5 text-xs font-medium">
                     <span>Used capability</span>
                     <USelectMenu
+                      aria-label="Used capability"
                       :model-value="selectedCapabilityId"
                       :items="capabilityOptions"
                       value-key="value"
@@ -959,6 +960,7 @@ onBeforeUnmount(() => {
                   <label class="grid gap-1.5 text-xs font-medium">
                     <span>Triggered by</span>
                     <USelectMenu
+                      aria-label="Triggered by"
                       :model-value="selectedTriggeredBy"
                       :items="triggeredByValues"
                       placeholder="Anyone"
