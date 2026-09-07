@@ -45,6 +45,21 @@ function inspectableToolCapability() {
 }
 
 describe("Agent Invocations", () => {
+  it.each([2, 100, 400])("rejects configuration updates when the marker cannot fit a %i-byte budget", (maxBytes) => {
+    expect(() => byteBoundedObservations([
+      {
+        name: "vitehub.agent.configured",
+        sequence: 1,
+        timestamp: "2026-09-07T00:00:00.000Z",
+        type: "run",
+        attributes: {
+          note: "x".repeat(400),
+          "vitehub.agent.configuration": { instructions: "x".repeat(1_000) },
+        },
+      },
+    ], observationLimits({ maxBytes }))).toThrow("increase observations.maxBytes to retain configuration truncation evidence")
+  })
+
   it("retains a configuration truncation marker when earlier observations fill the byte budget", () => {
     const timestamp = "2026-09-07T00:00:00.000Z"
     const result = byteBoundedObservations([
