@@ -186,19 +186,44 @@ describe("Provider Agent Driver", () => {
     vi.stubEnv("VITEHUB_UNRELATED_SECRET", "do-not-expose")
     vi.stubEnv("CLIPROXY_BASE_URL", "http://127.0.0.1:8317/v1")
     vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
-    const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected", CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY }, provider: "codex" })
+    const adapter = createProviderAgentAdapter({ env: { PROVIDER_SELECTED: "selected" }, provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(context(threadId) as never)
 
     expect(createProviderRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
-      environment: expect.objectContaining({ PROVIDER_SELECTED: "selected", CLIPROXY_API_KEY: "proxy-test-key" }),
+      environment: expect.objectContaining({ PROVIDER_SELECTED: "selected", CLIPROXY_BASE_URL: "http://127.0.0.1:8317/v1", CLIPROXY_API_KEY: "proxy-test-key" }),
       settings: { binaryPath: "/app/node_modules/@openai/codex/bin/codex.js" },
     }))
     expect(createProviderRuntime).toHaveBeenCalled()
     const lastRuntimeCall = createProviderRuntime.mock.lastCall
     expect(lastRuntimeCall).toBeDefined()
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
+    vi.unstubAllEnvs()
+  })
+
+  it.each([
+    { provider: "codex", endpoint: undefined },
+    { provider: "codex", endpoint: "   " },
+    { provider: "claude-code", endpoint: "http://127.0.0.1:8317/v1" },
+  ] as const)("filters ambient CLIProxy credentials for $provider with endpoint $endpoint", async ({ provider, endpoint }) => {
+    const threadId = "thread-filter-proxy"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    vi.stubEnv("CLIPROXY_BASE_URL", endpoint)
+    vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
+    await createProviderAgentAdapter({ provider }).generate(context(threadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("CLIPROXY_API_KEY")
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("CLIPROXY_BASE_URL")
+    vi.unstubAllEnvs()
+  })
+
+  it.each([undefined, ""])("allows driver.env to disable ambient CLIProxy forwarding with %s", async (endpoint) => {
+    const threadId = "thread-disable-proxy"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    vi.stubEnv("CLIPROXY_BASE_URL", "http://127.0.0.1:8317/v1")
+    vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
+    await createProviderAgentAdapter({ env: { CLIPROXY_BASE_URL: endpoint }, provider: "codex" }).generate(context(threadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("CLIPROXY_API_KEY")
     vi.unstubAllEnvs()
   })
 
@@ -266,6 +291,8 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-launch-diagnostic"
     const secret = "launch-secret-value"
     const shortSecret = "x7z"
+    vi.stubEnv("CLIPROXY_BASE_URL", "http://127.0.0.1:8317/v1")
+    vi.stubEnv("CLIPROXY_API_KEY", "ambient-proxy-secret")
     runtime(threadId, [], {
       async onStartSession() {
         const options = createProviderRuntime.mock.lastCall?.[0]
@@ -279,6 +306,7 @@ describe("Provider Agent Driver", () => {
         expect(persisted).not.toContain(secret)
         expect(persisted).toContain("token=[REDACTED] short=[REDACTED] label=ordinary-value")
         expect(persisted).not.toContain(shortSecret)
+        expect(persisted).not.toContain("ambient-proxy-secret")
         throw new Error("Codex App Server process exited with code 5")
       },
     })
@@ -288,7 +316,7 @@ describe("Provider Agent Driver", () => {
       await createProviderAgentAdapter({
         env: { SHORT_TOKEN: shortSecret },
         launch: {
-          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value\\n`);process.exit(5)'],
+          args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.CLIPROXY_API_KEY}\\n`);process.exit(5)'],
           command: process.execPath,
         },
         provider: "codex",
@@ -305,7 +333,7 @@ describe("Provider Agent Driver", () => {
       details: {
         exitCode: 5,
         phase: "launch",
-        stderr: "runner failed token=[REDACTED] short=[REDACTED] label=ordinary-value",
+        stderr: "runner failed token=[REDACTED] short=[REDACTED] label=ordinary-value proxy=[REDACTED]",
       },
     })
     expect(shape?.requestId).toMatch(/^provider-[a-f0-9]{12}$/)
@@ -313,6 +341,8 @@ describe("Provider Agent Driver", () => {
     expect((failure as Error & { cause?: unknown }).cause).toMatchObject({ message: "Codex App Server process exited with code 5" })
     expect(JSON.stringify(shape)).not.toContain(secret)
     expect(JSON.stringify(shape)).not.toContain(shortSecret)
+    expect(JSON.stringify(shape)).not.toContain("ambient-proxy-secret")
+    vi.unstubAllEnvs()
   })
 
   it("redacts arbitrary provider credentials before truncating launch stderr", async () => {
@@ -3211,14 +3241,17 @@ cli_auth_credentials_store = "keyring"
   it("filters ambient secrets from Workspace command environments", async () => {
     const previousSecret = process.env.VITEHUB_PROVIDER_HOST_SECRET
     process.env.VITEHUB_PROVIDER_HOST_SECRET = "host-secret"
+    vi.stubEnv("CLIPROXY_BASE_URL", "http://127.0.0.1:8317/v1")
+    vi.stubEnv("CLIPROXY_API_KEY", "proxy-test-key")
     try {
-      const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ explicit: process.env.EXPLICIT_VALUE, secret: process.env.VITEHUB_PROVIDER_HOST_SECRET }))"], {
+      const result = await localWorkspaceHost().exec(process.execPath, ["-e", "process.stdout.write(JSON.stringify({ explicit: process.env.EXPLICIT_VALUE, secret: process.env.VITEHUB_PROVIDER_HOST_SECRET, proxyKey: process.env.CLIPROXY_API_KEY, proxyEndpoint: process.env.CLIPROXY_BASE_URL }))"], {
         env: { EXPLICIT_VALUE: "selected" },
       })
 
       expect(JSON.parse(result.stdout)).toEqual({ explicit: "selected" })
     }
     finally {
+      vi.unstubAllEnvs()
       if (previousSecret === undefined) delete process.env.VITEHUB_PROVIDER_HOST_SECRET
       else process.env.VITEHUB_PROVIDER_HOST_SECRET = previousSecret
     }
