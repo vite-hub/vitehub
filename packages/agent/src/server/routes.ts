@@ -4791,6 +4791,7 @@ async function handleChatSdkMessage(
   let durableHandoff = false
   let chatFinish: AgentChatQueuedFinishExtension | undefined
   let inlineTurn: InlineChatTurn | undefined
+  let inlineOwnershipAbort: AbortController | undefined
   const inlineScope = options?.concurrency === "steer" ? `${state.keyPrefix}inline-steer:${durableSteerScope ?? thread.id}` : undefined
   let inlineKey: string | undefined
   try {
@@ -4867,12 +4868,17 @@ async function handleChatSdkMessage(
             await pollInlineChatTurn({ done: new Promise(() => undefined) }, maximumInvocationDeadline)
             continue
           }
+          inlineOwnershipAbort = new AbortController()
           let ownershipLost = false
           const renewal = setInterval(() => {
             void state.state.extendLock(ownerLock, 30_000).then((extended) => {
-              if (!extended) ownershipLost = true
+              if (!extended) {
+                ownershipLost = true
+                inlineOwnershipAbort?.abort(agentDiagnostics.AGENT_R0820({ message: "Lost ownership of the active inline Channel turn." }))
+              }
             }).catch(() => {
               ownershipLost = true
+              inlineOwnershipAbort?.abort(agentDiagnostics.AGENT_R0820({ message: "Lost ownership of the active inline Channel turn." }))
             })
           }, 10_000)
           let finishDone = false
@@ -4939,7 +4945,13 @@ async function handleChatSdkMessage(
 
     const manualDelivery = options?.loading !== undefined || options?.delivery === "manual"
     const streamsPhasedReplies = !manualDelivery && (options?.stream !== false || options?.commentary !== undefined)
-    input = { ...input, messages }
+    input = {
+      ...input,
+      messages,
+      ...(inlineOwnershipAbort
+        ? { abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, inlineOwnershipAbort.signal]) : inlineOwnershipAbort.signal }
+        : {}),
+    }
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.

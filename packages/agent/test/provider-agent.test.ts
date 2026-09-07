@@ -2845,7 +2845,7 @@ cli_auth_credentials_store = "keyring"
     expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: "private follow-up", threadId })
   })
 
-  it("does not advertise steering when the provider opens another turn", async () => {
+  it.each([false, true])("does not advertise steering when the provider opens another turn (cancellation fails: %s)", async (cancellationFails) => {
     const threadId = "thread-false-steer"
     let releaseTurn!: () => void
     const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
@@ -2856,13 +2856,14 @@ cli_auth_credentials_store = "keyring"
     })
     provider.sendTurn.mockImplementationOnce(async () => ({ resumeCursor: undefined, threadId, turnId: "turn-1" }))
     provider.sendTurn.mockImplementationOnce(async () => ({ resumeCursor: undefined, threadId, turnId: "turn-2" }))
+    if (cancellationFails) provider.interruptTurn.mockRejectedValueOnce(new Error("cancellation failed"))
     const invocationId = `run-${threadId}`
     const liveContext = context(threadId)
     liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
     const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
-    await expect(sendAgentInvocationInput(invocationId, { prompt: "follow-up" }, { mode: "steer" })).resolves.toBe("unsupported")
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "follow-up" }, { mode: "steer" })).resolves.toBe(cancellationFails ? "unavailable" : "unsupported")
     expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-2")
     releaseTurn()
     expect(JSON.stringify(await result)).not.toContain("input.steered")

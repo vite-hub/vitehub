@@ -2304,7 +2304,7 @@ async function* runProvider<
             try {
               const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
               if (steeredTurn.turnId !== turn.turnId) {
-                await activeRuntime.interruptTurn(threadId, steeredTurn.turnId).catch(() => undefined)
+                await activeRuntime.interruptTurn(threadId, steeredTurn.turnId)
                 return "unsupported"
               }
               emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
