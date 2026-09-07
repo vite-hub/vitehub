@@ -2388,6 +2388,26 @@ describe("lazy sources", () => {
     await expect(store.readFile("docs/index.md")).resolves.toMatchObject({ content: "docs" })
   })
 
+  it.each([true, false])("restores startup ownership after overlapping root build writes with snapshot reuse %s", async (reuseStartupSnapshots) => {
+    const definition = {
+      name: "startup-overlapping-root-build",
+      sources: {
+        built: custom({ materialize: "build", mount: "", files: [{ path: "shared.md", content: "build" }] }),
+        generated: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "startup" }] }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "startup" })
+
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "build" })
+
+    const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots })
+    await expect(inspection.readFile("shared.md")).resolves.toBe("startup")
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ metadata: { source: "generated" } })
+  })
+
   it("preserves a disjoint root startup snapshot during root build cleanup", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, content: "# Startup\n" }))
     const definition = {
