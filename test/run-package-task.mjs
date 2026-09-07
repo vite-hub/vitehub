@@ -104,13 +104,6 @@ function signalExitCode(signal) {
 }
 
 function executePackage(pkg, phase, options) {
-  const packageScript = pkg.manifest.scripts?.[phase]
-  if (phase === "test" && packageScript && /(?:^|&&\s*)vp test(?:\s|$)/.test(packageScript)) {
-    return spawnCommand(join(options.workspaceRoot, "node_modules/.bin/vp"), ["test"], pkg.dir, options.signal)
-  }
-  if (phase === "test" && packageScript?.trim() === `vp run -t ${pkg.name}#build`) {
-    return Promise.resolve({ code: 0, signal: undefined })
-  }
   return spawnCommand("corepack", ["pnpm", "--dir", pkg.dir, "run", phase], options.workspaceRoot, options.signal)
 }
 
