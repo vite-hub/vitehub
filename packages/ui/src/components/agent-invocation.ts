@@ -1474,8 +1474,8 @@ function renderInvocationActivities(
     && activity.attributes["channel.effect.supported"] !== false
     && !stringAttribute(activity.attributes, "channel.effect.skipped")
     && stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase() === "reply"
-    && (activity.attributes["channel.effect.primary"] === true
-      || stringAttribute(activity.attributes, "channel.effect.content") === finalBody));
+    && finalBody !== undefined
+    && stringAttribute(activity.attributes, "channel.effect.content") === finalBody);
   const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
     if (firstUser + 1 + offset === lastAssistant) return false;
     if (activity === finalDelivery) return false;
