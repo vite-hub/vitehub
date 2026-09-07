@@ -211,7 +211,7 @@ describe("lazy sources", () => {
         },
       },
     }
-    await createWorkspaceSourceView(initial, store).materializeSources()
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["instructions", "oldSkill"] })
     await store.writeFile("AGENTS.md", { path: "AGENTS.md", content: "# User instructions\n" })
 
     await createWorkspaceSourceView({
@@ -224,12 +224,37 @@ describe("lazy sources", () => {
           workspacePath: ".agents/skills/new/SKILL.md",
         },
       },
-    }, store).materializeSources()
+    }, store).materializeSources({ sources: ["newSkill"] })
 
     await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# User instructions\n" })
     await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
     await expect(store.stat(".agents/skills/old")).resolves.toBeUndefined()
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
+  })
+
+  it("removes the final startup Source and files left at a previous mount", async () => {
+    const store = createMemoryWorkspaceStore()
+    const source = (mount: string) => custom({
+      materialize: "startup" as const,
+      mount,
+      async getKeys() { return ["SKILL.md"] },
+      async getItem(key) { return { key, content: mount } },
+    })
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/old") },
+    }, store).materializeSources({ sources: ["skill"] })
+
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/new") },
+    }, store).materializeSources({ sources: ["skill"] })
+
+    await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
+
+    await createWorkspaceSourceView({ name: "moved-startup-source", sources: {} }, store).materializeSources({ sources: [] })
+    await expect(store.stat(".agents/skills/new/SKILL.md")).resolves.toBeUndefined()
   })
 
   it("does not let snapshot-reusing inspection suppress normal startup refresh", async () => {

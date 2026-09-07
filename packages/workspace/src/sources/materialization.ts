@@ -312,17 +312,20 @@ async function removeStaleMaterializedSourceFiles(
   }
 }
 
-async function reconcileRemovedStartupSources(
+export async function reconcileRemovedStartupSources(
   store: WorkspaceStore,
   currentSources: ResolvedWorkspaceSource[],
-  control: MaterializationControl,
+  control: MaterializationControl = {
+    isCurrent: () => true,
+    async mutate(operation) { return await operation() },
+    async checkpoint(operation) { return await operation() },
+  },
 ) {
-  const setMeta = store.setMeta
-  if (!store.getMeta || !setMeta) return
+  if (!store.getMeta || !store.setMeta) return
   const value = await store.getMeta(startupSourcesMetaKey)
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
-  const currentKeys = new Set(currentSources.map(source => source.key))
-  for (const source of previousSources.filter(source => !currentKeys.has(source.key))) {
+  const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
+  for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath)) {
     const snapshot = await readSourceSnapshotMetadata(store, source.key)
     const staleDirectories = new Set<string>()
     for (const path of Object.keys(snapshot?.items || {})) {
@@ -339,8 +342,9 @@ async function reconcileRemovedStartupSources(
       }
       catch {}
     }
-    await control.checkpoint(() => setMeta(sourceSnapshotMetaKey(source.key), {}))
+    await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(source.key), {}))
   }
+  if (!currentSources.length) await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, []))
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
@@ -460,8 +464,11 @@ export async function materializeWorkspaceSources(
   const configuredSources = normalizeWorkspaceSources(definition.sources)
   const sources = configuredSources.filter(source => shouldMaterializeSource(source, options))
   const startupSources = configuredSources.filter(source => source.materialize === "startup")
-  const materializesAllStartupSources = !normalizeWorkspacePath(options.path || "") && !options.sources
-  if (materializesAllStartupSources) await reconcileRemovedStartupSources(store, startupSources, control)
+  const rootMaterialization = !normalizeWorkspacePath(options.path || "")
+  const selectedStartupSource = sources.some(source => source.materialize === "startup")
+  if (rootMaterialization && (!options.sources?.length || selectedStartupSource)) {
+    await reconcileRemovedStartupSources(store, startupSources, control)
+  }
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
   let directories = 0
@@ -737,11 +744,10 @@ export async function materializeWorkspaceSources(
     }
   }
 
-  const setMeta = store.setMeta
-  if (materializesAllStartupSources && setMeta) {
-    const readySources = new Set(resultSources.filter(source => source.status === "ready").map(source => source.source))
-    if (startupSources.every(source => readySources.has(source.key))) {
-      await control.checkpoint(() => setMeta(startupSourcesMetaKey, startupSources.map(({ key, mountPath }) => ({ key, mountPath }))))
+  if (rootMaterialization && store.setMeta) {
+    const ready = await Promise.all(startupSources.map(async source => await hasCurrentSourceSnapshot(store, source)))
+    if (ready.every(Boolean)) {
+      await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, startupSources.map(({ key, mountPath }) => ({ key, mountPath }))))
     }
   }
 
