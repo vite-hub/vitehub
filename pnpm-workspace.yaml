@@ -170,6 +170,7 @@ catalogs:
     tinyglobby: ^0.2.17
 
 overrides:
+  vue: catalog:ui
   "@vercel/blob>undici": ^6.28.0
   "ai@>=7.0.0 <8.0.0": 7.0.58
   "glob": ^13.0.6
