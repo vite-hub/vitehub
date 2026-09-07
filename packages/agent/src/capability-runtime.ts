@@ -918,19 +918,20 @@ export async function resolveAgentCapabilities<
     }
     finally {
       const invocationId = invocationContext.get(agentInvocationTraceIdContextKey)
+      const attributes: Record<string, string | number> = {
+        "agent.capability.id": capabilityId,
+        "agent.capability.phase": phase,
+        "agent.capability.outcome": outcome,
+        "agent.capability.durationMs": performance.now() - started,
+      }
+      if (hasRuntimeType(invocationId, "string")) attributes["agent.invocation.id"] = invocationId
+      if (runtime.run?.runId) attributes["agent.run.id"] = runtime.run.runId
       try {
         await runtime.traceLog.append({
           name: `agent.capability.${phase}`,
           type: "lifecycle",
           trace: runtime.trace,
-          attributes: {
-            "agent.capability.id": capabilityId,
-            "agent.capability.phase": phase,
-            "agent.capability.outcome": outcome,
-            "agent.capability.durationMs": performance.now() - started,
-            ...(typeof invocationId === "string" ? { "agent.invocation.id": invocationId } : {}),
-            ...(runtime.run?.runId ? { "agent.run.id": runtime.run.runId } : {}),
-          },
+          attributes,
         })
       }
       catch {

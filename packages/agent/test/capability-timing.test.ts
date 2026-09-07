@@ -99,7 +99,7 @@ describe("capability lifecycle timing", () => {
         capabilities: [
           defineCapability({
             id: "example",
-            resolve() {
+            input() {
               expect(this.id).toBe("example");
               return response;
             },
