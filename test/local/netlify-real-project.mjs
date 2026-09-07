@@ -57,7 +57,7 @@ function previewSpec(packageName, preview) {
   return `https://pkg.pr.new/vite-hub/vitehub/${packageName}@${preview}`
 }
 
-function renderWorkspaceYaml(overrides) {
+function renderWorkspaceYaml(overrides, vitePlusVersion) {
   const overrideLines = Object.entries(overrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
   return [
     "allowBuilds:",
@@ -68,9 +68,9 @@ function renderWorkspaceYaml(overrides) {
     "  msgpackr-extract: false",
     "  node-liblzma: true",
     "catalog:",
-    "  vite: npm:@voidzero-dev/vite-plus-core@0.1.24",
-    "  vitest: npm:@voidzero-dev/vite-plus-test@0.1.24",
-    "  vite-plus: 0.1.24",
+    `  vite: npm:@voidzero-dev/vite-plus-core@${vitePlusVersion}`,
+    `  vitest: npm:@voidzero-dev/vite-plus-test@${vitePlusVersion}`,
+    `  vite-plus: ${vitePlusVersion}`,
     "overrides:",
     "  vite: \"catalog:\"",
     "  vitest: \"catalog:\"",
@@ -86,8 +86,8 @@ function renderWorkspaceYaml(overrides) {
   ].join("\n")
 }
 
-async function writeFixtureFiles(overrides) {
-  await writeFile(join(appDir, "pnpm-workspace.yaml"), renderWorkspaceYaml(overrides), "utf8")
+async function writeFixtureFiles(overrides, vitePlusVersion) {
+  await writeFile(join(appDir, "pnpm-workspace.yaml"), renderWorkspaceYaml(overrides, vitePlusVersion), "utf8")
   await mkdir(join(appDir, "src", "lib"), { recursive: true })
   await mkdir(join(appDir, "server", "agents"), { recursive: true })
   await writeFile(join(appDir, "src", "lib", "reply.ts"), "export const replyMarker = \"netlify-alias-ok\"\n", "utf8")
@@ -194,7 +194,7 @@ async function createProject({ packageSource, preview }) {
   const overrides = packageSource === "local"
     ? await createLocalPackageSpecs(join(baseDir, "vitehub-packs"))
     : { "vite-hub": previewSpec("vite-hub", preview) }
-  await writeFixtureFiles(overrides)
+  await writeFixtureFiles(overrides, vitePlus.version)
 
   const packageSpecs = packageSource === "local"
     ? [overrides["@vite-hub/agent"], overrides["vite-hub"]]
