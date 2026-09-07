@@ -2845,6 +2845,35 @@ cli_auth_credentials_store = "keyring"
     expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: "private follow-up", threadId })
   })
 
+  it("falls back before submitting live steering with attachments", async () => {
+    const threadId = "thread-steer-attachment"
+    let releaseTurn!: () => void
+    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { beforeEvent: () => turnReleased })
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
+    try {
+      await expect(sendAgentInvocationInput(invocationId, {
+        messages: [{ role: "user", parts: [
+          { type: "text", text: "inspect this image" },
+          { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
+        ] }],
+      }, { mode: "steer" })).resolves.toBe("unsupported")
+      expect(provider.sendTurn).toHaveBeenCalledTimes(1)
+      expect(fetchData).not.toHaveBeenCalled()
+    } finally {
+      releaseTurn()
+      await result
+    }
+  })
+
   it.each([false, true])("does not advertise steering when the provider opens another turn (cancellation fails: %s)", async (cancellationFails) => {
     const threadId = "thread-false-steer"
     let releaseTurn!: () => void

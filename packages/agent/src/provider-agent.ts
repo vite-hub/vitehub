@@ -2299,6 +2299,7 @@ async function* runProvider<
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
             const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : [])
+            if (messages.some(message => message.parts.some(isAttachmentPart))) return "unsupported"
             const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
             if (!text.trim()) return "unsupported"
             try {
