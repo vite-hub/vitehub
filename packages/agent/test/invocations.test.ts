@@ -3081,8 +3081,8 @@ describe("Agent Invocations", () => {
 
   it("preserves privacy filtering when coalesced message content crosses the former chunk boundary", async () => {
     const first = `${"x".repeat(8)}Authorization: Bear`
-    const secret = `sensitive-${"x".repeat(256)}`
-    const deltas = [first, `er ${secret.slice(0, 140)}`, `${secret.slice(140)} complete`]
+    const secret = `sensitive-${"x".repeat(700)}`
+    const deltas = [first, `er ${secret.slice(0, 300)}`, secret.slice(300, 600), secret.slice(600), " complete"]
     const run = async (runId: string, content: "content" | "metadata") => {
       const invocations = defineAgentInvocations({
         content,
@@ -3144,7 +3144,7 @@ describe("Agent Invocations", () => {
       driver: { async run(context) {
         for (let index = 0; index < 32; index++) {
           await context.traceLog?.append({
-            attributes: { "message.content": ".", "message.id": "answer", "message.role": "assistant" },
+            attributes: { "message.content": "STATUS", "message.id": "answer", "message.role": "assistant" },
             name: "agent.message.delta",
             type: "run",
           })

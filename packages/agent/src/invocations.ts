@@ -1253,7 +1253,9 @@ function journalTraceLog(
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const messageDeltaChunkCharacters = maxMessageDeltaCharacters
   const messageDeltaChunkEvents = 32
+  const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
+  const redactingCredentialDeltas = new Set<string>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1276,7 +1278,10 @@ function journalTraceLog(
     if (!pending) return
     const content = pending.entry.attributes?.["message.content"]
     if (hasRuntimeType(content, "string")) {
-      if (!final && credentialTextMayContinue(content)) return
+      if (!final && credentialTextMayContinue(content)) {
+        if (content.length < maxPendingCredentialCharacters) return
+        redactingCredentialDeltas.add(key)
+      }
       const redacted = redactCredentialText(content)
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
         emit({
@@ -1298,7 +1303,14 @@ function journalTraceLog(
   const queueMessageDelta = (entry: TraceEventLogEntry) => {
     const key = messageDeltaKey(entry)
     const rawContent = entry.attributes?.["message.content"]
-    const content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
+    let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
+    if (content !== undefined && redactingCredentialDeltas.has(key)) {
+      const boundary = content.search(/\s/)
+      if (boundary < 0) return
+      redactingCredentialDeltas.delete(key)
+      content = content.slice(boundary)
+      entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
+    }
     const pending = pendingMessageDeltas.get(key)
     const rawPreviousContent = pending?.entry.attributes?.["message.content"]
     const previousContent = Object.prototype.toString.call(rawPreviousContent) === "[object String]"
