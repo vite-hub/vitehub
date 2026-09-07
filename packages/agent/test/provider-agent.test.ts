@@ -3190,6 +3190,10 @@ cli_auth_credentials_store = "keyring"
     await rm(heartbeatFile, { force: true })
   })
 
+  it("advertises bounded parallel Workspace materialization for the local host", () => {
+    expect(localWorkspaceHost().materializationConcurrency).toBe(8)
+  })
+
   it("reports executable modes while listing local Workspace files", async () => {
     const root = `/tmp/vitehub-provider-file-modes-${crypto.randomUUID()}`
     await mkdir(root, { recursive: true })
