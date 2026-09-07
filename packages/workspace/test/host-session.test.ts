@@ -1669,6 +1669,34 @@ describe("workspace host sessions", () => {
     expect(maximum).toBe(3)
   })
 
+  it.each([undefined, 1, 3])("shares host materialization concurrency %s across sessions", async (concurrency) => {
+    const docs = workspace()
+    for (let index = 0; index < 6; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+    const host = Object.assign(memoryHost(), { materializationConcurrency: concurrency })
+    const write = host.files.write.bind(host.files)
+    let active = 0
+    let maximum = 0
+    host.files.write = async (path, content, options) => {
+      active++
+      maximum = Math.max(maximum, active)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        await write(path, content, options)
+      }
+      finally {
+        active--
+      }
+    }
+
+    const sessions = await Promise.all(["/first", "/second"].map(target => docs.startSession({ host, target, writeBack: false })))
+    expect(maximum).toBe(concurrency ?? 1)
+    for (const target of ["/first", "/second"]) {
+      for (let index = 0; index < 6; index++) expect(host.readText(`${target}/files/${index}.txt`)).toBe(String(index))
+    }
+    await Promise.all(sessions.map(session => session.close()))
+  })
+
   it("preserves undefined copy failures and drains active copies before cleanup", async () => {
     const docs = workspace()
     for (let index = 0; index < 5; index++) await docs.writeFile(`files/${index}.txt`, String(index))

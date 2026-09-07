@@ -32,7 +32,8 @@ import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 const publicationQueues = new WeakMap<object, Promise<void>>()
 const defaultHostInspectionConcurrency = 16
-const hostInspectionLimiters = new WeakMap<object, <T>(inspect: () => Promise<T>, signal?: AbortSignal) => Promise<T>>()
+const hostInspectionLimiters = new WeakMap<object, ReturnType<typeof createHostLimiter>>()
+const hostMaterializationLimiters = new WeakMap<object, ReturnType<typeof createHostLimiter>>()
 
 function resolveHostInspectionConcurrency(host: WorkspaceSessionHost): number {
   const concurrency = host.inspectionConcurrency ?? defaultHostInspectionConcurrency
@@ -56,16 +57,32 @@ async function mapHostMaterialization<T>(
   visit: (value: T) => Promise<void>,
   signal?: AbortSignal,
 ) {
+  const concurrency = resolveHostMaterializationConcurrency(host)
+  let limit = hostMaterializationLimiters.get(host)
+  if (!limit) {
+    limit = createHostLimiter(concurrency)
+    hostMaterializationLimiters.set(host, limit)
+  }
   let next = 0
   let failed = false
   let failure: unknown
-  const workers = Array.from({ length: Math.min(values.length, resolveHostMaterializationConcurrency(host)) }, async () => {
+  const workers = Array.from({ length: Math.min(values.length, concurrency) }, async () => {
     while (!failed) {
       signal?.throwIfAborted()
       const index = next++
       if (index >= values.length) return
       try {
-        await visit(values[index]!)
+        await limit(async () => {
+          if (failed) return
+          signal?.throwIfAborted()
+          try {
+            await visit(values[index]!)
+          }
+          catch (error) {
+            if (!failed) failure = error
+            failed = true
+          }
+        }, signal)
       }
       catch (error) {
         if (!failed) failure = error
@@ -81,7 +98,12 @@ async function mapHostMaterialization<T>(
 function resolveHostInspectionLimiter(host: WorkspaceSessionHost) {
   const existing = hostInspectionLimiters.get(host)
   if (existing) return existing
-  const concurrency = resolveHostInspectionConcurrency(host)
+  const limit = createHostLimiter(resolveHostInspectionConcurrency(host))
+  hostInspectionLimiters.set(host, limit)
+  return limit
+}
+
+function createHostLimiter(concurrency: number) {
   let active = 0
   const queued: Array<{ grant: () => void }> = []
   const run = async <T>(inspect: () => Promise<T>, signal?: AbortSignal): Promise<T> => {
@@ -115,7 +137,6 @@ function resolveHostInspectionLimiter(host: WorkspaceSessionHost) {
       queued.shift()?.grant()
     }
   }
-  hostInspectionLimiters.set(host, run)
   return run
 }
 
