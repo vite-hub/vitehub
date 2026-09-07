@@ -56,6 +56,7 @@ interface MaterializedStartupSource {
 }
 
 const startupSourcesMetaKey = "workspace:startup-sources"
+const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 
 export interface MaterializationControl {
   isCurrent(): boolean
@@ -284,7 +285,7 @@ async function removeStaleMaterializedSourceFiles(
   const staleDirectories = new Set<string>()
   const entries = source.mountPath
     ? await store.list(source.mountPath, { recursive: true })
-    : previousPaths.size || (store.getMeta && store.setMeta)
+    : previousPaths.size
       ? await Promise.all([...previousPaths].map(async path => await store.stat(path)))
       : await store.list("", { recursive: true })
   for (const entry of entries) {
@@ -320,6 +321,28 @@ export async function reconcileRemovedStartupSources(
     async mutate(operation) { return await operation() },
     async checkpoint(operation) { return await operation() },
   },
+) {
+  // Per-source materializations share removed owners, so finish their cleanup
+  // before another source can observe and delete the same files.
+  const previous = startupReconciliationByStore.get(store)
+  const current = (async () => {
+    await previous
+    await reconcileRemovedStartupSourcesInternal(store, currentSources, control)
+  })()
+  const tail = current.catch(() => {})
+  startupReconciliationByStore.set(store, tail)
+  try {
+    await current
+  }
+  finally {
+    if (startupReconciliationByStore.get(store) === tail) startupReconciliationByStore.delete(store)
+  }
+}
+
+async function reconcileRemovedStartupSourcesInternal(
+  store: WorkspaceStore,
+  currentSources: ResolvedWorkspaceSource[],
+  control: MaterializationControl,
 ) {
   if (!store.getMeta || !store.setMeta) return
   const value = await store.getMeta(startupSourcesMetaKey)

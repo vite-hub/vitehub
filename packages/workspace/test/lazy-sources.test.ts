@@ -153,7 +153,10 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
       content: new TextEncoder().encode("# Review\n"),
     })
-    expect(list).toHaveBeenCalledTimes(1)
+    // Once snapshots contain item paths, refresh only stats those paths.
+    list.mockClear()
+    await view.materializeSources()
+    expect(list).not.toHaveBeenCalled()
   })
 
   it.each(["", "docs"])("omits deleted startup files from the first recursive listing at mount '%s'", async (mount) => {
@@ -266,6 +269,39 @@ describe("lazy sources", () => {
     ]))
     await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "retained" })
     expect(retainedKeys).toHaveBeenCalledTimes(2)
+  })
+
+  it("reconciles a removed owner once during concurrent startup materialization", async () => {
+    const store = createMemoryWorkspaceStore()
+    const source = (key: string) => custom({
+      materialize: "startup",
+      mount: "",
+      async getKeys() { return [key] },
+      async getItem(key) { return { key, content: key } },
+    })
+    const retained = source("shared.md")
+    const other = source("other.md")
+    await createWorkspaceSourceView({
+      name: "concurrent-startup-removal",
+      sources: { retained, other, removed: source("shared.md") },
+    }, store).materializeSources()
+    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed" } })
+    const remove = store.rm.bind(store)
+    const removals = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+      // Let competing source materializations reach reconciliation before deletion.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      await remove(path, options)
+    })
+    const view = createWorkspaceSourceView({
+      name: "concurrent-startup-removal",
+      sources: { retained, other },
+    }, store)
+
+    await view.glob("**/*.md")
+
+    expect(removals.mock.calls.filter(([path]) => path === "shared.md")).toHaveLength(1)
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "shared.md" })
+    await expect(store.readFile("other.md")).resolves.toMatchObject({ content: "other.md" })
   })
 
   it.each([true, false])("preserves removed startup history through lazy-only refresh with retained source %s", async (retainStartup) => {
@@ -2237,6 +2273,37 @@ describe("lazy sources", () => {
     await view.materializeSources({ sources: ["generated"] })
 
     expect(prepare).toHaveBeenCalledTimes(2)
+  })
+
+  it("removes stale root startup files after build cleanup clears their snapshot", async () => {
+    let keys = ["docs/generated.md", "stale.md", "AGENTS.md"]
+    const definition = {
+      name: "startup-cleared-snapshot-cleanup",
+      sources: {
+        docs: custom({ materialize: "build", mount: "docs", files: [{ path: "index.md", content: "docs" }] }),
+        generated: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources({ sources: ["generated"] })
+    await store.writeFile("user.md", { path: "user.md", content: "user" })
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toEqual({})
+    await expect(store.stat("stale.md")).resolves.toBeDefined()
+    keys = ["AGENTS.md"]
+
+    await view.materializeSources({ sources: ["generated"] })
+
+    await expect(store.stat("stale.md")).resolves.toBeUndefined()
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "AGENTS.md" })
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user" })
+    await expect(store.readFile("docs/index.md")).resolves.toMatchObject({ content: "docs" })
   })
 
   it("preserves a disjoint root startup snapshot during root build cleanup", async () => {
