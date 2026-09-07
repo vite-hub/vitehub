@@ -138,7 +138,7 @@ export interface AgentInvocationObservationOptions {
   maxCount?: number
   /** Maximum content string length in UTF-16 code units. Default 65536; maximum 1048576. */
   maxStringLength?: number
-  /** Maximum UTF-8 bytes of the serialized observations array. Default 16 MiB; maximum 64 MiB. */
+  /** Maximum UTF-8 bytes of the serialized observations array. Default 16 MiB; maximum 64 MiB. Updates fail if configuration truncation evidence cannot fit. */
   maxBytes?: number
   /** Time to drain queued observations before terminal recovery. Default 1000 ms; maximum 60000 ms. */
   flushTimeoutMs?: number
@@ -977,6 +977,9 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
         },
       }
       size = encoder.encode(JSON.stringify(candidate)).byteLength
+      if (size + 2 > maxBytes) {
+        throw agentDiagnostics.AGENT_R0908({ message: "[vitehub] Agent Invocation observation byte capacity reached; increase observations.maxBytes to retain configuration truncation evidence." })
+      }
       while (bytes + size + (retained.length ? 1 : 0) > maxBytes && retained.length > 0) {
         const removed = retained.pop()!
         bytes -= encoder.encode(JSON.stringify(removed)).byteLength + (retained.length ? 1 : 0)
