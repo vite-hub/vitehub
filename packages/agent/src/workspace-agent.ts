@@ -34,6 +34,7 @@ import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-cap
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
+import { colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -266,9 +267,12 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
-  const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
-    : { ...ownedWorkspace.sources }
+  const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
+  const sources = {
+    ...(colocatedInstructions ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "startup" as const, mount: "", workspacePath: "AGENTS.md" } } : {}),
+    ...colocatedSkills,
+    ...ownedWorkspace.sources,
+  }
   const workspaceOptions = {
     ...options,
     workspace: {

@@ -1341,6 +1341,32 @@ describe("lazy sources", () => {
     await expect(store.stat("c.bin")).resolves.toBeUndefined()
   })
 
+  it("removes owned stale root files when the store has no snapshot metadata", async () => {
+    let keys = ["AGENTS.md", "stale.md"]
+    const store = createMemoryWorkspaceStore() as WorkspaceStore
+    store.getMeta = undefined
+    store.setMeta = undefined
+    const view = createWorkspaceSourceView({
+      name: "root-cleanup-without-snapshot-metadata",
+      sources: {
+        root: custom({
+          materialize: "lazy",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["root"] })
+    await store.writeFile("user.md", { content: "user", path: "user.md" })
+    keys = ["AGENTS.md"]
+    await view.materializeSources({ sources: ["root"] })
+
+    await expect(store.stat("stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("user.md")).resolves.toMatchObject({ type: "file" })
+  })
+
   it("keeps cache-hit aggregates after scoped materialization", async () => {
     const files = new Map([["a.md", "# A\n"]])
     const view = createWorkspaceSourceView({

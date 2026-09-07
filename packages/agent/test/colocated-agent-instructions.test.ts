@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { agentWithColocatedInstructions, defineAgent } from "../src/index.ts"
-import { loadViteAgent } from "../src/vite/runtime-adapter.ts"
+import { createViteWorkspaceAgentLoader, loadViteAgent } from "../src/vite/runtime-adapter.ts"
 
 import type { ViteDevServer } from "vite"
 import type { DiscoveredAgentDefinition } from "../src/index.ts"
@@ -110,6 +110,32 @@ describe("colocated Agent instructions", () => {
       } as DiscoveredAgentDefinition)
 
       expect(settings(loaded?.agent)?.driver?.instructions).toBe("Review the local invocation.\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("mounts colocated instructions and skills in the Vite Workspace loader", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-colocated-workspace-"))
+    const handler = join(root, "support", "agent.ts")
+    try {
+      await mkdir(join(root, "support", "skills", "review"), { recursive: true })
+      await writeFile(handler, "export default {}", "utf8")
+      await writeFile(join(root, "support", "instructions.md"), "Support the local invocation.\n", "utf8")
+      await writeFile(join(root, "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+      const agent = defineAgent({ workspace: {}, driver: { model } })
+      const server = { ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
+
+      const loaded = await createViteWorkspaceAgentLoader(server, { handler, name: "support", workspace: "support" } as DiscoveredAgentDefinition)()
+      const sources = loaded.default.sources as Record<string, { content: string | Uint8Array, materialize: string, workspacePath: string }>
+
+      expect(sources.__vitehubAgentInstructions).toMatchObject({
+        content: "Support the local invocation.\n",
+        materialize: "startup",
+        workspacePath: "AGENTS.md",
+      })
+      expect(new TextDecoder().decode(sources["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content as Uint8Array)).toBe("# Review\n")
     }
     finally {
       await rm(root, { force: true, recursive: true })

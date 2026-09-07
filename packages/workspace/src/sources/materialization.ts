@@ -272,7 +272,9 @@ async function removeStaleMaterializedSourceFiles(
   const staleDirectories = new Set<string>()
   const entries = source.mountPath
     ? await store.list(source.mountPath, { recursive: true })
-    : await Promise.all([...previousPaths].map(async path => await store.stat(path)))
+    : previousPaths.size || store.getMeta
+      ? await Promise.all([...previousPaths].map(async path => await store.stat(path)))
+      : await store.list("", { recursive: true })
   for (const entry of entries) {
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
@@ -282,7 +284,7 @@ async function removeStaleMaterializedSourceFiles(
       && candidate.mountPath.length >= source.mountPath.length
       && sourceMountContainsPath(candidate, entry.path),
     )
-    if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || !overlapsAnotherSource))) {
+    if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || (Boolean(source.mountPath) && !overlapsAnotherSource)))) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
       await control.mutate(() => store.rm(entry.path, { force: true }))
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)

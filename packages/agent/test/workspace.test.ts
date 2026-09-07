@@ -1155,7 +1155,7 @@ describe("defineAgent workspace option", () => {
     expect((agent as { sources?: unknown }).sources).toMatchObject({
       __vitehubAgentInstructions: {
         content: "Use generated instructions.\n",
-        materialize: "build",
+        materialize: "startup",
         mount: "",
         workspacePath: "AGENTS.md",
       },
