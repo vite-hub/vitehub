@@ -2765,21 +2765,28 @@ describe("Agent Invocations", () => {
     try {
       let releaseFatal!: () => void
       let reportFatalStarted!: () => void
+      let reportFatalRetried!: () => void
+      let fatalWrites = 0
       let failFatal = true
       const fatalGate = new Promise<void>((resolve) => { releaseFatal = resolve })
       const fatalStarted = new Promise<void>((resolve) => { reportFatalStarted = resolve })
+      const fatalRetried = new Promise<void>((resolve) => { reportFatalRetried = resolve })
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
         store: {
           ...memory,
           async update(id, input, claimId) {
-            if (failFatal && input.observation?.attributes?.["error.message"] === "earliest fatal") {
+            const isEarliestFatal = input.observation?.attributes?.["error.message"] === "earliest fatal"
+            if (isEarliestFatal) fatalWrites++
+            if (failFatal && isEarliestFatal) {
               reportFatalStarted()
               await fatalGate
               failFatal = false
               return
             }
-            return memory.update(id, input, claimId)
+            const updated = await memory.update(id, input, claimId)
+            if (isEarliestFatal) reportFatalRetried()
+            return updated
           },
         },
       })
@@ -2802,9 +2809,10 @@ describe("Agent Invocations", () => {
       })
       await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
 
-      const finishing = journal.finish("failed", new Error("earliest fatal"))
       releaseFatal()
-      await finishing
+      await fatalRetried
+      expect(fatalWrites).toBe(2)
+      await journal.finish("failed", new Error("earliest fatal"))
 
       const record = await invocations.getByRunId("retried-earliest-fatal")
       expect(record?.observations).toHaveLength(256)
