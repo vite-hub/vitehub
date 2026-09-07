@@ -19,7 +19,7 @@ import { packageInfos } from "../utils/repo"
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "openworkflow", "playwright-core", "reka-ui", "vite", "vitest", "vue"]
+const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "reka-ui", "vite", "vitest", "vue"]
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -438,8 +438,10 @@ async function addOptionalPeers(appDir: string) {
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
     "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
+    evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
+    "posthog-node": agentManifest.peerDependencies!["posthog-node"]!,
     "reka-ui": viteHubManifest.peerDependencies!["reka-ui"]!,
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vitest: agentManifest.peerDependencies!.vitest!,
@@ -704,8 +706,8 @@ describe("published declaration diagnostics", () => {
 
     expect(fixtureSpecs).toMatchObject({
       "@vite-hub/database": "file:database.tgz",
-      "@workflow/builders": "5.0.0-beta.35",
-      workflow: "5.0.0-beta.35",
+      "@workflow/builders": peerSpecs["@workflow/builders"],
+      workflow: peerSpecs.workflow,
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })
@@ -721,7 +723,7 @@ describe("published declaration diagnostics", () => {
       peerSpecs,
     )
 
-    expect(fixtureSpecs).toMatchObject({ "@cloudflare/playwright": "^1.3.5" })
+    expect(fixtureSpecs).toMatchObject({ "@cloudflare/playwright": peerSpecs["@cloudflare/playwright"] })
     expect(fixtureSpecs).not.toHaveProperty("playwright-core")
   })
 
@@ -737,9 +739,9 @@ describe("published declaration diagnostics", () => {
     )
 
     expect(fixtureSpecs).toMatchObject({
-      "@chat-adapter/discord": "4.38.0",
-      "@vercel/functions": "^3.7.5",
-      askweb: "^0.2.0",
+      "@chat-adapter/discord": peerSpecs["@chat-adapter/discord"],
+      "@vercel/functions": peerSpecs["@vercel/functions"],
+      askweb: peerSpecs.askweb,
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })
@@ -758,10 +760,10 @@ describe("published declaration diagnostics", () => {
     )
 
     expect(fixtureSpecs).toMatchObject({
-      "@aws-sdk/client-s3": "^3.700.0",
-      "@azure/storage-blob": "^12.26.0",
+      "@aws-sdk/client-s3": peerSpecs["@aws-sdk/client-s3"],
+      "@azure/storage-blob": peerSpecs["@azure/storage-blob"],
       "@types/node": "1.0.0",
-      uploadthing: "^7.7.4",
+      uploadthing: peerSpecs.uploadthing,
     })
     expect(fixtureSpecs).not.toHaveProperty("vite")
   })

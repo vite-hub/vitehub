@@ -8,6 +8,8 @@ export async function syncPackedWorkspaceDependencies(
 ): Promise<void> {
   const consumerManifestPath = join(consumerRoot, "package.json")
   const consumerManifest = JSON.parse(await readFile(consumerManifestPath, "utf8"))
+  // Temporary consumers must not inherit the machine's default package manager.
+  consumerManifest.packageManager ??= JSON.parse(await readFile(join(workspaceRoot, "package.json"), "utf8")).packageManager
   const overrides: string[] = []
 
   for (const packageName of packageNames) {

@@ -173,6 +173,8 @@ export interface WorkspaceSessionHostFiles {
 export interface WorkspaceSessionHost {
   readonly executionAuthority: ExecutionAuthority
   readonly inspectionConcurrency?: number
+  /** Maximum independent workspace files copied into this host concurrently. Defaults to 1. */
+  readonly materializationConcurrency?: number
   detachAbortSignal?(): void
   files: WorkspaceSessionHostFiles
   exec(
