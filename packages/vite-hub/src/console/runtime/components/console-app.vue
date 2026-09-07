@@ -165,7 +165,7 @@ watch(
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
     agent: invocation.agentName,
-    channel: invocation.origin || invocation.channelId,
+    channel: invocation.channelId ? invocation.origin || invocation.channelId : undefined,
     context:
       [invocationCostDisplay(invocation), agentInvocationContext(invocation)]
         .filter((value): value is string => Boolean(value))
