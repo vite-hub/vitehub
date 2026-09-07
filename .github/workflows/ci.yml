@@ -14,6 +14,39 @@ concurrency:
 jobs:
   ci:
     name: ci
+    needs:
+      - checks
+      - contract-tests
+      - package-tests
+      - consumer-contracts
+      - windows-agent-credentials
+      - docs
+      - verify-providers
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Require successful verification
+        env:
+          CI_RESULTS: ${{ toJSON(needs) }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const results = JSON.parse(process.env.CI_RESULTS)
+          const failures = Object.entries(results).filter(([name, job]) => {
+            const maySkip = process.env.GITHUB_EVENT_NAME === "pull_request"
+              && !["checks", "package-tests"].includes(name)
+            return job.result !== "success" && !(maySkip && job.result === "skipped")
+          })
+          if (failures.length) {
+            for (const [name, job] of failures) console.error(`${name}: ${job.result}`)
+            process.exitCode = 1
+          }
+          NODE
+
+  checks:
+    name: lint, types and contracts
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
