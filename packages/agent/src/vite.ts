@@ -1,3 +1,4 @@
+import { validateAgentStaticRoute } from "./internal/routes.ts"
 import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
@@ -53,6 +54,8 @@ const generatedAgentDenoServer = "agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = "agent/discord-gateway-route.ts"
 const generatedAgentDiscordGatewayPlugin = "agent/discord-gateway-plugin.ts"
 const generatedAgentWebhookRouteHandler = "agent/chat-webhook-route.ts"
+const generatedAgentPreparationPlugin = "agent/preparation-plugin.ts"
+const generatedAgentPreparationHandler = "agent/preparation-route.ts"
 const generatedAgentWebhookQueuePlugin = "agent/webhook-queue-plugin.ts"
 const generatedAgentNetlifyFunction = "agent/netlify-function.mjs"
 const generatedAgentEmailRuntime = "agent/email-runtime.js"
@@ -1780,7 +1783,7 @@ async function generateAgentDeploymentCatalog(
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -1896,12 +1899,14 @@ async function generateAgentWebhookRouteHandler(
       ? [`const inspectionRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.inspectionRoute))})`]
       : []),
     "",
+    `const webhookAliases: Record<string, { agent: string, webhook: string }> = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/$/, "") || "/", target])))}`,
     "export default defineEventHandler(async (event) => {",
     "  const pathname = getRequestURL(event).pathname",
-    "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
+    "  const alias = webhookAliases[pathname.replace(/\\/$/, '') || '/']",
+    "  const isWebhookRoute = Boolean(alias) || webhookRoutePattern.test(pathname)",
     ...(options.inspectionRoute ? ["  const isInspectionRoute = inspectionRoutePattern.test(pathname)"] : []),
-    "  const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
-    `  const webhook = ${webhookSelector}`,
+    "  const agent = alias?.agent || getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
+    `  const webhook = alias?.webhook || (${webhookSelector})`,
     ...(options.inspectionRoute
       ? [
           "  if (isInspectionRoute) {",
@@ -2032,7 +2037,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentModuleOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
   serverDirs = [join(root, "server")],
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
@@ -2042,6 +2047,28 @@ async function writeAgentWebhookRouteHandler(
   })
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFile(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
+  if (options.preparation) {
+    const { route: _route, ...preparation } = options.preparation
+    await writeFile(join(root, "agent/preparation.ts"), [
+      `import "./chat-webhook-route"`,
+      `import { createWorkspacePreparation } from ${JSON.stringify(subpath(options.workspaceImportBase ?? workspacePackageName, "runtime"))}`,
+      `export const preparation = createWorkspacePreparation(${JSON.stringify(preparation)})`,
+    ].join("\n"), "utf8")
+    await writeFile(join(root, generatedAgentPreparationPlugin), [
+      `import { preparation } from "./preparation"`,
+      `export default function(nitroApp) {`,
+      `  void preparation.start()`,
+      `  nitroApp.hooks.hook("close", () => preparation.stop())`,
+      `}`,
+    ].join("\n"), "utf8")
+    await writeFile(join(root, generatedAgentPreparationHandler), [
+      `import { preparation } from "./preparation"`,
+      `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) { return preparation.response(event.req?.method || event.method || event.node?.req?.method) }`,
+    ].join("\n"), "utf8")
+  }
+  else {
+    for (const file of ["agent/preparation.ts", generatedAgentPreparationPlugin, generatedAgentPreparationHandler]) await rm(join(root, file), { force: true })
+  }
   const gatewayPluginPath = join(root, generatedAgentDiscordGatewayPlugin)
   if (options.processDiscordGateway) {
     await writeFile(gatewayPluginPath, [
@@ -2581,6 +2608,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       else {
         await writeAgentWebhookRouteHandler(generatedRoot, {
+          preparation: normalized.preparation,
+          webhookAliases: normalized.routes.aliases,
           agentImportBase: getAgentImportBase(agent, frameworkOptions),
           cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
           inspectionRoute: normalized.routes.inspection,
@@ -2777,6 +2806,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const hasHostedAgents = Boolean(resolved && hasHostedAgentDefinitions(root, serverDirs))
       const hasScheduledAgents = Boolean(resolved && discoverScheduledAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
+      if (resolved && Object.keys(resolved.routes.aliases || {}).length && (denoOutput || resolveAgentHosting(config) === "netlify")) {
+        throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Webhook aliases currently require a Nitro host." })
+      }
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
       const stateProvider = resolved && resolved.providers.state.provider
@@ -2793,7 +2825,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         && !denoOutput
         && getInternalAgentOptions(agent)?.processDiscordGateway,
       )
+      const installPreparation = Boolean(resolved && hasHostedAgents && !denoOutput && resolved.preparation)
       const nitroHandlers = [
+        ...(installPreparation && resolved && resolved.preparation
+          ? [{ handler: join(generatedRoot, generatedAgentPreparationHandler), route: resolved.preparation.route || "/api/_vitehub/ready" }]
+          : []),
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.inspection
           ? [{
               handler: join(generatedRoot, generatedAgentWebhookRouteHandler),
@@ -2825,9 +2861,30 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             getCloudflareStateImport(agent, frameworkOptions),
           )
         : cloneNitroConfig((config as { nitro?: unknown }).nitro)
+      if (resolved && hasHostedAgents && !denoOutput && resolved.routes.aliases) {
+        const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
+        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        for (const [path, target] of Object.entries(resolved.routes.aliases)) {
+          if (!hasRuntimeType(target?.agent, "string") || !target.agent.trim() || !hasRuntimeType(target?.webhook, "string") || !target.webhook.trim()) {
+            throw agentDiagnostics.AGENT_B0006({ message: "[vitehub] Webhook aliases require an Agent name and webhook name." })
+          }
+          const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers], "webhook alias")
+          nitroHandlers.push({ handler: join(generatedRoot, generatedAgentWebhookRouteHandler), route })
+        }
+      }
+      if (installPreparation && resolved && resolved.preparation) {
+        const existing = Array.isArray(nitro.handlers) ? nitro.handlers : []
+        const routes = existing.filter(isRecord).flatMap(handler => hasRuntimeType(handler.route, "string") ? [{ route: handler.route, middleware: handler.middleware === true }] : [])
+        const preparationHandler = nitroHandlers.find(handler => handler.handler === join(generatedRoot, generatedAgentPreparationHandler))!
+        preparationHandler.route = validateAgentStaticRoute(preparationHandler.route, [
+          ...routes,
+          ...nitroHandlers.filter(handler => handler.handler !== join(generatedRoot, generatedAgentPreparationHandler)),
+        ])
+      }
       const mergedAgentNitro = (nitroContext ? mergeAgentNitroExternals : cloneNitroConfig)(mergeNitroPlugins(
         mergeNitroHandlers(nitro, nitroHandlers),
         [
+          ...(installPreparation ? [join(generatedRoot, generatedAgentPreparationPlugin)] : []),
           ...(installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : []),
           ...(installProcessDiscordGateway ? [join(generatedRoot, generatedAgentDiscordGatewayPlugin)] : []),
         ],

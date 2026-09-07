@@ -27,6 +27,10 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: "devframe/client",
+        replacement: resolve(import.meta.dirname, "mock-rpc.ts"),
+      },
+      {
         find: "@vite-hub/ui/styles.css",
         replacement: resolve(workspaceRoot, "packages/ui/styles.css"),
       },

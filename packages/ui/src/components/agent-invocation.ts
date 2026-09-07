@@ -1,4 +1,4 @@
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
+import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
   agentInvocationContext,
@@ -214,8 +214,35 @@ function payloadPreview(value: unknown, text: string): string {
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
+function invocationError(error: NonNullable<AgentInvocationView["error"]>) {
+  const description = () => [
+    h("p", { class: "vh-invocation-error__message", title: error.message }, error.message),
+    error.fix ? h("p", { class: "vh-invocation-error__recovery" }, error.fix) : null,
+    diagnosticDetails(error),
+  ];
+  const title = error.name && error.name !== "Error" ? error.name : "Run failed";
+  const Alert = getCurrentInstance()?.appContext.components.UAlert;
+  return Alert ? h(Alert, {
+    class: "vh-invocation-error", color: "error", variant: "subtle", icon: "i-lucide-circle-alert", title,
+    ui: { title: "text-xs", description: "text-xs", root: "p-3" },
+  }, { description }) : h("div", { class: "vh-invocation-error", role: "alert" }, [h("strong", title), ...description()]);
+}
+
+function invocationTimestamp(invocation: AgentInvocationView) {
+  const value = [invocation.startedAt, invocation.createdAt].find(value => value && Number.isFinite(Date.parse(value)));
+  if (!value) return null;
+  const date = new Date(value);
+  return h("time", {
+    class: "vh-invocation-session__timestamp",
+    datetime: date.toISOString(),
+    title: date.toLocaleString(undefined, { dateStyle: "full", timeStyle: "long" }),
+  }, date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+}
+
 function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
-  const details: Record<string, unknown> = {};
+  const details: Record<string, unknown> = { message: error.message };
+  if (error.fix) details.fix = error.fix;
+  if (error.docs) details.docs = error.docs;
   if (error.code !== undefined) details.code = error.code;
   if (error.requestId) details.requestId = error.requestId;
   if (error.status !== undefined) details.status = error.status;
@@ -223,7 +250,7 @@ function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
   if (error.details) details.details = error.details;
   if (error.cause) details.cause = error.cause;
   if (error.errors?.length) details.errors = error.errors;
-  if (!Object.keys(details).length) return null;
+  if (Object.keys(details).length === 1) return null;
   return h("details", { class: "vh-invocation-error__details" }, [
     h("summary", "Diagnostic details"),
     h("pre", payloadText(details)),
@@ -1097,6 +1124,10 @@ function inspectorDisclosure(
 }
 
 function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView) {
+  const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
+  const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
+  configuration = { ...configuration, tools, truncated: configuration.truncated || tools.length !== recordedTools.length };
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
@@ -1135,29 +1166,27 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
           h(
             "div",
             { class: "vh-invocation-inspector__stack" },
-            configuration.capabilities.map((capability) =>
-              capability.metadata
-                ? h(
-                    "details",
-                    { class: "vh-invocation-inspector__item-disclosure", key: capability.id },
-                    [
-                      h("summary", [
-                        h("code", capability.id),
-                        h("small", "Metadata"),
-                        renderChevronDown("vh-invocation-inspector__chevron"),
-                      ]),
-                      h("pre", JSON.stringify(capability.metadata, null, 2)),
-                    ],
-                  )
-                : h("div", { class: "vh-invocation-inspector__item", key: capability.id }, [
-                    h("code", capability.id),
-                  ]),
-            ),
+            configuration.capabilities.map((capability) => {
+              const tools = configuration.tools?.filter(tool => tool.capabilityId === capability.id) || [];
+              return h("details", { class: "vh-invocation-inspector__item-disclosure", key: capability.id }, [
+                h("summary", [
+                  h("code", capability.id),
+                  h("small", tools.length ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "Configuration"),
+                  renderChevronDown("vh-invocation-inspector__chevron"),
+                ]),
+                tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)) }) : null,
+                capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
+                  h("summary", "Configuration"),
+                  h("pre", JSON.stringify(capability.metadata, null, 2)),
+                ]) : null,
+                !tools.length && !capability.metadata ? h("p", "No tools or configuration recorded.") : null,
+              ]);
+            }),
           ),
         ])
       : null,
-    configuration.tools?.length
-      ? inspectorTools(configuration.tools, invocationToolUsage(invocation))
+    configuration.tools?.some(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId))
+      ? inspectorTools(configuration.tools.filter(tool => !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation))
       : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
@@ -1430,13 +1459,8 @@ export const AgentInvocation = defineComponent({
         ]) : null,
         h("div", { class: "vh-invocation-thread" }, [
           h("div", { class: "vh-invocation-thread__content" }, [
-            props.invocation.error
-              ? h("div", { class: "vh-invocation-session__error", role: "alert" }, [
-                  h("strong", props.invocation.error.name ?? "Invocation failed"),
-                  h("span", props.invocation.error.message),
-                  diagnosticDetails(props.invocation.error),
-                ])
-              : null,
+            props.invocation.error ? invocationError(props.invocation.error) : null,
+            invocationTimestamp(props.invocation),
             h("div", {
               "aria-label": "Session thread",
               "aria-relevant": "additions text",
@@ -1585,7 +1609,7 @@ export const AgentInvocationInspector = defineComponent({
                   h("small", duration),
                 ],
               ) : null,
-              h("h4", agentInvocationTitle(props.invocation)),
+              h("h4", { class: "vh-invocation-inspector__title" }, agentInvocationTitle(props.invocation)),
               agentInvocationContext(props.invocation) !== props.invocation.id
                 ? h("p", agentInvocationContext(props.invocation))
                 : null,
@@ -1598,13 +1622,7 @@ export const AgentInvocationInspector = defineComponent({
                       : null,
                   ])
                 : null,
-              props.showError && props.invocation.error
-                ? h("div", { class: "vh-invocation-inspector__error" }, [
-                    h("strong", props.invocation.error.name ?? "Invocation failed"),
-                    h("p", props.invocation.error.message),
-                    diagnosticDetails(props.invocation.error),
-                  ])
-                : null,
+              props.showError && props.invocation.error ? invocationError(props.invocation.error) : null,
             ]),
             inspectorSection(
               "Run summary",

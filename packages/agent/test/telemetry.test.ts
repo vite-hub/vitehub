@@ -5,7 +5,9 @@ import { defineAgent, defineCapability, runAgent, streamAgent, type AgentTelemet
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
 import { hasRuntimeType } from "../src/internal/runtime-type.ts"
-import { agentTelemetryConfigurationFingerprint } from "../src/internal/agent-telemetry.ts"
+import { agentTelemetryConfigurationFingerprint, getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
+
+import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
 function telemetryCapability(exporter: AgentTelemetry) {
   return defineCapability({ id: "test-telemetry", telemetry: { exporter } })
@@ -17,6 +19,22 @@ afterEach(() => {
 })
 
 describe("Agent telemetry", () => {
+  it("preserves capability ownership when a provider refreshes tool contracts", async () => {
+    const context = createAgentInvocationContextStore()
+    await setAgentTelemetryConfiguration(context, {
+      driver: { kind: "provider" }, runtime: { name: "node" },
+      tools: [{ name: "search", capabilityId: "docs" }, { name: "removed", capabilityId: "docs" }],
+    })
+    await updateAgentTelemetryConfiguration(context, { tools: [
+      { name: "search", description: "Resolved provider description" }, { name: "native" },
+    ] })
+    expect(getAgentTelemetryConfiguration(context)?.value.tools).toEqual([
+      { name: "search", capabilityId: "docs", description: "Resolved provider description" }, { name: "native" },
+    ])
+    await updateAgentTelemetryConfiguration(context, { tools: [{ name: "search", capabilityId: "other" }] })
+    expect(getAgentTelemetryConfiguration(context)?.value.tools).toEqual([{ name: "search", capabilityId: "other" }])
+  })
+
   it("fingerprints semantic Agent configuration independently of object key order", async () => {
     const left = {
       capabilities: [{ id: "search", metadata: { mode: "read", provider: "docs" } }],

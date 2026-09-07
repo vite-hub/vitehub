@@ -260,6 +260,7 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
   definition: WorkflowDefinition<TPayload, TResult>,
   payload?: TPayload,
   observeSettlement?: (promise: PromiseLike<unknown>) => void,
+  onDispatch?: () => void,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const native = definition.options?.native
   if (!native) {
@@ -275,6 +276,7 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
     provider: "vercel",
   }
   const runtime = await getVercelWorkflowRuntime()
+  onDispatch?.()
   const { id, run } = await runWorkflowProviderOperation("vercel", "start", async () => {
     // SAFETY: Vercel's native transform produces the handler signature accepted by runtime.start.
     const run = await runtime.start(native as never, [context])

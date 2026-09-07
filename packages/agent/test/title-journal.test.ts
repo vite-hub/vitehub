@@ -48,6 +48,40 @@ describe("title journal ownership", () => {
     }))
   })
 
+  it("uses the T3 editorial prompt and normalizes a structured title", async () => {
+    const invocations = journal()
+    const generate = vi.fn((_context: unknown) => '{"title":"Resolve snapshot mismatch"}')
+    await runAgent(defineAgent({
+      capabilities: [title({ driver: { run: generate } })],
+      driver: { run: () => "Done." }, invocations,
+    }), runtime("compact-title"), { prompt: "Company: Back II Basic. Latest customer message: Why do these snapshots disagree?" })
+    expect(generate.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      prompt: expect.stringContaining("3-8 words, fewer than 40 characters"),
+      messages: [],
+    }))
+    expect((await invocations.getByRunId("compact-title"))?.title).toBe("Resolve snapshot mismatch")
+  })
+
+  it("keeps a short fallback when the title provider has no capacity", async () => {
+    const invocations = journal()
+    await runAgent(defineAgent({
+      capabilities: [title({ fallback: "New conversation", driver: { run: () => { throw new Error("Spend cap reached") } } })],
+      driver: { run: () => "Done." }, invocations,
+    }), runtime("title-cap"), { prompt: "Company: Back II Basic. Latest customer message: a long wrapped question" })
+    expect((await invocations.getByRunId("title-cap"))?.title).toBe("New conversation")
+  })
+
+  it("bounds generated titles and strips multiline commentary", async () => {
+    const invocations = journal()
+    await runAgent(defineAgent({
+      capabilities: [title({ execute: () => "A very long customer snapshot investigation title that overflows\nMore commentary" })],
+      driver: { run: () => "Done." }, invocations,
+    }), runtime("bounded-title"), { prompt: "Snapshot mismatch" })
+    const generated = (await invocations.getByRunId("bounded-title"))?.title
+    expect(generated?.length).toBeLessThan(40)
+    expect(generated).not.toContain("commentary")
+  })
+
   it("starts the main answer while the title is pending and joins it before journal completion", async () => {
     const generated = deferred<string>()
     const main = deferred<void>()

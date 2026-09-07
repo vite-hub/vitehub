@@ -2,6 +2,8 @@
 
 Vue primitives for AI chat, Agent Invocations, traces, diffs, and file trees. The styled components compose [Nuxt UI](https://ui.nuxt.com/) and render [AI SDK](https://ai-sdk.dev/) message contracts; the headless entry point provides message-scrolling behavior without the styled component layer.
 
+Markdown images and image attachments use compact thumbnails with an expanded preview. The preview preserves the full aspect ratio and supports Escape, focus return, and opening the original image. Prompt attachments have a separate Remove button.
+
 ## Choose an entry point
 
 | Import                  | Use it for                                                                                | Application responsibility                                                                     |

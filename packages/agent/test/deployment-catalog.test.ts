@@ -14,6 +14,7 @@ interface CapturedStateAdapter {
 }
 
 interface DeploymentRuntimeCapture {
+  webhookRequest?: { body: string, signature: string | null }
   denoHandler?: (request: Request) => Promise<Response>
   lastAgent?: Record<PropertyKey, unknown>
   registeredAgent?: Record<PropertyKey, unknown>
@@ -25,7 +26,7 @@ interface DeploymentRuntimeCapture {
 interface DeploymentRuntimeFixture {
   capture: DeploymentRuntimeCapture
   close: () => Promise<void>
-  request: (agent: string, route: "chat" | "inspection" | "webhooks/channel", method?: string) => Promise<Response>
+  request: (agent: string, route: "chat" | "inspection" | "webhooks/channel" | "alias", method?: string) => Promise<Response>
   supportRoot: string
   waitUntilTasks: Promise<unknown>[]
   workspace: (name: string) => Promise<Record<PropertyKey, unknown>>
@@ -60,7 +61,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "export const createAgentWebhookRequest = input => new Request(input.url, { ...input, ...(input.body ? { duplex: 'half' } : {}) })",
       "export const hasChannelChatRoute = () => true",
       "export const createChannelChatRouteHandler = agent => async (_request, options) => handle('chat', agent, undefined, options)",
-      "export const createChannelWebhookRouteHandler = agent => async (_request, webhook, options) => handle('webhook', agent, webhook, options)",
+      "export const createChannelWebhookRouteHandler = agent => async (request, webhook, options) => { capture().webhookRequest = { body: await request.text(), signature: request.headers.get('x-hub-signature-256') }; return handle('webhook', agent, webhook, options) }",
       "export const createDiscordGatewayRouteHandler = agent => async (_request, options) => handle('discord', agent, undefined, options)",
       "export function markDiscoveredWorkspaceAgentDefinitionRegistered(agent, defaults) {",
       "  const name = agent.__vitehubWorkspaceAgentOptions?.name || defaults.workspace || defaults.name",
@@ -177,7 +178,7 @@ async function createDeploymentRuntimeFixture(
             url: "file:catalog.sqlite",
           },
         },
-        routes: { discordGateway: discordGatewayRoute, inspection: inspectionRoute },
+        routes: { discordGateway: discordGatewayRoute, inspection: inspectionRoute, ...(adapter === "nitro" ? { aliases: { "/api/github/webhook": { agent: supportName, webhook: "github" } } } : {}) },
         ...(adapter === "deno" ? { runtime: "deno" } : {}),
       }),
       {
@@ -253,7 +254,7 @@ async function createDeploymentRuntimeFixture(
         if (!capture.denoHandler) throw new Error("Deno server handler was not registered.")
         return await capture.denoHandler(new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
           ...(body ? { body } : {}),
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
           method,
         }))
       }
@@ -261,7 +262,7 @@ async function createDeploymentRuntimeFixture(
         return await route.default(
           new Request(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`, {
             ...(body ? { body } : {}),
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
             method,
           }),
           {
@@ -272,10 +273,10 @@ async function createDeploymentRuntimeFixture(
           },
         )
       }
-      const url = new URL(`https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`)
+      const url = new URL(requestedRoute === "alias" ? "https://example.com/api/github/webhook/" : `https://example.com/api/_vitehub/agents/${agent}/${requestedRoute}`)
       const req = new Request(url, {
         ...(body ? { body } : {}),
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
         method,
       })
       return await route.default({
@@ -286,7 +287,7 @@ async function createDeploymentRuntimeFixture(
             waitUntilTasks.push(task)
           },
         },
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=original-signature" },
         method,
         params: { agent, ...(webhook ? { webhook } : {}) },
         req,
@@ -316,6 +317,12 @@ describe("generated Agent deployment catalog", () => {
     await runtime?.close()
     runtime = undefined
     vi.unstubAllEnvs()
+  })
+
+  it("dispatches aliases without router parameters and retains the original body and signature", async () => {
+    const response = await runtime!.request("missing", "alias")
+    await expect(response.json()).resolves.toMatchObject({ agent: "support", kind: "webhook", webhook: "github" })
+    expect(runtime!.capture.webhookRequest).toEqual({ body: "{}", signature: "sha256=original-signature" })
   })
 
   it("routes chat and webhook requests and rejects unknown Agents", async () => {

@@ -284,9 +284,15 @@ const providerHostEnvironmentKeys = [
   "XDG_DATA_HOME",
 ] as const
 
-function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
-  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
-  return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
+function providerEnvironment(env: Record<string, string | undefined> | undefined, provider?: "claude-code" | "codex"): NodeJS.ProcessEnv {
+  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => {
+    return hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []
+  }))
+  const proxyBaseUrl = env && Object.hasOwn(env, "CLIPROXY_BASE_URL") ? env.CLIPROXY_BASE_URL : process.env.CLIPROXY_BASE_URL
+  const proxy = provider === "codex" && proxyBaseUrl?.trim()
+    ? { CLIPROXY_BASE_URL: proxyBaseUrl, CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY }
+    : {}
+  return Object.fromEntries(Object.entries({ ...host, ...proxy, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
 }
 
 function normalizedProviderEnvironment(value: unknown): AgentProviderEnvironment {
@@ -342,7 +348,7 @@ function parsedProviderLaunchDiagnostic(value: unknown): ProviderLaunchDiagnosti
 }
 
 function providerSecretEnvironmentKeys(environment: AgentProviderEnvironment | undefined, requiredEnvironment: readonly string[]): string[] {
-  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment])]
+  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment, "CLIPROXY_API_KEY"])]
 }
 
 function providerLauncherSource(
@@ -559,6 +565,7 @@ async function providerLaunchFailure(
 }
 
 interface CodexCredentialHome {
+  scope?: string
   homePath: string
   release(reason?: unknown): Promise<void>
 }
@@ -937,7 +944,10 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
     context.abortSignal?.throwIfAborted()
     return normalizeCodexCredentials(resolved)
   }
-  if (!profile) return await createTemporaryCodexCredentialHome(await resolveCredentials())
+  if (!profile || context.purpose === "inspection") {
+    const credentials = await waitForProviderOperation(resolveCredentials(), context.abortSignal)
+    return { ...await createTemporaryCodexCredentialHome(credentials), scope: codexCredentialSeedHash(credentials) }
+  }
 
   const key = `${process.cwd()}:${profile}`
   const unavailableReason = unavailableCodexCredentialProfiles.get(key)
@@ -957,6 +967,7 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
     codexCredentialProfilesByInvocation.set(context.context, invocationProfiles)
     return {
       homePath,
+      scope: codexCredentialSeedHash(credentials),
       async release(reason) {
         if (reason !== undefined) unavailableCodexCredentialProfiles.set(key, reason)
         invocationProfiles.delete(key)
@@ -971,6 +982,9 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
   }
 }
 
+const providerStatusCache = new WeakMap<object, Map<string, AgentProviderStatus>>()
+const recentProviderQuotaFailures = new Map<string, { message: string, expiresAt: number }>()
+
 /** Uses the invocation credential and launcher paths, without opening a provider session. */
 export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   options: ProviderAgentAdapterOptions<TRuntimeConfig>,
@@ -981,23 +995,34 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   let root: string | undefined
   try {
     signal?.throwIfAborted()
-    home = await prepareCodexCredentials(options, context)
+    home = await waitForProviderOperation(prepareCodexCredentials(options, context), signal, async home => { await home?.release() })
     signal?.throwIfAborted()
-    const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await resolveRuntimeValue(options.env, context))
+    if (home?.scope) {
+      const recent = recentProviderQuotaFailures.get(home.scope)
+      if (recent && recent.expiresAt > Date.now()) return {
+        agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
+        account: { id: home.scope, kind: "credential" }, checkedAt: new Date().toISOString(), stale: false,
+        readiness: "unavailable", reason: recent.message,
+      }
+      if (recent) recentProviderQuotaFailures.delete(home.scope)
+      const cached = providerStatusCache.get(options)?.get(home.scope)
+      if (cached && Date.now() - Date.parse(cached.checkedAt) < 30_000) return { ...cached, agent: context.agentIdentity?.name ?? "agent" }
+    }
+    const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await waitForProviderOperation(resolveRuntimeValue(options.env, context), signal))
     signal?.throwIfAborted()
     if (home && overrides?.CODEX_HOME !== undefined) throw agentDiagnostics.AGENT_R0906({ message: "[vitehub] driver.credentials owns CODEX_HOME." })
     const environment = providerEnvironment({
       ...(options.provider === "codex" && !home ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...overrides,
-    })
+    }, options.provider)
     const binary = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     let binaryPath = binary
     if (options.launch !== undefined) {
       root = await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
       const command = hasRuntimeType(binary, "string") && binary.trim() ? binary : options.provider === "codex" ? "codex" : "claude"
-      const launch = normalizedProviderLaunch(await resolveRuntimeValue(options.launch, {
-        ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [],
-      }))
+      const launch = normalizedProviderLaunch(await waitForProviderOperation(resolveRuntimeValue(options.launch, {
+        ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: home ? ["CODEX_HOME"] : [],
+      }), signal))
       signal?.throwIfAborted()
       binaryPath = (await materializeProviderLauncher(root, launch, providerSecretEnvironmentKeys(overrides, []), root)).path
     }
@@ -1011,16 +1036,24 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
     const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted
     const readiness = unavailable ? "unavailable" : authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
-    return {
+    const result: AgentProviderStatus = {
       agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
+      ...(home?.scope ? { account: { id: home.scope, kind: "credential" as const } } : {}),
       checkedAt: snapshot.checkedAt, stale: false, installed: snapshot.installed, authenticated, readiness,
-      reason: exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : readiness === "unknown" ? "Provider readiness could not be fully verified." : undefined,
+      reason: exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : readiness === "unknown" ? "Provider readiness could not be fully verified." : "Reported subscription quota is available. Workspace spending limits are not reported by this provider probe.",
       ...(snapshot.usageLimits ? { usageLimits: {
         checkedAt: snapshot.usageLimits.checkedAt,
         windows: snapshot.usageLimits.windows,
         ...(snapshot.usageLimits.unavailable ? { unavailable: { reason: snapshot.usageLimits.unavailable.reason } } : {}),
       } } : {}),
     }
+    if (home?.scope) {
+      const cache = providerStatusCache.get(options) ?? new Map<string, AgentProviderStatus>()
+      if (cache.size >= 128) cache.clear()
+      cache.set(home.scope, result)
+      providerStatusCache.set(options, cache)
+    }
+    return result
   }
   finally {
     try { await home?.release() }
@@ -2151,13 +2184,16 @@ async function* runProvider<
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...providerEnvironmentOverrides,
-    })
+    }, options.provider)
     let providerLauncher: string | undefined
     if (options.launch !== undefined) {
       if (!hasRuntimeType(providerCommand, "string")) {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
       }
-      const requiredEnvironment = Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
+      const requiredEnvironment = Object.freeze([
+        ...(codexCredentialHome ? ["CODEX_HOME"] : []),
+        ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
+      ])
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
       const launchContext: AgentProviderLaunchContext<TRuntimeConfig> = {
         ...resolverContext,
@@ -2316,7 +2352,13 @@ async function* runProvider<
       const normalized = providerEvent(current.value, context.tools, messagePhases)
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
-      if (failure?.type === "error") caught = agentDiagnostics.AGENT_R0720({ message: failure.error })
+      if (failure?.type === "error") {
+        caught = agentDiagnostics.AGENT_R0726({ message: failure.error })
+        if (codexCredentialHome?.scope && /spend.?cap|spend(ing)? limit|budget.*exceed|quota.*exhaust/i.test(failure.error)) {
+          if (recentProviderQuotaFailures.size >= 128) recentProviderQuotaFailures.clear()
+          recentProviderQuotaFailures.set(codexCredentialHome.scope, { message: failure.error, expiresAt: Date.now() + 30_000 })
+        }
+      }
       if (current.value.type === "session.exited") {
         caught = agentDiagnostics.AGENT_R0721({ message: `[vitehub] Provider Agent Driver session exited before the turn completed${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
       }

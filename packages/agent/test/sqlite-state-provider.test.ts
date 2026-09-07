@@ -63,6 +63,30 @@ describe("SQLite Agent State Provider", () => {
     await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { force: true, recursive: true })))
   })
 
+  it("preserves existing expired transcripts before cleanup and ignores new transcript TTLs", async () => {
+    const { state, url } = await createState()
+    await state.connect()
+    const keys = ["transcripts:user:alice", "chat:bot:transcripts:user:bob"]
+    for (const key of keys) await state.appendToList(key, "old", { ttlMs: 60_000 })
+    await state.appendToList("other-list", "expired", { ttlMs: 60_000 })
+    await state.disconnect()
+    const client = createClient({ url })
+    await client.execute("UPDATE test_agent_state_lists SET expires_at = 1")
+    client.close()
+
+    const retained = createLibsqlAgentState({ url, tablePrefix: "test_agent_state_", transcripts: { retention: "forever" } })
+    await retained.connect()
+    for (const key of keys) {
+      await expect(retained.getList(key)).resolves.toEqual(["old"])
+      await retained.appendToList(key, "new", { ttlMs: 1 })
+    }
+    await expect(retained.getList("other-list")).resolves.toEqual([])
+    const inspection = createClient({ url })
+    expect((await inspection.execute("SELECT expires_at FROM test_agent_state_lists")).rows.every(row => row.expires_at === null)).toBe(true)
+    inspection.close()
+    await retained.disconnect()
+  })
+
   it("persists Chat SDK state in a libSQL-compatible SQLite database", async () => {
     const { state, url } = await createState()
     await state.connect()

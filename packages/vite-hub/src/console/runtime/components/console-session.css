@@ -1486,3 +1486,11 @@
     padding-inline: 0.65rem;
   }
 }
+
+.session-inspector__file-status { display: flex; justify-content: space-between; gap: 0.5rem; flex-shrink: 0; border-top: 1px solid var(--ui-border); padding: 0.375rem 0.75rem; color: var(--ui-text-muted); font-size: 0.6875rem; }
+.session-code-preview[data-wrap="true"] pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-code-preview[data-wrap="true"] .line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-trace__fields, .session-trace__fields > section { min-width: 0; max-width: 100%; }
+.session-trace__fields > section > span { overflow-wrap: anywhere; }
+.session-trace__fields pre { min-width: 0; max-width: 100%; overflow-x: auto; }
+.session-trace__detail[data-wrap="true"] .session-trace__fields pre { white-space: pre-wrap; overflow-wrap: anywhere; }
