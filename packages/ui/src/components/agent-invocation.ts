@@ -523,15 +523,13 @@ function messageTimestamp(activity: InvocationActivity, now: Date, sentAt?: stri
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const dayDifference = Math.round((startOfToday - startOfMessageDay) / 86_400_000);
+  const dateOptions: Intl.DateTimeFormatOptions = { day: "numeric", month: "numeric" };
+  if (date.getFullYear() !== now.getFullYear()) dateOptions.year = "numeric";
   const short = dayDifference <= 0
     ? time
     : dayDifference === 1
       ? `Yesterday at ${time}`
-      : `${new Intl.DateTimeFormat(undefined, {
-          day: "numeric",
-          month: "numeric",
-          ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
-        }).format(date)} ${time}`;
+      : `${new Intl.DateTimeFormat(undefined, dateOptions).format(date)} ${time}`;
   return {
     short,
     title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
@@ -1428,11 +1426,11 @@ function renderPreviousMessages(
 function invocationPromptMetadata(invocation: AgentInvocationView, activities: readonly InvocationActivity[]) {
   const prompt = activities[promptActivityIndex(activities)];
   if (!prompt) return {};
-  const triggeredBy = invocation.annotations?.triggeredBy;
+  const triggeredBy = stringAttribute(invocation.annotations ?? {}, "triggeredBy");
   const observationAttributes = invocation.observations
     .map(observation => observation.attributes ?? {})
-    .find(attributes => hasRuntimeType(attributes["agent.invoker.label"], "string") || hasRuntimeType(attributes["agent.invoker.id"], "string"));
-  const author = hasRuntimeType(triggeredBy, "string") && triggeredBy.trim()
+    .find(attributes => stringAttribute(attributes, "agent.invoker.label") || stringAttribute(attributes, "agent.invoker.id"));
+  const author = triggeredBy?.trim()
     ? triggeredBy.trim()
     : stringAttribute(observationAttributes ?? {}, "agent.invoker.label")
       ?? stringAttribute(observationAttributes ?? {}, "agent.invoker.id");
