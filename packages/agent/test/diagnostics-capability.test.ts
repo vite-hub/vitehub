@@ -197,7 +197,8 @@ describe("diagnostics Capability", () => {
 
   it("does not overlap reporting between samples", async () => {
     const delivered: string[] = []
-    const terminalReported = Promise.withResolvers<void>()
+    let reportTerminal: (() => void) | undefined
+    const terminalReported = new Promise<void>((resolve) => { reportTerminal = resolve })
     let activeReporters = 0
     let inspections = 0
     let maxReporters = 0
@@ -218,7 +219,7 @@ describe("diagnostics Capability", () => {
             await pollBlocked
           }
           activeReporters -= 1
-          if (event.name === "agent.invocation.terminal") terminalReported.resolve()
+          if (event.name === "agent.invocation.terminal") reportTerminal?.()
         },
         resources: { inspect: async () => {
           inspections += 1
@@ -234,7 +235,7 @@ describe("diagnostics Capability", () => {
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok")
-    await terminalReported.promise
+    await terminalReported
     expect(maxReporters).toBe(1)
     expect(inspections).toBeGreaterThanOrEqual(3)
     expect(delivered.at(-2)).toBe("agent.resource.snapshot:finish")
