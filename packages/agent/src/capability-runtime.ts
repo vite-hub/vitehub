@@ -913,7 +913,7 @@ export async function resolveAgentCapabilities<
       return await callback()
     }
     catch (error) {
-      outcome = input.abortSignal?.aborted ? "cancelled" : "error"
+      outcome = currentInput.abortSignal?.aborted ? "cancelled" : "error"
       throw error
     }
     finally {
@@ -927,12 +927,13 @@ export async function resolveAgentCapabilities<
       if (hasRuntimeType(invocationId, "string")) attributes["agent.invocation.id"] = invocationId
       if (runtime.run?.runId) attributes["agent.run.id"] = runtime.run.runId
       try {
-        await runtime.traceLog.append({
+        const emission = runtime.traceLog.append({
           name: `agent.capability.${phase}`,
           type: "lifecycle",
           trace: runtime.trace,
           attributes,
         })
+        void Promise.resolve(emission).catch(() => undefined)
       }
       catch {
         // Timing evidence must not replace callback results or cleanup errors.
