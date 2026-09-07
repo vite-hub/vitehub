@@ -1567,9 +1567,17 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
     if (isRuntimeRecord(fingerprint.sourceResolution) && isRuntimeRecord(fingerprint.source)) fingerprint = fingerprint.source
     if (fingerprint.inferredSource === "github" && isRuntimeRecord(fingerprint.options)) fingerprint = fingerprint.options
     const repo = fingerprint.repo
-    const root = fingerprint.root ?? ""
+    const rawRoot = fingerprint.root ?? ""
     if (!hasRuntimeType(repo, "string") || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return []
-    if (!hasRuntimeType(root, "string") || root.startsWith("/") || root.split("/").includes("..")) return []
+    if (!hasRuntimeType(rawRoot, "string")) return []
+    // Match GitHub Source root normalization before validating repository paths.
+    const root = rawRoot.replace(/\\/g, "/").split("/").filter(part => part && part !== ".").join("/")
+    if (root.split("/").includes("..")) return []
+    const revisionId = status.revision.id
+    // Selected paths can materialize independently while a branch advances.
+    if (materialized.sources.some(candidate => candidate.source === status.source
+      && candidate.mountPath === status.mountPath
+      && (candidate.revision?.id !== revisionId || candidate.revision.immutable !== true))) return []
     return [{
       mount: status.mountPath,
       provider: "github" as const,

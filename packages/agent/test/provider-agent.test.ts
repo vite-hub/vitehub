@@ -3567,7 +3567,15 @@ cli_auth_credentials_store = "keyring"
     expect(instructions).not.toContain("owner/mismatched")
   })
 
-  it("appends source provenance to native Codex Workspace instructions", async () => {
+  it.each([
+    { sourceRoot: undefined, expectedRoot: "", conflicting: false },
+    { sourceRoot: "/docs", expectedRoot: "docs", conflicting: false },
+    { sourceRoot: "./docs", expectedRoot: "docs", conflicting: false },
+    { sourceRoot: "\\docs\\.\\guide\\", expectedRoot: "docs/guide", conflicting: false },
+    { sourceRoot: "docs//./guide/", expectedRoot: "docs/guide", conflicting: false },
+    { sourceRoot: "../docs", expectedRoot: undefined, conflicting: false },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: true },
+  ])("preserves native instructions with source root $sourceRoot and conflicting revisions $conflicting", async ({ sourceRoot, expectedRoot, conflicting }) => {
     const threadId = "thread-native-codex-provenance"
     let root = ""
     let instructions = ""
@@ -3583,9 +3591,9 @@ cli_auth_credentials_store = "keyring"
     }
     const workspace = {
       fs: {},
-      materializeSources: vi.fn(async () => ({
+      materializeSources: vi.fn(async ({ path }: { path: string }) => ({
         bytes: 0, directories: 0, durationMs: 0, files: 1, path: "",
-        sources: [{ mountPath: "docs", provider: "github", revision: { id: "e".repeat(40), immutable: true }, source: "docs", status: "ready" }],
+        sources: [{ mountPath: "docs", provider: "github", revision: { id: (conflicting && path === "docs/b.md" ? "f" : "e").repeat(40), immutable: true }, source: "docs", status: "ready" }],
       })),
       startSession: vi.fn(async (options: { target: string }) => {
         root = options.target
@@ -3596,11 +3604,23 @@ cli_auth_credentials_store = "keyring"
       tools: {},
     }
 
-    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+    const runContext = context(threadId, {
       workspace,
-      workspaceDefinition: { name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
-    }) as never)
+      workspaceDefinition: { name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }) } },
+    })
+    runContext.context.set("access", { workspaceScope: { all: false, paths: ["docs/a.md", "docs/b.md"] } })
+    // SAFETY: This fixture supplies the trusted access context expected by the helper.
+    markTrustedWorkspaceAccessScope(runContext.context as never)
+    // SAFETY: This fixture supplies the complete provider generation context.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
 
+    expect(workspace.materializeSources).toHaveBeenCalledTimes(2)
+    if (expectedRoot === undefined) {
+      expect(instructions).toBe("native Codex workspace instructions")
+      return
+    }
+    expect(instructions).toContain(`"root": "${expectedRoot}"`)
+    expect(instructions.match(/"repository":/g)).toHaveLength(1)
     expect(instructions).toMatch(/^native Codex workspace instructions\n\nMounted source provenance/)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
   })
