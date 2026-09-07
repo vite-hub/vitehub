@@ -66,7 +66,12 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
+      { from: "src/error-diagnostics.ts", to: "dist" },
       { from: ".vitehub/console", to: "dist/console/runtime/public" },
+      {
+        from: "src/console/runtime/components/console-wrap.ts",
+        to: "dist/console/runtime/components",
+      },
       {
         from: "src/console/runtime/components/console-brand.vue",
         to: "dist/console/runtime/components",
