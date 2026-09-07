@@ -482,8 +482,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
       const providerDriver = hasRuntimeType(options.model, "string")
         ? { ...inheritedDriver, model: options.model, reasoningEffort: options.reasoningEffort ?? "low" }
         : inheritedDriver
-      // SAFETY: The inherited provider remains normalized; only its model and reasoning effort are overridden.
-      return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, options, timedInput, prompt, providerDriver as ReturnType<typeof normalizeAgentDriver>)), maxLength, fallback)
+      return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, options, timedInput, prompt, providerDriver)), maxLength, fallback)
     }
     catch (error) {
       return recoverGeneration(error, true)
