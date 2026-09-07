@@ -56,6 +56,7 @@ catalogs:
     comark: 0.6.2
     comark-content: 0.3.0
   nuxt:
+    "@takumi-rs/core": 2.10.0
     "@nuxt/content": ^3.16.0
     "@nuxt/ui": ^4.11.0
     docus: https://pkg.pr.new/docus@986a334
@@ -170,6 +171,7 @@ catalogs:
     tinyglobby: ^0.2.17
 
 overrides:
+  vue: catalog:ui
   "@vercel/blob>undici": ^6.28.0
   "ai@>=7.0.0 <8.0.0": 7.0.58
   "glob": ^13.0.6
