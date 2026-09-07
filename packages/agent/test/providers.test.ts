@@ -12432,6 +12432,7 @@ describe("server helpers", () => {
 
   it("requires mentions throughout serial batches", async () => {
     const { defineAgent } = await import("../src/index.ts")
+    const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
@@ -12492,6 +12493,9 @@ describe("server helpers", () => {
       expect(routed).toEqual([
         { deliveryKind: "mention", text: "mention" },
       ])
+      const deliveries = await readAgentChannelDeliveries(state)
+      expect(deliveries.some(delivery => delivery.status === "rejected")).toBe(true)
+      expect(deliveries.filter(delivery => delivery.status === "received" || delivery.status === "running")).toEqual([])
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
@@ -16148,7 +16152,7 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
           adapter: () => adapter as never,
-          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+            messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state },
         }),
       },
       driver: {
@@ -16181,7 +16185,7 @@ describe("server helpers", () => {
       await state.connect()
       const first = handler(chatWebhookRequest(91_106), "telegram", { agentIdentity: { name: "calories" } })
       await vi.waitFor(() => expect(runs).toBe(1))
-      const followUp = handler(chatWebhookRequest(91_107), "telegram", { agentIdentity: { name: "calories" } })
+      const followUp = handler(chatWebhookRequest(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
       await expect(followUp).resolves.toMatchObject({ status: 200 })
       await expect(first).resolves.toMatchObject({ status: 200 })
 

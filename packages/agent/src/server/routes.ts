@@ -4785,7 +4785,7 @@ async function handleChatSdkMessage(
   let durableHandoff = false
   let chatFinish: AgentChatQueuedFinishExtension | undefined
   let inlineTurn: InlineChatTurn | undefined
-  const inlineKey = options?.concurrency === "steer" ? JSON.stringify([context.agentIdentity?.name, registration.channelId, state.keyPrefix, thread.id]) : undefined
+  const inlineKey = options?.concurrency === "steer" ? `${state.keyPrefix}inline-steer:${durableSteerScope ?? thread.id}` : undefined
   try {
     input = createChatTriggerInput(
       chatRegistrationOrigin(registration),
@@ -5756,16 +5756,12 @@ async function handleChatSdkMessages(
   const durableSteerScope = chatSdkOption<string>(options, "concurrency") === "steer" ? await chatSdkLockKey(adapter, thread.id, options) : undefined
   const messages = serial ? [...(messageContext?.skipped ?? []), message] : [message]
   const requestDelivery = agentChannelDeliveryTracker(context)
-  if (requestDelivery) requestDelivery.claimed = true
   const stopRefreshingLock = serial ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options)) : () => undefined
 
   try {
     for (const queuedMessage of messages) {
       try {
         const queuedThread = serial ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
-        if (!queuedThread.isDM && !queuedMessage.isMention) continue
-        const deliveryKind = serial ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
-        if (!deliveryKind) continue
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
         const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
         const queuedDelivery = serial
@@ -5783,6 +5779,13 @@ async function handleChatSdkMessages(
                   : undefined)
               : undefined)
           : undefined
+        if (!queuedThread.isDM && !queuedMessage.isMention) {
+          const ignoredDelivery = queuedDelivery ?? (queuedMessage === message ? requestDelivery : undefined)
+          if (ignoredDelivery) await recordChannelDeliveryEvidence(ignoredDelivery, { type: "rejected" })
+          continue
+        }
+        const deliveryKind = serial ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
+        if (!deliveryKind) continue
         const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
         await handleChatSdkMessage(
           agent,
