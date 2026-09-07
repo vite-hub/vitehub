@@ -370,6 +370,31 @@ describe("mcp capability", () => {
     }
   })
 
+  it("does not load the MCP runtime for direct clients with transport fields", async () => {
+    vi.doMock("@ai-sdk/mcp", () => {
+      throw new Error("MCP runtime should not load")
+    })
+
+    try {
+      const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+      const { mcp } = await import("../src/capabilities.ts")
+      const client = Object.assign(createClient({ lookup: { execute: vi.fn() } }), {
+        transport: { type: "http", url: "https://example.com/mcp" },
+      })
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [mcp({ servers: { custom: () => client } })],
+      }, runtime(), {})
+
+      expect(Object.keys(resolved.tools || {})).toEqual(["mcp_custom_lookup"])
+      expect(client.tools).toHaveBeenCalledTimes(1)
+      await resolved.close()
+      expect(client.close).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.doUnmock("@ai-sdk/mcp")
+    }
+  })
+
   it("does not load the MCP runtime when every server is absent", async () => {
     vi.doMock("@ai-sdk/mcp", () => {
       throw new Error("MCP runtime should not load")
@@ -460,7 +485,7 @@ describe("mcp capability", () => {
         servers: {
           owned: () => owned,
           broken: () => { throw new Error("synchronous resolver failure") },
-          borrowed: () => ({ connection: borrowed, owned: false }),
+          borrowed,
         },
       })],
     }, runtime(), {})).rejects.toThrow("synchronous resolver failure")

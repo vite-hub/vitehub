@@ -168,6 +168,7 @@ export function defineMcpToolCapability<
       if (definitionFailure?.status === "rejected") throw definitionFailure.reason
       const needsMcpRuntime = definitions.some(result => result.status === "fulfilled"
         && result.value
+        && !isMcpClient(result.value.connection)
         && isMcpClientConfig(result.value.connection))
       const mcpRuntime = needsMcpRuntime ? await import("@ai-sdk/mcp") : undefined
       const results = await Promise.allSettled(options.servers.map(async (server, index) => {
