@@ -1996,12 +1996,38 @@ cli_auth_credentials_store = "keyring"
     ])
     expect(events[1]).toMatchObject({ phase: "commentary", text: "thinking" })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
-    expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: 5 } } })
+    expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
     expect(provider.close).toHaveBeenCalledOnce()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const cwd = (createProviderRuntime.mock.calls.at(-1)![0] as { cwd: string }).cwd
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each([
+    { inputTokens: 7, outputTokens: 5 },
+    { lastInputTokens: 7, lastOutputTokens: 5 },
+    { inputTokens: 0, outputTokens: 12 },
+  ])("preserves a complete partition matching the cumulative total: %j", async (partition) => {
+    const threadId = "thread-matching-usage"
+    const usage = { ...partition, cachedInputTokens: 0, reasoningOutputTokens: 3, totalProcessedTokens: 12 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: {
+        raw: usage,
+        usage: {
+          details: { cachedInputTokens: 0, reasoningOutputTokens: 3 },
+          inputTokens: "inputTokens" in partition ? partition.inputTokens : partition.lastInputTokens,
+          outputTokens: "outputTokens" in partition ? partition.outputTokens : partition.lastOutputTokens,
+          totalTokens: 12,
+        },
+      },
+    })
   })
 
   it("keeps last-response usage raw when reporting a cumulative total", async () => {

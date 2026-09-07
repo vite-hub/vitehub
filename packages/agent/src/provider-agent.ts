@@ -1709,9 +1709,10 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
-  const isCumulative = usage.totalProcessedTokens !== undefined
-  const inputTokens = isCumulative ? undefined : usage.inputTokens ?? usage.lastInputTokens
-  const outputTokens = isCumulative ? undefined : usage.outputTokens ?? usage.lastOutputTokens
+  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
+  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  const omitPartition = usage.totalProcessedTokens !== undefined
+    && (inputTokens === undefined || outputTokens === undefined || inputTokens + outputTokens !== usage.totalProcessedTokens)
   return {
     type: "usage",
     usageRecord: {
@@ -1719,12 +1720,12 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       raw: usage,
       usage: {
         details: {
-          ...(isCumulative || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(isCumulative || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-          ...(isCumulative || usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+          ...(omitPartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(omitPartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(omitPartition || usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
-        inputTokens,
-        outputTokens,
+        inputTokens: omitPartition ? undefined : inputTokens,
+        outputTokens: omitPartition ? undefined : outputTokens,
         totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
       },
     },
