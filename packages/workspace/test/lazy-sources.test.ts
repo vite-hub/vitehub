@@ -197,6 +197,50 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
+  it.each(["stat", "exists"] as const)("refreshes root startup Sources before the first %s", async (operation) => {
+    for (const reuseStartupSnapshots of [false, true]) {
+      for (const removed of [false, true]) {
+        const store = createMemoryWorkspaceStore()
+        let content = "old"
+        let keys = ["AGENTS.md"]
+        const definition = {
+          name: "startup-root-metadata",
+          sources: {
+            instructions: custom({
+              materialize: "startup" as const,
+              mount: "",
+              async getKeys() { return keys },
+              async getItem(key) { return { key, content } },
+            }),
+          },
+        }
+        await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["instructions"] })
+        content = "updated instructions"
+        if (removed) keys = []
+        const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+
+        if (operation === "stat") {
+          if (removed && !reuseStartupSnapshots) {
+            await expect(view.stat("AGENTS.md")).rejects.toThrow("does not exist")
+          }
+          else {
+            await expect(view.stat("AGENTS.md")).resolves.toMatchObject({
+              size: reuseStartupSnapshots ? 3 : content.length,
+            })
+          }
+        }
+        else {
+          await expect(view.exists("AGENTS.md")).resolves.toBe(reuseStartupSnapshots || !removed)
+        }
+        await expect(store.readFile("AGENTS.md")).resolves.toEqual(
+          removed && !reuseStartupSnapshots
+            ? undefined
+            : expect.objectContaining({ content: reuseStartupSnapshots ? "old" : content }),
+        )
+      }
+    }
+  })
+
   it("removes files owned by startup Sources removed from the definition", async () => {
     const store = createMemoryWorkspaceStore()
     const initial = {
