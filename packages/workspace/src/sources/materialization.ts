@@ -467,7 +467,8 @@ export async function materializeWorkspaceSources(
   const startupSources = configuredSources.filter(source => source.materialize === "startup")
   const rootMaterialization = !normalizeWorkspacePath(options.path || "")
   const selectedStartupSource = sources.some(source => source.materialize === "startup")
-  if (rootMaterialization && (!options.sources?.length || selectedStartupSource)) {
+  const reconcileStartupSources = rootMaterialization && (!options.sources?.length || selectedStartupSource)
+  if (reconcileStartupSources) {
     await reconcileRemovedStartupSources(store, startupSources, control)
   }
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
@@ -745,7 +746,7 @@ export async function materializeWorkspaceSources(
     }
   }
 
-  if (rootMaterialization && store.setMeta) {
+  if (reconcileStartupSources && store.setMeta) {
     const ready = await Promise.all(startupSources.map(async source => await hasCurrentSourceSnapshot(store, source)))
     if (ready.every(Boolean)) {
       await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, startupSources.map(({ key, mountPath }) => ({ key, mountPath }))))

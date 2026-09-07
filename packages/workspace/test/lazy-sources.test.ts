@@ -232,6 +232,38 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
   })
 
+  it.each([true, false])("preserves removed startup history through lazy-only refresh with retained source %s", async (retainStartup) => {
+    const store = createMemoryWorkspaceStore()
+    const source = (materialize: "startup" | "lazy", workspacePath: string) => ({
+      content: workspacePath,
+      materialize,
+      mount: "",
+      workspacePath,
+    })
+    const retained = source("startup", "retained.md")
+    const lazy = source("lazy", "lazy.md")
+    await createWorkspaceSourceView({
+      name: "lazy-refresh-startup-history",
+      sources: { removed: source("startup", "removed.md"), retained, lazy },
+    }, store).materializeSources()
+
+    const next = createWorkspaceSourceView({
+      name: "lazy-refresh-startup-history",
+      sources: { ...(retainStartup ? { retained } : {}), lazy },
+    }, store)
+    await next.materializeSources({ sources: ["lazy"] })
+    await expect(store.readFile("lazy.md")).resolves.toMatchObject({ content: "lazy.md" })
+    await next.materializeSources()
+
+    await expect(store.stat("removed.md")).resolves.toBeUndefined()
+    if (retainStartup) {
+      await expect(store.readFile("retained.md")).resolves.toMatchObject({ content: "retained.md" })
+    }
+    else {
+      await expect(store.stat("retained.md")).resolves.toBeUndefined()
+    }
+  })
+
   it("removes the final startup Source and files left at a previous mount", async () => {
     const store = createMemoryWorkspaceStore()
     const source = (mount: string) => custom({
