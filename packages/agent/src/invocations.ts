@@ -1269,7 +1269,7 @@ function journalTraceLog(
   const flushMessageDelta = () => {
     if (!pendingMessageDelta) return
     const content = pendingMessageDelta.attributes?.["message.content"]
-    if (typeof content === "string") {
+    if (hasRuntimeType(content, "string")) {
       pendingMessageDelta = {
         ...pendingMessageDelta,
         attributes: { ...pendingMessageDelta.attributes, "message.content": redactCredentialText(content) },

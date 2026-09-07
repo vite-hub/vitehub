@@ -379,6 +379,7 @@ async function generateTitleWithDriver(
   inheritedDriver?: ReturnType<typeof normalizeAgentDriver>,
 ): Promise<string | undefined> {
   if (!options.driver && !inheritedDriver) return
+  // SAFETY: The guard above requires an explicit driver when no normalized driver was inherited.
   const driver = inheritedDriver ?? normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "run") {
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
@@ -481,6 +482,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
       const providerDriver = hasRuntimeType(options.model, "string")
         ? { ...inheritedDriver, model: options.model, reasoningEffort: options.reasoningEffort ?? "low" }
         : inheritedDriver
+      // SAFETY: The inherited provider remains normalized; only its model and reasoning effort are overridden.
       return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, options, timedInput, prompt, providerDriver as ReturnType<typeof normalizeAgentDriver>)), maxLength, fallback)
     }
     catch (error) {
