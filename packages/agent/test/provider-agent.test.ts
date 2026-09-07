@@ -3576,10 +3576,13 @@ cli_auth_credentials_store = "keyring"
     { sourceRoot: "../docs", expectedRoot: undefined, conflicting: false },
     { sourceRoot: "docs", expectedRoot: undefined, conflicting: true },
     { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs" },
-    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs/nested" },
+    { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs/nested" },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs/nested", selectedPaths: ["docs/a.md", "docs/nested/b.md"] },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs/nested", selectedPaths: ["docs"] },
+    { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs/a" },
     { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "" },
     { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs-other" },
-  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount }) => {
+  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount, selectedPaths = ["docs/a.md", "docs/b.md"] }) => {
     const threadId = "thread-native-codex-provenance"
     let root = ""
     let instructions = ""
@@ -3620,13 +3623,13 @@ cli_auth_credentials_store = "keyring"
         },
       },
     })
-    runContext.context.set("access", { workspaceScope: { all: false, paths: ["docs/a.md", "docs/b.md"] } })
+    runContext.context.set("access", { workspaceScope: { all: false, paths: selectedPaths } })
     // SAFETY: This fixture supplies the trusted access context expected by the helper.
     markTrustedWorkspaceAccessScope(runContext.context as never)
     // SAFETY: This fixture supplies the complete provider generation context.
     await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
 
-    expect(workspace.materializeSources).toHaveBeenCalledTimes(2)
+    expect(workspace.materializeSources).toHaveBeenCalledTimes(selectedPaths.length)
     if (expectedRoot === undefined) {
       expect(instructions).toBe("native Codex workspace instructions")
       return

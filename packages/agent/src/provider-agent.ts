@@ -1557,16 +1557,17 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
   catch {
     return []
   }
+  const paths = selectedWorkspacePaths(context)
+  const overlaps = (left: string, right: string) => !left || !right || left === right
+    || left.startsWith(`${right}/`) || right.startsWith(`${left}/`)
   return materialized.sources.flatMap((status) => {
     if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(status.revision.id)) return []
     const source = metadata.get(status.source)
     if (!source || source.mountPath !== status.mountPath) return []
-    // A mount alone cannot identify file ownership when another Source overlaps it.
+    // Only overlaps within the session's selected paths can make ownership ambiguous.
     if ([...metadata.values()].some(candidate => candidate.key !== source.key
-      && (candidate.mountPath === source.mountPath
-        || !candidate.mountPath || !source.mountPath
-        || candidate.mountPath.startsWith(`${source.mountPath}/`)
-        || source.mountPath.startsWith(`${candidate.mountPath}/`)))) return []
+      && overlaps(candidate.mountPath, source.mountPath)
+      && (!paths || paths.some(path => overlaps(path, candidate.mountPath) && overlaps(path, source.mountPath))))) return []
     const sourceFingerprint = source.source.fingerprint
     if (!isRuntimeRecord(sourceFingerprint)) return []
     let fingerprint = sourceFingerprint
