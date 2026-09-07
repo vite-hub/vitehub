@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-const mocks = vi.hoisted(() => ({ get: vi.fn(), definition: vi.fn(), glob: vi.fn(), stat: vi.fn(), readFile: vi.fn() }))
+const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), stat: vi.fn(), readFile: vi.fn() }))
+vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/api/_vitehub/console/invocations/:id/workspace", getAgentHostWorkspaceInspector: mocks.inspector }))
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
 vi.mock("@vite-hub/workspace/runtime", () => ({ useWorkspace: () => ({ fs: mocks }) }))
@@ -14,6 +15,28 @@ beforeEach(() => {
   mocks.readFile.mockResolvedValue("test")
 })
 describe("invocation Workspace inspection", () => {
+  it("uses the host-authorized immutable snapshot when no mounted Workspace exists", async () => {
+    mocks.definition.mockReturnValue(undefined)
+    mocks.get.mockResolvedValue(undefined)
+    const inspect = vi.fn(async () => Response.json({ repository: "org/repo", revision: "abc123", paths: ["AGENTS.md"] }))
+    mocks.inspector.mockReturnValue(inspect)
+    expect(await handler(request())).toEqual({ repository: "org/repo", revision: "abc123", paths: ["AGENTS.md"] })
+    expect(inspect).toHaveBeenCalledWith("run", undefined)
+    expect(mocks.get).not.toHaveBeenCalled()
+    expect(mocks.glob).not.toHaveBeenCalled()
+  })
+  it("passes the file path to the configured host inspector", async () => {
+    const file = { content: "test", path: "src/a b.ts", revision: "abc123", size: 4 }
+    const inspect = vi.fn(async () => Response.json(file))
+    mocks.inspector.mockReturnValue(inspect)
+    expect(await handler(request(file.path))).toEqual(file)
+    expect(inspect).toHaveBeenCalledWith("run", file.path)
+  })
+  it.each([403, 404, 422])("preserves host inspection failure %i without falling back to mounted files", async status => {
+    mocks.inspector.mockReturnValue(async () => new Response("Snapshot unavailable", { status }))
+    await expect(handler(request())).rejects.toMatchObject({ statusCode: status, statusMessage: "Snapshot unavailable" })
+    expect(mocks.glob).not.toHaveBeenCalled()
+  })
   it("identifies current mounted files without claiming a historical snapshot", async () => {
     expect(await handler(request())).toEqual({ paths: ["AGENTS.md"], repository: "bot", revision: "current" })
     expect(mocks.definition).toHaveBeenCalledWith("bot", "inspect")

@@ -1,3 +1,4 @@
+import { agentHostWorkspaceRoute, getAgentHostWorkspaceInspector } from "@vite-hub/agent/server"
 import { useWorkspace } from "@vite-hub/workspace/runtime"
 import * as v from "valibot"
 import { getConsoleAgentDefinition } from "./agents.ts"
@@ -7,6 +8,10 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 const configurationSchema = v.object({ workspace: v.object({ name: v.string() }) })
+const hostWorkspaceSchema = v.union([
+  v.object({ paths: v.array(v.string()), repository: v.string(), revision: v.string() }),
+  v.object({ content: v.string(), path: v.string(), revision: v.string(), size: v.number() }),
+])
 const maxFileBytes = 512 * 1024
 
 function failure(statusCode: number, message: string): Error {
@@ -20,7 +25,15 @@ function visiblePath(path: string): boolean {
 
 export default async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Promise<{ paths: string[], repository: string, revision: string } | { content: string, path: string, revision: string, size: number }> {
   assertConsoleRequest(event)
-  const invocation = await getConsoleInvocations().get(event.context?.params?.id ?? "")
+  const id = event.context?.params?.id ?? ""
+  const path = consoleRequestURL(event).searchParams.get("path")
+  const inspect = getAgentHostWorkspaceInspector(agentHostWorkspaceRoute)
+  if (inspect) {
+    const response = await inspect(id, path ?? undefined)
+    if (!response.ok) throw failure(response.status, await response.text())
+    return v.parse(hostWorkspaceSchema, await response.json())
+  }
+  const invocation = await getConsoleInvocations().get(id)
   if (!invocation) throw failure(404, "Invocation not found.")
   const agent = invocation.agentName && getConsoleAgentDefinition(invocation.agentName, "inspect")
   if (!agent || !agent.workspace) throw failure(404, "This Agent has no mounted Workspace available on this host.")
@@ -29,7 +42,6 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
   if (!configuration?.success) throw failure(404, "This run did not record its Workspace. Open a newer run to inspect its mounted files.")
   const name = configuration.output.workspace.name
   const workspace = useWorkspace(name)
-  const path = consoleRequestURL(event).searchParams.get("path")
   // These are the mounted files now, not a retained snapshot of the invocation.
   const revision = "current"
   if (path !== null) {
