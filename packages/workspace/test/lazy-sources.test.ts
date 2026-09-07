@@ -289,6 +289,8 @@ describe("lazy sources", () => {
     }, store)
     await next.materializeSources({ sources: ["lazy"] })
     await expect(store.readFile("lazy.md")).resolves.toMatchObject({ content: "lazy.md" })
+    await expect(store.readFile("removed.md")).resolves.toMatchObject({ content: "removed.md" })
+    await expect(store.readFile("retained.md")).resolves.toMatchObject({ content: "retained.md" })
     await next.materializeSources()
 
     await expect(store.stat("removed.md")).resolves.toBeUndefined()
