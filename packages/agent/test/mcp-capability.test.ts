@@ -449,6 +449,26 @@ describe("mcp capability", () => {
     }, runtime(), {})).rejects.toThrow("credential lookup failed")
   })
 
+  it("contains synchronous resolver failures and closes already-resolved owned clients", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const owned = createClient({ lookup: { execute: vi.fn() } })
+    const borrowed = createClient({ search: { execute: vi.fn() } })
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          owned: () => owned,
+          broken: () => { throw new Error("synchronous resolver failure") },
+          borrowed: () => ({ connection: borrowed, owned: false }),
+        },
+      })],
+    }, runtime(), {})).rejects.toThrow("synchronous resolver failure")
+
+    expect(owned.close).toHaveBeenCalledTimes(1)
+    expect(borrowed.close).not.toHaveBeenCalled()
+  })
+
   it("does not treat malformed configured servers as absent configuration", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
@@ -497,6 +517,22 @@ describe("mcp capability", () => {
     }, runtime(), {})
 
     await expect(resolved.close()).rejects.toThrow("second close failed")
+    expect(second.close).toHaveBeenCalledTimes(1)
+    expect(first.close).toHaveBeenCalledTimes(1)
+  })
+
+  it("drains remaining owned clients when a close throws synchronously", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const first = createClient({ first: { execute: vi.fn() } })
+    const second = createClient({ second: { execute: vi.fn() } })
+    second.close.mockImplementationOnce(() => { throw new Error("synchronous close failure") })
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({ servers: { first: () => first, second: () => second } })],
+    }, runtime(), {})
+
+    await expect(resolved.close()).rejects.toThrow("synchronous close failure")
     expect(second.close).toHaveBeenCalledTimes(1)
     expect(first.close).toHaveBeenCalledTimes(1)
   })

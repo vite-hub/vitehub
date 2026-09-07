@@ -157,7 +157,13 @@ export function defineMcpToolCapability<
       const tools: AgentToolSet = {}
       const clients: McpClient[] = []
       clientsByContext.set(context, clients)
-      const definitions = await Promise.allSettled(options.servers.map(server => server.resolve(context)))
+      const definitions = await Promise.allSettled(options.servers.map(async server => await server.resolve(context)))
+      for (const [index, definition] of definitions.entries()) {
+        if (definition.status !== "fulfilled" || !definition.value) continue
+        if (isMcpClient(definition.value.connection) && definition.value.owned !== false) {
+          clients[index] = definition.value.connection
+        }
+      }
       const definitionFailure = definitions.find(result => result.status === "rejected")
       if (definitionFailure?.status === "rejected") throw definitionFailure.reason
       const needsMcpRuntime = definitions.some(result => result.status === "fulfilled"
