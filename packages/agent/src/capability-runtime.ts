@@ -18,6 +18,7 @@ import { runObservedAgentHook } from "./hooks.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
+import { agentInvocationTraceIdContextKey } from "./trace.ts"
 import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesResolverContext,
@@ -904,6 +905,41 @@ export async function resolveAgentCapabilities<
 ): Promise<ResolvedAgentCapabilities> {
   const runtimeContext = toAgentCallbackContext(runtime)
   const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
+  async function runCapabilityCallback<T>(capabilityId: string, phase: string, callback: () => Promise<T> | T): Promise<T> {
+    if (!runtime.traceLog) return await callback()
+    const started = performance.now()
+    let outcome = "success"
+    try {
+      return await callback()
+    }
+    catch (error) {
+      outcome = currentInput.abortSignal?.aborted ? "cancelled" : "error"
+      throw error
+    }
+    finally {
+      const invocationId = invocationContext.get(agentInvocationTraceIdContextKey)
+      const attributes: Record<string, string | number> = {
+        "agent.capability.id": capabilityId,
+        "agent.capability.phase": phase,
+        "agent.capability.outcome": outcome,
+        "agent.capability.durationMs": performance.now() - started,
+      }
+      if (hasRuntimeType(invocationId, "string")) attributes["agent.invocation.id"] = invocationId
+      if (runtime.run?.runId) attributes["agent.run.id"] = runtime.run.runId
+      try {
+        const emission = runtime.traceLog.append({
+          name: `agent.capability.${phase}`,
+          type: "lifecycle",
+          trace: runtime.trace,
+          attributes,
+        })
+        void Promise.resolve(emission).catch(() => undefined)
+      }
+      catch {
+        // Timing evidence must not replace callback results or cleanup errors.
+      }
+    }
+  }
   const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
   const driverKind = invocationOptions.driverKind || "model"
   const resolveCapabilityCli = invocationOptions.resolveCapabilityCli ?? driverKind !== "provider"
@@ -1243,14 +1279,17 @@ export async function resolveAgentCapabilities<
         capabilityScope ??= await openAgentCapabilityScope()
         await capabilityScope.add(async () => {
           await callHooks("capability:close", capabilityContext, options?.hooks)
-          await capability.close?.(capabilityContext)
+          if (capability.close) await runCapabilityCallback(capability.id, "close", () => capability.close!(capabilityContext))
           await callHooks("capability:close:after", capabilityContext, options?.hooks)
         })
       }
 
       for (const phase of phases) {
         await callHooks(`capability:${phase}`, capabilityContext, options?.hooks)
-        const result = await capability[phase]?.(capabilityContext)
+        const callback = capability[phase]
+        const result = callback
+          ? await runCapabilityCallback(capability.id, phase, () => callback.call(capability, capabilityContext))
+          : undefined
         await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
         if (result instanceof Response) {
           return {
