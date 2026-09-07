@@ -16206,7 +16206,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("steers a follow-up into the active inline Channel invocation", async () => {
+  it.each([false, true])("steers a follow-up into the active inline Channel invocation (failure: %s)", async (failInvocation) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16236,13 +16236,14 @@ describe("server helpers", () => {
             sendInput(input, options) {
               if (options.mode !== "steer") return "unsupported"
               steeredPrompt = input.messages?.map(message => message.parts.find(part => typeof part === "string" || part.type === "text") && message.parts.map(part => typeof part === "string" ? part : "text" in part ? part.text : "").join("")).join("\n")
-              releaseFirst()
+              if (failInvocation) releaseFirst()
               return "accepted"
             },
             support: { steer: true },
           })
           try {
             await firstReleased
+            if (failInvocation && runs === 1) throw new Error("steered invocation failed")
             return "Steered reply"
           } finally {
             unregister()
@@ -16258,6 +16259,9 @@ describe("server helpers", () => {
       const remoteOwner = await state.acquireLock("chat:calories:telegram:inline-steer:agent:owner", 60_000)
       if (!remoteOwner) throw new Error("Expected a simulated remote inline owner lock")
       const first = handler(chatWebhookRequest(91_106), "telegram", { agentIdentity: { name: "calories" } })
+      const firstResult = failInvocation
+        ? expect(first).rejects.toThrow("steered invocation failed")
+        : expect(first).resolves.toMatchObject({ status: 200 })
       await new Promise(resolve => setTimeout(resolve, 75))
       expect(runs).toBe(0)
       await state.releaseLock(remoteOwner)
@@ -16276,9 +16280,22 @@ describe("server helpers", () => {
       expect(steeredPrompt).toBeUndefined()
       const followUp = handler(chatWebhookRequest(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
       await expect(followUp).resolves.toMatchObject({ status: 200 })
-      await expect(first).resolves.toMatchObject({ status: 200 })
+      if (!failInvocation) {
+        const pending = await handler.deliveries(chatWebhookRequest(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+        const followUpDelivery = pending.find(delivery => delivery.sourceId === "91107")
+        expect(followUpDelivery).toBeDefined()
+        expect(followUpDelivery?.events.some(event => ["completed", "failed", "invocation.completed", "invocation.failed"].includes(event.type))).toBe(false)
+        releaseFirst()
+      }
+      await firstResult
       await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
 
+      const deliveries = await handler.deliveries(chatWebhookRequest(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+      const followUpDelivery = deliveries.find(delivery => delivery.sourceId === "91107")
+      const outcome = failInvocation ? "failed" : "completed"
+      expect(followUpDelivery?.status).toBe(outcome)
+      expect(followUpDelivery?.events.filter(event => event.type === "invocation.completed" || event.type === "invocation.failed").map(event => event.type)).toEqual([`invocation.${outcome}`])
+      expect(followUpDelivery?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual([outcome])
       expect(runs).toBe(2)
       expect(steeredPrompt).toBe("hello")
     } finally {

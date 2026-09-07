@@ -4717,6 +4717,7 @@ interface InlineChatTurn {
   done: Promise<void>
   finish: () => Promise<void>
   invokerKey: string
+  steeredDeliveries?: Promise<AgentChannelDeliveryTracker | undefined>[]
   runId?: string
 }
 
@@ -4783,6 +4784,7 @@ async function handleChatSdkMessage(
   const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   let invocationStarted = false
   let invocationFailed = false
+  let invocationError: unknown
   let durableHandoff = false
   let chatFinish: AgentChatQueuedFinishExtension | undefined
   let inlineTurn: InlineChatTurn | undefined
@@ -4888,14 +4890,21 @@ async function handleChatSdkMessage(
         waitedForActiveTurn = true
         if (active.runId && active.invokerKey === inlineInvokerKey) {
           const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
-          const outcome = steerMessage
-            ? await sendAgentInvocationInput(active.runId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
-            : "unsupported"
-          if (outcome === "accepted") {
-            await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: active.runId })
-            await recordChannelDeliveryEvidence(delivery, { type: "completed", runId: active.runId })
-            return
-          }
+          const activeRunId = active.runId
+          const steering = (async () => {
+            const outcome = steerMessage
+              ? await sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
+              : "unsupported"
+            if (outcome === "accepted") {
+              await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: active.runId })
+            }
+            return outcome
+          })()
+          // Register before awaiting input: accepting it can also finish the active run.
+          const steeredDeliveries = active.steeredDeliveries ??= []
+          steeredDeliveries.push(steering.then(outcome => outcome === "accepted" ? delivery : undefined, () => undefined))
+          const outcome = await steering
+          if (outcome === "accepted") return
           if (outcome === "unsupported") await waitForInlineChatTurn(active, maximumInvocationDeadline)
           else await pollInlineChatTurn(active, maximumInvocationDeadline)
         } else {
@@ -5695,6 +5704,7 @@ async function handleChatSdkMessage(
     await skipChatFinishExtensionMessages(chatFinish, error)
     if (durableHandoff) throw error
     invocationFailed = true
+    invocationError = error
     if (invocationStarted)
       await settleChannelDeliveryInvocation(delivery, "failed", "failed", {
         error: channelDeliveryError(error),
@@ -5713,7 +5723,19 @@ async function handleChatSdkMessage(
   } finally {
     if (inlineTurn) {
       if (inlineKey && inlineChatTurns.get(inlineKey) === inlineTurn) inlineChatTurns.delete(inlineKey)
-      await inlineTurn.finish()
+      try {
+        const steeredDeliveries = await Promise.all(inlineTurn.steeredDeliveries ?? [])
+        for (const steeredDelivery of steeredDeliveries) {
+          if (!steeredDelivery) continue
+          const outcome = invocationFailed ? "failed" : "completed"
+          await settleChannelDeliveryInvocation(steeredDelivery, outcome, outcome, {
+            error: invocationFailed ? channelDeliveryError(invocationError) : undefined,
+            runId: run?.runId,
+          })
+        }
+      } finally {
+        await inlineTurn.finish()
+      }
     }
     typing?.stop()
     if (invocationStarted && !invocationFailed && !durableHandoff) {
