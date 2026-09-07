@@ -347,7 +347,7 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleSessionCss).toMatch(/\.session-inspector\s*\{[\s\S]*?height: 100%;/);
-    expect(consolePage).toContain("limit: 10");
+    expect(consolePage).toContain("limit: 50");
     expect(consolePage).toContain("const initialSessionLoading = computed");
     expect(consolePage).toContain(
       "[() => detail.invocation.value?.id, () => detail.invocation.value?.status]",
