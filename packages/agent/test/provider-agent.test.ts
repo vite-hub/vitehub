@@ -3558,6 +3558,44 @@ cli_auth_credentials_store = "keyring"
     expect(instructions).not.toContain("owner/mismatched")
   })
 
+  it("appends source provenance to native Codex Workspace instructions", async () => {
+    const threadId = "thread-native-codex-provenance"
+    let root = ""
+    let instructions = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { instructions = await readFile(`${root}/AGENTS.md`, "utf8") },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      materializeSources: vi.fn(async () => ({
+        bytes: 0, directories: 0, durationMs: 0, files: 1, path: "",
+        sources: [{ mountPath: "docs", provider: "github", revision: { id: "e".repeat(40), immutable: true }, source: "docs", status: "ready" }],
+      })),
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(root, { recursive: true })
+        await writeFile(`${root}/AGENTS.md`, "native Codex workspace instructions")
+        return session
+      }),
+      tools: {},
+    }
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
+    }) as never)
+
+    expect(instructions).toMatch(/^native Codex workspace instructions\n\nMounted source provenance/)
+    expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+  })
+
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {
     const threadId = "thread-workspace-materialization-cancellation"
     const abort = new AbortController()

@@ -2143,6 +2143,9 @@ async function* runProvider<
       }
     }
     const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
+    if (!instructions && provenanceInstructions && options.provider === "codex") {
+      instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+    }
     if (provenanceInstructions) {
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
