@@ -152,7 +152,7 @@ export function defineMcpToolCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 >(options: McpToolCapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
-  const clientsByContext = new WeakMap<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, McpClient[]>()
+  const clientsByContext = new WeakMap<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, Array<McpClient | undefined>>()
   return defineCapability({
     id: options.id,
     metadata: options.metadata,
@@ -160,15 +160,22 @@ export function defineMcpToolCapability<
       const tools: AgentToolSet = {}
       const clients: McpClient[] = []
       clientsByContext.set(context, clients)
-      for (const server of options.servers) {
+      const results = await Promise.allSettled(options.servers.map(async (server, index) => {
         const serverDefinition = await server.resolve(context)
-        if (serverDefinition === false || serverDefinition === null || serverDefinition === undefined) continue
+        if (serverDefinition === false || serverDefinition === null || serverDefinition === undefined) return
         const { client, metadata, owned } = await resolveMcpToolServer(serverDefinition, options.invalidServerMessage)
-        if (owned) clients.push(client)
+        if (owned) clients[index] = client
         const serverTools = await client.tools()
         if (serverDefinition.integrity) {
           await assertMcpToolIntegrity(server.name, serverTools, serverDefinition.integrity, options.integrityLabel)
         }
+        return { metadata, server, serverTools }
+      }))
+      const failure = results.find(result => result.status === "rejected")
+      if (failure?.status === "rejected") throw failure.reason
+      for (const result of results) {
+        if (result.status !== "fulfilled" || !result.value) continue
+        const { metadata, server, serverTools } = result.value
         for (const [toolName, tool] of Object.entries(serverTools || {})) {
           // SAFETY: McpClient.tools() establishes that each discovered entry is an Agent tool definition.
           const definition = tool as AgentToolDefinition & { metadata?: Record<string, unknown> }
@@ -194,14 +201,8 @@ export function defineMcpToolCapability<
       const clients = clientsByContext.get(context) || []
       clientsByContext.delete(context)
       const errors: unknown[] = []
-      for (const client of clients.splice(0).reverse()) {
-        try {
-          await client.close()
-        }
-        catch (error) {
-          errors.push(error)
-        }
-      }
+      const closes = await Promise.allSettled(clients.splice(0).reverse().flatMap(client => client ? [client.close()] : []))
+      for (const result of closes) if (result.status === "rejected") errors.push(result.reason)
       if (errors.length === 1) throw errors[0]
       if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple MCP clients failed to close.")
     },

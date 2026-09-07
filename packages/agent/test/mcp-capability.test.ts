@@ -40,6 +40,54 @@ async function fingerprintTools(tools: Record<string, unknown>) {
 }
 
 describe("mcp capability", () => {
+  it("resolves independent servers concurrently while preserving configured tool order", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const delay = (duration: number) => new Promise(resolve => setTimeout(resolve, duration))
+    let activeResolvers = 0
+    let maximumActiveResolvers = 0
+    const client = (name: string) => {
+      const value = createClient({ [name]: { execute: vi.fn() } })
+      value.tools.mockImplementation(async () => {
+        await delay(80)
+        return { [name]: { execute: vi.fn() } }
+      })
+      return value
+    }
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({
+        servers: {
+          first: async () => {
+            maximumActiveResolvers = Math.max(maximumActiveResolvers, ++activeResolvers)
+            await delay(80)
+            activeResolvers--
+            return client("one")
+          },
+          second: async () => {
+            maximumActiveResolvers = Math.max(maximumActiveResolvers, ++activeResolvers)
+            await delay(80)
+            activeResolvers--
+            return client("two")
+          },
+          third: async () => {
+            maximumActiveResolvers = Math.max(maximumActiveResolvers, ++activeResolvers)
+            await delay(80)
+            activeResolvers--
+            return client("three")
+          },
+        },
+      })],
+    }, runtime(), {})
+
+    expect(maximumActiveResolvers).toBe(3)
+    expect(Object.keys(resolved.tools || {})).toEqual([
+      "mcp_first_one",
+      "mcp_second_two",
+      "mcp_third_three",
+    ])
+    await resolved.close()
+  }, 60_000)
+
   it("loads direct client tools with namespaced metadata without closing the borrowed client", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
@@ -450,6 +498,28 @@ describe("mcp capability", () => {
     expect(second.close).toHaveBeenCalledTimes(1)
     expect(first.close).toHaveBeenCalledTimes(1)
   })
+
+  it("closes independent owned clients concurrently", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { mcp } = await import("../src/capabilities.ts")
+    const delay = (duration: number) => new Promise(resolve => setTimeout(resolve, duration))
+    const clients = [createClient({ first: {} }), createClient({ second: {} }), createClient({ third: {} })]
+    let activeCloses = 0
+    let maximumActiveCloses = 0
+    for (const client of clients) client.close.mockImplementation(async () => {
+      maximumActiveCloses = Math.max(maximumActiveCloses, ++activeCloses)
+      await delay(80)
+      activeCloses--
+      return undefined
+    })
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [mcp({ servers: { first: () => clients[0]!, second: () => clients[1]!, third: () => clients[2]! } })],
+    }, runtime(), {})
+    await resolved.close()
+
+    expect(maximumActiveCloses).toBe(3)
+    for (const client of clients) expect(client.close).toHaveBeenCalledTimes(1)
+  }, 60_000)
 
   it("admits tools that match an approved integrity baseline", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
