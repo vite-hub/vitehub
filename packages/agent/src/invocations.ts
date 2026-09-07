@@ -1303,6 +1303,7 @@ function journalTraceLog(
       && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
       && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
       && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
+      && pending.attributes?.["vitehub.auxiliary.kind"] === entry.attributes?.["vitehub.auxiliary.kind"]
     if (sameMessage && (previousContent === undefined) === (content === undefined)) {
       if (previousContent !== undefined && content !== undefined
         && previousContent.length + content.length > messageDeltaChunkCharacters) {

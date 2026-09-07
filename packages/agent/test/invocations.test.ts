@@ -3048,6 +3048,37 @@ describe("Agent Invocations", () => {
     expect(fullDeltas.every(entry => !entry.attributes?.["content.omitted"])).toBe(true)
   })
 
+  it.each([true, false])("keeps primary deltas when adjacent title deltas share their message identity (title first: %s)", async (titleFirst) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const title of [titleFirst, !titleFirst]) {
+          await context.traceLog?.append({
+            attributes: {
+              "message.content": title ? "Private title" : "Primary response",
+              "message.id": "answer",
+              "message.phase": "final",
+              "message.role": "assistant",
+              ...(title ? { "vitehub.auxiliary.kind": "title" } : {}),
+            },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("title-delta-isolation"), {})
+    const record = await invocations.getByRunId("title-delta-isolation")
+    const deltas = record?.observations.filter(entry => entry.name === "agent.message.delta")
+    expect(deltas).toHaveLength(1)
+    expect(deltas?.[0]?.attributes?.["message.content"]).toBe("Primary response")
+    expect(JSON.stringify(record?.observations)).not.toContain("Private title")
+  })
+
   it("preserves privacy filtering when coalesced message content crosses the former chunk boundary", async () => {
     const first = `${"x".repeat(510)}Authorization: Bear`
     const second = "er sensitive-value"
