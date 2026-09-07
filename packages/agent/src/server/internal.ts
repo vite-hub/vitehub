@@ -1,4 +1,10 @@
 export {
+  createAgentHealthHandler,
+  resolveAgentHealth,
+} from "../health.ts"
+export type { AgentHealthHandlerOptions, AgentHealthReport, AgentHealthStatus } from "../health.ts"
+
+export {
   createChannelChatRouteHandler,
   createChannelWebhookRouteHandler,
   createDiscordGatewayRouteHandler,

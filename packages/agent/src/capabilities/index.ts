@@ -2,6 +2,16 @@ export {
   access,
 } from "./access.ts"
 export {
+  createAgentEvlog,
+  observability,
+} from "../evlog.ts"
+export type {
+  AgentEvlog,
+  AgentEvlogExporter,
+  AgentEvlogOptions,
+  AgentObservabilityOptions,
+} from "../evlog.ts"
+export {
   agentChatContextKey,
   chat,
   getAgentChatContext,
@@ -49,6 +59,10 @@ export {
 export {
   openapi,
 } from "./openapi.ts"
+export {
+  papercuts,
+  posthogPapercuts,
+} from "./papercuts.ts"
 export {
   progressSummary,
 } from "./progress-summary.ts"
@@ -133,16 +147,6 @@ export {
 export type {
   OtlpCapabilityOptions,
 } from "./otlp.ts"
-export {
-  papercuts,
-} from "./papercuts.ts"
-export type {
-  Papercut,
-  PapercutReportContext,
-  PapercutReportEvent,
-  PapercutsOptions,
-  PapercutSource,
-} from "./papercuts.ts"
 export {
   webSearch,
 } from "./web-search/index.ts"
@@ -276,6 +280,16 @@ export type {
   OpenAPIRequestPatch,
   OpenAPIResponseContext,
 } from "./openapi.ts"
+export type {
+  Papercut,
+  PapercutReportContext,
+  PapercutReportEvent,
+  PapercutSource,
+  PapercutsOptions,
+  PapercutBackend,
+  PapercutSeverity,
+  PosthogPapercutsOptions,
+} from "./papercuts.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,

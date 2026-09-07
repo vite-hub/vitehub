@@ -4,6 +4,7 @@ import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { createAgentHealthHandler } from "./health.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
 import { cloneWithPropertyDescriptors, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
@@ -429,6 +430,10 @@ export type {
   AgentRunMetadata,
   AgentRunResult,
   AgentRuntime,
+  AgentBoxContext,
+  AgentBoxDefinitions,
+  AgentBoxInput,
+  AgentBoxValue,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -544,6 +549,7 @@ const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol.for("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol.for("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+const baseAgentDriver = Symbol.for("vitehub.baseAgentDriver")
 const baseAgentDefinitionResolve = Symbol.for("vitehub.baseAgentDefinitionResolve")
 const baseAgentOutput = Symbol.for("vitehub.baseAgentOutput")
 const baseAgentCapabilitiesResolver = Symbol.for("vitehub.baseAgentCapabilitiesResolver")
@@ -687,6 +693,7 @@ type AgentDefinitionWithBaseResolve<
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, any, any, TOutput> & {
   [baseAgentCapabilitiesResolver]?: AgentCapabilitiesResolver<TRuntimeConfig, WorkspaceName, CALL_OPTIONS>
   [baseAgentDriverKind]?: AgentDriverKind
+  [baseAgentDriver]?: unknown
   [baseAgentOutput]?: AgentOutputDefinition<TOutput>
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
@@ -748,10 +755,29 @@ function withAgentIdentityOwner<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
 ): AgentRuntimeContext<TRuntimeConfig> {
+  context = withAgentBox(agent, context)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   if (!context.agentIdentity || (context as AgentRuntimeContext & { [agentIdentityOwner]?: object })[agentIdentityOwner]) return context
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return { ...context, [agentIdentityOwner]: agent as object } as AgentRuntimeContext<TRuntimeConfig>
+}
+
+function withAgentBox<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+): AgentRuntimeContext<TRuntimeConfig> {
+  if (context.box) return context
+  const input = agent.box
+  const configured = hasRuntimeType(input, "function") ? input() : input
+  if (!configured) return context
+  const box = Object.freeze({
+    ...configured,
+    definitions: configured,
+    get(name: string): unknown {
+      return configured[name]
+    },
+  })
+  return { ...context, box }
 }
 
 function hasAgentDefinition(value: unknown): value is AgentDefinition {
@@ -1611,7 +1637,25 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
     const value = input as unknown
     if (hasRuntimeType(value, "object") && value && "kind" in value && hasRuntimeType(value.kind, "string")) continue
     const channel = hasRuntimeType(input, "function")
-      ? input()
+      ? (() => {
+          const resolved = input()
+          if (resolved && hasRuntimeType(resolved, "object") && "kind" in resolved) return resolved
+          // SAFETY: Each built-in constructor validates the callback configuration selected by its channel key.
+          return id === "discord" ? builtInDiscord<TRuntimeConfig>(resolved as never)
+            // SAFETY: The constructor validates the GitHub callback configuration.
+            : id === "github" ? builtInGitHub<TRuntimeConfig>(resolved as never)
+              // SAFETY: The constructor validates the HTTP callback configuration.
+              : id === "http" ? builtInHttp<TRuntimeConfig>(resolved as never)
+                // SAFETY: The constructor validates the Slack callback configuration.
+                : id === "slack" ? builtInSlack<TRuntimeConfig>(resolved as never)
+                  // SAFETY: The constructor validates the Teams callback configuration.
+                  : id === "teams" ? builtInTeams<TRuntimeConfig>(resolved as never)
+                    // SAFETY: The constructor validates the Telegram callback configuration.
+                    : id === "telegram" ? builtInTelegram<TRuntimeConfig>(resolved as never)
+                      // SAFETY: The constructor validates the web chat callback configuration.
+                      : id === "webChat" ? builtInWebChat<TRuntimeConfig>(resolved as never)
+                        : undefined
+        })()
       : id === "discord"
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         ? builtInDiscord<TRuntimeConfig>(input as never)
@@ -1686,7 +1730,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { box, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" ? driver.run : undefined
   const capabilitiesResolver = hasRuntimeType(capabilities, "function")
@@ -1712,6 +1756,7 @@ function defineBaseAgent<
   })
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
+    context = withAgentBox(definition, context)
     const resolvedAdapter = driver.kind === "model"
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
@@ -1748,12 +1793,14 @@ function defineBaseAgent<
 
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = {
-    box: options.box,
+    [baseAgentDriver]: driver,
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentDriverKind]: driver.kind,
     ...(driver.output ? { [baseAgentOutput]: driver.output } : {}),
     ...(capabilitiesResolver ? { [baseAgentCapabilitiesResolver]: capabilitiesResolver } : {}),
     [baseAgentResolve]: resolveBaseAgent,
+    health: options.health || { handler: (request: Request, healthOptions?: Record<string, unknown>) => createAgentHealthHandler(definition)(request, healthOptions) },
+    box,
     channels,
     chat,
     cli,
@@ -1784,6 +1831,7 @@ function defineBaseAgent<
     },
     async resolve(context) {
       context = withAgentIdentityOwner(definition, context)
+      context = withAgentBox(definition, context)
       const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
       const resolvedTools = driver.kind === "model" && normalizedCapabilities.length && !workspace
@@ -3543,6 +3591,7 @@ async function createAgentInvocationContext<
       : undefined
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const agentModel = internalDefinition?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
+    const agentDriver = internalDefinition?.[baseAgentDriver]
     const resolveCapabilityCli = resolveCapabilityCliRunSurface(definition)
     if (!telemetryTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.length) {
       runtimeContext = { ...runtimeContext, traceLog: agentInvocationTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId, runtimeContext.trace, telemetryChanged) }
@@ -3559,6 +3608,7 @@ async function createAgentInvocationContext<
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,
+      driver: agentDriver,
       invocationKind,
       invoker,
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.

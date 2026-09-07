@@ -28,6 +28,7 @@ import type {
   WorkspaceRules,
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
+import type { BoxDefinition } from "@vite-hub/box"
 import type {
   AgentChannelOptions,
   AgentWebChatChannelOptions,
@@ -53,10 +54,34 @@ export interface AgentWorkflowRuntimeBinding {
 }
 export type AgentWaitUntil = RuntimeWaitUntil
 export type AgentIntegrationOption = "auto" | boolean
+export interface AgentHealthDescriptor {
+  handler?: (request: Request, options?: Record<string, unknown>) => MaybePromise<Response>
+}
 export type AgentCapabilityHandle<TKind extends string = string, TValue = unknown> = RuntimeCapabilityHandle<TKind, TValue>
 export type AgentCapabilities = RuntimeCapabilities
 
 export interface AgentRuntimeConfig {}
+
+/** Named Box integrations owned by an agent definition.
+ * Values are intentionally opaque to the agent package: integrations can
+ * expose their own typed contracts while remaining lazily resolved.
+ */
+export type AgentBoxValue<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  | BoxDefinition<any>
+  | Record<string, unknown>
+  | (string & {})
+
+export type AgentBoxDefinitions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Readonly<Record<string, AgentBoxValue<TRuntimeConfig>>>
+export type AgentBoxInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  | AgentBoxDefinitions<TRuntimeConfig>
+  | (() => AgentBoxDefinitions<TRuntimeConfig>)
+
+export interface AgentBoxContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  readonly definitions: AgentBoxDefinitions
+  readonly [name: string]: unknown
+  get(name: string): unknown
+}
 
 export interface AgentHostIdentity {
   readonly name: string
@@ -66,6 +91,8 @@ export interface AgentHostIdentity {
 export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends Omit<RuntimeHostContext<TRuntimeConfig>, "cloudflare" | "platform" | "runtime"> {
   agentIdentity?: AgentHostIdentity
+  /** Agent-owned Box integrations. Secrets are resolved by integrations on demand. */
+  box?: AgentBoxContext<TRuntimeConfig>
   channelDelivery?: AgentChannelDelivery
   cloudflare?: RuntimeHostContext<TRuntimeConfig>["cloudflare"]
   toolStepReporter?: (step: AgentToolStep) => MaybePromise<void>
@@ -612,6 +639,7 @@ export interface AgentTriggerDefinition<
   CALL_OPTIONS = unknown,
   TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
+  health?: AgentHealthDescriptor
   input?: unknown
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
@@ -917,6 +945,8 @@ export interface AgentCapabilityContext<
   invocation?: { input: AgentCapabilityInputContext, kind?: "run" | "stream" }
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
+  /** The enclosing normalized driver, available to capabilities for inheritance. */
+  agentDriver?: unknown
   workspaceDefinition?: WorkspaceDefinition
 }
 
@@ -1464,8 +1494,8 @@ type AgentSharedSettings<
   TCapabilities extends AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined = AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined,
   TOutput = unknown,
 > = {
-  /** Shared host resources and credentials available to the agent. */
-  box?: AgentBox
+  box?: AgentBoxInput<TRuntimeConfig>
+  health?: AgentHealthDescriptor
   capabilities?: TCapabilities
   channels?: AgentChannelInputs<TRuntimeConfig>
   cli?: AgentDefinitionCliOptions
@@ -1503,8 +1533,9 @@ export interface AgentDefinition<
   TContextValues extends object = AgentInvocationContextValues,
   TOutput = unknown,
 > {
-  box?: AgentBox
   [agentOutputType]?: TOutput
+  box?: AgentBoxInput<TRuntimeConfig>
+  health?: AgentHealthDescriptor
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
