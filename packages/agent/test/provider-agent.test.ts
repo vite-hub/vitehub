@@ -2004,6 +2004,55 @@ cli_auth_credentials_store = "keyring"
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it.each([
+    { inputTokens: 7, outputTokens: 5 },
+    { lastInputTokens: 7, lastOutputTokens: 5 },
+    { inputTokens: 0, outputTokens: 12 },
+  ])("preserves a complete partition matching the cumulative total: %j", async (partition) => {
+    const threadId = "thread-matching-usage"
+    const usage = { ...partition, cachedInputTokens: 0, reasoningOutputTokens: 3, totalProcessedTokens: 12 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: {
+        raw: usage,
+        usage: {
+          details: { cachedInputTokens: 0, reasoningOutputTokens: 3 },
+          inputTokens: "inputTokens" in partition ? partition.inputTokens : partition.lastInputTokens,
+          outputTokens: "outputTokens" in partition ? partition.outputTokens : partition.lastOutputTokens,
+          totalTokens: 12,
+        },
+      },
+    })
+  })
+
+  it("keeps last-response usage raw when reporting a cumulative total", async () => {
+    const threadId = "thread-cumulative-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: {
+        cachedInputTokens: 2,
+        inputTokens: 7,
+        outputTokens: 5,
+        reasoningOutputTokens: 3,
+        totalProcessedTokens: 100,
+        usedTokens: 12,
+      } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: {
+        raw: { cachedInputTokens: 2, inputTokens: 7, outputTokens: 5, reasoningOutputTokens: 3, totalProcessedTokens: 100, usedTokens: 12 },
+        usage: { details: {}, inputTokens: undefined, outputTokens: undefined, totalTokens: 100 },
+      },
+    })
+  })
+
   it("keeps assistant item phases separate and forgets completed items", async () => {
     const threadId = "thread-message-phases"
     runtime(threadId, [
