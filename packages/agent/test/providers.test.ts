@@ -16212,9 +16212,10 @@ describe("server helpers", () => {
     { failInvocation: false, lateAcceptance: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true },
     { failInvocation: true, lateAcceptance: true, timeoutAcceptance: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, neverAccepts: true },
     { failInvocation: true, lateAcceptance: true },
-  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts }) => {
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16233,6 +16234,7 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
           adapter: () => adapter as never,
+          ...(nonStreaming ? { stream: false } : {}),
           messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 500 },
         }),
       },
@@ -16300,17 +16302,26 @@ describe("server helpers", () => {
       await new Promise(resolve => setTimeout(resolve, 75))
       expect(runs).toBe(1)
       expect(steeredPrompt).toBeUndefined()
-      const followUp = handler(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+      const reconciliationTasks: Promise<unknown>[] = []
+      const followUp = handler(request(91_107, 457), "telegram", {
+        agentIdentity: { name: "calories" },
+        waitUntil: task => { reconciliationTasks.push(task) },
+      })
       if (lateAcceptance) {
         // Completion and owner release must not wait for the in-flight handler.
         await firstResult
         await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
         expect(steeredPrompt).toBe("hello")
         if (timeoutAcceptance) {
-          // The webhook must finish even while the authoritative input is unresolved.
+          // The response finishes while the host retains bounded reconciliation custody.
           await expect(followUp).resolves.toMatchObject({ status: 200 })
           const timedOut = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
           expect(timedOut.find(delivery => delivery.sourceId === "91107")?.status).toBe("failed")
+          expect(reconciliationTasks.length).toBeGreaterThan(0)
+          let custodySettled = false
+          void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+          await new Promise(resolve => setTimeout(resolve, 0))
+          expect(custodySettled).toBe(false)
         }
         if (!neverAccepts) acceptance.resolve()
       }
@@ -16325,6 +16336,7 @@ describe("server helpers", () => {
       await firstResult
       await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
 
+      if (timeoutAcceptance) await Promise.all(reconciliationTasks)
       if (neverAccepts) {
         expect(runs).toBe(2)
         return

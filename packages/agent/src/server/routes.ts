@@ -4759,7 +4759,7 @@ async function handleChatSdkMessage(
   message: ChatSdkMessage,
   deliveryKind: AgentMessageDeliveryKind,
   options: AgentChatOptions | undefined,
-  state: { keyPrefix: string; state: StateAdapter; workflowCustodySupported?: boolean },
+  state: { keyPrefix: string; state: StateAdapter; workflowCustodySupported?: boolean; reconciliationWaitUntil?: AgentWaitUntil },
   messageContext?: MessageContext,
   maximumInvocationDeadline?: number,
   historyThroughCurrent = false,
@@ -4940,8 +4940,12 @@ async function handleChatSdkMessage(
           }
           if (outcome === "timed-out") {
             await timeoutEvidence
-            // Do not add an unbounded task to flushWaitUntil, which some webhook hosts await.
-            void submission.catch(() => undefined)
+            // Keep late acceptance under host custody for one more bounded confirmation window.
+            // Use the host hook directly so a webhook flush does not delay its response.
+            const reconciliationTimeout = Math.max(1, Math.min(options?.timeout ?? 28_000, 28_000))
+            const reconciliation = enforceChatInvocationTimeout(submission, reconciliationTimeout).catch(() => undefined)
+            const waitUntil = state.reconciliationWaitUntil ?? context.waitUntil
+            waitUntil(reconciliation)
             return
           }
           if (outcome === "accepted") return
@@ -5849,7 +5853,7 @@ async function handleChatSdkMessages(
   message: ChatSdkMessage,
   resolveDeliveryKind: AgentMessageDeliveryKindResolver,
   options: AgentChatOptions | undefined,
-  state: { keyPrefix: string; state: StateAdapter },
+  state: { keyPrefix: string; state: StateAdapter; reconciliationWaitUntil?: AgentWaitUntil },
   adapter: Adapter,
   chat: Chat,
   lockTracker: ChatLockTracker,
@@ -5939,6 +5943,7 @@ async function createChannelChat(
   const state = {
     keyPrefix: resolvedState.titleKeyPrefix,
     state: resolvedState.state,
+    reconciliationWaitUntil: await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
     workflowCustodySupported: "workflowCustodySupported" in resolvedState ? resolvedState.workflowCustodySupported : undefined,
   }
   const deliveryContext = async () => (resolveDelivery ? withAgentChannelDelivery(context, await resolveDelivery()) : context)
