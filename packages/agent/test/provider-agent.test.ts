@@ -3487,6 +3487,63 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it("supplies verified GitHub source provenance without serializing unsafe source configuration", async () => {
+    const threadId = "thread-source-provenance"
+    let root = ""
+    let instructions = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { instructions = await readFile(`${root}/AGENTS.md`, "utf8") },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const materializeSources = vi.fn(async () => ({
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 2,
+      path: "",
+      sources: [
+        { mountPath: "references/engine", provider: "github", revision: { id: "abc123", immutable: true, ref: "main" }, source: "engine", status: "ready" },
+        { mountPath: "references/mutable", provider: "github", revision: { id: "main", immutable: false }, source: "mutable", status: "ready" },
+        { mountPath: "references/custom", provider: "custom", revision: { id: "rev-1", immutable: true }, source: "custom", status: "ready" },
+        { mountPath: "references/unsafe", provider: "github", revision: { id: "def456", immutable: true }, source: "unsafe", status: "ready" },
+      ],
+    }))
+    const source = (fingerprint: unknown) => ({
+      fingerprint,
+      async getItem() { throw new Error("unused") },
+      async getKeys() { return [] },
+      name: "github",
+    })
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async (options: { target: string }) => { root = options.target; return session }), tools: {} }
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: {
+        name: "docs",
+        sources: {
+          custom: source({ repo: "owner/custom", root: "" }),
+          engine: { mount: "references/engine", source: source({ auth: "secret", ref: "main", repo: "quiverdk/forecasting-engine", root: "packages/core" }) },
+          mutable: source({ repo: "owner/mutable", root: "" }),
+          unsafe: source({ repo: "https://token@github.com/owner/repo?auth=secret", root: "" }),
+        },
+      },
+    }) as never)
+
+    expect(instructions).toContain('"mount": "references/engine"')
+    expect(instructions).toContain('"root": "packages/core"')
+    expect(instructions).toContain('"id": "abc123"')
+    expect(instructions).not.toContain("token@")
+    expect(instructions).not.toContain("auth=secret")
+    expect(instructions).not.toContain("owner/mutable")
+    expect(instructions).not.toContain("owner/custom")
+  })
+
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {
     const threadId = "thread-workspace-materialization-cancellation"
     const abort = new AbortController()

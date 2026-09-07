@@ -9,6 +9,7 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspectProvider } from "@t3tools/provider-runtime"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
@@ -1520,7 +1521,7 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const materialize = (workspace as ReadonlyWorkspaceFacade & { materializeSources?: ReadonlyWorkspaceFacade["fs"]["materializeSources"] } | undefined)?.materializeSources
     || workspace?.fs.materializeSources
-  if (!materialize || (paths && !paths.length)) return false
+  if (!materialize || (paths && !paths.length)) return
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
   const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
@@ -1531,11 +1532,53 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   })))
   const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
   if (failure) throw failure.reason
-  return results.every(result => result.status === "fulfilled"
-    && result.value.sources.every(source => source.status === "ready"))
+  const values = results.flatMap(result => result.status === "fulfilled" ? [result.value] : [])
+  return {
+    ready: values.every(result => result.sources.every(source => source.status === "ready")),
+    sources: values.flatMap(result => result.sources),
+  }
 }
 
-async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
+interface ProviderSourceProvenance {
+  mount: string
+  provider: "github"
+  repository: string
+  revision: { id: string, ref?: string }
+  root: string
+  source: string
+}
+
+function providerSourceProvenance(context: AgentAdapterRunContext, materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>): ProviderSourceProvenance[] {
+  if (!materialized || !context.workspaceDefinition?.sources) return []
+  const metadata = new Map(normalizeWorkspaceSourcesMetadata(context.workspaceDefinition.sources).map(source => [source.key, source]))
+  return materialized.sources.flatMap((status) => {
+    if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !status.revision.id.trim()) return []
+    const source = metadata.get(status.source)
+    const fingerprint = source?.source.fingerprint
+    if (!isRuntimeRecord(fingerprint)) return []
+    const repo = fingerprint.repo
+    const root = fingerprint.root
+    if (!hasRuntimeType(repo, "string") || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return []
+    if (!hasRuntimeType(root, "string") || root.startsWith("/") || root.split("/").includes("..")) return []
+    return [{
+      mount: status.mountPath,
+      provider: "github",
+      repository: `https://github.com/${repo}`,
+      revision: { id: status.revision.id, ...(status.revision.ref ? { ref: status.revision.ref } : {}) },
+      root,
+      source: status.source,
+    }]
+  }).filter((entry, index, entries) => entries.findIndex(candidate => candidate.source === entry.source
+    && candidate.mount === entry.mount
+    && candidate.revision.id === entry.revision.id) === index)
+}
+
+function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvenance[]): string | undefined {
+  if (!provenance.length) return
+  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nUse the repository URL and immutable revision for source citations. Read files from the matching mounted path.`
+}
+
+async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
@@ -1545,7 +1588,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
-    ...(materializedSources ? { materializeSources: false } : {}),
+    ...(materializedSources?.ready ? { materializeSources: false } : {}),
     onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,
@@ -1553,7 +1596,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
   await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
-  return session
+  return { provenance: providerSourceProvenance(context, materializedSources), session }
 }
 
 async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
@@ -1947,6 +1990,7 @@ async function* runProvider<
     throw error
   }
   let workspaceSession: WorkspaceSession | undefined
+  let sourceProvenance: ProviderSourceProvenance[] = []
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
@@ -2046,12 +2090,12 @@ async function* runProvider<
   }
   try {
     effectiveSignal?.throwIfAborted()
-    workspaceSession = await waitForProviderOperation(
+    const preparedWorkspace = await waitForProviderOperation(
       prepareWorkspace(context, root),
       effectiveSignal,
-      async (lateSession) => {
+      async (lateWorkspace) => {
         try {
-          await lateSession?.close()
+          await lateWorkspace?.session.close()
         }
         finally {
           await cleanupRoot()
@@ -2060,6 +2104,8 @@ async function* runProvider<
       deferWorkspaceSessionCleanup,
       cleanupRoot,
     )
+    workspaceSession = preparedWorkspace?.session
+    sourceProvenance = preparedWorkspace?.provenance || []
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
         async readFile(path) {
@@ -2080,6 +2126,11 @@ async function* runProvider<
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
     let materializeInstructions = Boolean(instructions)
+    const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
+    if (provenanceInstructions) {
+      instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
+      materializeInstructions = true
+    }
     if (!instructions && options.provider === "claude-code") {
       const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
       if (nativeInstructions !== undefined) instructions = nativeInstructions
