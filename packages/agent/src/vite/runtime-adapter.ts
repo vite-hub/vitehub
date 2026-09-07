@@ -87,9 +87,14 @@ export function createViteWorkspaceAgentLoader(
 ) {
   return async () => {
     const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
+    const colocatedInstructions = await readColocatedAgentInstructions(definition.handler)
     const agent = workspaceAgentWithSourceRoot(
-      withColocatedAgentSkills(module.default, colocatedSkills(definition.handler)),
+      withColocatedAgentSkills(
+        agentWithColocatedInstructions(module.default, colocatedInstructions),
+        colocatedSkills(definition.handler),
+      ),
       workspaceSourceRoot(definition.handler),
+      colocatedInstructions,
     )
     return {
       ...module,

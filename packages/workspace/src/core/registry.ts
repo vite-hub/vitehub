@@ -182,7 +182,7 @@ export async function resolveRegisteredWorkspaceDefinition(name: string, abortSi
   return resolveWorkspaceDefinition(name, abortSignal)
 }
 
-export async function useRegisteredWorkspace(name: string): Promise<Workspace> {
+export async function useRegisteredWorkspace(name: string, options: { reuseStartupSnapshots?: boolean } = {}): Promise<Workspace> {
   const definition = await resolveWorkspaceDefinition(name)
-  return createWorkspace(definition)
+  return createWorkspace(definition, options)
 }

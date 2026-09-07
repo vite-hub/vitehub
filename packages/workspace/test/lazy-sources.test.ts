@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { WorkspaceStore } from "../src/index.ts"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
-import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } from "../src/sources/view.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
@@ -122,6 +122,323 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/foo.md")).resolves.toBe("# Source view\n")
     await expect(view.writeFile("docs/foo.md", "nope")).rejects.toThrow("read-only")
     await expect(view.writeFile("generated/result.md", "ok")).resolves.toBe("generated/result.md")
+  })
+
+  it("materializes startup Sources during the first recursive root listing", async () => {
+    const store = createMemoryWorkspaceStore()
+    const list = vi.spyOn(store, "list")
+    const view = createWorkspaceSourceView({
+      name: "startup-root-list",
+      sources: {
+        instructions: {
+          content: "# Instructions\n",
+          materialize: "startup",
+          mount: "",
+          workspacePath: "AGENTS.md",
+        },
+        skill: {
+          content: new TextEncoder().encode("# Review\n"),
+          materialize: "startup",
+          mount: "",
+          workspacePath: ".agents/skills/review/SKILL.md",
+        },
+      },
+    }, store)
+
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+      expect.objectContaining({ path: ".agents/skills/review/SKILL.md", type: "file" }),
+    ]))
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# Instructions\n" })
+    await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Review\n"),
+    })
+    // First startup only lists the Store for the consumer, not for source cleanup.
+    expect(list).toHaveBeenCalledExactlyOnceWith("", { recursive: true })
+    // Once snapshots contain item paths, refresh only stats those paths.
+    list.mockClear()
+    await view.materializeSources()
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it.each(["", "docs"])("omits deleted startup files from the first recursive listing at mount '%s'", async (mount) => {
+    let keys = ["stale.md", "current.md"]
+    const definition = {
+      name: "startup-root-list-refresh",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          mount,
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+        pending: custom({
+          materialize: "lazy" as const,
+          async getKeys() { return ["later.md"] },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("user.md", { path: "user.md", content: "keep" })
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["docs"] })
+    keys = ["current.md"]
+    const view = createWorkspaceSourceView({ ...definition }, store)
+    const prefix = mount ? `${mount}/` : ""
+
+    const entries = await view.list("", { recursive: true })
+
+    expect(entries).not.toEqual(expect.arrayContaining([expect.objectContaining({ path: `${prefix}stale.md` })]))
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: `${prefix}current.md`, type: "file" }),
+      expect.objectContaining({ path: "user.md", type: "file" }),
+      expect.objectContaining({ path: "pending", type: "directory" }),
+    ]))
+    await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
+  })
+
+  it.each(["stat", "exists"] as const)("refreshes root startup Sources before the first %s", async (operation) => {
+    for (const reuseStartupSnapshots of [false, true]) {
+      for (const removed of [false, true]) {
+        const store = createMemoryWorkspaceStore()
+        let content = "old"
+        let keys = ["AGENTS.md"]
+        const definition = {
+          name: "startup-root-metadata",
+          sources: {
+            instructions: custom({
+              materialize: "startup" as const,
+              mount: "",
+              async getKeys() { return keys },
+              async getItem(key) { return { key, content } },
+            }),
+          },
+        }
+        await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["instructions"] })
+        content = "updated instructions"
+        if (removed) keys = []
+        const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+
+        if (operation === "stat") {
+          if (removed && !reuseStartupSnapshots) {
+            await expect(view.stat("AGENTS.md")).rejects.toThrow("does not exist")
+          }
+          else {
+            await expect(view.stat("AGENTS.md")).resolves.toMatchObject({
+              size: reuseStartupSnapshots ? 3 : content.length,
+            })
+          }
+        }
+        else {
+          await expect(view.exists("AGENTS.md")).resolves.toBe(reuseStartupSnapshots || !removed)
+        }
+        await expect(store.readFile("AGENTS.md")).resolves.toEqual(
+          removed && !reuseStartupSnapshots
+            ? undefined
+            : expect.objectContaining({ content: reuseStartupSnapshots ? "old" : content }),
+        )
+      }
+    }
+  })
+
+  it("removes files owned by startup Sources removed from the definition", async () => {
+    const store = createMemoryWorkspaceStore()
+    const initial = {
+      name: "removed-startup-sources",
+      sources: {
+        instructions: {
+          content: "# Old instructions\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: "AGENTS.md",
+        },
+        oldSkill: {
+          content: "# Old skill\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: ".agents/skills/old/SKILL.md",
+        },
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["instructions", "oldSkill"] })
+    await store.writeFile("AGENTS.md", { path: "AGENTS.md", content: "# User instructions\n" })
+
+    await createWorkspaceSourceView({
+      name: initial.name,
+      sources: {
+        newSkill: {
+          content: "# New skill\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: ".agents/skills/new/SKILL.md",
+        },
+      },
+    }, store).materializeSources({ sources: ["newSkill"] })
+
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# User instructions\n" })
+    await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
+    await expect(store.stat(".agents/skills/old")).resolves.toBeUndefined()
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
+  })
+
+  it.each([true, false])("restores overlapping startup files after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
+    const store = createMemoryWorkspaceStore()
+    const retainedKeys = vi.fn(async () => ["shared.md"])
+    const retained = custom({
+      cache: { maxAge: 3600 },
+      materialize: "startup",
+      mount: "",
+      getKeys: retainedKeys,
+      async getItem(key) { return { key, content: "retained" } },
+    })
+    const initial = {
+      name: "overlapping-startup-sources",
+      sources: {
+        retained,
+        removed: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return ["shared.md"] },
+          async getItem(key) { return { key, content: "removed" } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed" } })
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "removed" })
+
+    const next = { name: initial.name, sources: { retained } }
+    await syncWorkspaceDefinition(next, store)
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "shared.md", type: "file" }),
+    ]))
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "retained" })
+    expect(retainedKeys).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
+    const store = createMemoryWorkspaceStore()
+    const source = (key: string) => custom({
+      materialize: "startup",
+      mount: "",
+      async getKeys() { return [key] },
+      async getItem(key) { return { key, content: key } },
+    })
+    const retained = source("shared.md")
+    const other = source("other.md")
+    await createWorkspaceSourceView({
+      name: "concurrent-startup-removal",
+      sources: { retained, other, removed: source("shared.md") },
+    }, store).materializeSources()
+    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed" } })
+    const remove = store.rm.bind(store)
+    const removals = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+      // Let competing source materializations reach reconciliation before deletion.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      await remove(path, options)
+    })
+    const definition = { name: "concurrent-startup-removal", sources: { retained, other } }
+    const view = createWorkspaceSourceView(definition, store)
+
+    await Promise.all([
+      ...(abortableSync ? [syncWorkspaceDefinition(definition, store, new AbortController().signal)] : []),
+      view.glob("**/*.md"),
+    ])
+
+    expect(removals.mock.calls.filter(([path]) => path === "shared.md")).toHaveLength(1)
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "shared.md" })
+    await expect(store.readFile("other.md")).resolves.toMatchObject({ content: "other.md" })
+  })
+
+  it.each([true, false])("preserves removed startup history through lazy-only refresh with retained source %s", async (retainStartup) => {
+    const store = createMemoryWorkspaceStore()
+    const source = (materialize: "startup" | "lazy", workspacePath: string) => ({
+      content: workspacePath,
+      materialize,
+      mount: "",
+      workspacePath,
+    })
+    const retained = source("startup", "retained.md")
+    const lazy = source("lazy", "lazy.md")
+    await createWorkspaceSourceView({
+      name: "lazy-refresh-startup-history",
+      sources: { removed: source("startup", "removed.md"), retained, lazy },
+    }, store).materializeSources()
+
+    const next = createWorkspaceSourceView({
+      name: "lazy-refresh-startup-history",
+      sources: { ...(retainStartup ? { retained } : {}), lazy },
+    }, store)
+    await next.materializeSources({ sources: ["lazy"] })
+    await expect(store.readFile("lazy.md")).resolves.toMatchObject({ content: "lazy.md" })
+    await expect(store.readFile("removed.md")).resolves.toMatchObject({ content: "removed.md" })
+    await expect(store.readFile("retained.md")).resolves.toMatchObject({ content: "retained.md" })
+    await next.materializeSources()
+
+    await expect(store.stat("removed.md")).resolves.toBeUndefined()
+    if (retainStartup) {
+      await expect(store.readFile("retained.md")).resolves.toMatchObject({ content: "retained.md" })
+    }
+    else {
+      await expect(store.stat("retained.md")).resolves.toBeUndefined()
+    }
+  })
+
+  it("removes the final startup Source and files left at a previous mount", async () => {
+    const store = createMemoryWorkspaceStore()
+    const source = (mount: string) => custom({
+      materialize: "startup" as const,
+      mount,
+      async getKeys() { return ["SKILL.md"] },
+      async getItem(key) { return { key, content: mount } },
+    })
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/old") },
+    }, store).materializeSources({ sources: ["skill"] })
+
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/new") },
+    }, store).materializeSources({ sources: ["skill"] })
+
+    await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
+
+    await store.setMeta?.("workspace:startup-sources", [{ key: "skill", mountPath: ".agents/skills/old" }])
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/new") },
+    }, store).materializeSources({ sources: ["skill"] })
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
+
+    await createWorkspaceSourceView({ name: "moved-startup-source", sources: {} }, store).materializeSources({ sources: [] })
+    await expect(store.stat(".agents/skills/new/SKILL.md")).resolves.toBeUndefined()
+  })
+
+  it("does not let snapshot-reusing inspection suppress normal startup refresh", async () => {
+    const getKeys = vi.fn(async () => ["AGENTS.md"])
+    const definition = {
+      name: "startup-inspection-isolation",
+      sources: {
+        instructions: custom({
+          materialize: "startup" as const,
+          mount: "",
+          getKeys,
+          async getItem(key: string) { return { key, content: "# Instructions\n" } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await invalidateWorkspaceSourceMaterialization(definition, store, ["instructions"])
+    await createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true }).list("", { recursive: true })
+    expect(getKeys).toHaveBeenCalledOnce()
+
+    await createWorkspaceSourceView(definition, store).list("", { recursive: true })
+    expect(getKeys).toHaveBeenCalledTimes(2)
   })
 
   it("normalizes keyed source mounts and cache defaults", () => {
@@ -1577,6 +1894,32 @@ describe("lazy sources", () => {
     await expect(view.readFile("AGENTS.md")).resolves.toBe("# Source\n")
   })
 
+  it("keeps user-owned ancestors when clearing a nested source mount", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.mkdir("docs")
+    let keys = ["nested/stale.md"]
+    const view = createWorkspaceSourceView({
+      name: "nested-source-cleanup",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }, store)
+    await view.materializeSources()
+    await expect(store.stat("docs/generated/nested/stale.md")).resolves.toMatchObject({ type: "file" })
+
+    keys = []
+    await view.materializeSources()
+
+    await expect(store.stat("docs/generated/nested/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it("removes stale root-mounted lazy source files on refresh", async () => {
     let keys = ["AGENTS.md", "nested/stale.md"]
     registerWorkspace("lazy-root-refresh", defineWorkspace({
@@ -1607,6 +1950,36 @@ describe("lazy sources", () => {
     await expect(workspace.exists("nested")).resolves.toBe(false)
     await expect(workspace.exists("generated")).resolves.toBe(true)
     await expect(workspace.readFile("AGENTS.md")).resolves.toBe("# AGENTS.md\n")
+  })
+
+  it.each(["getMeta", "setMeta", "both"] as const)("cleans owned root files without %s snapshot support", async (missing) => {
+    const store: WorkspaceStore = createMemoryWorkspaceStore()
+    if (missing === "getMeta" || missing === "both") store.getMeta = undefined
+    if (missing === "setMeta" || missing === "both") store.setMeta = undefined
+    let keys = ["AGENTS.md", "nested/stale.md"]
+    const definition = {
+      name: "root-without-snapshot",
+      sources: {
+        rootFiles: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }
+    await store.writeFile("user.md", { path: "user.md", content: "user content" })
+    await store.writeFile("other.md", { path: "other.md", content: "other source", metadata: { source: "other" } })
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["AGENTS.md"]
+
+    await createWorkspaceSourceView(definition, store).materializeSources()
+
+    await expect(store.stat("nested/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("nested")).resolves.toBeUndefined()
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "AGENTS.md" })
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user content" })
+    await expect(store.readFile("other.md")).resolves.toMatchObject({ content: "other source" })
   })
 
   it("materializes root-mounted lazy sources for scoped paths", async () => {
@@ -1947,6 +2320,37 @@ describe("lazy sources", () => {
     await view.materializeSources({ sources: ["generated"] })
 
     expect(prepare).toHaveBeenCalledTimes(2)
+  })
+
+  it("removes stale root startup files after build cleanup clears their snapshot", async () => {
+    let keys = ["docs/generated.md", "stale.md", "AGENTS.md"]
+    const definition = {
+      name: "startup-cleared-snapshot-cleanup",
+      sources: {
+        docs: custom({ materialize: "build", mount: "docs", files: [{ path: "index.md", content: "docs" }] }),
+        generated: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources({ sources: ["generated"] })
+    await store.writeFile("user.md", { path: "user.md", content: "user" })
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toEqual({})
+    await expect(store.stat("stale.md")).resolves.toBeDefined()
+    keys = ["AGENTS.md"]
+
+    await view.materializeSources({ sources: ["generated"] })
+
+    await expect(store.stat("stale.md")).resolves.toBeUndefined()
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "AGENTS.md" })
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user" })
+    await expect(store.readFile("docs/index.md")).resolves.toMatchObject({ content: "docs" })
   })
 
   it("preserves a disjoint root startup snapshot during root build cleanup", async () => {
