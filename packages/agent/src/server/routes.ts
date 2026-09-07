@@ -4944,8 +4944,7 @@ async function handleChatSdkMessage(
             // Use the host hook directly so a webhook flush does not delay its response.
             const reconciliationTimeout = Math.max(1, Math.min(options?.timeout ?? 28_000, 28_000))
             const reconciliation = enforceChatInvocationTimeout(submission, reconciliationTimeout).catch(() => undefined)
-            const waitUntil = state.reconciliationWaitUntil ?? context.waitUntil
-            waitUntil(reconciliation)
+            state.reconciliationWaitUntil?.(reconciliation)
             return
           }
           if (outcome === "accepted") return

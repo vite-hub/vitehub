@@ -16213,9 +16213,10 @@ describe("server helpers", () => {
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true },
     { failInvocation: true, lateAcceptance: true, timeoutAcceptance: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true, noHost: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, neverAccepts: true },
     { failInvocation: true, lateAcceptance: true },
-  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming }) => {
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16234,8 +16235,7 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
           adapter: () => adapter as never,
-          ...(nonStreaming ? { stream: false } : {}),
-          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 500 },
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 500, ...(nonStreaming ? { stream: false } : {}) },
         }),
       },
       driver: {
@@ -16303,9 +16303,10 @@ describe("server helpers", () => {
       expect(runs).toBe(1)
       expect(steeredPrompt).toBeUndefined()
       const reconciliationTasks: Promise<unknown>[] = []
+      const followUpStartedAt = Date.now()
       const followUp = handler(request(91_107, 457), "telegram", {
         agentIdentity: { name: "calories" },
-        waitUntil: task => { reconciliationTasks.push(task) },
+        ...(noHost ? {} : { waitUntil: (task: Promise<unknown>) => { reconciliationTasks.push(task) } }),
       })
       if (lateAcceptance) {
         // Completion and owner release must not wait for the in-flight handler.
@@ -16317,11 +16318,17 @@ describe("server helpers", () => {
           await expect(followUp).resolves.toMatchObject({ status: 200 })
           const timedOut = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
           expect(timedOut.find(delivery => delivery.sourceId === "91107")?.status).toBe("failed")
-          expect(reconciliationTasks.length).toBeGreaterThan(0)
-          let custodySettled = false
-          void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
-          await new Promise(resolve => setTimeout(resolve, 0))
-          expect(custodySettled).toBe(false)
+          if (noHost) {
+            // A local non-streaming flush must not include the second 500 ms wait.
+            expect(Date.now() - followUpStartedAt).toBeLessThan(900)
+            expect(reconciliationTasks).toHaveLength(0)
+          } else {
+            expect(reconciliationTasks.length).toBeGreaterThan(0)
+            let custodySettled = false
+            void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+            await new Promise(resolve => setTimeout(resolve, 0))
+            expect(custodySettled).toBe(false)
+          }
         }
         if (!neverAccepts) acceptance.resolve()
       }
