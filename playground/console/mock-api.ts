@@ -191,13 +191,11 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
 
   if (path === "/api/_vitehub/console/invocation-capabilities") {
     const agentName = url.searchParams.get("agent") || undefined
-    json(response, {
-      capabilities: await invocations.listCapabilityIds(agentName),
-      triggeredBy: [...new Set(fixture.invocations
-        .filter(invocation => !agentName || invocation.agentName === agentName)
-        .map(invocation => invocation.annotations?.triggeredBy)
-        .filter((value): value is string => Boolean(value)))].sort(),
-    })
+    const [capabilities, triggeredBy] = await Promise.all([
+      invocations.listCapabilityIds(agentName),
+      invocations.listTriggeredBy(agentName),
+    ])
+    json(response, { capabilities, triggeredBy })
     return true
   }
 
@@ -222,14 +220,13 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     const page = await invocations.list({
       agentName: url.searchParams.get("agent") || undefined,
       capabilityId: url.searchParams.get("capability") || undefined,
+      triggeredBy: url.searchParams.get("triggeredBy") || undefined,
       cursor: url.searchParams.get("cursor") || undefined,
       limit: Number(url.searchParams.get("limit")) || 50,
     })
     json(response, {
       ...page,
-      invocations: await Promise.all(page.invocations
-        .filter(item => !url.searchParams.get("triggeredBy") || item.annotations?.triggeredBy === url.searchParams.get("triggeredBy"))
-        .map(async (item) => {
+      invocations: await Promise.all(page.invocations.map(async (item) => {
         const record = await invocations.get(item.id)
         const usage = record ? invocationUsage(record) : undefined
         return { ...item, ...(usage ? { usage } : {}) }

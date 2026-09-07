@@ -589,6 +589,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
           WHERE json_extract(observation.value, '$."attributes"."capability.id"') = ?))`)
         args.push(capabilityId, capabilityId)
       }
+      const triggeredBy = listOptions.triggeredBy?.trim()
+      if (triggeredBy) {
+        filters.push("json_extract(CASE WHEN json_valid(summary) THEN summary ELSE record END, '$.annotations.triggeredBy') = ?")
+        args.push(triggeredBy)
+      }
       const search = searchValue(listOptions.search)
       if (search) {
         await ensureSearchBackfill()
@@ -652,6 +657,23 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       return result.rows.flatMap((row) => {
         return hasRuntimeType(row.capability_id, "string") ? [row.capability_id] : []
       })
+    },
+    async listTriggeredBy(agentName) {
+      await initialize()
+      const selectedAgent = agentName?.trim()
+      const args = selectedAgent ? [selectedAgent, selectedAgent] : []
+      const agentFilter = selectedAgent
+        ? " AND (agent_name = ? OR ((agent_name IS NULL OR agent_name = '') AND json_extract(record, '$.agentName') = ?))"
+        : ""
+      const result = await client.execute({
+        args,
+        sql: `SELECT DISTINCT json_extract(CASE WHEN json_valid(summary) THEN summary ELSE record END, '$.annotations.triggeredBy') AS triggered_by
+          FROM ${table}
+          WHERE json_type(CASE WHEN json_valid(summary) THEN summary ELSE record END, '$.annotations.triggeredBy') = 'text'
+            AND trim(json_extract(CASE WHEN json_valid(summary) THEN summary ELSE record END, '$.annotations.triggeredBy')) <> ''${agentFilter}
+          ORDER BY triggered_by`,
+      })
+      return result.rows.flatMap(row => hasRuntimeType(row.triggered_by, "string") ? [row.triggered_by] : [])
     },
     async release(id, claimId) {
       await write(async () => {

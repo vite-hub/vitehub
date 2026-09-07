@@ -86,6 +86,7 @@ export interface AgentInvocationListOptions {
   limit?: number
   search?: string
   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[]
+  triggeredBy?: string
 }
 
 export type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">
@@ -128,6 +129,7 @@ export interface AgentInvocationStore {
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   listAgentNames?(): MaybePromise<readonly string[]>
   listCapabilityIds?(agentName?: string): MaybePromise<readonly string[]>
+  listTriggeredBy?(agentName?: string): MaybePromise<readonly string[]>
   release(id: string, claimId: string): MaybePromise<void>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
@@ -186,6 +188,7 @@ export interface AgentInvocations {
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
   listAgentNames(): Promise<readonly string[]>
   listCapabilityIds(agentName?: string): Promise<readonly string[]>
+  listTriggeredBy(agentName?: string): Promise<readonly string[]>
 }
 
 interface BoundAgentInvocations extends AgentInvocations {
@@ -1161,6 +1164,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const search = normalizeSearch(options.search)
       const agentName = options.agentName?.trim()
       const capabilityId = options.capabilityId?.trim()
+      const triggeredBy = options.triggeredBy?.trim()
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
@@ -1169,6 +1173,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
         .filter(record => Number(record.cursor) < before
           && (!agentName || record.agentName === agentName)
           && (!capabilityId || invocationCapabilityIds(record).includes(capabilityId))
+          && (!triggeredBy || record.annotations?.triggeredBy === triggeredBy)
           && (!statuses || statuses.has(record.status))
           && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
@@ -1187,6 +1192,15 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       return [...new Set([...records.values()]
         .filter(record => !selectedAgent || record.agentName === selectedAgent)
         .flatMap(record => invocationCapabilityIds(record)))]
+        .sort()
+    },
+    listTriggeredBy(agentName) {
+      const selectedAgent = agentName?.trim()
+      return [...new Set([...records.values()]
+        .filter(record => !selectedAgent || record.agentName === selectedAgent)
+        .flatMap(record => hasRuntimeType(record.annotations?.triggeredBy, "string") && record.annotations.triggeredBy.trim()
+          ? [record.annotations.triggeredBy]
+          : []))]
         .sort()
     },
     release(id, claimId) {
@@ -1846,6 +1860,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const capabilityId = options.capabilityId?.trim()
       if (capabilityId) normalized.capabilityId = capabilityId
       else delete normalized.capabilityId
+      const triggeredBy = options.triggeredBy?.trim()
+      if (triggeredBy) normalized.triggeredBy = triggeredBy
+      else delete normalized.triggeredBy
       if (search) normalized.search = search
       else delete normalized.search
       return await store.list(normalized)
@@ -1885,6 +1902,26 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         cursor = page.cursor
       } while (cursor)
       return [...capabilityIds].sort()
+    },
+    async listTriggeredBy(agentName) {
+      const selectedAgent = agentName?.trim()
+      if (store.listTriggeredBy) {
+        return [...new Set((await store.listTriggeredBy(selectedAgent))
+          .map(triggeredBy => triggeredBy.trim())
+          .filter(Boolean))]
+          .sort()
+      }
+      const triggeredBy = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        for (const invocation of page.invocations) {
+          const label = invocation.annotations?.triggeredBy
+          if (hasRuntimeType(label, "string") && label.trim()) triggeredBy.add(label.trim())
+        }
+        cursor = page.cursor
+      } while (cursor)
+      return [...triggeredBy].sort()
     },
   }
   return invocations
