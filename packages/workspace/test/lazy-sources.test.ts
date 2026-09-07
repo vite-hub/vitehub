@@ -281,6 +281,41 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
   })
 
+  it.each([
+    { preexisting: false, moved: false, userFile: false },
+    { preexisting: true, moved: false, userFile: false },
+    { preexisting: false, moved: true, userFile: false },
+    { preexisting: true, moved: true, userFile: false },
+    { preexisting: false, moved: false, userFile: true },
+    { preexisting: false, moved: true, userFile: true },
+  ])("cleans empty startup mounts with preexisting=$preexisting moved=$moved userFile=$userFile", async ({ preexisting, moved, userFile }) => {
+    const store = createMemoryWorkspaceStore()
+    if (preexisting) await store.mkdir("docs/generated", { recursive: true })
+    const source = (mount: string) => custom({
+      materialize: "startup",
+      mount,
+      async getKeys() { return [] },
+      async getItem(key) { return { key, content: "" } },
+    })
+    const initial = { name: "empty-startup-mount", sources: { generated: source("docs/generated") } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    // A later refresh must retain the original mount ownership.
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    if (userFile) await store.writeFile("docs/generated/user.md", { path: "docs/generated/user.md", content: "keep" })
+
+    await createWorkspaceSourceView({
+      name: initial.name,
+      sources: moved ? { generated: source("docs/moved") } : {},
+    }, store).materializeSources()
+
+    if (userFile) await expect(store.readFile("docs/generated/user.md")).resolves.toMatchObject({ content: "keep" })
+    if (preexisting || userFile) await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    if (moved) await expect(store.stat("docs/moved")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it.each([true, false])("restores overlapping startup files after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
     const store = createMemoryWorkspaceStore()
     const retainedKeys = vi.fn(async () => ["shared.md"])

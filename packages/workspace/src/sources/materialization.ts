@@ -47,6 +47,7 @@ export interface LazyMaterializedMetadata {
 interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStatus, "cacheStatus" | "counts" | "durationMs" | "paths" | "provider"> {
   configHash: string
   cacheMaxAge?: number
+  ownsMount?: boolean
   items?: Record<string, LazyMaterializedMetadata>
 }
 
@@ -356,6 +357,7 @@ async function reconcileRemovedStartupSourcesInternal(
     const snapshot = await readSourceSnapshotMetadata(store, source.key)
     if (snapshot?.mountPath !== source.mountPath) continue
     const staleDirectories = new Set<string>()
+    if (source.mountPath && snapshot.ownsMount) staleDirectories.add(source.mountPath)
     for (const path of Object.keys(snapshot?.items || {})) {
       const file = await store.readFile(path)
       if (file?.metadata?.source !== source.key) continue
@@ -365,7 +367,7 @@ async function reconcileRemovedStartupSourcesInternal(
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
       for (const directory of parentDirectoryPaths(path)) {
-        if (sourceOwnsDirectory(source, directory)) staleDirectories.add(directory)
+        if (sourceOwnsDirectory(source, directory) && (directory !== source.mountPath || snapshot.ownsMount !== false)) staleDirectories.add(directory)
       }
       await control.mutate(() => store.rm(path, { force: true }))
     }
@@ -564,6 +566,10 @@ export async function materializeWorkspaceSources(
       continue
     }
 
+    const ownsMount = Boolean(source.mountPath) && (
+      existing?.mountPath === source.mountPath && existing.ownsMount === true
+      || !await store.stat(source.mountPath)
+    )
     let revision = existing?.revision
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
       ? { ...existing.items }
@@ -574,6 +580,7 @@ export async function materializeWorkspaceSources(
         configHash,
         source: source.key,
         mountPath: source.mountPath,
+        ownsMount,
         status: "updating",
         revision,
         items: checkpointItems(itemMetadata),
@@ -695,6 +702,7 @@ export async function materializeWorkspaceSources(
         configHash,
         source: source.key,
         mountPath: source.mountPath,
+        ownsMount,
         status: "ready",
         revision,
         materializedAt: new Date().toISOString(),
@@ -741,6 +749,7 @@ export async function materializeWorkspaceSources(
         configHash,
         source: source.key,
         mountPath: source.mountPath,
+        ownsMount,
         status: "error",
         revision,
         error: error instanceof Error ? error.message : String(error),
