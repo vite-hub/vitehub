@@ -278,14 +278,17 @@ async function removeStaleMaterializedSourceFiles(
   nextPaths: Set<string>,
   scope: WorkspaceMaterializeSourcesOptions | undefined,
   control: MaterializationControl,
-  previousPaths = new Set<string>(),
+  previousSnapshot: SourceSnapshotMetadata | undefined,
   onRemoved?: (path: string, bytes: number) => void,
 ) {
+  const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
+  // Build cleanup leaves an empty snapshot object; only that missing index needs recovery.
+  // With metadata support, an absent snapshot is a first startup with no owned paths.
   const entries = source.mountPath
     ? await store.list(source.mountPath, { recursive: true })
-    : previousPaths.size
+    : previousPaths.size || (store.getMeta && store.setMeta && (!previousSnapshot || previousSnapshot.items))
       ? await Promise.all([...previousPaths].map(async path => await store.stat(path)))
       : await store.list("", { recursive: true })
   for (const entry of entries) {
@@ -676,7 +679,7 @@ export async function materializeWorkspaceSources(
         }
       }
       throwIfAborted(options.abortSignal)
-      await removeStaleMaterializedSourceFiles(store, source, configuredSources, nextPaths, options, control, new Set(Object.keys(existing?.items || {})), (path, removedBytes) => {
+      await removeStaleMaterializedSourceFiles(store, source, configuredSources, nextPaths, options, control, existing, (path, removedBytes) => {
         counts.removed++
         if (Object.hasOwn(itemMetadata, path)) persistedBytesDelta -= itemMetadata[path]?.materializedBytes ?? removedBytes
         delete itemMetadata[path]

@@ -153,6 +153,8 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
       content: new TextEncoder().encode("# Review\n"),
     })
+    // First startup only lists the Store for the consumer, not for source cleanup.
+    expect(list).toHaveBeenCalledExactlyOnceWith("", { recursive: true })
     // Once snapshots contain item paths, refresh only stats those paths.
     list.mockClear()
     await view.materializeSources()
