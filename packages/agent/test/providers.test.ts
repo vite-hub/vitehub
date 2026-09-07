@@ -5642,7 +5642,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "accepted" })
   })
 
-  it("classifies direct, mention, and subscribed deliveries for message filters", async () => {
+  it("defaults message filters to direct and mentioned deliveries", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -5689,7 +5689,90 @@ describe("server helpers", () => {
     await groupHandler(request(2012, 789), "telegram")
     await groupHandler(request(2013, 789, true), "telegram")
 
-    expect(deliveryKinds).toEqual(["direct", "mention", "subscribed", "mention"])
+    expect(deliveryKinds).toEqual(["direct", "mention", "mention"])
+  })
+
+  it.each(["serial", "steer"] as const)("ignores unmentioned group messages with %s concurrency", async (concurrency) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "unexpected")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { concurrency, stream: false, triggerHistory: "none" },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    const request = (messageId: number, isMention = false) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          message: {
+            chat: { id: 789, type: "group" },
+            from: { id: 123, username: "maxi" },
+            isMention,
+            message_id: messageId,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      })
+
+    await expect(handler(request(2020, true), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+    run.mockClear()
+    adapter.postMessage.mockClear()
+    adapter.startTyping.mockClear()
+
+    await expect(handler(request(2021), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+    expect(run).not.toHaveBeenCalled()
+    expect(adapter.postMessage).not.toHaveBeenCalled()
+    expect(adapter.startTyping).not.toHaveBeenCalled()
+  })
+
+  it("accepts an unmentioned direct message", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ isDM: true })
+    const run = vi.fn(() => "accepted")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { stream: false, triggerHistory: "none" },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+
+    await expect(handler(
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          message: {
+            chat: { id: 456, type: "private" },
+            from: { id: 123, username: "maxi" },
+            message_id: 2022,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }),
+      "telegram",
+      { agentName: "support" },
+    )).resolves.toMatchObject({ status: 200 })
+    expect(run).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "accepted" })
   })
 
   it("defaults adapter-backed Channels to final-only delivery", async () => {
@@ -12044,7 +12127,7 @@ describe("server helpers", () => {
     ["drop", "drop"],
     ["queue", "queue"],
     ["serial", "queue"],
-    ["steer", "queue"],
+    ["steer", "concurrent"],
   ] as const)("maps ViteHub %s message concurrency to Chat SDK %s", async (concurrency, expectedConcurrency) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -12347,7 +12430,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("preserves mention and subscription eligibility for serial batches", async () => {
+  it("requires mentions throughout serial batches", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -12408,7 +12491,6 @@ describe("server helpers", () => {
 
       expect(routed).toEqual([
         { deliveryKind: "mention", text: "mention" },
-        { deliveryKind: "subscribed", text: "after mention" },
       ])
     } finally {
       await state.disconnect()
@@ -12447,6 +12529,52 @@ describe("server helpers", () => {
       markdown: "Explicit reply",
     })
     expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("records one primary reply receipt after successful automatic delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "automatic", stream: false },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      invocations,
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = () => chatWebhookRequest(91_038)
+
+    await expect(handler(request(), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(), "telegram")).resolves.toMatchObject({ status: 200 })
+
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      expect(records).toHaveLength(1)
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations.filter(observation =>
+        observation.name === "agent.channel.delivery.effect"
+        && observation.attributes?.["channel.effect.primary"] === true,
+      )).toEqual([
+        expect.objectContaining({
+          attributes: expect.objectContaining({
+            "channel.delivery.provider": "telegram",
+            "channel.effect.kind": "reply",
+            "channel.effect.primary": true,
+            "channel.effect.supported": true,
+          }),
+        }),
+      ])
+    })
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
   })
 
   it("streams queued finish replies after the primary response without eager buffering", async () => {
@@ -12583,6 +12711,20 @@ describe("server helpers", () => {
           "channel.effect.skipped": "Skipped before queued reply delivery: primary post failed",
         }),
         name: "agent.channel.delivery.effect",
+      }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.kind": "reply",
+          "channel.effect.primary": true,
+          "error.message": "primary post failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+      expect(record?.observations).not.toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.primary": true,
+          "channel.effect.content": "Agent output",
+        }),
       }))
     })
   })
@@ -15983,6 +16125,149 @@ describe("server helpers", () => {
       })
     } finally {
       resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("steers a follow-up into the active inline Channel invocation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-steer-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    let runs = 0
+    let steeredPrompt: string | undefined
+    let releaseFirst!: () => void
+    const firstReleased = new Promise<void>(resolve => { releaseFirst = resolve })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, {
+            sendInput(input, options) {
+              if (options.mode !== "steer") return "unsupported"
+              steeredPrompt = input.messages?.map(message => message.parts.find(part => typeof part === "string" || part.type === "text") && message.parts.map(part => typeof part === "string" ? part : "text" in part ? part.text : "").join("")).join("\n")
+              releaseFirst()
+              return "accepted"
+            },
+            support: { steer: true },
+          })
+          try {
+            await firstReleased
+            return "Steered reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+      hooks: { "agent:finish": event => event.reply("Steered reply") },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await state.connect()
+      const first = handler(chatWebhookRequest(91_106), "telegram", { agentIdentity: { name: "calories" } })
+      await vi.waitFor(() => expect(runs).toBe(1))
+      const followUp = handler(chatWebhookRequest(91_107), "telegram", { agentIdentity: { name: "calories" } })
+      await expect(followUp).resolves.toMatchObject({ status: 200 })
+      await expect(first).resolves.toMatchObject({ status: 200 })
+
+      expect(runs).toBe(1)
+      expect(steeredPrompt).toBe("hello")
+    } finally {
+      releaseFirst()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("does not steer an unmentioned group follow-up into an active invocation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-steer-mention-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const sendInput = vi.fn(() => "accepted" as const)
+    let runs = 0
+    let releaseFirst!: () => void
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, {
+            sendInput,
+            support: { steer: true },
+          })
+          try {
+            await firstReleased
+            return "done"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (messageId: number, isMention = false) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          message: {
+            chat: { id: 456, type: "group" },
+            from: { id: 123, username: "maxi" },
+            isMention,
+            message_id: messageId,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      })
+
+    try {
+      await state.connect()
+      const first = handler(request(91_108, true), "telegram", { agentIdentity: { name: "calories" } })
+      await vi.waitFor(() => expect(runs).toBe(1))
+      adapter.startTyping.mockClear()
+      adapter.postMessage.mockClear()
+
+      await expect(handler(request(91_109), "telegram", { agentIdentity: { name: "calories" } }))
+        .resolves.toMatchObject({ status: 200 })
+      expect(sendInput).not.toHaveBeenCalled()
+      expect(runs).toBe(1)
+      expect(adapter.startTyping).not.toHaveBeenCalled()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+
+      releaseFirst()
+      await expect(first).resolves.toMatchObject({ status: 200 })
+    } finally {
+      releaseFirst()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }

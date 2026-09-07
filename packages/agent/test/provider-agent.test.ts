@@ -78,7 +78,7 @@ function event(type: string, threadId: string, payload: Record<string, unknown>,
 
 function runtime(threadId: string, events: unknown[], options: {
   afterEvents?: () => Promise<void>
-  onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
+  onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined, input: { input: string; threadId: string }) => Promise<void>
   onStartSession?: () => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
   resumeCursor?: string
@@ -100,8 +100,8 @@ function runtime(threadId: string, events: unknown[], options: {
     interruptTurn: vi.fn(async () => undefined),
     respondToRequest: vi.fn(async () => undefined),
     respondToUserInput: vi.fn(async () => undefined),
-    sendTurn: vi.fn(async () => {
-      await options.onSendTurn?.(mcp)
+    sendTurn: vi.fn(async (input: { input: string; threadId: string }) => {
+      await options.onSendTurn?.(mcp, input)
       return { resumeCursor: options.turnResumeCursor, threadId, turnId: "turn-1" }
     }),
     startSession: vi.fn(async (input: { mcp?: typeof mcp }) => {
@@ -2759,7 +2759,7 @@ cli_auth_credentials_store = "keyring"
     expect(resumed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue", threadId }))
   })
 
-  it("routes live approval and provider input responses without claiming steering", async () => {
+  it("routes live steering, approval, and provider input responses", async () => {
     const threadId = "thread-live-input"
     let release!: () => void
     const response = new Promise<void>((resolve) => {
@@ -2791,9 +2791,9 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = collect(await adapter.stream!(liveContext as never))
 
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
     await ready
-    await expect(sendAgentInvocationInput(invocationId, { prompt: "change course" }, { mode: "steer" })).resolves.toBe("unsupported")
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "change course" }, { mode: "steer" })).resolves.toBe("accepted")
     await expect(sendAgentInvocationInput(invocationId, {
       messages: [{
         id: "response-1",
@@ -2811,6 +2811,63 @@ cli_auth_credentials_store = "keyring"
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
   })
 
+  it("steers a running provider turn and emits input plus method evidence", async () => {
+    const threadId = "thread-live-steer"
+    let releaseTurn!: () => void
+    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], {
+      beforeEvent: () => turnReleased,
+    })
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
+
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "private follow-up" }, { mode: "steer" })).resolves.toBe("accepted")
+    releaseTurn()
+
+    await expect(result).resolves.toEqual(expect.arrayContaining([{
+      data: {
+        kind: "input.message",
+        value: {
+          message: "private follow-up",
+          mode: "steer",
+        },
+      },
+      type: "data-agent-event",
+    }, {
+      data: { kind: "input.steered", value: { mode: "steer" } },
+      type: "data-agent-event",
+    }]))
+    expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: "private follow-up", threadId })
+  })
+
+  it("does not advertise steering when the provider opens another turn", async () => {
+    const threadId = "thread-false-steer"
+    let releaseTurn!: () => void
+    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], {
+      beforeEvent: () => turnReleased,
+    })
+    provider.sendTurn.mockImplementationOnce(async () => ({ resumeCursor: undefined, threadId, turnId: "turn-1" }))
+    provider.sendTurn.mockImplementationOnce(async () => ({ resumeCursor: undefined, threadId, turnId: "turn-2" }))
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
+
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "follow-up" }, { mode: "steer" })).resolves.toBe("unsupported")
+    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-2")
+    releaseTurn()
+    expect(JSON.stringify(await result)).not.toContain("input.steered")
+  })
+
   it("preserves the primary input handler during auxiliary provider runs", async () => {
     const primaryThreadId = "thread-primary-input"
     const controller = new AbortController()
@@ -2824,7 +2881,7 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const primaryResult = adapter.generate(primaryContext as never)
 
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
     const auxiliaryThreadId = "thread-auxiliary-input"
     runtime(auxiliaryThreadId, [event("turn.completed", auxiliaryThreadId, { state: "completed" }, { turnId: "turn-1" })])
     const auxiliaryContext = context(auxiliaryThreadId)
@@ -2832,7 +2889,7 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(markAuxiliaryMessageChannelInstructionContext(auxiliaryContext) as never)
 
-    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true })
+    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true })
     controller.abort("cancelled")
     await expect(primaryResult).rejects.toBe("cancelled")
     expect(primary.interruptTurn).toHaveBeenCalledWith(primaryThreadId, "turn-1")

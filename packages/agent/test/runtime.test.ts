@@ -1354,6 +1354,8 @@ describe("agent message protocol", () => {
           yield { text: "secret text", type: "text-delta" }
           yield { id: "tool-1", input: { query: "secret" }, name: "search", type: "tool-call" }
           yield { id: "tool-1", name: "search", output: { result: "secret" }, type: "tool-result" }
+          yield { data: { kind: "input.message", value: { message: "private follow-up", mode: "steer" } }, id: "follow-up-1", type: "data-agent-event" }
+          yield { data: { kind: "input.steered", value: { mode: "steer" } }, type: "data-agent-event" }
           yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
           yield { type: "finish" }
         })() },
@@ -1375,6 +1377,8 @@ describe("agent message protocol", () => {
       "agent.message.delta",
       "agent.tool.start",
       "agent.tool.finish",
+      "agent.input.message",
+      "agent.input.steered",
       "agent.usage.recorded",
       "agent.stream.finish",
       "agent.invocation.finish",
@@ -1385,6 +1389,17 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret text")
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
     expect(JSON.stringify(traceLog.entries())).not.toContain("private reasoning")
+    expect(JSON.stringify(traceLog.entries())).not.toContain("private follow-up")
+    expect(traceLog.entries().find(event => event.name === "agent.input.message")?.attributes).toMatchObject({
+      "input.mode": "steer",
+      "message.id": "follow-up-1",
+      "message.role": "user",
+    })
+    expect(traceLog.entries().find(event => event.name === "agent.input.steered")?.attributes).toMatchObject({
+      "input.mode": "steer",
+      "vitehub.action.name": "input.steered",
+      "vitehub.activity.kind": "action",
+    })
   })
 
   it("batches reasoning, records title data, and retains complete content when opted in", async () => {
@@ -1398,6 +1413,7 @@ describe("agent message protocol", () => {
           yield { phase: "commentary", text: "the repository", type: "text-delta" }
           yield { id: "tool-1", input: { path: "README.md" }, name: "read", type: "tool-call" }
           yield { id: "tool-1", name: "read", output: { text: "contents" }, type: "tool-result" }
+          yield { data: { kind: "input.message", value: { message: "Include the retry path", mode: "steer" } }, id: "follow-up-1", type: "data-agent-event" }
           yield { phase: "final", text: "Finished ", type: "text-delta" }
           yield { phase: "final", text: "the review", type: "text-delta" }
           yield { type: "finish" }
@@ -1421,6 +1437,11 @@ describe("agent message protocol", () => {
     ])
     expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ path: "README.md" })
     expect(traceLog.entries().find(event => event.name === "agent.tool.finish")?.attributes?.["tool.output"]).toEqual({ text: "contents" })
+    expect(traceLog.entries().find(event => event.name === "agent.input.message")?.attributes).toMatchObject({
+      "input.mode": "steer",
+      "message.content": "Include the retry path",
+      "message.role": "user",
+    })
   })
 
   it("exports product actions as execute_tool spans with ViteHub rendering semantics", async () => {

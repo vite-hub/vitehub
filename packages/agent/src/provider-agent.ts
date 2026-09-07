@@ -1,3 +1,4 @@
+import { getMessageText } from "./messages.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -2286,9 +2287,33 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
     const invocationId = ownedAgentInvocationControlId(context.runtime)
+    const turn = await waitForProviderOperation(
+      runtime.sendTurn({ attachments, input: prompt, threadId }),
+      effectiveSignal,
+      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
+      deferRuntimeCleanup,
+      () => finalizeDeferredRuntime(threadId),
+    )
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
+          if (inputOptions.mode === "steer") {
+            const messages = input.messages ?? (input.message && typeof input.message !== "string" ? [input.message] : [])
+            const text = typeof input.prompt === "string" ? input.prompt : typeof input.message === "string" ? input.message : messages.map(message => getMessageText(message)).join("\n")
+            if (!text.trim()) return "unsupported"
+            try {
+              const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
+              if (steeredTurn.turnId !== turn.turnId) {
+                await activeRuntime.interruptTurn(threadId, steeredTurn.turnId).catch(() => undefined)
+                return "unsupported"
+              }
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } } as StreamEvent)
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } } as StreamEvent)
+              return "accepted"
+            } catch {
+              return "unavailable"
+            }
+          }
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
             const messages = input.messages || (hasRuntimeType(input.message, "object") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
@@ -2298,16 +2323,9 @@ async function* runProvider<
             return "unavailable"
           }
         },
-        support: { respond: true },
+        support: { respond: true, steer: true },
       })
     }
-    const turn = await waitForProviderOperation(
-      runtime.sendTurn({ attachments, input: prompt, threadId }),
-      effectiveSignal,
-      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
-      deferRuntimeCleanup,
-      () => finalizeDeferredRuntime(threadId),
-    )
     if (turn.resumeCursor !== undefined) pendingResumeCursor = turn.resumeCursor
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
