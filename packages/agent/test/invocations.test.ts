@@ -574,6 +574,7 @@ describe("Agent Invocations", () => {
         for (const [recordIndex, capabilityId] of ["papercuts", "usage", undefined].entries()) {
           await store.create({
             agentName: "chat",
+            annotations: recordIndex < 2 ? { triggeredBy: recordIndex === 0 ? "Ferdinand" : "Maxi" } : undefined,
             createdAt: timestamp,
             id: `${storeIndex}-${recordIndex}`,
             observations: capabilityId
@@ -596,6 +597,12 @@ describe("Agent Invocations", () => {
         })
         await expect(defineAgentInvocations({ store }).listCapabilityIds("chat"))
           .resolves.toEqual(["papercuts", "usage"])
+        await expect(Promise.resolve(store.list({ agentName: "chat", capabilityId: "papercuts", triggeredBy: "Ferdinand" }))).resolves.toMatchObject({
+          invocations: [{ id: `${storeIndex}-0` }],
+        })
+        await expect(Promise.resolve(store.list({ triggeredBy: "ferdinand" }))).resolves.toEqual({ invocations: [] })
+        await expect(defineAgentInvocations({ store }).listTriggeredBy("chat"))
+          .resolves.toEqual(["Ferdinand", "Maxi"])
       }
     }
     finally {
@@ -785,6 +792,30 @@ describe("Agent Invocations", () => {
     await expect(defineAgentInvocations({ store: { ...fallback, list } }).listAgentNames())
       .resolves.toEqual(["alpha", "beta"])
     expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it("lists triggering people from summaries across every fallback page", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const timestamp = new Date().toISOString()
+    for (let index = 0; index < 101; index++) {
+      await memory.create({
+        annotations: index === 100 ? { triggeredBy: " Ferdinand " } : index === 0 ? { triggeredBy: "Maxi" } : undefined,
+        createdAt: timestamp,
+        id: `triggered-by-fallback-${index}`,
+        observations: [],
+        status: "completed",
+        traceId: `triggered-by-fallback-${index}-trace`,
+        updatedAt: timestamp,
+      })
+    }
+    const { listTriggeredBy: _listTriggeredBy, ...fallback } = memory
+    const list = vi.fn(fallback.list)
+    const get = vi.fn(() => { throw new Error("observation body read") })
+
+    await expect(defineAgentInvocations({ store: { ...fallback, get, list } }).listTriggeredBy())
+      .resolves.toEqual(["Ferdinand", "Maxi"])
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(get).not.toHaveBeenCalled()
   })
 
   it("does not let a stalled store block Agent execution", async () => {

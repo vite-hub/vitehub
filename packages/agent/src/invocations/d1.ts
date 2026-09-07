@@ -253,6 +253,10 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
           OR EXISTS (SELECT 1 FROM json_each(record, '$.observations') WHERE json_extract(value, '$.attributes."capability.id"') = ?))`)
         values.push(listOptions.capabilityId.trim(), listOptions.capabilityId.trim())
       }
+      if (listOptions.triggeredBy?.trim()) {
+        filters.push("json_extract(summary, '$.annotations.triggeredBy') = ?")
+        values.push(listOptions.triggeredBy.trim())
+      }
       if (search) {
         filters.push("search LIKE ? ESCAPE '\\'")
         values.push(`%${search.toLowerCase().replace(/[\\%_]/g, match => `\\${match}`)}%`)
@@ -279,6 +283,17 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
         ) WHERE capability_id <> ''${selectedAgent ? " AND agent_name = ?" : ""} ORDER BY capability_id`)
         .bind(...(selectedAgent ? [selectedAgent] : [])).all<{ capability_id: string }>()
       return result.results.map(row => row.capability_id)
+    },
+    async listTriggeredBy(agentName) {
+      const db = await database()
+      const selectedAgent = agentName?.trim()
+      const result = await db.prepare(`SELECT DISTINCT json_extract(summary, '$.annotations.triggeredBy') AS triggered_by
+        FROM ${table}
+        WHERE json_type(summary, '$.annotations.triggeredBy') = 'text'
+          AND trim(json_extract(summary, '$.annotations.triggeredBy')) <> ''${selectedAgent ? " AND agent_name = ?" : ""}
+        ORDER BY triggered_by`)
+        .bind(...(selectedAgent ? [selectedAgent] : [])).all<{ triggered_by: string }>()
+      return result.results.map(row => row.triggered_by)
     },
   }
 }

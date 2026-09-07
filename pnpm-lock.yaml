@@ -605,7 +605,7 @@ importers:
         version: 7.0.58(zod@4.5.4)
       docus:
         specifier: catalog:nuxt
-        version: https://pkg.pr.new/docus@986a334(3c5e69a3f94b855b61c0b183382a87f2)
+        version: https://pkg.pr.new/docus@986a334(321e4e08b8be052e79d1bf0f0a32d6ea)
       h3:
         specifier: catalog:h3-v1-compat
         version: 1.15.11
@@ -729,7 +729,7 @@ importers:
         version: 4.40.0(ai@7.0.58(zod@4.5.4))(workflow@5.0.0-beta.47(@aws-sdk/credential-provider-web-identity@3.972.76)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.4)(react@19.2.6)(typescript@6.0.3)(ws@8.21.3))(zod@4.5.4)
       comark:
         specifier: catalog:markdown
-        version: 0.6.2(shiki@4.4.3)
+        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
       effect:
         specifier: catalog:effect
         version: 4.0.0-rc.112
@@ -1175,7 +1175,7 @@ importers:
         version: 24.13.3
       comark-content:
         specifier: catalog:markdown
-        version: 0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
+        version: 0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
       publint:
         specifier: catalog:tooling
         version: 0.3.24
@@ -1261,7 +1261,7 @@ importers:
     dependencies:
       '@comark/html':
         specifier: catalog:markdown
-        version: 0.6.2(shiki@4.4.3)
+        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -1471,7 +1471,7 @@ importers:
         version: 3.0.0
       comark:
         specifier: catalog:markdown
-        version: 0.6.2(shiki@4.4.3)
+        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
       nostics:
         specifier: catalog:runtime
         version: 1.2.0
@@ -2000,7 +2000,7 @@ importers:
     dependencies:
       '@comark/vue':
         specifier: 0.6.2
-        version: 0.6.2(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))
+        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
@@ -2010,6 +2010,12 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
+      '@vueuse/core':
+        specifier: catalog:ui
+        version: 14.4.0(vue@3.5.40(typescript@6.0.3))
+      katex:
+        specifier: ^0.17.0
+        version: 0.17.0
       nostics:
         specifier: catalog:runtime
         version: 1.2.0
@@ -2029,6 +2035,9 @@ importers:
       '@pierre/trees':
         specifier: 1.0.0-beta.6
         version: 1.0.0-beta.6(patch_hash=9514e905b6e4cd1bc58382bfba42af1b69f3386a5ca40b6241e91aa47b05061d)(@pierre/theme@1.1.0)(@shikijs/themes@4.4.3)(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(shiki@4.4.3)
+      '@types/markdown-it':
+        specifier: ^14.1.2
+        version: 14.2.0
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -2199,7 +2208,7 @@ importers:
         version: 1.19.1
       comark-content:
         specifier: catalog:markdown
-        version: 0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
+        version: 0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
       devframe:
         specifier: catalog:runtime
         version: 0.9.12(@modelcontextprotocol/client@2.0.0)(cac@7.0.0)(ocache@0.3.0)(srvx@1.0.3)
@@ -2224,6 +2233,9 @@ importers:
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
+      katex:
+        specifier: ^0.17.0
+        version: 0.17.0
       nitro:
         specifier: catalog:unjs
         version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
@@ -8911,6 +8923,9 @@ packages:
   '@types/linkify-it@5.0.0':
     resolution: {integrity: sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q==}
 
+  '@types/markdown-it@14.2.0':
+    resolution: {integrity: sha512-NoQ2yGlLWj4wpxMs+TYmRKk3thDrQ97agr7sFqfLsAlvoS8SNQuTrlObhFqG9iugdTtgOE9jpJ6FNM4ZGsa5xQ==}
+
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
 
@@ -12705,6 +12720,10 @@ packages:
 
   jws@4.0.1:
     resolution: {integrity: sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==}
+
+  katex@0.17.0:
+    resolution: {integrity: sha512-Vdw0ATsQ9V+LuegM/BTwQqV/6cTl5lbGcIrU+BCgLxyf6bo38ybOr372tuSIxir3CN720flu1meYR6XzNMwQnw==}
+    hasBin: true
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
@@ -17783,26 +17802,29 @@ snapshots:
 
   '@colordx/core@5.5.0': {}
 
-  '@comark/html@0.6.2(shiki@4.4.3)':
+  '@comark/html@0.6.2(katex@0.17.0)(shiki@4.4.3)':
     dependencies:
-      comark: 0.6.2(shiki@4.4.3)
+      comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
     optionalDependencies:
+      katex: 0.17.0
       shiki: 4.4.3
     transitivePeerDependencies:
       - rangi
 
-  '@comark/vue@0.5.1(shiki@4.4.3)(vue@3.5.42(typescript@6.0.3))':
+  '@comark/vue@0.5.1(katex@0.17.0)(shiki@4.4.3)(vue@3.5.42(typescript@6.0.3))':
     dependencies:
-      comark: 0.5.1(shiki@4.4.3)
+      comark: 0.5.1(katex@0.17.0)(shiki@4.4.3)
       vue: 3.5.42(typescript@6.0.3)
     optionalDependencies:
+      katex: 0.17.0
       shiki: 4.4.3
 
-  '@comark/vue@0.6.2(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))':
+  '@comark/vue@0.6.2(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))':
     dependencies:
-      comark: 0.6.2(shiki@4.4.3)
+      comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
       vue: 3.5.40(typescript@6.0.3)
     optionalDependencies:
+      katex: 0.17.0
       shiki: 4.4.3
     transitivePeerDependencies:
       - rangi
@@ -24768,6 +24790,11 @@ snapshots:
 
   '@types/linkify-it@5.0.0': {}
 
+  '@types/markdown-it@14.2.0':
+    dependencies:
+      '@types/linkify-it': 5.0.0
+      '@types/mdurl': 2.0.0
+
   '@types/mdast@4.0.4':
     dependencies:
       '@types/unist': 3.0.3
@@ -28018,10 +28045,10 @@ snapshots:
 
   colortranslator@5.0.0: {}
 
-  comark-content@0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
+  comark-content@0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
     dependencies:
       citty: 0.2.2
-      comark: 0.6.2(shiki@4.4.3)
+      comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
       hookable: 6.1.1
       jiti: 2.7.0
       ofetch: 1.5.1
@@ -28055,10 +28082,10 @@ snapshots:
       - shiki
       - uploadthing
 
-  comark-content@0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
+  comark-content@0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
     dependencies:
       citty: 0.2.2
-      comark: 0.6.2(shiki@4.4.3)
+      comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
       hookable: 6.1.1
       jiti: 2.7.0
       ofetch: 1.5.1
@@ -28092,22 +28119,24 @@ snapshots:
       - shiki
       - uploadthing
 
-  comark@0.5.1(shiki@4.4.3):
+  comark@0.5.1(katex@0.17.0)(shiki@4.4.3):
     dependencies:
       entities: 8.0.0
       htmlparser2: 12.0.0
       js-yaml: 5.2.1
       markdown-exit: 1.1.0-beta.2
     optionalDependencies:
+      katex: 0.17.0
       shiki: 4.4.3
 
-  comark@0.6.2(shiki@4.4.3):
+  comark@0.6.2(katex@0.17.0)(shiki@4.4.3):
     dependencies:
       entities: 8.0.0
       htmlparser2: 12.0.0
       js-yaml: 5.2.1
       markdown-exit: 1.1.0-beta.2
     optionalDependencies:
+      katex: 0.17.0
       shiki: 4.4.3
 
   combined-stream@1.0.8:
@@ -28534,12 +28563,12 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  docus@https://pkg.pr.new/docus@986a334(3c5e69a3f94b855b61c0b183382a87f2):
+  docus@https://pkg.pr.new/docus@986a334(321e4e08b8be052e79d1bf0f0a32d6ea):
     dependencies:
       '@ai-sdk/gateway': 4.0.46(zod@4.4.3)
       '@ai-sdk/mcp': 2.0.36(zod@4.4.3)
       '@ai-sdk/vue': 4.0.58(vue@3.5.42(typescript@6.0.3))(zod@4.4.3)
-      '@comark/vue': 0.5.1(shiki@4.4.3)(vue@3.5.42(typescript@6.0.3))
+      '@comark/vue': 0.5.1(katex@0.17.0)(shiki@4.4.3)(vue@3.5.42(typescript@6.0.3))
       '@iconify-json/lucide': 1.2.129
       '@iconify-json/simple-icons': 1.2.94
       '@iconify-json/vscode-icons': 1.2.76
@@ -30893,6 +30922,10 @@ snapshots:
     dependencies:
       jwa: 2.0.1
       safe-buffer: 5.2.1
+
+  katex@0.17.0:
+    dependencies:
+      commander: 8.3.0
 
   keyv@4.5.4:
     dependencies:

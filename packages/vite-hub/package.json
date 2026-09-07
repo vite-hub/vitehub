@@ -221,6 +221,7 @@
     "esbuild": "catalog:tooling",
     "google-auth-library": "catalog:storage",
     "h3": "catalog:unjs",
+    "katex": "^0.17.0",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",

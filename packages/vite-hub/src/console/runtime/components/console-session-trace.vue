@@ -558,6 +558,7 @@ async function copyAttributes() {
     auto-save-id="vitehub-session-trace-layout"
     :items="tracePanels"
     orientation="vertical"
+    :ui="{ handle: 'h-1' }"
     class="session-trace"
   >
     <template #waterfall>
