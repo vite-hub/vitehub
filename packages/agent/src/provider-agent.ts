@@ -1360,6 +1360,7 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
       network: "unrestricted",
       processes: "arbitrary",
     }),
+    materializationConcurrency: 8,
     files: {
       async exists(path, options) {
         options?.signal?.throwIfAborted()

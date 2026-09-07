@@ -42,6 +42,40 @@ function resolveHostInspectionConcurrency(host: WorkspaceSessionHost): number {
   return concurrency
 }
 
+function resolveHostMaterializationConcurrency(host: WorkspaceSessionHost): number {
+  const concurrency = host.materializationConcurrency ?? 1
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw workspaceError("[vitehub] Workspace host materializationConcurrency must be a positive integer.")
+  }
+  return concurrency
+}
+
+async function mapHostMaterialization<T>(
+  host: WorkspaceSessionHost,
+  values: readonly T[],
+  visit: (value: T) => Promise<void>,
+  signal?: AbortSignal,
+) {
+  let next = 0
+  let failure: unknown
+  const workers = Array.from({ length: Math.min(values.length, resolveHostMaterializationConcurrency(host)) }, async () => {
+    while (failure === undefined) {
+      signal?.throwIfAborted()
+      const index = next++
+      if (index >= values.length) return
+      try {
+        await visit(values[index]!)
+      }
+      catch (error) {
+        failure ??= error
+      }
+    }
+  })
+  await Promise.allSettled(workers)
+  if (failure !== undefined) throw failure
+  signal?.throwIfAborted()
+}
+
 function resolveHostInspectionLimiter(host: WorkspaceSessionHost) {
   const existing = hostInspectionLimiters.get(host)
   if (existing) return existing
@@ -790,9 +824,8 @@ async function materializeWorkspace(
     label: "Reading workspace files",
   }, async () => {
     abortSignal?.throwIfAborted()
-    for (const entry of entries) {
+    await mapHostMaterialization(host, entries.filter(entry => entry.type === "file"), async (entry) => {
       abortSignal?.throwIfAborted()
-      if (entry.type !== "file") continue
       const target = toHostPath(root, entry.path)
       await ensureHostParent(host, target, abortSignal)
       if (isGitSymlinkEntry(entry)) {
@@ -809,7 +842,7 @@ async function materializeWorkspace(
         if (entry.metadata?.gitMode === "100755") await makeHostFileExecutable(host, root, target, abortSignal)
       }
       abortSignal?.throwIfAborted()
-    }
+    }, abortSignal)
   })
   if (revision && await materializer?.currentRevision({ abortSignal: options?.abortSignal }) !== revision.revision) {
     throw workspaceConflict(`[vitehub] Workspace revision changed while this Session materialized: ${revision.revision}.`)
@@ -866,6 +899,7 @@ export async function createHostedWorkspaceSession(
     throw workspaceErrorDiagnostics.WORKSPACE_R0045({ message: "[vitehub] Workspace session host must declare executionAuthority." })
   }
   resolveHostInspectionConcurrency(host)
+  resolveHostMaterializationConcurrency(host)
   const root = normalizeTarget(options.target)
   const sessionPaths = normalizeSessionPaths(options)
   const excludedWriteBackPaths = [
