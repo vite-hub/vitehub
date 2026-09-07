@@ -1669,7 +1669,7 @@ describe("workspace host sessions", () => {
     expect(maximum).toBe(3)
   })
 
-  it("drains active copies and skips queued files before failed-session cleanup", async () => {
+  it("preserves undefined copy failures and drains active copies before cleanup", async () => {
     const docs = workspace()
     for (let index = 0; index < 5; index++) await docs.writeFile(`files/${index}.txt`, String(index))
     await docs.snapshot({ name: "baseline" })
@@ -1686,7 +1686,7 @@ describe("workspace host sessions", () => {
       if (!recovering) startedBeforeCleanup.push(path)
       try {
         if (!recovering && path.endsWith("/files/0.txt")) await firstBlocked
-        if (!recovering && path.endsWith("/files/1.txt")) throw new Error("copy failed")
+        if (!recovering && path.endsWith("/files/1.txt")) throw undefined
         await write(path, content, options)
       }
       finally {
@@ -1705,7 +1705,7 @@ describe("workspace host sessions", () => {
     await vi.waitFor(() => expect(startedBeforeCleanup).toHaveLength(2))
     releaseFirst()
 
-    await expect(starting).rejects.toThrow("copy failed")
+    await expect(starting).rejects.toBeUndefined()
     expect(startedBeforeCleanup).toHaveLength(2)
   })
 

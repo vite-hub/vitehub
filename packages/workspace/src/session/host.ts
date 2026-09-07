@@ -57,9 +57,10 @@ async function mapHostMaterialization<T>(
   signal?: AbortSignal,
 ) {
   let next = 0
+  let failed = false
   let failure: unknown
   const workers = Array.from({ length: Math.min(values.length, resolveHostMaterializationConcurrency(host)) }, async () => {
-    while (failure === undefined) {
+    while (!failed) {
       signal?.throwIfAborted()
       const index = next++
       if (index >= values.length) return
@@ -67,12 +68,13 @@ async function mapHostMaterialization<T>(
         await visit(values[index]!)
       }
       catch (error) {
-        failure ??= error
+        if (!failed) failure = error
+        failed = true
       }
     }
   })
   await Promise.allSettled(workers)
-  if (failure !== undefined) throw failure
+  if (failed) throw failure
   signal?.throwIfAborted()
 }
 
