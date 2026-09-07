@@ -4462,11 +4462,11 @@ async function deliverPrimaryChatReply(
   chat: AgentChatQueuedFinishExtension,
   deliver: () => Promise<void>,
 ): Promise<void> {
-  const callback = chatFinishPrimaryReplyTrace(chat)
   try {
     await deliver()
   }
   catch (error) {
+    const callback = chatFinishPrimaryReplyTrace(chat)
     if (callback) {
       await settleChatFinishDeliveryCallbacks([callback], {
         content: "",
@@ -4476,6 +4476,7 @@ async function deliverPrimaryChatReply(
     }
     throw error
   }
+  const callback = chatFinishPrimaryReplyTrace(chat)
   if (callback) await settleChatFinishDeliveryCallbacks([callback], { content: "", truncated: false })
 }
 
@@ -4714,9 +4715,11 @@ async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number
 }
 
 interface InlineChatTurn {
+  beginSettlement: () => void
   done: Promise<void>
   finish: () => Promise<void>
   invokerKey: string
+  settling: Promise<void>
   steeredDeliveries?: Promise<AgentChannelDeliveryTracker | undefined>[]
   runId?: string
 }
@@ -4743,7 +4746,7 @@ async function waitForInlineChatTurn(turn: InlineChatTurn, maximumInvocationDead
   }
 }
 
-async function pollInlineChatTurn(turn: InlineChatTurn, maximumInvocationDeadline?: number): Promise<void> {
+async function pollInlineChatTurn(turn: Pick<InlineChatTurn, "done">, maximumInvocationDeadline?: number): Promise<void> {
   const remaining = maximumInvocationDeadline === undefined ? 50 : Math.min(50, maximumInvocationDeadline - Date.now())
   if (remaining <= 0) throw agentDiagnostics.AGENT_R0820({ message: "Chat invocation timed out while waiting to steer the active Agent invocation." })
   await Promise.race([turn.done, new Promise(resolve => setTimeout(resolve, remaining))])
@@ -4859,7 +4862,7 @@ async function handleChatSdkMessage(
           const ownerLockKey = `${inlineKey}:owner`
           const ownerLock = await state.state.acquireLock(ownerLockKey, 30_000)
           if (!ownerLock) {
-            await pollInlineChatTurn({ done: new Promise(() => undefined), finish: async () => undefined, invokerKey: inlineInvokerKey }, maximumInvocationDeadline)
+            await pollInlineChatTurn({ done: new Promise(() => undefined) }, maximumInvocationDeadline)
             continue
           }
           let ownershipLost = false
@@ -4873,7 +4876,10 @@ async function handleChatSdkMessage(
           let finishDone = false
           let finish!: () => void
           const done = new Promise<void>(resolve => { finish = resolve })
+          let beginSettlement!: () => void
+          const settling = new Promise<void>(resolve => { beginSettlement = resolve })
           inlineTurn = {
+            beginSettlement,
             done,
             async finish() {
               if (finishDone) return
@@ -4883,6 +4889,7 @@ async function handleChatSdkMessage(
               if (!ownershipLost) await state.state.releaseLock(ownerLock).catch(() => undefined)
             },
             invokerKey: inlineInvokerKey,
+            settling,
           }
           inlineChatTurns.set(inlineKey, inlineTurn)
           break
@@ -4893,7 +4900,10 @@ async function handleChatSdkMessage(
           const activeRunId = active.runId
           const steering = (async () => {
             const outcome = steerMessage
-              ? await sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
+              ? await Promise.race([
+                  sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" }),
+                  active.settling.then(() => "unavailable" as const),
+                ])
               : "unsupported"
             if (outcome === "accepted") {
               await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: active.runId })
@@ -5723,6 +5733,7 @@ async function handleChatSdkMessage(
   } finally {
     if (inlineTurn) {
       if (inlineKey && inlineChatTurns.get(inlineKey) === inlineTurn) inlineChatTurns.delete(inlineKey)
+      inlineTurn.beginSettlement()
       try {
         const steeredDeliveries = await Promise.all(inlineTurn.steeredDeliveries ?? [])
         for (const steeredDelivery of steeredDeliveries) {
