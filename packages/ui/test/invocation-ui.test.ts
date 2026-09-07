@@ -2632,6 +2632,36 @@ describe("Agent Invocation UI", () => {
     wrapper.unmount();
   });
 
+  it.each(["completed", "failed"] as const)("keeps delivery-first receipts visible before the final answer and later commentary in a %s session", async (status) => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "delivery-first-commentary",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check this" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "tool.id": "check", "tool.name": "shell" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" },
+        { attributes: { "channel.effect.kind": "reply", "channel.effect.content": "Found it." }, name: "agent.channel.delivery", sequence: 3, timestamp, type: "run" },
+        { attributes: { "message.content": "Found it.", "message.phase": "final", "message.role": "assistant" }, name: "agent.message.delta", sequence: 4, timestamp, type: "lifecycle" },
+        { attributes: { "message.content": "One more check.", "message.phase": "commentary", "message.role": "assistant" }, name: "agent.message.delta", sequence: 5, timestamp, type: "lifecycle" },
+      ],
+      status,
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.find('.vh-invocation-activities > [data-kind="delivery"]').exists()).toBe(true);
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    expect(wrapper.get(".vh-invocation-work__activities").text()).not.toContain("Found it.");
+    expect(wrapper.text().match(/Found it\./g)).toHaveLength(1);
+    const messages = wrapper.findAll(".vh-invocation-activities > .vh-invocation-message");
+    expect(messages[1]!.text()).toContain("Found it.");
+    expect(messages[2]!.text()).toContain("One more check.");
+    wrapper.unmount();
+  });
+
   it("keeps nested truncation local to its activity", () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const invocation = {

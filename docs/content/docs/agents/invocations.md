@@ -157,6 +157,10 @@ the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
 
+Capability setup callbacks (`configure`, `prepare`, `bind`, `input`, `resolve`, `output`) and `close` emit one `agent.capability.<phase>` event when the callback settles. These events measure the callback itself with a monotonic clock, excluding before/after hooks and trace persistence. Read `agent.capability.id`, `agent.capability.phase`, `agent.capability.outcome`, and `agent.capability.durationMs` to distinguish slow integration setup from model execution. Outcomes are `success`, `error`, or `cancelled`; cancellation means the callback failed while the effective invocation input's abort signal was set.
+
+Timing events carry the available invocation, run, and trace identifiers. They contain no callback arguments, results, configuration, or thrown error messages, and follow the normal trace and journal retention policy. A missing event means timing is unavailable, not zero. Emission does not await arbitrary trace sinks: pending or rejected persistence cannot change callback results or prevent cleanup. The host still owns its trace sink's flushing and retention policy.
+
 Attach the `otlp()` Capability to send completed invocation traces to any OTLP/HTTP JSON receiver:
 
 ```ts [server/agents/support.ts]

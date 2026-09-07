@@ -591,7 +591,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const triggeredBy = listOptions.triggeredBy?.trim()
       if (triggeredBy) {
-        filters.push("json_extract(CASE WHEN json_valid(summary) THEN summary ELSE record END, '$.annotations.triggeredBy') = ?")
+        filters.push("trim(json_extract(CASE WHEN json_valid(summary) THEN summary ELSE record END, '$.annotations.triggeredBy')) = ?")
         args.push(triggeredBy)
       }
       const search = searchValue(listOptions.search)

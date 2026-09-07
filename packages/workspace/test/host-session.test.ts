@@ -1643,6 +1643,150 @@ describe("workspace host sessions", () => {
     )
   })
 
+  it("copies independent workspace files at the host materialization concurrency", async () => {
+    const docs = workspace()
+    for (let index = 0; index < 6; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+    const host = Object.assign(memoryHost(), { materializationConcurrency: 3 })
+    const write = host.files.write.bind(host.files)
+    let active = 0
+    let maximum = 0
+    host.files.write = async (path, content, options) => {
+      active++
+      maximum = Math.max(maximum, active)
+      await new Promise(resolve => setTimeout(resolve, 5))
+      try {
+        await write(path, content, options)
+      }
+      finally {
+        active--
+      }
+    }
+
+    const session = await docs.startSession({ host, writeBack: false })
+    await session.close()
+
+    expect(maximum).toBe(3)
+  })
+
+  it.each([undefined, 1, 3])("shares host materialization concurrency %s across sessions", async (concurrency) => {
+    const docs = workspace()
+    for (let index = 0; index < 6; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+    const host = Object.assign(memoryHost(), { materializationConcurrency: concurrency })
+    const write = host.files.write.bind(host.files)
+    let active = 0
+    let maximum = 0
+    host.files.write = async (path, content, options) => {
+      active++
+      maximum = Math.max(maximum, active)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 5))
+        await write(path, content, options)
+      }
+      finally {
+        active--
+      }
+    }
+
+    const sessions = await Promise.all(["/first", "/second"].map(target => docs.startSession({ host, target, writeBack: false })))
+    expect(maximum).toBe(concurrency ?? 1)
+    for (const target of ["/first", "/second"]) {
+      for (let index = 0; index < 6; index++) expect(host.readText(`${target}/files/${index}.txt`)).toBe(String(index))
+    }
+    await Promise.all(sessions.map(session => session.close()))
+  })
+
+  it("preserves undefined copy failures and drains active copies before cleanup", async () => {
+    const docs = workspace()
+    for (let index = 0; index < 5; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+    const host = Object.assign(memoryHost(), { materializationConcurrency: 2 })
+    const write = host.files.write.bind(host.files)
+    const remove = host.files.remove.bind(host.files)
+    let active = 0
+    let recovering = false
+    const startedBeforeCleanup: string[] = []
+    let releaseFirst!: () => void
+    const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve })
+    host.files.write = async (path, content, options) => {
+      active++
+      if (!recovering) startedBeforeCleanup.push(path)
+      try {
+        if (!recovering && path.endsWith("/files/0.txt")) await firstBlocked
+        if (!recovering && path.endsWith("/files/1.txt")) throw undefined
+        await write(path, content, options)
+      }
+      finally {
+        active--
+      }
+    }
+    host.files.remove = async (path, options) => {
+      if (!recovering) {
+        expect(active).toBe(0)
+        recovering = true
+      }
+      await remove(path, options)
+    }
+
+    const starting = docs.startSession({ host, writeBack: false })
+    await vi.waitFor(() => expect(startedBeforeCleanup).toHaveLength(2))
+    releaseFirst()
+
+    await expect(starting).rejects.toBeUndefined()
+    expect(startedBeforeCleanup).toHaveLength(2)
+  })
+
+  it("drains active copies and skips queued files before aborted-session cleanup", async () => {
+    const docs = workspace()
+    for (let index = 0; index < 5; index++) await docs.writeFile(`files/${index}.txt`, String(index))
+    await docs.snapshot({ name: "baseline" })
+    const host = Object.assign(memoryHost(), { materializationConcurrency: 2 })
+    const write = host.files.write.bind(host.files)
+    const remove = host.files.remove.bind(host.files)
+    let active = 0
+    let recovering = false
+    let startedBeforeCleanup = 0
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    host.files.write = async (path, content, options) => {
+      active++
+      if (!recovering) startedBeforeCleanup++
+      try {
+        if (!recovering) await blocked
+        await write(path, content, options)
+      }
+      finally {
+        active--
+      }
+    }
+    host.files.remove = async (path, options) => {
+      if (!recovering) {
+        expect(active).toBe(0)
+        recovering = true
+      }
+      await remove(path, options)
+    }
+    const controller = new AbortController()
+    const reason = new Error("copy expired")
+    const starting = docs.startSession({ abortSignal: controller.signal, host, writeBack: false })
+    await vi.waitFor(() => expect(startedBeforeCleanup).toBe(2))
+    controller.abort(reason)
+    release()
+
+    await expect(starting).rejects.toBe(reason)
+    expect(startedBeforeCleanup).toBe(2)
+  })
+
+  it("rejects invalid host materialization concurrency", async () => {
+    const docs = workspace()
+    const host = Object.assign(memoryHost(), { materializationConcurrency: 0 })
+
+    await expect(docs.startSession({ host })).rejects.toThrow(
+      "Workspace host materializationConcurrency must be a positive integer",
+    )
+  })
+
   it("uses host-reported executable modes without spawning probes", async () => {
     const docs = workspace()
     const host = memoryHost()

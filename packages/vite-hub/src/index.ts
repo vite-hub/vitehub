@@ -111,23 +111,27 @@ function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
-const generatedOwnerProviderImportAliases = Object.fromEntries(generatedOwnerPackageNames.flatMap((packageName) => {
-  const manifestPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`))
-  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
-  if (!isRecord(manifest) || !("exports" in manifest)) return []
-  const packageExports = manifest.exports
-  if (!isRecord(packageExports)) return []
-  return Object.keys(packageExports).flatMap((subpath) => {
-    if (subpath !== "." && !subpath.startsWith("./")) return []
-    const specifier = subpath === "." ? packageName : `${packageName}/${subpath.slice(2)}`
-    try {
-      return [[specifier, fileURLToPath(import.meta.resolve(specifier))] as const]
-    }
-    catch {
-      return []
-    }
-  })
-}))
+let generatedOwnerProviderImportAliases: Record<string, string> | undefined
+
+function getGeneratedOwnerProviderImportAliases(): Record<string, string> {
+  return generatedOwnerProviderImportAliases ??= Object.fromEntries(generatedOwnerPackageNames.flatMap((packageName) => {
+    const manifestPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`))
+    const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
+    if (!isRecord(manifest) || !("exports" in manifest)) return []
+    const packageExports = manifest.exports
+    if (!isRecord(packageExports)) return []
+    return Object.keys(packageExports).flatMap((subpath) => {
+      if (subpath !== "." && !subpath.startsWith("./")) return []
+      const specifier = subpath === "." ? packageName : `${packageName}/${subpath.slice(2)}`
+      try {
+        return [[specifier, fileURLToPath(import.meta.resolve(specifier))] as const]
+      }
+      catch {
+        return []
+      }
+    })
+  }))
+}
 
 const frameworkVirtualImporters = new Set([
   "\0#vitehub/auth/server",
@@ -194,7 +198,7 @@ function frameworkDependencyResolver(
     name: "vite-hub/dependencies",
     vitehub: {
       providerOutput: {
-        getImportAliases: () => generatedOwnerProviderImportAliases,
+        getImportAliases: getGeneratedOwnerProviderImportAliases,
       },
     },
     enforce: "pre",

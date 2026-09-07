@@ -35,6 +35,56 @@ describe("direct Source readers", () => {
     await expect(reader.meta("article_1")).resolves.toEqual({ revision: "1" })
   })
 
+  it("lists only immediate children and lets files replace matching directories", async () => {
+    const reader = createSource(defineSource({
+      name: "docs",
+      async getKeys() {
+        return [
+          "guide/api/deep/nested/example.md",
+          "guide/start.md",
+          "guide/api/other.md",
+          "guide/api",
+          "guide/api/later.md",
+          "guides/elsewhere.md",
+          "reference/api/deep/nested/example.md",
+        ]
+      },
+      async getItem(key: string) { return { key, content: key } },
+    }))
+
+    await expect(reader.list()).resolves.toEqual([
+      { key: "guide", type: "directory" },
+      { key: "guides", type: "directory" },
+      { key: "reference", type: "directory" },
+    ])
+    await expect(reader.list("guide/")).resolves.toEqual([
+      { key: "guide/api", type: "file" },
+      { key: "guide/start.md", type: "file" },
+    ])
+    await expect(reader.list("guide\\api")).resolves.toEqual([
+      { key: "guide/api/deep", type: "directory" },
+      { key: "guide/api/later.md", type: "file" },
+      { key: "guide/api/other.md", type: "file" },
+    ])
+    await expect(reader.list("guide/api/deep/nested")).resolves.toEqual([
+      { key: "guide/api/deep/nested/example.md", type: "file" },
+    ])
+    await expect(reader.list("missing")).resolves.toEqual([])
+  })
+
+  it("normalizes separators when deriving directories from Source keys", async () => {
+    const reader = createSource(defineSource({
+      name: "docs",
+      async getKeys() { return ["guide\\windows\\example.md", "guide//nested///example.md"] },
+      async getItem(key: string) { return { key, content: key } },
+    }))
+
+    await expect(reader.list("guide")).resolves.toEqual([
+      { key: "guide/nested", type: "directory" },
+      { key: "guide/windows", type: "directory" },
+    ])
+  })
+
   it("pins one revision for concurrent operations and refreshes with another reader", async () => {
     let originRevision = 1
     const prepare = vi.fn(async (context: SourceContext) => {

@@ -216,7 +216,7 @@ describe("D1 Agent Invocation store", () => {
 
   it("pages summaries and filters Agent, Capability, status and literal search", async () => {
     const journal = store()
-    await journal.create(invocation("one", { agentName: "alpha", annotations: { label: "100%_done", triggeredBy: "Ferdinand" }, observations: [observation(1)] }))
+    await journal.create(invocation("one", { agentName: "alpha", annotations: { label: "100%_done", triggeredBy: " Ferdinand " }, observations: [observation(1)] }))
     await journal.create(invocation("two", { agentName: "beta", annotations: { triggeredBy: "Maxi" }, capabilityIds: ["files"] }))
     await journal.create(invocation("three", { agentName: "alpha" }))
     const first = await journal.list({ limit: 2 })
@@ -229,8 +229,8 @@ describe("D1 Agent Invocation store", () => {
     expect(await journal.listAgentNames?.()).toEqual(["alpha", "beta"])
     expect(await journal.listCapabilityIds?.()).toEqual(["files", "search"])
     expect(await journal.listCapabilityIds?.("alpha")).toEqual(["search"])
-    expect(await journal.listTriggeredBy?.()).toEqual(["Ferdinand", "Maxi"])
-    expect(await journal.listTriggeredBy?.("alpha")).toEqual(["Ferdinand"])
+    expect(await journal.listTriggeredBy?.()).toEqual([" Ferdinand ", "Maxi"])
+    expect(await journal.listTriggeredBy?.("alpha")).toEqual([" Ferdinand "])
     expect(await journal.getSummary("one")).not.toHaveProperty("observations")
     expect(await journal.list({ status: [] })).toEqual({ invocations: [] })
   })

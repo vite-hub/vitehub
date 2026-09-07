@@ -3190,6 +3190,10 @@ cli_auth_credentials_store = "keyring"
     await rm(heartbeatFile, { force: true })
   })
 
+  it("advertises bounded parallel Workspace materialization for the local host", () => {
+    expect(localWorkspaceHost().materializationConcurrency).toBe(8)
+  })
+
   it("reports executable modes while listing local Workspace files", async () => {
     const root = `/tmp/vitehub-provider-file-modes-${crypto.randomUUID()}`
     await mkdir(root, { recursive: true })
@@ -3982,7 +3986,12 @@ cli_auth_credentials_store = "keyring"
     try {
       const threadId = "thread-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      let reportCloseStarted!: () => void
+      const closeStarted = new Promise<void>((resolve) => { reportCloseStarted = resolve })
+      provider.close.mockImplementationOnce(() => {
+        reportCloseStarted()
+        return new Promise(() => {})
+      })
       const adapter = createProviderAgentAdapter({
         credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
         provider: "codex",
@@ -3991,7 +4000,9 @@ cli_auth_credentials_store = "keyring"
       const stream = await adapter.stream!(context(threadId) as never)
       const result = collect(stream)
 
-      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      // Let filesystem setup finish before advancing the cleanup deadline.
+      await closeStarted
+      expect(provider.close).toHaveBeenCalledOnce()
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
       // SAFETY: The mocked Codex runtime call records the credential homePath setting.
@@ -4014,7 +4025,12 @@ cli_auth_credentials_store = "keyring"
     try {
       const threadId = "thread-profile-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      let reportCloseStarted!: () => void
+      const closeStarted = new Promise<void>((resolve) => { reportCloseStarted = resolve })
+      provider.close.mockImplementationOnce(() => {
+        reportCloseStarted()
+        return new Promise(() => {})
+      })
       const options = {
         credentialProfile: `cleanup-timeout-${crypto.randomUUID()}`,
         credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
@@ -4023,7 +4039,9 @@ cli_auth_credentials_store = "keyring"
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const result = createProviderAgentAdapter(options).generate(context(threadId) as never)
 
-      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      // Let filesystem setup finish before advancing the cleanup deadline.
+      await closeStarted
+      expect(provider.close).toHaveBeenCalledOnce()
       await vi.advanceTimersByTimeAsync(10_000)
       await expect(result).resolves.toBeDefined()
 

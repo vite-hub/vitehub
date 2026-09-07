@@ -253,7 +253,9 @@
     "@nuxt/ui": "^4.11.0",
     "comark-content": "catalog:markdown",
     "evalite": "catalog:ai",
+    "evlog": "^2.28.1",
     "playwright-core": "catalog:browser",
+    "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.4",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
@@ -269,7 +271,13 @@
     "evalite": {
       "optional": true
     },
+    "evlog": {
+      "optional": true
+    },
     "playwright-core": {
+      "optional": true
+    },
+    "posthog-node": {
       "optional": true
     },
     "reka-ui": {

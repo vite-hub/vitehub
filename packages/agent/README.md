@@ -166,6 +166,8 @@ The portable `@vite-hub/agent/server` entry exports `failInterruptedAgentInvocat
 
 `defineAgentInvocations({ observations, store })` configures retained observation count, content string length, encoded byte budget, and finish drain time. Defaults remain 256 observations, 65,536 UTF-16 code units of content strings, and a one-second drain, with a 16 MiB aggregate storage limit. Explicit limits support longer traces without removing bounds; records keep those limits across restarts. See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for the limits and privacy policy.
 
+Capability setup and close callbacks emit `agent.capability.<phase>` timing events through the invocation trace. They include capability ID, measured duration, outcome, and available correlation IDs, without callback payloads or thrown messages. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#observe-the-outcome) for the event contract.
+
 `title()` accepts message input or a plain `prompt`. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
@@ -344,6 +346,8 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 ## evlog integration
 
+Import `observability()` and `createAgentEvlog()` from `@vite-hub/agent/evlog`, not `@vite-hub/agent/capabilities`. This keeps unrelated Capabilities usable without the optional `evlog` peer. Applications can use `vite-hub/agent/evlog`. Install `evlog` when using this integration.
+
 `createAgentEvlog()` from `@vite-hub/agent/evlog` exports invocation lifecycle events through evlog. Add its `capability` to your Agent, connect its `drain` to the host, and await `flush()` after invocation background tasks finish. `@vite-hub/agent/evlog/posthog` adds PostHog events, Error Tracking and the official evlog log drain through optional dependencies.
 
 `createPapercutReporter()` from `@vite-hub/agent/capabilities` journals reports in persistent Agent Invocations before delivery and replays pending reports after restart. See [evlog](../../docs/content/docs/agents/evlog.md) for delivery, privacy and shutdown contracts.
@@ -423,6 +427,10 @@ The defaults are `/api/health` and
 `{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
 `(invocationId, path?)` and return a Response; for GitHub checkouts, use
 `createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.
+The default Workspace route also serves Console RPC inspection, so retained GitHub
+snapshots remain available after disposable checkouts are removed. A custom route
+keeps its own URL and does not replace the default Console inspector.
+
 These are opt-in host routes: the application owns access control, including any
 middleware protecting Workspace content. They do not grant Console authorization.
 

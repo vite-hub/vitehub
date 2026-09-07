@@ -4,6 +4,7 @@ import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
+import { useConsoleWordWrap } from "./console-wrap";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -66,7 +67,7 @@ const inspectorViews = computed<InspectorTab[]>(() => [
   ...(props.workspaceBase ? (["workspace"] as const) : []),
 ]);
 const treeOpen = ref(true);
-const wrapLines = ref(false);
+const wrapLines = useConsoleWordWrap();
 const tabstrip = ref<HTMLElement>();
 const filesPanel = ref<HTMLElement>();
 let workspaceRequest: AbortController | undefined;
@@ -80,7 +81,7 @@ onBeforeUnmount(() => {
 
 const workspaceLabel = computed(() =>
   workspace.value
-    ? workspace.value.revision === "live"
+    ? ["current", "live"].includes(workspace.value.revision)
       ? `${workspace.value.repository} · Live workspace`
       : `${workspace.value.repository}@${workspace.value.revision.slice(0, 7)}`
     : "Agent Workspace",
@@ -698,7 +699,7 @@ function message(error: unknown) {
             <div v-if="!selectedPath" class="session-inspector__snapshot">
               <UIcon name="i-lucide-folder-git-2" />
               <span class="session-inspector__eyebrow">{{
-                workspace.revision === "live" ? "Live workspace" : "Immutable snapshot"
+                ["current", "live"].includes(workspace.revision) ? "Live workspace" : "Immutable snapshot"
               }}</span>
               <strong>{{ workspaceLabel }}</strong>
               <small>
