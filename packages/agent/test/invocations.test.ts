@@ -3137,6 +3137,34 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(traceEventsToOpenTelemetrySpans(content, { content: "metadata" }))).not.toContain(secret)
   })
 
+  it.each(["Bearer", "Basic"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 10 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${".".repeat(512)}${scheme}`, " ", " sensitive-value", " continued"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime(`scheme-boundary-${scheme}`), {})
+    const observations = (await invocations.getByRunId(`scheme-boundary-${scheme}`))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).not.toContain("sensitive-value")
+    expect(text).toContain(" continued")
+  })
+
   it("persists bounded message chunks while an invocation is still running", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     let runningObservations: string[] = []

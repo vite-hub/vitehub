@@ -1255,7 +1255,7 @@ function journalTraceLog(
   const messageDeltaChunkEvents = 32
   const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
-  const redactingCredentialDeltas = new Set<string>()
+  const redactingCredentialDeltas = new Map<string, boolean>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1280,7 +1280,7 @@ function journalTraceLog(
     if (hasRuntimeType(content, "string")) {
       if (!final && credentialTextMayContinue(content)) {
         if (content.length < maxPendingCredentialCharacters) return
-        redactingCredentialDeltas.add(key)
+        redactingCredentialDeltas.set(key, /\b(?:Bearer|Basic)\s*$/i.test(content))
       }
       const redacted = redactCredentialText(content)
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
@@ -1305,6 +1305,11 @@ function journalTraceLog(
     const rawContent = entry.attributes?.["message.content"]
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
+      if (redactingCredentialDeltas.get(key)) {
+        content = content.trimStart()
+        if (!content) return
+        redactingCredentialDeltas.set(key, false)
+      }
       const boundary = content.search(/\s/)
       if (boundary < 0) return
       redactingCredentialDeltas.delete(key)
