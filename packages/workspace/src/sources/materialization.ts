@@ -324,21 +324,22 @@ export async function reconcileRemovedStartupSources(
     async mutate(operation) { return await operation() },
     async checkpoint(operation) { return await operation() },
   },
+  materializationStore = store,
 ) {
   // Per-source materializations share removed owners, so finish their cleanup
   // before another source can observe and delete the same files.
-  const previous = startupReconciliationByStore.get(store)
+  const previous = startupReconciliationByStore.get(materializationStore)
   const current = (async () => {
     await previous
     await reconcileRemovedStartupSourcesInternal(store, currentSources, control)
   })()
   const tail = current.catch(() => {})
-  startupReconciliationByStore.set(store, tail)
+  startupReconciliationByStore.set(materializationStore, tail)
   try {
     await current
   }
   finally {
-    if (startupReconciliationByStore.get(store) === tail) startupReconciliationByStore.delete(store)
+    if (startupReconciliationByStore.get(materializationStore) === tail) startupReconciliationByStore.delete(materializationStore)
   }
 }
 

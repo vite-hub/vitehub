@@ -273,7 +273,7 @@ describe("lazy sources", () => {
     expect(retainedKeys).toHaveBeenCalledTimes(2)
   })
 
-  it("reconciles a removed owner once during concurrent startup materialization", async () => {
+  it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
     const store = createMemoryWorkspaceStore()
     const source = (key: string) => custom({
       materialize: "startup",
@@ -294,12 +294,13 @@ describe("lazy sources", () => {
       await new Promise(resolve => setTimeout(resolve, 0))
       await remove(path, options)
     })
-    const view = createWorkspaceSourceView({
-      name: "concurrent-startup-removal",
-      sources: { retained, other },
-    }, store)
+    const definition = { name: "concurrent-startup-removal", sources: { retained, other } }
+    const view = createWorkspaceSourceView(definition, store)
 
-    await view.glob("**/*.md")
+    await Promise.all([
+      ...(abortableSync ? [syncWorkspaceDefinition(definition, store, new AbortController().signal)] : []),
+      view.glob("**/*.md"),
+    ])
 
     expect(removals.mock.calls.filter(([path]) => path === "shared.md")).toHaveLength(1)
     await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "shared.md" })

@@ -112,6 +112,8 @@ async function createDeploymentRuntimeFixture(
   inspectionRoute: true | string = true,
   discordGatewayRoute?: true | string,
   declaredWorkspaceName?: string,
+  explicitSourceRoot = false,
+  explicitInstructions = false,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
@@ -132,7 +134,11 @@ async function createDeploymentRuntimeFixture(
     "  driver: { model: {} },",
     ...(declaredWorkspaceName ? [`  name: ${JSON.stringify(declaredWorkspaceName)},`] : []),
     "  runtime: false,",
-    "  workspace: { mode: 'write' },",
+    "  workspace: {",
+    "    mode: 'write',",
+    ...(explicitSourceRoot ? [`    sourceRootDir: ${JSON.stringify(supportRoot)},`] : []),
+    ...(explicitInstructions ? ["    sources: { __vitehubAgentInstructions: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } },"] : []),
+    "  },",
     "})",
     "",
   ].join("\n"), "utf8")
@@ -462,6 +468,21 @@ describe("generated Agent deployment catalog", () => {
     })
     expect(runtime!.capture.lastAgent).toBe(runtime!.capture.registeredAgent)
     expect(runtime!.capture.registeredWorkspaceName).toBe("support")
+  })
+
+  it.each([false, true])("keeps startup instructions with an explicit source root and explicit override %s", async (explicitInstructions) => {
+    await runtime!.close()
+    runtime = await createDeploymentRuntimeFixture("nitro", "support", true, undefined, undefined, true, explicitInstructions)
+    const workspace = await runtime.workspace("support")
+    expect(workspace.sourceRootDir).toBe(runtime.supportRoot)
+    expect(workspace.sources).toMatchObject({
+      __vitehubAgentInstructions: {
+        content: explicitInstructions ? "Explicit instructions" : "Support the deployment catalog.\n",
+        materialize: "startup",
+        mount: "",
+        workspacePath: "AGENTS.md",
+      },
+    })
   })
 
   it("materializes registered colocated files at startup and refreshes them after restart", async () => {
