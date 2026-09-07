@@ -2665,14 +2665,14 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get(".vh-invocation-preparation__steps .vh-invocation-event__notice").text()).toContain("Some activity details were omitted.");
   });
 
-  it("preserves input transcript order when the latest user has no response", () => {
+  it.each(["input.messages", "input.prompt"])("preserves truncated %s order and discloses omitted history", (inputAttribute) => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const invocation = {
       createdAt: timestamp,
       id: "unanswered-turn",
       observations: [{
         attributes: {
-          "input.messages": [
+          [inputAttribute]: [
             { id: "user-1", parts: [{ text: "First question", type: "text" }], role: "user" },
             { id: "assistant-1", parts: [{ text: "First answer", type: "text" }], role: "assistant" },
             { id: "user-2", parts: [{ text: "Unanswered question", type: "text" }], role: "user" },
@@ -2694,7 +2694,9 @@ describe("Agent Invocation UI", () => {
     expect(messages.map(message => message.get(".vh-invocation-message__content").text()))
       .toEqual(["First question", "First answer", "Unanswered question"]);
     expect(messages.at(-1)!.attributes("data-role")).toBe("user");
-    expect(wrapper.find(".vh-invocation-event__notice").exists()).toBe(false);
+    expect(messages.at(-1)!.text()).toContain("Some activity details were omitted.");
+    expect(invocationActivities(invocation).filter(activity => activity.name === "agent.input.message"))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ truncated: true })]));
   });
 
   it("renders truncation after work when the latest user has no response", () => {
