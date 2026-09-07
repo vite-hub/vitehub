@@ -11,6 +11,7 @@ import type { StreamEvent } from "../src/messages.ts"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { github } from "@vite-hub/workspace"
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
@@ -3314,6 +3315,14 @@ cli_auth_credentials_store = "keyring"
     }
     const workspace = {
       fs: {},
+      materializeSources: vi.fn(async () => ({
+        bytes: 0,
+        directories: 0,
+        durationMs: 0,
+        files: 1,
+        path: "",
+        sources: [{ mountPath: "docs", provider: "github", revision: { id: "d".repeat(40), immutable: true }, source: "docs", status: "ready" }],
+      })),
       startSession: vi.fn(async (options: { target: string }) => {
         root = options.target
         await mkdir(root, { recursive: true })
@@ -3324,7 +3333,7 @@ cli_auth_credentials_store = "keyring"
     }
     const runContext = context(threadId, {
       workspace,
-      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
       workspaceMode: "write",
     })
     await setAgentTelemetryConfiguration(runContext.context, {
@@ -3335,7 +3344,9 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "claude-code" }).generate(runContext as never)
 
-    expect(getAgentTelemetryConfiguration(runContext.context)?.value.instructions).toEqual(["native workspace instructions"])
+    const [instructions] = getAgentTelemetryConfiguration(runContext.context)?.value.instructions || []
+    expect(instructions).toMatch(/^native workspace instructions\n\nMounted source provenance/)
+    expect(instructions).toContain("https://github.com/vite-hub/vitehub")
   })
 
   it("materializes AGENTS.md fallback instructions for Claude", async () => {
@@ -3508,10 +3519,11 @@ cli_auth_credentials_store = "keyring"
       files: 2,
       path: "",
       sources: [
-        { mountPath: "references/engine", provider: "github", revision: { id: "abc123", immutable: true, ref: "main" }, source: "engine", status: "ready" },
+        { mountPath: "references/engine", provider: "github", revision: { id: "a".repeat(40), immutable: true, ref: "main" }, source: "engine", status: "ready" },
         { mountPath: "references/mutable", provider: "github", revision: { id: "main", immutable: false }, source: "mutable", status: "ready" },
         { mountPath: "references/custom", provider: "custom", revision: { id: "rev-1", immutable: true }, source: "custom", status: "ready" },
-        { mountPath: "references/unsafe", provider: "github", revision: { id: "def456", immutable: true }, source: "unsafe", status: "ready" },
+        { mountPath: "references/unsafe", provider: "github", revision: { id: "b".repeat(40), immutable: true }, source: "unsafe", status: "ready" },
+        { mountPath: "wrong-mount", provider: "github", revision: { id: "c".repeat(40), immutable: true }, source: "mismatched", status: "ready" },
       ],
     }))
     const source = (fingerprint: unknown) => ({
@@ -3528,7 +3540,8 @@ cli_auth_credentials_store = "keyring"
         name: "docs",
         sources: {
           custom: source({ repo: "owner/custom", root: "" }),
-          engine: { mount: "references/engine", source: source({ auth: "secret", ref: "main", repo: "quiverdk/forecasting-engine", root: "packages/core" }) },
+          engine: { mount: "references/engine", source: github({ repo: "quiverdk/forecasting-engine" }) },
+          mismatched: { mount: "references/expected", source: source({ repo: "owner/mismatched", root: "" }) },
           mutable: source({ repo: "owner/mutable", root: "" }),
           unsafe: source({ repo: "https://token@github.com/owner/repo?auth=secret", root: "" }),
         },
@@ -3536,12 +3549,13 @@ cli_auth_credentials_store = "keyring"
     }) as never)
 
     expect(instructions).toContain('"mount": "references/engine"')
-    expect(instructions).toContain('"root": "packages/core"')
-    expect(instructions).toContain('"id": "abc123"')
+    expect(instructions).toContain('"root": ""')
+    expect(instructions).toContain(`"id": "${"a".repeat(40)}"`)
     expect(instructions).not.toContain("token@")
     expect(instructions).not.toContain("auth=secret")
     expect(instructions).not.toContain("owner/mutable")
     expect(instructions).not.toContain("owner/custom")
+    expect(instructions).not.toContain("owner/mismatched")
   })
 
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {

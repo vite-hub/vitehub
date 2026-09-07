@@ -1550,14 +1550,21 @@ interface ProviderSourceProvenance {
 
 function providerSourceProvenance(context: AgentAdapterRunContext, materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>): ProviderSourceProvenance[] {
   if (!materialized || !context.workspaceDefinition?.sources) return []
-  const metadata = new Map(normalizeWorkspaceSourcesMetadata(context.workspaceDefinition.sources).map(source => [source.key, source]))
+  let metadata
+  try {
+    metadata = new Map(normalizeWorkspaceSourcesMetadata(context.workspaceDefinition.sources).map(source => [source.key, source]))
+  }
+  catch {
+    return []
+  }
   return materialized.sources.flatMap((status) => {
-    if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !status.revision.id.trim()) return []
+    if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(status.revision.id)) return []
     const source = metadata.get(status.source)
+    if (!source || source.mountPath !== status.mountPath) return []
     const fingerprint = source?.source.fingerprint
     if (!isRuntimeRecord(fingerprint)) return []
     const repo = fingerprint.repo
-    const root = fingerprint.root
+    const root = fingerprint.root ?? ""
     if (!hasRuntimeType(repo, "string") || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return []
     if (!hasRuntimeType(root, "string") || root.startsWith("/") || root.split("/").includes("..")) return []
     return [{
@@ -1585,6 +1592,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   }
   const paths = selectedWorkspacePaths(context)
   const materializedSources = await materializeWorkspaceSources(context, paths)
+  const provenance = providerSourceProvenance(context, materializedSources)
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
@@ -1596,7 +1604,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
   await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
-  return { provenance: providerSourceProvenance(context, materializedSources), session }
+  return { provenance, session }
 }
 
 async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
@@ -2126,11 +2134,6 @@ async function* runProvider<
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
     let materializeInstructions = Boolean(instructions)
-    const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
-    if (provenanceInstructions) {
-      instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
-      materializeInstructions = true
-    }
     if (!instructions && options.provider === "claude-code") {
       const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
       if (nativeInstructions !== undefined) instructions = nativeInstructions
@@ -2138,6 +2141,11 @@ async function* runProvider<
         instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
         materializeInstructions = Boolean(instructions)
       }
+    }
+    const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
+    if (provenanceInstructions) {
+      instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
+      materializeInstructions = true
     }
     const inspectedTools = inspectAgentTools(context.tools)
     await updateAgentTelemetryConfiguration(context.context, {
