@@ -2311,7 +2311,7 @@ async function* runProvider<
               emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
               return "accepted"
             } catch {
-              return "unavailable"
+              return "invalid-state"
             }
           }
           if (inputOptions.mode !== "respond") return "unsupported"

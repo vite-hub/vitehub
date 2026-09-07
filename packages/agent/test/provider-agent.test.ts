@@ -2863,7 +2863,7 @@ cli_auth_credentials_store = "keyring"
     const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
-    await expect(sendAgentInvocationInput(invocationId, { prompt: "follow-up" }, { mode: "steer" })).resolves.toBe(cancellationFails ? "unavailable" : "unsupported")
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "follow-up" }, { mode: "steer" })).resolves.toBe(cancellationFails ? "invalid-state" : "unsupported")
     expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-2")
     releaseTurn()
     expect(JSON.stringify(await result)).not.toContain("input.steered")

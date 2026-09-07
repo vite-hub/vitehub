@@ -4911,6 +4911,13 @@ async function handleChatSdkMessage(
             else (active.steeredDeliveries ??= []).push(delivery)
           }
           if (outcome === "accepted") return
+          if (outcome === "invalid-state") {
+            await recordChannelDeliveryEvidence(delivery, {
+              error: "The provider could not confirm whether steering input was applied.",
+              type: "failed",
+            })
+            return
+          }
           if (outcome === "unsupported") await waitForInlineChatTurn(active, maximumInvocationDeadline)
           else await pollInlineChatTurn(active, maximumInvocationDeadline)
         } else {
