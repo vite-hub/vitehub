@@ -1,5 +1,5 @@
 import { channelIcon } from "../internal/channel-icon.ts";
-import { useNow } from "@vueuse/core";
+import { useMounted, useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
@@ -454,6 +454,7 @@ interface MessageRendering {
   promptId?: string;
   sentAt?: string;
   now: Date;
+  mounted: boolean;
 }
 
 function renderMessage(
@@ -465,7 +466,7 @@ function renderMessage(
   const body = activity.body ?? "";
   const collapsible = activity.role === "user" && (body.length > 720 || body.split(/\r?\n/).length > 12);
   const isExpanded = expanded.has(activity.id);
-  const sentAt = messageTimestamp(activity, messageRendering.now, activity.id === messageRendering.promptId ? messageRendering.sentAt : undefined);
+  const sentAt = messageTimestamp(activity, messageRendering.now, messageRendering.mounted, activity.id === messageRendering.promptId ? messageRendering.sentAt : undefined);
   const copyStatus = messageRendering.copiedId === activity.id ? messageRendering.copyStatus : undefined;
   const hasMessageMeta = activity.role === "user" || activity.role === "assistant";
   return h(
@@ -513,12 +514,13 @@ function renderMessage(
   );
 }
 
-function messageTimestamp(activity: InvocationActivity, now: Date, sentAt?: string): { short: string; title: string; value: string } | undefined {
+function messageTimestamp(activity: InvocationActivity, now: Date, mounted: boolean, sentAt?: string): { short: string; title: string; value: string } | undefined {
   const value = sentAt ?? stringAttribute(activity.attributes, "channel.sentAt")
     ?? stringAttribute(activity.attributes, "input.sentAt")
     ?? activity.startedAt;
   if (!value || !Number.isFinite(Date.parse(value))) return;
   const date = new Date(value);
+  if (!mounted) return { short: date.toISOString(), title: date.toISOString(), value };
   const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
@@ -1514,6 +1516,7 @@ export const AgentInvocation = defineComponent({
       return { ...activity, attributes };
     }));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
+    const mounted = useMounted();
     const now = useNow({ interval: 60_000 });
     const workOpen = ref(false);
     const messageCopy = ref<{ id: string; status: "copied" | "failed" }>();
@@ -1620,6 +1623,7 @@ export const AgentInvocation = defineComponent({
               {
                 ...promptMetadata,
                 now: now.value,
+                mounted: mounted.value,
                 copy: activity => void copyMessage(activity),
                 copiedId: messageCopy.value?.id,
                 copyStatus: messageCopy.value?.status,

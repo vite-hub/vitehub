@@ -33,7 +33,7 @@ const channelMarks: Record<string, { label: string; body: string }> = {
 };
 
 export function channelIcon(channel: string) {
-  const normalized = channel.toLowerCase().replace(/^microsoft[ ._-]?/, "");
+  const normalized = channel.toLowerCase().replace(/^microsoft[ ._-]?/, "").replace(/^github-pull-request(?:-comment)?$/, "github");
   const mark = channelMarks[normalized] ?? channelMarks["web-chat"]!;
   const label = channelMarks[normalized]?.label ?? channel;
   return h("span", { class: "vh-channel-icon vh-invocation-list__channel", title: label, "aria-label": label }, [

@@ -8,11 +8,53 @@ import type { UIMessage } from "ai";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
 import { AgentMessageParts } from "../src/components/agent-message-parts.ts";
+import { channelIcon } from "../src/internal/channel-icon.ts";
 import { invocationActivities, invocationActivityTitle } from "../src/internal/invocation-activity.ts";
 
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it.each(["github-pull-request", "github-pull-request-comment"])("renders %s with the GitHub mark and label", (origin) => {
+    const wrapper = mount({ render: () => channelIcon(origin) });
+    const github = mount({ render: () => channelIcon("github") });
+    expect(wrapper.attributes("aria-label")).toBe("GitHub");
+    expect(wrapper.get("svg").html()).toBe(github.get("svg").html());
+  });
+
+  it("hydrates message timestamps before applying browser locale formatting", async () => {
+    const timestamp = "2026-09-05T00:30:00.000Z";
+    const invocation: AgentInvocationView = {
+      id: "hydration", status: "completed", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      observations: [{ name: "agent.input", type: "run", timestamp, sequence: 1, attributes: {
+        "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check this" }] }],
+      } }],
+    };
+    const component = { render: () => h(AgentInvocation, { invocation }) };
+    const html = await renderToString(createSSRApp(component));
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    expect(container.querySelector(".vh-invocation-message__meta time")?.textContent).toBe(timestamp);
+    const DateTimeFormat = Intl.DateTimeFormat;
+    const formatter = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (locale, options) {
+      return new DateTimeFormat(locale ?? "de-DE", { ...options, timeZone: "America/Los_Angeles" });
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = createSSRApp(component);
+    try {
+      app.mount(container);
+      await nextTick();
+      expect(container.querySelector(".vh-invocation-message__meta time")?.textContent).not.toBe(timestamp);
+      expect(warn.mock.calls.flat().join(" ")).not.toMatch(/hydration/i);
+      expect(error.mock.calls.flat().join(" ")).not.toMatch(/hydration/i);
+    } finally {
+      app.unmount();
+      formatter.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   it("places one semantic run timestamp before the session activities and falls back to creation time", () => {
     const invocation: AgentInvocationView = { id: "time", status: "completed", traceId: "trace", createdAt: "2026-09-05T10:00:00Z", startedAt: "2026-09-05T10:01:00Z", updatedAt: "2026-09-05T10:02:00Z", observations: [] };
     const wrapper = mount(AgentInvocation, { props: { invocation } });
