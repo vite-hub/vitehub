@@ -926,17 +926,13 @@ export async function resolveAgentCapabilities<
       }
       if (hasRuntimeType(invocationId, "string")) attributes["agent.invocation.id"] = invocationId
       if (runtime.run?.runId) attributes["agent.run.id"] = runtime.run.runId
-      try {
-        await runtime.traceLog.append({
-          name: `agent.capability.${phase}`,
-          type: "lifecycle",
-          trace: runtime.trace,
-          attributes,
-        })
-      }
-      catch {
-        // Timing evidence must not replace callback results or cleanup errors.
-      }
+      // Persist timing asynchronously so a slow or unavailable sink cannot stall callback completion or cleanup.
+      void runtime.traceLog.append({
+        name: `agent.capability.${phase}`,
+        type: "lifecycle",
+        trace: runtime.trace,
+        attributes,
+      }).catch(() => {})
     }
   }
   const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
