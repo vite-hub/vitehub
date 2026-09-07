@@ -54,15 +54,19 @@ export default defineSchedule({
 | `defineSchedule` from `@vite-hub/schedule` | Declare a Static Schedule Definition. |
 | `defineScheduleTarget` from `@vite-hub/schedule` | Declare a cronless target for Runtime Schedules. |
 | `schedules`, `validateRuntimeScheduleCron` from `@vite-hub/schedule` or `@vite-hub/schedule/runtime` | Manage Runtime Schedules and validate cron strings. |
-| `executeSchedule`, `executeStaticSchedule`, `executeRuntimeSchedule`, `createScheduleRun` from `@vite-hub/schedule` | Execute schedules from provider hooks or custom runtime wiring. |
-| `createMemoryRuntimeScheduleStore`, `createKVRuntimeScheduleStore` from `@vite-hub/schedule` | Configure Runtime Schedule storage. |
-| `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule` | Configure Schedule Run storage. |
-| `setRuntimeScheduleStore`, `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule` | Wire custom runtime state. |
+| `executeSchedule`, `executeStaticSchedule`, `executeRuntimeSchedule`, `createScheduleRun` from `@vite-hub/schedule/runtime` | Execute schedules from provider hooks or custom runtime wiring. |
+| `createMemoryRuntimeScheduleStore`, `createKVRuntimeScheduleStore` from `@vite-hub/schedule/runtime` | Configure Runtime Schedule storage. |
+| `createMemoryScheduleRunStore`, `createKVScheduleRunStore` from `@vite-hub/schedule/runtime` | Configure Schedule Run storage. |
+| `setRuntimeScheduleStore`, `setScheduleRunStore`, `setScheduleRuntimeRegistry` from `@vite-hub/schedule/runtime` | Wire custom runtime state. |
 | `installScheduleRuntime` from `@vite-hub/schedule/runtime/driver` | Connect stored Runtime Schedules to a host-owned wake driver. |
 | `createProcessScheduleWakeDriver` from `@vite-hub/schedule/runtime/process` | Scan and wake due Runtime Schedules inside a long-running process. |
+| `createScheduleKVStorage` from `@vite-hub/schedule/runtime` | Adapt a ViteHub KV store to Schedule storage. |
+| `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` | Discover Schedule Definitions in a build integration. |
 | `hubSchedule`, `createScheduleNitroConfig` from `@vite-hub/schedule/vite` | Register discovery and generated provider output. |
 
 Schedule Definition, Runtime Schedule, Schedule Run, and Schedule Store types are exported from `@vite-hub/schedule`.
+
+This is a breaking import change. Move execution, storage, and runtime state helpers from `@vite-hub/schedule` to `@vite-hub/schedule/runtime`. Move `discoverScheduleDefinitions` to `@vite-hub/schedule/vite`. Framework applications use `vite-hub/schedule/runtime` for runtime helpers. Build integrations import discovery from the owner package. The main entry no longer loads file discovery or its build dependencies; helper behavior is unchanged.
 
 ## Configure the Vite Integration
 
