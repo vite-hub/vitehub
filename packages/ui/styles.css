@@ -1,3 +1,5 @@
+@import "katex/dist/katex.min.css";
+
 :root {
   --vh-ui-radius: var(--ui-radius, 0.5rem);
   --vh-ui-border: var(--ui-border, color-mix(in oklab, currentColor 14%, transparent));
@@ -838,10 +840,13 @@
 }
 
 .vh-invocation-message[data-role="user"] {
-  background: var(--vh-ui-bg-elevated);
-  border-radius: 1rem;
   margin-block: 0.5rem 1rem;
   margin-inline-start: 20%;
+}
+
+.vh-invocation-message[data-role="user"] .vh-invocation-message__content {
+  background: var(--vh-ui-bg-elevated);
+  border-radius: 1rem;
   padding: 0.75rem;
 }
 
@@ -875,6 +880,59 @@
   text-underline-offset: 0.25rem;
 }
 
+.vh-invocation-message__method {
+  color: var(--vh-ui-dimmed);
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  margin-block-end: 0.25rem;
+}
+
+.vh-invocation-message__meta {
+  align-items: center;
+  color: var(--vh-ui-dimmed);
+  display: flex;
+  font-size: 0.6875rem;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  min-height: 1.5rem;
+  opacity: 0;
+  padding-inline: 0.5rem 0.25rem;
+  transition: opacity 120ms ease;
+}
+
+.vh-invocation-message:hover .vh-invocation-message__meta,
+.vh-invocation-message:focus-within .vh-invocation-message__meta {
+  opacity: 1;
+}
+
+.vh-invocation-message__copy {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 0.35rem;
+  padding: 0.125rem;
+}
+
+.vh-invocation-message__copy:hover,
+.vh-invocation-message__copy:focus-visible {
+  color: var(--vh-ui-text);
+}
+
+.vh-invocation-message__copy svg {
+  height: 0.75rem;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+  width: 0.75rem;
+}
+
 .vh-invocation-message__more:hover,
 .vh-invocation-message__more:focus-visible {
   color: var(--vh-ui-text);
@@ -897,21 +955,26 @@
   color: var(--vh-ui-muted);
 }
 
+.vh-invocation-framework-mark {
+  color: color-mix(in oklab, var(--vh-ui-text) 32%, transparent);
+  flex: 0 0 0.875rem;
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .vh-invocation-framework-mark {
+    color: color-mix(in oklab, var(--vh-ui-text) 58%, transparent);
+  }
+}
+
 .vh-invocation-activity[data-kind="system"] {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 52%, transparent);
-  border: 1px solid var(--vh-ui-border);
-  border-radius: calc(var(--vh-ui-radius) * 1.1);
-  margin-block: 0.3rem;
-  padding: 0.4rem 0.5rem;
+  margin-block: 0.125rem;
 }
 
 .vh-invocation-preparation {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 28%, transparent);
-  border: 1px solid var(--vh-ui-border);
-  border-radius: calc(var(--vh-ui-radius) * 1.1);
   list-style: none;
-  margin-block: 0.3rem 1rem;
-  overflow: hidden;
+  margin-block: 0.125rem;
 }
 
 .vh-invocation-preparation__details,
@@ -944,7 +1007,7 @@
   color: var(--vh-ui-text);
   flex: 0 0 auto;
   font-size: 0.75rem;
-  font-weight: 550;
+  font-weight: 500;
 }
 
 .vh-invocation-preparation__summary > code {
@@ -973,7 +1036,7 @@
 }
 
 .vh-invocation-preparation__details[open] .vh-invocation-preparation__disclosure {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .vh-invocation-preparation__steps {
@@ -1275,7 +1338,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 .vh-invocation-event__title {
   flex: none;
   font-size: 0.75rem;
-  font-weight: 550;
+  font-weight: 500;
   line-height: 1.25rem;
 }
 
@@ -1301,7 +1364,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-event[open] .vh-invocation-event__disclosure {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .vh-invocation-work {
@@ -1355,7 +1418,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-work__details[open] .vh-invocation-work__disclosure {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .vh-invocation-work__activities {
@@ -1369,6 +1432,65 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-work__details:not([open]) > .vh-invocation-work__activities {
   display: none;
+}
+
+.vh-invocation-history {
+  margin-block: 0.25rem 0.75rem;
+}
+
+.vh-invocation-history__details {
+  color: var(--vh-ui-muted);
+}
+
+.vh-invocation-history__summary {
+  align-items: center;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.75rem;
+  gap: 0.25rem;
+  line-height: 1.25rem;
+  list-style: none;
+  padding: 0 0.25rem;
+  user-select: none;
+  width: fit-content;
+}
+
+.vh-invocation-history__summary::-webkit-details-marker {
+  display: none;
+}
+
+.vh-invocation-history__summary:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--ui-primary, #2563eb) 70%, transparent);
+  outline: none;
+}
+
+.vh-invocation-history__disclosure {
+  height: 0.875rem;
+  opacity: 0.7;
+  stroke: currentColor;
+  stroke-width: 2;
+  transition: transform 150ms ease;
+  width: 0.875rem;
+}
+
+.vh-invocation-history__details[open] .vh-invocation-history__disclosure {
+  transform: rotate(90deg);
+}
+
+.vh-invocation-history__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.0625rem;
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+@media (hover: none) {
+  .vh-invocation-message__meta {
+    opacity: 1;
+  }
 }
 
 .vh-invocation-event__body,
@@ -1432,7 +1554,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-event__payload[open] > summary .vh-invocation-event__disclosure {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .vh-invocation-payload__content {
@@ -1875,7 +1997,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   border-block: 1px solid var(--vh-ui-border);
   display: grid;
   gap: 0;
-  grid-template-columns: repeat(auto-fit, minmax(4.75rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
   margin: 0;
 }
 
@@ -1902,7 +2024,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   font-variant-numeric: tabular-nums;
   font-weight: 650;
   margin: 0.25rem 0 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 
 .vh-invocation-timeline {
@@ -2242,7 +2364,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-invocation-inspector__disclosure[open] > summary .vh-invocation-inspector__chevron,
 .vh-invocation-inspector__item-disclosure[open] > summary .vh-invocation-inspector__chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
 }
 
 .vh-invocation-inspector__list {

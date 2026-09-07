@@ -254,7 +254,8 @@ function activityKind(
   if (attributes["tool.name"] || attributes["tool.id"] || observation.name.includes(".tool.")) return "tool";
   if (attributes["approval.id"] || observation.name.includes(".approval.")) return "approval";
   if (observation.type === "error" || observation.name.endsWith(".error")) return "error";
-  if (attributes["message.phase"] === "commentary" || attributes["message.phase"] === "reasoning") return "reasoning";
+  if (attributes["message.phase"] === "commentary") return "message";
+  if (attributes["message.phase"] === "reasoning") return "reasoning";
   if (observation.name.includes(".reasoning.")) return "reasoning";
   if (observation.name.includes(".model.")) return "model";
   if (attributes["message.role"] || attributes["message.content"] || attributes["input.prompt"] || attributes["input.messages"] || attributes["result.text"]) return "message";
@@ -283,6 +284,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded") continue;
     const originalAttributes = observation.attributes ?? {};
+    if (originalAttributes["vitehub.auxiliary.kind"] === "title") continue;
     if (
       observation.name === "agent.stream.error"
       && originalAttributes["error.recoverable"] === true
@@ -311,9 +313,6 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
             "message.content": body,
             "message.id": value ? stringAttribute(value, "id") ?? key : key,
             "message.role": role,
-            ...(originalAttributes["vitehub.observation.truncated"] === true
-              ? { "vitehub.observation.truncated": true }
-              : {}),
           },
           name: "agent.input.message",
           sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
@@ -415,21 +414,23 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       };
     })
     .sort((left, right) => left.sequence - right.sequence);
-  const contentTruncated = traceTruncated || activities.some(activity => activity.truncated);
-  const compactActivities = activities.map(({ truncated: _truncated, ...activity }) => activity);
-  if (contentTruncated && !compactActivities.some(activity => activity.name === "vitehub.observation.truncated")) {
-    compactActivities.push({
+  const visibleActivities = activities.filter(activity => !(
+    activity.kind === "run"
+    && /^agent\.invocation\.(?:start|started)$/.test(activity.name)
+  ));
+  if (traceTruncated && !visibleActivities.some(activity => activity.name === "vitehub.observation.truncated")) {
+    visibleActivities.push({
       attributes: {},
       id: "trace-truncated",
       kind: "system",
       name: "vitehub.observation.truncated",
       patches: [],
       paths: [],
-      sequence: (compactActivities.at(-1)?.sequence ?? -1) + 1,
+      sequence: (visibleActivities.at(-1)?.sequence ?? -1) + 1,
       status: "completed",
     });
   }
-  return compactActivities;
+  return visibleActivities;
 }
 
 export function latestInvocationTokens(activities: readonly InvocationActivity[]): number | undefined {
@@ -446,6 +447,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "system") return "System configuration";
   if (activity.kind === "delivery") return channelDeliveryTitle(activity);
   if (activity.attributes["vitehub.action.name"] === "progress-summary.update") return "Updated loading message";
+  if (activity.attributes["vitehub.action.name"] === "input.steered") return "Steered active session";
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));

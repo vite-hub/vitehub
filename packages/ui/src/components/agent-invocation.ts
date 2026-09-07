@@ -1,3 +1,5 @@
+import { channelIcon } from "../internal/channel-icon.ts";
+import { useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
@@ -37,7 +39,7 @@ function compactCommand(command: string): string {
 }
 
 function formatTokens(value: number | undefined): string | undefined {
-  if (value === undefined) return;
+  if (value === undefined || value <= 0) return;
   if (value < 1_000) return `${value} tokens`;
   return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1, notation: "compact" }).format(value)} tokens`;
 }
@@ -394,7 +396,7 @@ const InvocationPayload = defineComponent({
       h("summary", [
         h("strong", props.label),
         h("code", payloadPreview(props.value, text.value)),
-        renderChevronDown("vh-invocation-event__disclosure"),
+        renderDisclosureChevron("vh-invocation-event__disclosure"),
       ]),
       open.value ? h("div", { class: "vh-invocation-payload__content" }, [
         h("div", { class: "vh-invocation-payload__toolbar" }, [
@@ -444,14 +446,28 @@ const messageRoleLabels: Record<NonNullable<InvocationActivity["role"]>, string>
   user: "User",
 };
 
+interface MessageRendering {
+  author?: string;
+  copy: (activity: InvocationActivity) => void;
+  copiedId?: string;
+  copyStatus?: "copied" | "failed";
+  promptId?: string;
+  sentAt?: string;
+  now: Date;
+}
+
 function renderMessage(
   activity: InvocationActivity,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
+  messageRendering: MessageRendering,
 ) {
   const body = activity.body ?? "";
   const collapsible = activity.role === "user" && (body.length > 720 || body.split(/\r?\n/).length > 12);
   const isExpanded = expanded.has(activity.id);
+  const sentAt = messageTimestamp(activity, messageRendering.now, activity.id === messageRendering.promptId ? messageRendering.sentAt : undefined);
+  const copyStatus = messageRendering.copiedId === activity.id ? messageRendering.copyStatus : undefined;
+  const hasMessageMeta = activity.role === "user" || activity.role === "assistant";
   return h(
     "li",
     {
@@ -461,12 +477,15 @@ function renderMessage(
     },
     [
       h("span", { class: "vh-visually-hidden" }, `${messageRoleLabels[activity.role ?? "assistant"]} message`),
+      activity.attributes["input.mode"] === "steer"
+        ? h("small", { class: "vh-invocation-message__method" }, "Steered")
+        : null,
       h("div", {
         class: "vh-invocation-message__content",
         "data-collapsed": collapsible && !isExpanded ? "true" : undefined,
       }, [markdown(body, "vh-invocation-message__body")]),
       activity.truncated
-        ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+        ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
         : null,
       collapsible
         ? h("button", {
@@ -476,14 +495,62 @@ function renderMessage(
             type: "button",
           }, isExpanded ? "Show less" : "Read more")
         : null,
+      hasMessageMeta
+        ? h("footer", { class: "vh-invocation-message__meta" }, [
+            activity.id === messageRendering.promptId && messageRendering.author ? h("span", messageRendering.author) : null,
+            sentAt ? h("time", { datetime: sentAt.value, title: sentAt.title }, sentAt.short) : null,
+            h("button", {
+              "aria-label": copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy message",
+              class: "vh-invocation-message__copy",
+              onClick: () => messageRendering.copy(activity),
+              title: copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy message",
+              type: "button",
+            }, copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : [renderCopyIcon()]),
+            copyStatus ? h("span", { class: "vh-visually-hidden", "aria-live": "polite", role: "status" }, copyStatus === "copied" ? "Message copied" : "Message could not be copied") : null,
+          ])
+        : null,
     ],
   );
+}
+
+function messageTimestamp(activity: InvocationActivity, now: Date, sentAt?: string): { short: string; title: string; value: string } | undefined {
+  const value = sentAt ?? stringAttribute(activity.attributes, "channel.sentAt")
+    ?? stringAttribute(activity.attributes, "input.sentAt")
+    ?? activity.startedAt;
+  if (!value || !Number.isFinite(Date.parse(value))) return;
+  const date = new Date(value);
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const dayDifference = Math.round((startOfToday - startOfMessageDay) / 86_400_000);
+  const short = dayDifference <= 0
+    ? time
+    : dayDifference === 1
+      ? `Yesterday at ${time}`
+      : `${new Intl.DateTimeFormat(undefined, {
+          day: "numeric",
+          month: "numeric",
+          ...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+        }).format(date)} ${time}`;
+  return {
+    short,
+    title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
+    value,
+  };
+}
+
+function renderCopyIcon() {
+  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [
+    h("rect", { height: "13", rx: "2", width: "13", x: "8", y: "8" }),
+    h("path", { d: "M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" }),
+  ]);
 }
 
 type ActivityIcon =
   | "activity"
   | "action"
   | "approval"
+  | "brain"
   | "change"
   | "check"
   | "command"
@@ -504,7 +571,8 @@ function activityIcon(activity: InvocationActivity): ActivityIcon {
   if (activity.kind === "change") return "change";
   if (name.includes("read") || name.includes("image") || name.includes("view")) return "eye";
   if (name.includes("search") || name.includes("find")) return "search";
-  if (activity.kind === "reasoning" || activity.kind === "model" || activity.kind === "run") return "activity";
+  if (activity.kind === "reasoning" || activity.kind === "model") return "brain";
+  if (activity.kind === "run") return "activity";
   if (activity.kind === "approval") return "approval";
   if (activity.kind === "delivery") {
     const delivery = String(activity.attributes["channel.effect.kind"] ?? "").toLocaleLowerCase();
@@ -530,6 +598,7 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
   activity: ["M12 12h.01"],
   action: ["M13 2 3 14h9l-1 8 10-12h-9z"],
   approval: ["M12 3v12", "m8 11 4 4 4-4", "M5 21h14"],
+  brain: ["M9.5 4.5A3 3 0 0 0 4 6a3 3 0 0 0-1 5.25A3.5 3.5 0 0 0 6.5 17H9", "M14.5 4.5A3 3 0 0 1 20 6a3 3 0 0 1 1 5.25A3.5 3.5 0 0 1 17.5 17H15", "M9 4.5V20", "M15 4.5V20", "M9 9H7", "M15 9h2", "M9 14H6.5", "M15 14h2.5"],
   change: ["M12 20h9", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"],
   check: ["m5 12 4 4L19 6"],
   command: ["m4 17 6-6-6-6", "M12 19h8"],
@@ -616,12 +685,12 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
   const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
   const summaryContent = [
-    renderActivityIcon(activity),
+    activity.name === "vitehub.agent.configured" ? frameworkMark() : activity.kind === "delivery" ? channelIcon(activityChannel(activity)) : renderActivityIcon(activity),
     h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
     activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
     hasDetails
-      ? renderChevronDown("vh-invocation-event__disclosure")
+      ? renderDisclosureChevron("vh-invocation-event__disclosure")
       : null,
   ];
   const summary = inspectable && !hasDetails
@@ -648,7 +717,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
           ? h("p", { class: "vh-invocation-event__failure" }, deliveryFailure)
           : null,
         activity.truncated
-          ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+          ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
           : null,
         activity.patches.length
           ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentPatchDiff, { key: index, patch })))
@@ -753,10 +822,24 @@ function renderPreparationDetail(activity: InvocationActivity, url: string | und
   ]);
 }
 
-function renderChevronDown(className: string) {
+function renderDisclosureChevron(className: string) {
   return h("svg", { "aria-hidden": "true", class: className, viewBox: "0 0 256 256" }, [
-    h("path", { d: "m212.24 100.24-80 80a6 6 0 0 1-8.48 0l-80-80a6 6 0 0 1 8.48-8.48L128 167.51l75.76-75.75a6 6 0 0 1 8.48 8.48", fill: "currentColor" }),
+    h("path", { d: "m100.24 43.76 80 80a6 6 0 0 1 0 8.48l-80 80a6 6 0 0 1-8.48-8.48L167.51 128 91.76 52.24a6 6 0 0 1 8.48-8.48", fill: "currentColor" }),
   ]);
+}
+
+function frameworkMark() {
+  return h("svg", { viewBox: "0 0 20 18", fill: "currentColor", "aria-hidden": "true", class: "vh-invocation-framework-mark" }, [
+    h("path", { d: "M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z" }),
+  ]);
+}
+
+function activityChannel(activity: InvocationActivity): string {
+  const channel = stringAttribute(activity.attributes, "channel.delivery.provider")
+    ?? stringAttribute(activity.attributes, "channel.provider")
+    ?? stringAttribute(activity.attributes, "channel.id")
+    ?? "chat";
+  return channel.toLocaleLowerCase() === "msteams" ? "teams" : channel;
 }
 
 function renderPreparationGroup(
@@ -772,11 +855,11 @@ function renderPreparationGroup(
   }, [
     h("details", { class: "vh-invocation-preparation__details" }, [
       h("summary", { class: "vh-invocation-preparation__summary" }, [
-        failedActivity ? renderActivityIcon(failedActivity) : renderNamedActivityIcon("check"),
+        failedActivity ? renderActivityIcon(failedActivity) : frameworkMark(),
         h("strong", failedActivity ? "Session preparation failed" : "Session prepared"),
         renderPreparationContext(invocation, url),
         h("small", `${activities.length} steps`),
-        renderChevronDown("vh-invocation-preparation__disclosure"),
+        renderDisclosureChevron("vh-invocation-preparation__disclosure"),
       ]),
       h("ol", { class: "vh-invocation-preparation__steps" }, activities.map(activity => h("li", {
         "data-activity-id": activity.id,
@@ -791,7 +874,7 @@ function renderPreparationGroup(
           ? h("p", { class: "vh-invocation-preparation__body" }, activity.body)
           : null,
         activity.truncated
-          ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+          ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
           : null,
       ]))),
     ]),
@@ -851,7 +934,7 @@ function renderGroupedActivityIcon(activity: InvocationActivity) {
         : { label: "eyes", value: "👀" };
     return h("span", { "aria-label": reaction.label, class: "vh-invocation-lifecycle__emoji", role: "img" }, reaction.value);
   }
-  if (["reply", "status", "update"].includes(delivery ?? "")) return renderNamedActivityIcon("message");
+  if (["reply", "status", "update"].includes(delivery ?? "")) return channelIcon(activityChannel(activity));
   return renderActivityIcon(activity);
 }
 
@@ -879,7 +962,7 @@ function renderActivityGroup(
           ? h("span", { class: "vh-invocation-lifecycle__failure" }, activity.body)
           : null,
         activity.truncated
-          ? h("span", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+          ? h("span", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
           : null,
       ];
       return h("li", {
@@ -1116,7 +1199,7 @@ function inspectorDisclosure(
       h("summary", { class: "vh-invocation-inspector__group-heading" }, [
         h("strong", title),
         h("small", summary),
-        renderChevronDown("vh-invocation-inspector__chevron"),
+        renderDisclosureChevron("vh-invocation-inspector__chevron"),
       ]),
       body,
     ],
@@ -1172,7 +1255,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
                 h("summary", [
                   h("code", capability.id),
                   h("small", tools.length ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "Configuration"),
-                  renderChevronDown("vh-invocation-inspector__chevron"),
+                  renderDisclosureChevron("vh-invocation-inspector__chevron"),
                 ]),
                 tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)) }) : null,
                 capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
@@ -1216,9 +1299,10 @@ function renderInvocationActivity(
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
+  messageRendering: MessageRendering,
 ) {
   return activity.kind === "message"
-    ? renderMessage(activity, expanded, toggleExpanded)
+    ? renderMessage(activity, expanded, toggleExpanded, messageRendering)
     : renderEvent(activity, inspect);
 }
 
@@ -1228,6 +1312,7 @@ function renderActivitySequence(
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
+  messageRendering: MessageRendering,
 ) {
   const rendered = [];
   for (let index = 0; index < activities.length;) {
@@ -1240,7 +1325,7 @@ function renderActivitySequence(
       continue;
     }
     if (activities[index]!.kind !== "preparation") {
-      rendered.push(renderInvocationActivity(activities[index]!, expanded, toggleExpanded, inspect));
+      rendered.push(renderInvocationActivity(activities[index]!, expanded, toggleExpanded, inspect, messageRendering));
       index += 1;
       continue;
     }
@@ -1252,13 +1337,6 @@ function renderActivitySequence(
   return rendered;
 }
 
-function isExternalActivity(activity: InvocationActivity): boolean {
-  return activity.kind === "preparation"
-    || activity.kind === "delivery"
-    || activity.kind === "action"
-    || activity.kind === "system";
-}
-
 function renderWorkSummary(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
@@ -1267,8 +1345,11 @@ function renderWorkSummary(
   setOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
+  messageRendering: MessageRendering,
 ) {
   if (!activities.length) return null;
+  const active = invocation.status === "pending" || invocation.status === "running";
+  const detailsOpen = active || open;
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
   const duration = formatDuration(invocation.startedAt, endedAt);
   return h("li", { class: "vh-invocation-work", key: "invocation-work" }, [
@@ -1276,45 +1357,86 @@ function renderWorkSummary(
       class: "vh-invocation-work__details",
       // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
       onToggle: (event: Event) => setOpen((event.currentTarget as HTMLDetailsElement).open),
-      open,
+      open: detailsOpen,
     }, [
       h("summary", { class: "vh-invocation-work__summary" }, [
-        h("span", { class: "vh-invocation-work__title" }, duration ? `Worked for ${duration}` : "Work details"),
-        renderChevronDown("vh-invocation-work__disclosure"),
+        renderDisclosureChevron("vh-invocation-work__disclosure"),
+        frameworkMark(),
+        h("span", { class: "vh-invocation-work__title" }, active ? "Working…" : duration ? `Worked for ${duration}` : "Work details"),
       ]),
       h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
-      open
-        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect))
+      detailsOpen
+        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect, messageRendering))
         : null,
     ]),
   ]);
 }
 
-function orderSessionThread(activities: readonly InvocationActivity[]): readonly InvocationActivity[] {
-  const firstPreparation = activities.findIndex(activity => activity.kind === "preparation");
-  if (firstPreparation < 0) return activities;
-  const firstRuntimeWork = activities.findIndex(activity =>
-    activity.kind === "reasoning"
-    || activity.kind === "model"
-    || activity.kind === "tool"
-    || (
-      activity.kind === "message"
-      && activity.role === "assistant"
+function promptActivityIndex(activities: readonly InvocationActivity[]): number {
+  for (let index = 0; index < activities.length; index += 1) {
+    const activity = activities[index]!;
+    if (activity.kind === "message"
+      && activity.role === "user"
       && activity.name !== "agent.input.message"
-    ),
-  );
-  if (firstRuntimeWork >= 0 && firstPreparation > firstRuntimeWork) return activities;
+      && activity.attributes["input.mode"] !== "steer") return index;
+  }
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index]!;
+    if (activity.kind === "message" && activity.role === "user" && activity.attributes["input.mode"] !== "steer") return index;
+  }
+  return -1;
+}
 
-  let preparationEnd = firstPreparation + 1;
-  while (activities[preparationEnd]?.kind === "preparation") preparationEnd += 1;
-  const initialConfiguration = activities.findIndex((activity, index) =>
-    index < firstPreparation && activity.name === "vitehub.agent.configured",
-  );
-  return [
-    ...activities.slice(firstPreparation, preparationEnd),
-    ...activities.slice(0, firstPreparation).filter((_activity, index) => index !== initialConfiguration),
-    ...activities.slice(preparationEnd),
-  ];
+function isVisibleMessage(activity: InvocationActivity): boolean {
+  return activity.kind === "message" && Boolean(activity.body?.trim());
+}
+
+function coalesceAgentConfiguration(activities: readonly InvocationActivity[]): InvocationActivity[] {
+  let latestConfiguration = -1;
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    if (activities[index]!.name === "vitehub.agent.configured") {
+      latestConfiguration = index;
+      break;
+    }
+  }
+  return latestConfiguration < 0
+    ? [...activities]
+    : activities.filter((activity, index) => activity.name !== "vitehub.agent.configured" || index === latestConfiguration);
+}
+
+function renderPreviousMessages(
+  messages: readonly InvocationActivity[],
+  invocation: AgentInvocationView,
+  expanded: ReadonlySet<string>,
+  toggleExpanded: (id: string) => void,
+  inspect: (target: InspectTarget) => void,
+  messageRendering: MessageRendering,
+) {
+  if (!messages.length) return null;
+  return h("li", { class: "vh-invocation-history", key: "invocation-history" }, [
+    h("details", { class: "vh-invocation-history__details" }, [
+      h("summary", { class: "vh-invocation-history__summary" }, [
+        renderDisclosureChevron("vh-invocation-history__disclosure"),
+        h("span", `${messages.length} previous ${messages.length === 1 ? "message" : "messages"}`),
+      ]),
+      h("ol", { class: "vh-invocation-history__messages" },
+        renderActivitySequence(messages, invocation, expanded, toggleExpanded, inspect, messageRendering)),
+    ]),
+  ]);
+}
+
+function invocationPromptMetadata(invocation: AgentInvocationView, activities: readonly InvocationActivity[]) {
+  const prompt = activities[promptActivityIndex(activities)];
+  if (!prompt) return {};
+  const triggeredBy = invocation.annotations?.triggeredBy;
+  const observationAttributes = invocation.observations
+    .map(observation => observation.attributes ?? {})
+    .find(attributes => typeof attributes["agent.invoker.label"] === "string" || typeof attributes["agent.invoker.id"] === "string");
+  const author = typeof triggeredBy === "string" && triggeredBy.trim()
+    ? triggeredBy.trim()
+    : stringAttribute(observationAttributes ?? {}, "agent.invoker.label")
+      ?? stringAttribute(observationAttributes ?? {}, "agent.invoker.id");
+  return { author, promptId: prompt.id, sentAt: stringAttribute(invocation.annotations ?? {}, "channel.sentAt") };
 }
 
 function renderInvocationActivities(
@@ -1325,54 +1447,53 @@ function renderInvocationActivities(
   setWorkOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
+  messageRendering: MessageRendering,
 ) {
-  const orderedActivities = orderSessionThread(activities);
-  if (invocation.status === "pending" || invocation.status === "running") {
-    return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect);
-  }
-  const firstUser = orderedActivities.findIndex(activity => activity.kind === "message" && activity.role === "user");
-  let lastUser = -1;
-  for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
-    if (orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "user") {
-      lastUser = index;
-      break;
-    }
-  }
+  const orderedActivities = activities.filter(activity => activity.kind !== "message" || isVisibleMessage(activity));
+  const firstUser = promptActivityIndex(orderedActivities);
   let lastAssistant = -1;
   for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
-    if (index > lastUser && orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "assistant") {
+    if (index > firstUser && orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "assistant") {
       lastAssistant = index;
       break;
     }
   }
-  if (firstUser < 0) return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect);
+  if (firstUser < 0) return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect, messageRendering);
 
-  const prefix = orderedActivities.slice(0, firstUser + 1);
+  const invocationTitle = invocation.title?.trim();
+  const history = orderedActivities.slice(0, firstUser).filter(isVisibleMessage).filter(activity => !(
+    invocationTitle
+    && activity.role === "assistant"
+    && activity.name !== "agent.input.message"
+    && activity.body?.trim() === invocationTitle
+  ));
+  const workBeforePrompt = orderedActivities.slice(0, firstUser).filter(activity => activity.kind !== "message");
+  const prompt = orderedActivities[firstUser]!;
   const tail = orderedActivities.slice(firstUser + 1);
-  const terminal = tail.filter(activity => activity.name === "vitehub.observation.truncated");
-  const visibleBeforeFinal = tail.filter((activity, offset) =>
-    activity.name !== "vitehub.observation.truncated"
-    && (activity.kind === "message" || isExternalActivity(activity))
-    && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
-  );
-  const visibleAfterFinal = tail.filter((activity, offset) =>
-    activity.name !== "vitehub.observation.truncated"
-    && (activity.kind === "message" || isExternalActivity(activity))
-    && lastAssistant >= 0
-    && firstUser + 1 + offset > lastAssistant,
-  );
-  const work = tail.filter((activity, offset) => {
-    const index = firstUser + 1 + offset;
-    return activity.kind !== "message" && index !== lastAssistant && !isExternalActivity(activity);
-  });
+  const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
+  const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
+    if (firstUser + 1 + offset === lastAssistant) return false;
+    if (activity.kind === "delivery" || activity.kind === "action") return false;
+    if (activity.kind === "message" && activity.role === "assistant" && activity.body?.trim() === finalBody) return false;
+    return true;
+  })]);
+  const finalDelivery = tail.findLast(activity => activity.kind === "delivery"
+    && activity.status === "completed"
+    && activity.attributes["channel.effect.supported"] !== false
+    && !stringAttribute(activity.attributes, "channel.effect.skipped")
+    && stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase() === "reply"
+    && (activity.attributes["channel.effect.primary"] === true
+      || stringAttribute(activity.attributes, "channel.effect.content") === finalBody));
+  const finalDeliveryReceipt = finalDelivery
+    ? { ...finalDelivery, attributes: Object.fromEntries(Object.entries(finalDelivery.attributes).filter(([key]) => key !== "channel.effect.content")) }
+    : undefined;
 
   return [
-    ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
-    ...renderActivitySequence(visibleBeforeFinal, invocation, expanded, toggleExpanded, inspect),
-    renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect),
-    ...(lastAssistant >= 0 ? [renderInvocationActivity(orderedActivities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
-    ...renderActivitySequence(visibleAfterFinal, invocation, expanded, toggleExpanded, inspect),
-    ...renderActivitySequence(terminal, invocation, expanded, toggleExpanded, inspect),
+    renderPreviousMessages(history, invocation, expanded, toggleExpanded, inspect, messageRendering),
+    renderInvocationActivity(prompt, expanded, toggleExpanded, inspect, messageRendering),
+    renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering),
+    ...(finalDeliveryReceipt ? [renderInvocationActivity(finalDeliveryReceipt, expanded, toggleExpanded, inspect, messageRendering)] : []),
+    ...(lastAssistant >= 0 ? [renderInvocationActivity(orderedActivities[lastAssistant]!, expanded, toggleExpanded, inspect, messageRendering)] : []),
   ].filter(item => item !== null);
 }
 
@@ -1395,9 +1516,12 @@ export const AgentInvocation = defineComponent({
       return { ...activity, attributes };
     }));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
+    const now = useNow({ interval: 60_000 });
     const workOpen = ref(false);
+    const messageCopy = ref<{ id: string; status: "copied" | "failed" }>();
     const root = ref<HTMLElement>();
     let selectedElement: HTMLElement | undefined;
+    let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
     function toggleExpanded(id: string) {
       const next = new Set(expandedMessages.value);
@@ -1411,6 +1535,19 @@ export const AgentInvocation = defineComponent({
       selectedElement.removeAttribute("data-selected");
       selectedElement.removeAttribute("tabindex");
       selectedElement = undefined;
+    }
+
+    async function copyMessage(activity: InvocationActivity) {
+      try {
+        if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(activity.body ?? "");
+        messageCopy.value = { id: activity.id, status: "copied" };
+      }
+      catch {
+        messageCopy.value = { id: activity.id, status: "failed" };
+      }
+      if (copyTimer) clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => messageCopy.value = undefined, 2_000);
     }
 
     async function focusActivity(id: string | undefined) {
@@ -1438,10 +1575,19 @@ export const AgentInvocation = defineComponent({
     watch([() => props.selectedActivityId, activities], ([id]) => void focusActivity(id), { flush: "post", immediate: true });
     watch(() => props.invocation.id, () => {
       workOpen.value = false;
+      messageCopy.value = undefined;
     });
-    onBeforeUnmount(clearSelectedElement);
+    watch(() => props.invocation.status, (status, previousStatus) => {
+      if ((previousStatus === "pending" || previousStatus === "running")
+        && status !== "pending" && status !== "running") workOpen.value = false;
+    });
+    onBeforeUnmount(() => {
+      clearSelectedElement();
+      if (copyTimer) clearTimeout(copyTimer);
+    });
 
     return () => {
+      const promptMetadata = invocationPromptMetadata(props.invocation, activities.value);
       return h("article", {
         class: ["vh-invocation-session", { "vh-invocation-session--headerless": !props.header }],
         "data-status": props.invocation.status,
@@ -1473,6 +1619,13 @@ export const AgentInvocation = defineComponent({
               open => workOpen.value = open,
               toggleExpanded,
               target => emit("inspect", target),
+              {
+                ...promptMetadata,
+                now: now.value,
+                copy: activity => void copyMessage(activity),
+                copiedId: messageCopy.value?.id,
+                copyStatus: messageCopy.value?.status,
+              },
             ))]),
             activities.value.length
               ? null
@@ -1632,12 +1785,10 @@ export const AgentInvocationInspector = defineComponent({
                 metrics.value.changes
                   ? h("div", [h("dt", "Changes"), h("dd", metrics.value.changes)])
                   : null,
-                metrics.value.tokens !== undefined
-                  ? h("div", [
-                      h("dt", "Tokens"),
-                      h("dd", new Intl.NumberFormat("en").format(metrics.value.tokens)),
-                    ])
-                  : null,
+                inspectorRow("Tokens", metrics.value.tokens === undefined
+                  ? "Unknown"
+                  : new Intl.NumberFormat("en").format(metrics.value.tokens)),
+                inspectorRow("Cost", props.invocation.usage?.cost?.display ?? "Unknown"),
               ]),
             ),
             props.showTimeline
