@@ -1996,12 +1996,35 @@ cli_auth_credentials_store = "keyring"
     ])
     expect(events[1]).toMatchObject({ phase: "commentary", text: "thinking" })
     expect(events[6]).toMatchObject({ phase: "final", text: "done" })
-    expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } } })
+    expect(events[7]).toMatchObject({ usageRecord: { usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: 5 } } })
     expect(provider.startSession).toHaveBeenCalledWith(expect.objectContaining({ runtimeMode: "approval-required", threadId }))
     expect(provider.close).toHaveBeenCalledOnce()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const cwd = (createProviderRuntime.mock.calls.at(-1)![0] as { cwd: string }).cwd
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps last-response usage raw when reporting a cumulative total", async () => {
+    const threadId = "thread-cumulative-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: {
+        cachedInputTokens: 2,
+        inputTokens: 7,
+        outputTokens: 5,
+        reasoningOutputTokens: 3,
+        totalProcessedTokens: 100,
+        usedTokens: 12,
+      } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: {
+        raw: { cachedInputTokens: 2, inputTokens: 7, outputTokens: 5, reasoningOutputTokens: 3, totalProcessedTokens: 100, usedTokens: 12 },
+        usage: { details: {}, inputTokens: undefined, outputTokens: undefined, totalTokens: 100 },
+      },
+    })
   })
 
   it("keeps assistant item phases separate and forgets completed items", async () => {

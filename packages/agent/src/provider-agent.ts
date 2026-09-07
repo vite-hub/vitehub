@@ -1709,8 +1709,9 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
-  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
-  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  const isCumulative = usage.totalProcessedTokens !== undefined
+  const inputTokens = isCumulative ? undefined : usage.inputTokens ?? usage.lastInputTokens
+  const outputTokens = isCumulative ? undefined : usage.outputTokens ?? usage.lastOutputTokens
   return {
     type: "usage",
     usageRecord: {
@@ -1718,9 +1719,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       raw: usage,
       usage: {
         details: {
-          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-          ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+          ...(isCumulative || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(isCumulative || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(isCumulative || usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
         inputTokens,
         outputTokens,
