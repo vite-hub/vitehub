@@ -4963,7 +4963,7 @@ async function handleChatSdkMessage(
       }
       if (waitedForActiveTurn) {
         messages = scopeCurrentChatUiMessage(
-          await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
+          await chatTriggerMessages(thread, message, options, messageContext, true),
           message.id,
           input.run?.runId || delivery.delivery.id,
         )
