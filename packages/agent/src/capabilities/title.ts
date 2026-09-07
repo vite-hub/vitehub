@@ -463,9 +463,11 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   if (inheritedDriver?.kind === "provider") {
     try {
       const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
-      const providerDriver = hasRuntimeType(options.model, "string")
-        ? { ...inheritedDriver, model: options.model }
-        : inheritedDriver
+      const providerDriver = {
+        ...inheritedDriver,
+        ...(hasRuntimeType(options.model, "string") ? { model: options.model } : {}),
+        ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
+      }
       const { createProviderAgentAdapter } = await import("../provider-agent.ts")
       const result = await raceTimeout(Promise.resolve(createProviderAgentAdapter(providerDriver).generate(titleAdapterRunContext(context, timedInput, prompt))))
       return cleanGeneratedTitle(await titleResultText(result), maxLength, fallback)

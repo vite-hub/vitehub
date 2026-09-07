@@ -12,14 +12,14 @@ it("uses the enclosing provider configuration when generating a title", async ()
   const env = { TITLE_TEST_VALUE: "inherited" }
   const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
   const agent = defineAgent({
-    capabilities: [title({ model: "title-model" })],
-    driver: codexDriver({ model: "main-model", env }),
+    capabilities: [title({ model: "title-model", instructions: "Write a concise title." })],
+    driver: codexDriver({ model: "main-model", instructions: "Enclosing agent instructions", env }),
     invocations,
     runtime: false,
   })
   await runAgent(agent, { memo: vi.fn(), run: { runId: "inherit-provider" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Explain agent titles." })
   expect(createProviderAgentAdapter).toHaveBeenCalledWith(expect.objectContaining({
-    kind: "provider", provider: "codex", model: "title-model", env,
+    kind: "provider", provider: "codex", model: "title-model", instructions: "Write a concise title.", env,
   }))
   expect((await invocations.getByRunId("inherit-provider"))?.observations).toContainEqual(expect.objectContaining({
     name: "agent.title.recorded",
