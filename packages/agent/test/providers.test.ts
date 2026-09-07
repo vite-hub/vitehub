@@ -2270,7 +2270,7 @@ describe("agent Vite plugin", () => {
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(webhookRoute).toMatch(/import \{[^}]*createAgentWebhookRequest[^}]*createChannelChatRouteHandler[^}]*\} from "@vite-hub\/agent\/server\/internal"/)
+      expect(webhookRoute).toMatch(/import \{[^}]*\bcreateAgentWebhookRequest, createChannelChatRouteHandler[^}]*\} from "@vite-hub\/agent\/server\/internal"/)
       expect(webhookRoute).toContain("createChannelChatRouteHandler")
       expect(webhookRoute).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule")
       expect(webhookRoute).toContain('agentWithColocatedInstructions(resolveAgentModule(agent0), "Use support instructions.\\n")')
@@ -2300,7 +2300,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("createChannelChatRouteHandler(agent)")
       expect(webhookRoute).toContain("const webhookHandlers")
       expect(webhookRoute).toContain("const webhookRoutePattern")
-      expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
+      expect(webhookRoute).toContain("const agent = alias?.agent || getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
       expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook")
       expect(webhookRoute).toContain(
         "return await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, runtime: 'vite', event, waitUntil: waitUntilFromEvent(event) })",
