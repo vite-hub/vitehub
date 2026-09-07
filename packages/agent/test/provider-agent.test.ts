@@ -2861,7 +2861,7 @@ cli_auth_credentials_store = "keyring"
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
     try {
       await expect(sendAgentInvocationInput(invocationId, {
-        messages: [{ role: "user", parts: [
+        messages: [{ id: "message-steer-attachment", role: "user", parts: [
           { type: "text", text: "inspect this image" },
           { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
         ] }],
