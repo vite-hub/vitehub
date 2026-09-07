@@ -28,7 +28,7 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
     .find(result => result.success)
   if (!configuration?.success) throw failure(404, "This run did not record its Workspace. Open a newer run to inspect its mounted files.")
   const name = configuration.output.workspace.name
-  const workspace = useWorkspace(name)
+  const workspace = useWorkspace(name, { mode: "read", refresh: false })
   const path = consoleRequestURL(event).searchParams.get("path")
   // These are the mounted files now, not a retained snapshot of the invocation.
   const revision = "current"
