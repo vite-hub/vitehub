@@ -1569,7 +1569,7 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
     if (!hasRuntimeType(root, "string") || root.startsWith("/") || root.split("/").includes("..")) return []
     return [{
       mount: status.mountPath,
-      provider: "github",
+      provider: "github" as const,
       repository: `https://github.com/${repo}`,
       revision: { id: status.revision.id, ...(status.revision.ref ? { ref: status.revision.ref } : {}) },
       root,
