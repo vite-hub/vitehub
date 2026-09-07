@@ -1431,8 +1431,8 @@ function invocationPromptMetadata(invocation: AgentInvocationView, activities: r
   const triggeredBy = invocation.annotations?.triggeredBy;
   const observationAttributes = invocation.observations
     .map(observation => observation.attributes ?? {})
-    .find(attributes => typeof attributes["agent.invoker.label"] === "string" || typeof attributes["agent.invoker.id"] === "string");
-  const author = typeof triggeredBy === "string" && triggeredBy.trim()
+    .find(attributes => hasRuntimeType(attributes["agent.invoker.label"], "string") || hasRuntimeType(attributes["agent.invoker.id"], "string"));
+  const author = hasRuntimeType(triggeredBy, "string") && triggeredBy.trim()
     ? triggeredBy.trim()
     : stringAttribute(observationAttributes ?? {}, "agent.invoker.label")
       ?? stringAttribute(observationAttributes ?? {}, "agent.invoker.id");

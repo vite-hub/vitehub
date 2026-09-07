@@ -2279,7 +2279,7 @@ describe("Agent Invocation UI", () => {
 
     const wrapper = mount(AgentInvocation, { props: { invocation } });
     expect(wrapper.text()).not.toContain("0 tokens");
-    expect(wrapper.get('[data-kind="model"] [data-icon="brain"]').exists()).toBe(true);
+    expect(wrapper.find('[data-kind="model"] [data-icon="brain"]').exists()).toBe(true);
   });
 
   it("renders fallback dates in UTC for hydration stability", () => {
@@ -2603,7 +2603,7 @@ describe("Agent Invocation UI", () => {
 
     expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 2m 43s");
     expect(wrapper.get(".vh-invocation-work__summary").element.firstElementChild?.classList).toContain("vh-invocation-work__disclosure");
-    expect(wrapper.get(".vh-invocation-work__summary .vh-invocation-framework-mark").exists()).toBe(true);
+    expect(wrapper.find(".vh-invocation-work__summary .vh-invocation-framework-mark").exists()).toBe(true);
     expect(wrapper.get(".vh-invocation-framework-mark").attributes("style")).toBeUndefined();
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Checked the diff.");
     expect(wrapper.findAll('.vh-invocation-message[data-role="assistant"]').at(-1)!.text()).toContain("Merged after checks passed.");
