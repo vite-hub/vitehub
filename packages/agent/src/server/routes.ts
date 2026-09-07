@@ -4791,8 +4791,10 @@ async function handleChatSdkMessage(
   let durableHandoff = false
   let chatFinish: AgentChatQueuedFinishExtension | undefined
   let inlineTurn: InlineChatTurn | undefined
-  const inlineKey = options?.concurrency === "steer" ? `${state.keyPrefix}inline-steer:${durableSteerScope ?? thread.id}` : undefined
+  const inlineScope = options?.concurrency === "steer" ? `${state.keyPrefix}inline-steer:${durableSteerScope ?? thread.id}` : undefined
+  let inlineKey: string | undefined
   try {
+    if (inlineScope) inlineKey = `${await resolveWebhookStateBackendId(state.state)}:${inlineScope}`
     input = createChatTriggerInput(
       chatRegistrationOrigin(registration),
       thread,
@@ -4859,7 +4861,7 @@ async function handleChatSdkMessage(
       while (!inlineTurn) {
         const active = inlineChatTurns.get(inlineKey)
         if (!active) {
-          const ownerLockKey = `${inlineKey}:owner`
+          const ownerLockKey = `${inlineScope}:owner`
           const ownerLock = await state.state.acquireLock(ownerLockKey, 30_000)
           if (!ownerLock) {
             await pollInlineChatTurn({ done: new Promise(() => undefined) }, maximumInvocationDeadline)

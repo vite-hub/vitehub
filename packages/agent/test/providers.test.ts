@@ -16317,6 +16317,67 @@ describe("server helpers", () => {
     }
   })
 
+  it("isolates inline steering across independent State backends", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-backends-"))
+    const states = ["first", "second"].map(name => createLibsqlAgentState({ url: `file:${join(stateDir, `${name}.sqlite`)}` }))
+    const sendInput = vi.fn(() => "accepted" as const)
+    const released = deferred<void>()
+    let runs = 0
+    const handlers = states.map(state => createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          try {
+            await released.promise
+            return "Independent reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    }) as never))
+    const request = (messageId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+      body: JSON.stringify({ update_id: messageId, message: {
+        chat: { id: 456, type: "private" },
+        from: { id: 123, username: "maxi" },
+        message_id: messageId,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const pending: Promise<Response>[] = []
+    try {
+      await Promise.all(states.map(state => state.connect()))
+      pending.push(handlers[0]!(request(91_110), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      pending.push(handlers[1]!(request(91_111), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(2))
+      expect(sendInput).not.toHaveBeenCalled()
+      released.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200])
+    } finally {
+      released.resolve()
+      await Promise.allSettled(pending)
+      await Promise.all(states.map(state => state.disconnect()))
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("does not steer an unmentioned group follow-up into an active invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
