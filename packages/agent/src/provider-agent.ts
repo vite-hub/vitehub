@@ -1,3 +1,4 @@
+import { getMessageText } from "./messages.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -2289,9 +2290,34 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
     const invocationId = ownedAgentInvocationControlId(context.runtime)
+    const turn = await waitForProviderOperation(
+      runtime.sendTurn({ attachments, input: prompt, threadId }),
+      effectiveSignal,
+      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
+      deferRuntimeCleanup,
+      () => finalizeDeferredRuntime(threadId),
+    )
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
+          if (inputOptions.mode === "steer") {
+            const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : [])
+            if (messages.some(message => message.parts.some(isAttachmentPart))) return "unsupported"
+            const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
+            if (!text.trim()) return "unsupported"
+            try {
+              const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
+              if (steeredTurn.turnId !== turn.turnId) {
+                await activeRuntime.interruptTurn(threadId, steeredTurn.turnId)
+                return "unsupported"
+              }
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
+              return "accepted"
+            } catch {
+              return "invalid-state"
+            }
+          }
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
             const messages = input.messages || (hasRuntimeType(input.message, "object") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
@@ -2301,16 +2327,9 @@ async function* runProvider<
             return "unavailable"
           }
         },
-        support: { respond: true },
+        support: { respond: true, steer: true },
       })
     }
-    const turn = await waitForProviderOperation(
-      runtime.sendTurn({ attachments, input: prompt, threadId }),
-      effectiveSignal,
-      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
-      deferRuntimeCleanup,
-      () => finalizeDeferredRuntime(threadId),
-    )
     if (turn.resumeCursor !== undefined) pendingResumeCursor = turn.resumeCursor
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
@@ -2340,7 +2359,8 @@ async function* runProvider<
       }
       const current = raced.provider
       if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
-      if (current.value.threadId && current.value.threadId !== threadId) {
+      if ((current.value.threadId && current.value.threadId !== threadId)
+        || (current.value.turnId && current.value.turnId !== turn.turnId)) {
         nextEvent = events.next()
         continue
       }
