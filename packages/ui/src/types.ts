@@ -39,6 +39,8 @@ export type AgentInspectionValue =
   | { readonly [key: string]: AgentInspectionValue };
 
 export interface AgentToolInspection {
+  /** Capability that registered this tool, when known. */
+  capabilityId?: string;
   description?: string;
   inputSchema?: AgentInspectionValue;
   name: string;

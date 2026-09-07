@@ -2,6 +2,57 @@
   "version": 1,
   "invocations": [
     {
+      "id": "ainv_image_previews",
+      "traceId": "trace_image_previews",
+      "agentName": "image-reviewer",
+      "title": "Review image attachments",
+      "status": "completed",
+      "createdAt": "2026-09-05T18:00:00.000Z",
+      "updatedAt": "2026-09-05T18:00:00.000Z",
+      "observations": [
+        {
+          "name": "agent.input",
+          "type": "run",
+          "sequence": 1,
+          "timestamp": "2026-09-05T18:00:00.000Z",
+          "attributes": {
+            "input.messages": [
+              {
+                "id": "image-input",
+                "role": "user",
+                "parts": [
+                  {
+                    "type": "text",
+                    "text": "Review these desktop and mobile layouts."
+                  },
+                  {
+                    "type": "image",
+                    "name": "desktop-layout.svg",
+                    "url": "/_vitehub/images/desktop-layout.svg"
+                  },
+                  {
+                    "type": "image",
+                    "name": "mobile-layout.svg",
+                    "url": "/_vitehub/images/mobile-layout.svg"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent.message.recorded",
+          "type": "run",
+          "sequence": 2,
+          "timestamp": "2026-09-05T18:00:00.000Z",
+          "attributes": {
+            "message.role": "assistant",
+            "message.content": "The desktop layout leaves room for the activity list. The mobile version keeps the same hierarchy.\n\n![desktop-layout.svg](/_vitehub/images/desktop-layout.svg)\n\n![mobile-layout.svg](/_vitehub/images/mobile-layout.svg)"
+          }
+        }
+      ]
+    },
+    {
       "id": "ainv_console_hierarchy",
       "traceId": "trace_console_hierarchy",
       "agentName": "product-reviewer",

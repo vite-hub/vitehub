@@ -54,7 +54,7 @@ function stringByteLength(value: string): number {
   return bytes
 }
 
-export async function consoleRequestJSON(event: ConsoleRequestEvent): Promise<unknown> {
+export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
   const fetchBody = event.req?.body
   if (fetchBody) {
     const reader = fetchBody.getReader()
@@ -65,7 +65,7 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent): Promise<un
       const chunk = await reader.read()
       if (chunk.done) break
       bytes += chunk.value.byteLength
-      if (bytes > maximumConsoleRequestBodyBytes) {
+      if (bytes > maximumBytes) {
         await reader.cancel()
         throw consoleRequestError(413, "Console request body exceeds the byte limit.")
       }
@@ -74,7 +74,11 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent): Promise<un
     body += decoder.decode()
     return JSON.parse(body)
   }
-  if (event.req?.json) return event.req.json()
+  if (event.req?.json) {
+    const body = await event.req.json()
+    if (stringByteLength(JSON.stringify(body) ?? "") > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
+    return body
+  }
   const request = event.node?.req
   if (!request?.[Symbol.asyncIterator]) throw new SyntaxError("Request body is unavailable.")
   const decoder = new TextDecoder()
@@ -85,7 +89,7 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent): Promise<un
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- H3 v1 request streams may yield decoded strings or byte chunks.
     const chunkBytes = typeof chunk === "string" ? stringByteLength(chunk) : chunk.byteLength
     bytes += chunkBytes
-    if (bytes > maximumConsoleRequestBodyBytes) {
+    if (bytes > maximumBytes) {
       throw consoleRequestError(413, "Console request body exceeds the byte limit.")
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- H3 v1 request streams may yield decoded strings or byte chunks.

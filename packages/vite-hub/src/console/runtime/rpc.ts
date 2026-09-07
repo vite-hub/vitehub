@@ -1,6 +1,8 @@
 import type { Message } from "@vite-hub/agent"
 
 export interface ConsoleAgentInvocationInput {
+  attachments?: Array<{ id: string, name: string }>
+  files?: Array<{ url: string, filename?: string }>
   invokerProfileId?: string
   messages?: Array<Message & { role: "user" | "assistant" }>
   prompt: string
@@ -13,6 +15,7 @@ export const consoleRpcMethods = {
   database: "vitehub:console:database",
   definitions: "vitehub:console:definitions",
   invocation: "vitehub:console:invocation",
+  invocationWorkspace: "vitehub:console:invocation-workspace",
   invocationCapabilities: "vitehub:console:invocation-capabilities",
   invocations: "vitehub:console:invocations",
   kv: "vitehub:console:kv",

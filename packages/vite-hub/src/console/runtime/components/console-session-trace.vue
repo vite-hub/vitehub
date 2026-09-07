@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useConsoleWordWrap } from "./console-wrap";
+const wordWrap = useConsoleWordWrap();
 import type { SplitterItem } from "@nuxt/ui";
 import type { AgentInvocationView } from "@vite-hub/ui";
 import { computed, ref, watch } from "vue";
@@ -638,11 +640,12 @@ async function copyAttributes() {
     </template>
 
     <template #detail>
-      <aside v-if="selectedSpan" class="session-trace__detail">
+      <aside v-if="selectedSpan" class="session-trace__detail" :data-wrap="wordWrap">
         <header class="session-trace__detail-head">
           <strong
             ><i :data-status="selectedSpan.status" />Span {{ shortId(selectedSpan.id) }}</strong
           >
+          <UButton icon="i-lucide-wrap-text" label="Wrap" color="neutral" :variant="wordWrap ? 'soft' : 'ghost'" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
           <button type="button" @click="copyAttributes">
             <UIcon :name="copied ? 'i-lucide-check' : 'i-lucide-copy'" />{{
               copied ? "Copied" : "Copy attributes"

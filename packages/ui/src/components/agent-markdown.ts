@@ -1,6 +1,7 @@
 import { Markdown, type MarkdownProps } from "@comark/vue";
 import { defineComponent, h, type PropType } from "vue";
 import { useViteHubUI } from "../config.ts";
+import { ImagePreview } from "../internal/image-preview.ts";
 
 export const AgentMarkdown = defineComponent({
   name: "AgentMarkdown",
@@ -17,7 +18,7 @@ export const AgentMarkdown = defineComponent({
       h(Markdown, {
         ...attrs,
         class: [defaults.markdown.class, attrs.class],
-        components: props.components,
+        components: { img: ImagePreview, ...props.components },
         options: { ...props.options, streaming: props.streaming },
         value: props.value,
       });

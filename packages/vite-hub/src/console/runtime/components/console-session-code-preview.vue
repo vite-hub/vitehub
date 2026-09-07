@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import type { BundledLanguage, SpecialLanguage } from "shiki";
 
-const props = defineProps<{ content: string; path: string }>();
+const props = defineProps<{ content: string; path: string; wrap?: boolean }>();
 const html = ref("");
 const loading = ref(false);
 const highlightingFailed = ref(false);
@@ -68,7 +68,7 @@ function languageForPath(path: string): BundledLanguage | SpecialLanguage {
 </script>
 
 <template>
-  <div class="session-code-preview">
+  <div class="session-code-preview" :data-wrap="wrap">
     <div v-if="loading && !html" class="session-inspector__state">
       <UIcon name="i-lucide-loader-circle" class="animate-spin" />Highlighting file…
     </div>

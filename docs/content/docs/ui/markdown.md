@@ -8,6 +8,8 @@ icon: i-ph-markdown-logo-light
 
 `AgentMarkdown` wraps `@comark/vue` and applies the `vh-typeset vh-typeset-chat` defaults. The stylesheet uses block-start spacing, which remains stable while streaming content appends new nodes.
 
+Images render as compact thumbnails. Select an image to view it at full aspect ratio in a dark overlay. Press Escape or select Close to return to the message. Set `components.img` to replace this preview.
+
 ::component-preview{name="MarkdownExample"}
 ::
 
