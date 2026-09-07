@@ -174,7 +174,22 @@ async function writeFixtureFiles(overrides) {
 async function createProject({ packageSource, preview }) {
   await mkdir(baseDir, { recursive: true })
   await rm(appDir, { force: true, recursive: true })
-  run("vp", ["create", "vite:application", "--directory", appName, "--no-interactive", "--no-hooks", "--package-manager", "pnpm"], { cwd: baseDir })
+  const vitePlus = await readPackageJson(join(repoRoot, "node_modules/vite-plus/package.json"))
+  run("vp", ["create", "vite:application", "--directory", appName, "--no-interactive", "--no-hooks", "--package-manager", "pnpm"], {
+    cwd: baseDir,
+    env: { VP_VERSION: vitePlus.version },
+  })
+
+  const rootPackage = await readPackageJson(join(repoRoot, "package.json"))
+  const appPackage = await readPackageJson(join(appDir, "package.json"))
+  if (appPackage.packageManager !== rootPackage.packageManager) {
+    appPackage.packageManager = rootPackage.packageManager
+    await writeFile(join(appDir, "package.json"), `${JSON.stringify(appPackage, null, 2)}\n`, "utf8")
+    await Promise.all([
+      rm(join(appDir, "node_modules"), { force: true, recursive: true }),
+      rm(join(appDir, "pnpm-lock.yaml"), { force: true }),
+    ])
+  }
 
   const overrides = packageSource === "local"
     ? await createLocalPackageSpecs(join(baseDir, "vitehub-packs"))
