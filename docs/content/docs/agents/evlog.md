@@ -6,6 +6,8 @@ navigation.group: Core
 
 Install `evlog` in the host. Add `posthog-node` to use the optional Node.js PostHog exporter.
 
+Import telemetry helpers from `vite-hub/agent/evlog` or `@vite-hub/agent/evlog` and install `evlog`. If you imported `observability` or `createAgentEvlog` from the general Capabilities entrypoint, move those imports here. Other Capabilities do not require the telemetry peer.
+
 ```ts
 import { createAgentEvlog } from 'vite-hub/agent/evlog'
 import { nodeRuntimeResources } from 'vite-hub/runtime/node'

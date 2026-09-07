@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { ViteHubError } from "@vite-hub/runtime"
-import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, schedules, type ScheduleKVStorage } from "../src/index.ts"
+import { defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule } from "../src/runtime.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {

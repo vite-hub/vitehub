@@ -1,4 +1,7 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { pathToFileURL } from 'node:url'
+import { execFile as execFileCallback } from 'node:child_process'
+import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -44,3 +47,25 @@ it.each([
 ])('rejects malformed or colliding route configuration', async configured => {
   await expect(configure({ entry: 'agent.ts', ...configured }, {})).rejects.toThrow()
 })
+
+it('registers the configured Workspace inspector at host startup without replacing other routes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'agent-host-inspector-'))
+  const route = `/host-${crypto.randomUUID()}/:id/workspace`
+  try {
+    await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+    await symlink(process.cwd(), join(root, 'node_modules/@vite-hub/agent'), 'dir')
+    await writeFile(join(root, 'agent.ts'), 'export const workspace = (id, path) => Response.json({ id, path })')
+    const result = await configure({ entry: 'agent.ts', workspace: { exportName: 'workspace', route } }, { root })
+    // SAFETY: This config hook contributes the Nitro startup plugins asserted by this integration test.
+    const plugins = (result as { nitro: { plugins: string[] } }).nitro.plugins
+    expect(plugins).toHaveLength(1)
+    const { stdout } = await promisify(execFileCallback)(process.execPath, ['--input-type=module', '--eval', `
+      import plugin from ${JSON.stringify(pathToFileURL(plugins[0]!).href)}
+      import { getAgentHostWorkspaceInspector, agentHostWorkspaceRoute } from '@vite-hub/agent/server'
+      plugin()
+      const response = await getAgentHostWorkspaceInspector(${JSON.stringify(route)})('retained-run', 'src/index.ts')
+      console.log(JSON.stringify({ result: await response.json(), defaultRegistered: Boolean(getAgentHostWorkspaceInspector(agentHostWorkspaceRoute)) }))
+    `], { cwd: root, timeout: 10_000 })
+    expect(JSON.parse(stdout)).toEqual({ result: { id: 'retained-run', path: 'src/index.ts' }, defaultRegistered: false })
+  } finally { await rm(root, { recursive: true, force: true }) }
+}, 15_000)
