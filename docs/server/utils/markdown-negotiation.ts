@@ -14,7 +14,7 @@ function quality(parameter: string | undefined): number {
 function parseAccept(acceptHeader: string): AcceptEntry[] {
   return acceptHeader.split(",").map((entry) => {
     const [mediaType, ...parameters] = entry.trim().toLowerCase().split(";").map(value => value.trim());
-    const qualityParameter = parameters.find(parameter => parameter.startsWith("q="));
+    const qualityParameter = parameters.find(parameter => parameter.toLowerCase().startsWith("q="));
     return {
       mediaType: mediaType || "",
       quality: quality(qualityParameter?.slice(2)),

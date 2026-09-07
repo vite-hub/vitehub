@@ -76,6 +76,8 @@ Custom Capability tools infer their handler input from inline Standard Schema va
 
 Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options.
 
+For a Codex configuration that uses CLIProxy, set `CLIPROXY_BASE_URL` and `CLIPROXY_API_KEY` in the host environment. ViteHub forwards them to Codex invocation and inspection processes when the endpoint is non-empty. Claude Code and Workspace commands do not inherit these values. `driver.env` overrides host values; set `CLIPROXY_BASE_URL: undefined` there to disable host proxy forwarding for one Agent. Your Codex configuration or launcher must select the proxy endpoint.
+
 ```ts
 // server/agents/codex/agent.ts
 import { defineAgent } from "@vite-hub/agent";
