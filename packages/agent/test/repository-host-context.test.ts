@@ -30,6 +30,20 @@ const emptyWorkspace = () => ({
 })
 
 describe("repositoryHostContext", () => {
+  it("preserves wrapper metadata on GitHub pull request payloads", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const host = repositoryHostContext.read({
+      pullRequest: { number: 42, title: "Fix UI" },
+      repository: { full_name: "acme/app" },
+      trigger: { event: "pull_request", deliveryId: "delivery-42" },
+    })
+    await expect(host.get("pullRequest")).resolves.toMatchObject({
+      number: 42,
+      repository: "acme/app",
+      trigger: { event: "pull_request", deliveryId: "delivery-42" },
+    })
+  })
+
   it("retains repository identity from a wrapped context store", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
     const values = new Map<string, unknown>([

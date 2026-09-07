@@ -684,7 +684,7 @@ function repositoryHostContextValues(input: unknown): Partial<RepositoryHostCont
   const rootRepository = normalizedRepositoryFullName(record?.repository ?? store?.get("repository"))
   const rawIssue = record?.issue ?? store?.get("issue")
   const rawPullRequest = record?.pullRequest ?? record?.pull_request ?? store?.get("pullRequest") ?? (record?.issue ? undefined : input)
-  const directPullRequest = readPullRequestContext(rawPullRequest)
+  const directPullRequest = readPullRequestContext(input) || readPullRequestContext(rawPullRequest)
   const issue = normalizeHostIssue(rawIssue, {
     number: directPullRequest?.number,
     repository: directPullRequest?.repository || rootRepository,

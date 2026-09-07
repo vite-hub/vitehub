@@ -11,7 +11,7 @@ describe("definition health", () => {
     expect(head.status).toBe(get.status)
     expect(head.headers.get("content-type")).toBe(get.headers.get("content-type"))
     expect(await head.text()).toBe("")
-    expect((await get.json()).ok).toBe(true)
+    expect(await get.json()).toMatchObject({ ok: true })
   })
 
   it("accepts public definitions without private settings", async () => {
