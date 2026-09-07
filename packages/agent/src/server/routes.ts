@@ -5756,6 +5756,7 @@ async function handleChatSdkMessages(
   const durableSteerScope = chatSdkOption<string>(options, "concurrency") === "steer" ? await chatSdkLockKey(adapter, thread.id, options) : undefined
   const messages = serial ? [...(messageContext?.skipped ?? []), message] : [message]
   const requestDelivery = agentChannelDeliveryTracker(context)
+  if (requestDelivery) requestDelivery.claimed = true
   const stopRefreshingLock = serial ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options)) : () => undefined
 
   try {
@@ -5780,8 +5781,10 @@ async function handleChatSdkMessages(
               : undefined)
           : undefined
         if (!queuedThread.isDM && !queuedMessage.isMention) {
-          const ignoredDelivery = queuedDelivery ?? (queuedMessage === message ? requestDelivery : undefined)
-          if (ignoredDelivery) await recordChannelDeliveryEvidence(ignoredDelivery, { type: "rejected" })
+          if (queuedDelivery) await recordChannelDeliveryEvidence(queuedDelivery, { type: "rejected" })
+          if (requestDelivery && requestDelivery.delivery.id !== queuedDelivery?.delivery.id) {
+            await recordChannelDeliveryEvidence(requestDelivery, { type: "rejected" })
+          }
           continue
         }
         const deliveryKind = serial ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
