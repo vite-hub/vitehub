@@ -7,6 +7,7 @@ import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -48,6 +49,13 @@ interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStat
   cacheMaxAge?: number
   items?: Record<string, LazyMaterializedMetadata>
 }
+
+interface MaterializedStartupSource {
+  key: string
+  mountPath: string
+}
+
+const startupSourcesMetaKey = "workspace:startup-sources"
 
 export interface MaterializationControl {
   isCurrent(): boolean
@@ -258,6 +266,10 @@ function parentDirectoryPaths(path: string) {
   return paths
 }
 
+function sourceOwnsDirectory(source: Pick<ResolvedWorkspaceSource, "mountPath">, path: string) {
+  return !source.mountPath || path === source.mountPath || path.startsWith(`${source.mountPath}/`)
+}
+
 async function removeStaleMaterializedSourceFiles(
   store: WorkspaceStore,
   source: ResolvedWorkspaceSource,
@@ -286,7 +298,7 @@ async function removeStaleMaterializedSourceFiles(
     )
     if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || (Boolean(source.mountPath) && !overlapsAnotherSource)))) {
       for (const directory of parentDirectoryPaths(entry.path)) {
-        if (!source.mountPath || sourceMountContainsPath(source, directory)) staleDirectories.add(directory)
+        if (sourceOwnsDirectory(source, directory)) staleDirectories.add(directory)
       }
       await control.mutate(() => store.rm(entry.path, { force: true }))
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
@@ -298,6 +310,44 @@ async function removeStaleMaterializedSourceFiles(
     }
     catch {}
   }
+}
+
+async function reconcileRemovedStartupSources(
+  store: WorkspaceStore,
+  currentSources: ResolvedWorkspaceSource[],
+  control: MaterializationControl,
+) {
+  const setMeta = store.setMeta
+  if (!store.getMeta || !setMeta) return
+  const value = await store.getMeta(startupSourcesMetaKey)
+  const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
+  const currentKeys = new Set(currentSources.map(source => source.key))
+  for (const source of previousSources.filter(source => !currentKeys.has(source.key))) {
+    const snapshot = await readSourceSnapshotMetadata(store, source.key)
+    const staleDirectories = new Set<string>()
+    for (const path of Object.keys(snapshot?.items || {})) {
+      const file = await store.readFile(path)
+      if (file?.metadata?.source !== source.key) continue
+      for (const directory of parentDirectoryPaths(path)) {
+        if (sourceOwnsDirectory(source, directory)) staleDirectories.add(directory)
+      }
+      await control.mutate(() => store.rm(path, { force: true }))
+    }
+    for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
+      try {
+        await control.mutate(() => store.rm(path, { force: true }))
+      }
+      catch {}
+    }
+    await control.checkpoint(() => setMeta(sourceSnapshotMetaKey(source.key), {}))
+  }
+}
+
+function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
+  if (!hasRuntimeType(value, "object") || value === null) return false
+  // SAFETY: hasRuntimeType establishes an object record before private metadata fields are read.
+  const source = value as Record<string, unknown>
+  return readStringMeta(source, "key") !== undefined && readStringMeta(source, "mountPath") !== undefined
 }
 
 async function* iterateSourceItems(source: ResolvedWorkspaceSource, ctx: SourceContext): AsyncGenerator<WorkspaceSourceItem> {
@@ -409,6 +459,9 @@ export async function materializeWorkspaceSources(
   const started = Date.now()
   const configuredSources = normalizeWorkspaceSources(definition.sources)
   const sources = configuredSources.filter(source => shouldMaterializeSource(source, options))
+  const startupSources = configuredSources.filter(source => source.materialize === "startup")
+  const materializesAllStartupSources = !normalizeWorkspacePath(options.path || "") && !options.sources
+  if (materializesAllStartupSources) await reconcileRemovedStartupSources(store, startupSources, control)
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
   let directories = 0
@@ -681,6 +734,14 @@ export async function materializeWorkspaceSources(
         status: "failed",
       })
       if (options.abortSignal?.aborted) throw error
+    }
+  }
+
+  const setMeta = store.setMeta
+  if (materializesAllStartupSources && setMeta) {
+    const readySources = new Set(resultSources.filter(source => source.status === "ready").map(source => source.source))
+    if (startupSources.every(source => readySources.has(source.key))) {
+      await control.checkpoint(() => setMeta(startupSourcesMetaKey, startupSources.map(({ key, mountPath }) => ({ key, mountPath }))))
     }
   }
 

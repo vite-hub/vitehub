@@ -192,6 +192,46 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
+  it("removes files owned by startup Sources removed from the definition", async () => {
+    const store = createMemoryWorkspaceStore()
+    const initial = {
+      name: "removed-startup-sources",
+      sources: {
+        instructions: {
+          content: "# Old instructions\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: "AGENTS.md",
+        },
+        oldSkill: {
+          content: "# Old skill\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: ".agents/skills/old/SKILL.md",
+        },
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await store.writeFile("AGENTS.md", { path: "AGENTS.md", content: "# User instructions\n" })
+
+    await createWorkspaceSourceView({
+      name: initial.name,
+      sources: {
+        newSkill: {
+          content: "# New skill\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: ".agents/skills/new/SKILL.md",
+        },
+      },
+    }, store).materializeSources()
+
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# User instructions\n" })
+    await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
+    await expect(store.stat(".agents/skills/old")).resolves.toBeUndefined()
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
+  })
+
   it("does not let snapshot-reusing inspection suppress normal startup refresh", async () => {
     const getKeys = vi.fn(async () => ["AGENTS.md"])
     const definition = {
