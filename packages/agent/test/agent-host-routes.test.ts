@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
-import { getAgentHostWorkspaceInspector, agentHostWorkspaceRoute } from '../src/server/host-workspace.ts'
+import { execFile as execFileCallback } from 'node:child_process'
+import { promisify } from 'node:util'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -50,7 +51,6 @@ it.each([
 it('registers the configured Workspace inspector at host startup without replacing other routes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-host-inspector-'))
   const route = `/host-${crypto.randomUUID()}/:id/workspace`
-  const previous = getAgentHostWorkspaceInspector(agentHostWorkspaceRoute)
   try {
     await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
     await symlink(process.cwd(), join(root, 'node_modules/@vite-hub/agent'), 'dir')
@@ -59,12 +59,13 @@ it('registers the configured Workspace inspector at host startup without replaci
     // SAFETY: This config hook contributes the Nitro startup plugins asserted by this integration test.
     const plugins = (result as { nitro: { plugins: string[] } }).nitro.plugins
     expect(plugins).toHaveLength(1)
-    const plugin = await import(pathToFileURL(plugins[0]!).href)
-    plugin.default()
-    const inspect = getAgentHostWorkspaceInspector(route)
-    expect(inspect).toBeDefined()
-    const response = await inspect!('retained-run', 'src/index.ts')
-    expect(await response.json()).toEqual({ id: 'retained-run', path: 'src/index.ts' })
-    expect(getAgentHostWorkspaceInspector(agentHostWorkspaceRoute)).toBe(previous)
+    const { stdout } = await promisify(execFileCallback)(process.execPath, ['--input-type=module', '--eval', `
+      import plugin from ${JSON.stringify(pathToFileURL(plugins[0]!).href)}
+      import { getAgentHostWorkspaceInspector, agentHostWorkspaceRoute } from '@vite-hub/agent/server'
+      plugin()
+      const response = await getAgentHostWorkspaceInspector(${JSON.stringify(route)})('retained-run', 'src/index.ts')
+      console.log(JSON.stringify({ result: await response.json(), defaultRegistered: Boolean(getAgentHostWorkspaceInspector(agentHostWorkspaceRoute)) }))
+    `], { cwd: root, timeout: 10_000 })
+    expect(JSON.parse(stdout)).toEqual({ result: { id: 'retained-run', path: 'src/index.ts' }, defaultRegistered: false })
   } finally { await rm(root, { recursive: true, force: true }) }
-})
+}, 15_000)
