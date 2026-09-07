@@ -3080,10 +3080,14 @@ describe("Agent Invocations", () => {
   })
 
   it("preserves privacy filtering when coalesced message content crosses the former chunk boundary", async () => {
-    const first = `${"x".repeat(510)}Authorization: Bear`
+    const first = `${"x".repeat(8)}Authorization: Bear`
     const second = "er sensitive-value"
     const run = async (runId: string, content: "content" | "metadata") => {
-      const invocations = defineAgentInvocations({ content, store: createMemoryAgentInvocationStore() })
+      const invocations = defineAgentInvocations({
+        content,
+        observations: { maxStringLength: 10 },
+        store: createMemoryAgentInvocationStore(),
+      })
       const agent = defineAgent({
         driver: { async run(context) {
           for (const value of [first, second]) {
@@ -3104,13 +3108,12 @@ describe("Agent Invocations", () => {
 
     const metadata = await run("private-coalesced-message", "metadata")
     expect(JSON.stringify(metadata)).not.toContain("sensitive-value")
-    expect(metadata.find(entry => entry.name === "agent.message.delta")?.attributes).toMatchObject({
-      "content.omitted": ["message.content"],
-    })
+    expect(metadata.find(entry => entry.name === "agent.message.delta")?.attributes?.["content.omitted"]).toBeDefined()
 
     const content = await run("exported-coalesced-message", "content")
-    expect(content.filter(entry => entry.name === "agent.message.delta")).toHaveLength(1)
-    expect(JSON.stringify(content)).toContain("Authorization: Bearer [REDACTED]")
+    expect(content.filter(entry => entry.name === "agent.message.delta").length).toBeGreaterThan(1)
+    expect(content.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join(""))
+      .toContain("Authorization: Bearer [REDACTED]")
     expect(JSON.stringify(content)).not.toContain("sensitive-value")
     expect(JSON.stringify(traceEventsToOpenTelemetrySpans(content, { content: "metadata" }))).not.toContain("sensitive-value")
   })

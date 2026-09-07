@@ -2004,6 +2004,31 @@ cli_auth_credentials_store = "keyring"
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("preserves explicit last-response usage alongside a cumulative total", async () => {
+    const threadId = "thread-cumulative-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: {
+        cachedInputTokens: 2,
+        inputTokens: 7,
+        outputTokens: 5,
+        reasoningOutputTokens: 3,
+        totalProcessedTokens: 100,
+        usedTokens: 12,
+      } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: { usage: {
+        details: { cachedInputTokens: 2, reasoningOutputTokens: 3 },
+        inputTokens: 7,
+        outputTokens: 5,
+        totalTokens: 100,
+      } },
+    })
+  })
+
   it("keeps assistant item phases separate and forgets completed items", async () => {
     const threadId = "thread-message-phases"
     runtime(threadId, [

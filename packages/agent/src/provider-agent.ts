@@ -1709,9 +1709,8 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
   const usedTokens = usage.usedTokens ?? usage.lastUsedTokens
-  const cumulativeOnly = usage.totalProcessedTokens !== undefined && usedTokens !== undefined && usage.totalProcessedTokens !== usedTokens
-  const inputTokens = cumulativeOnly ? undefined : usage.inputTokens ?? usage.lastInputTokens
-  const outputTokens = cumulativeOnly ? undefined : usage.outputTokens ?? usage.lastOutputTokens
+  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
+  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
   const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
   return {
     type: "usage",
@@ -1720,8 +1719,8 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       raw: usage,
       usage: {
         details: {
-          ...(cumulativeOnly || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(cumulativeOnly || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
           ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
         inputTokens,

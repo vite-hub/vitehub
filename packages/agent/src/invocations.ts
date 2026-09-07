@@ -2,7 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { redactCredentialText } from "./internal/credential-redaction.ts"
+import { credentialTextMayContinue, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
@@ -1266,34 +1266,30 @@ function journalTraceLog(
       sequence,
     })
   }
-  const flushMessageDelta = () => {
+  const flushMessageDelta = (final = true) => {
     if (!pendingMessageDelta) return
     const content = pendingMessageDelta.attributes?.["message.content"]
     if (hasRuntimeType(content, "string")) {
-      pendingMessageDelta = {
-        ...pendingMessageDelta,
-        attributes: { ...pendingMessageDelta.attributes, "message.content": redactCredentialText(content) },
+      if (!final && credentialTextMayContinue(content)) return
+      const redacted = redactCredentialText(content)
+      for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
+        emit({
+          ...pendingMessageDelta,
+          attributes: {
+            ...pendingMessageDelta.attributes,
+            "message.content": redacted.slice(offset, offset + messageDeltaChunkCharacters),
+          },
+        })
       }
+    } else {
+      emit(pendingMessageDelta)
     }
-    emit(pendingMessageDelta)
     pendingMessageDelta = undefined
     pendingMessageDeltaEvents = 0
   }
   const queueMessageDelta = (entry: TraceEventLogEntry) => {
     const rawContent = entry.attributes?.["message.content"]
     const content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
-    if (content && content.length > messageDeltaChunkCharacters) {
-      for (let offset = 0; offset < content.length; offset += messageDeltaChunkCharacters) {
-        queueMessageDelta({
-          ...entry,
-          attributes: {
-            ...entry.attributes,
-            "message.content": content.slice(offset, offset + messageDeltaChunkCharacters),
-          },
-        })
-      }
-      return
-    }
     const pending = pendingMessageDelta
     const rawPreviousContent = pending?.attributes?.["message.content"]
     const previousContent = Object.prototype.toString.call(rawPreviousContent) === "[object String]"
@@ -1305,19 +1301,6 @@ function journalTraceLog(
       && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
       && pending.attributes?.["vitehub.auxiliary.kind"] === entry.attributes?.["vitehub.auxiliary.kind"]
     if (sameMessage && (previousContent === undefined) === (content === undefined)) {
-      if (previousContent !== undefined && content !== undefined
-        && previousContent.length + content.length > messageDeltaChunkCharacters) {
-        const available = messageDeltaChunkCharacters - previousContent.length
-        queueMessageDelta({
-          ...entry,
-          attributes: { ...entry.attributes, "message.content": content.slice(0, available) },
-        })
-        queueMessageDelta({
-          ...entry,
-          attributes: { ...entry.attributes, "message.content": content.slice(available) },
-        })
-        return
-      }
       const attributes = { ...pending.attributes, ...entry.attributes }
       if (previousContent !== undefined && content !== undefined) {
         attributes["message.content"] = `${previousContent}${content}`
@@ -1332,7 +1315,7 @@ function journalTraceLog(
     const pendingContent = pendingMessageDelta.attributes?.["message.content"]
     if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
       || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
-      flushMessageDelta()
+      flushMessageDelta(false)
     }
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
