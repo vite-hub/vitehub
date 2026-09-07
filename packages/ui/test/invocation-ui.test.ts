@@ -247,18 +247,17 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll(".vh-invocation-list__title").map(title => title.text())).toEqual(items.map(item => item.title));
   });
 
-  it("preserves completed status and default metadata without custom slots", () => {
+  it("keeps completed status accessible without restoring compact-list metadata", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
         items: [{ id: "finished", status: "completed", title: "Support session", project: "Console", agent: "Helper", provider: "OpenAI" }],
       },
     });
     const row = wrapper.get("button");
-    expect(row.text()).toContain("Done");
-    expect(row.get(".vh-invocation-list__state-icon svg").attributes("aria-hidden")).toBe("true");
-    expect(row.text()).toContain("Console");
-    expect(row.text()).toContain("Agent Helper");
-    expect(row.text()).toContain("Provider OpenAI");
+    expect(row.get(".vh-visually-hidden").text()).toBe("Done");
+    expect(row.find(".vh-invocation-list__state-icon").exists()).toBe(false);
+    expect(row.find(".vh-invocation-list__project").exists()).toBe(false);
+    expect(row.find(".vh-invocation-list__harness").exists()).toBe(false);
   });
 
   it("renders flat-list project and harness slots with the invocation item", () => {
@@ -2289,7 +2288,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 
-  it("shows status labels for completed, queued, and failed work", () => {
+  it("shows active and failed statuses while visually hiding completed status", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
         items: [
@@ -2301,6 +2300,8 @@ describe("Agent Invocation UI", () => {
     });
 
     expect(wrapper.get('[data-invocation-id="done"] .vh-invocation-list__state').text()).toBe("Done");
+    expect(wrapper.get('[data-invocation-id="done"] .vh-invocation-list__state .vh-visually-hidden').text()).toBe("Done");
+    expect(wrapper.find('[data-invocation-id="done"] .vh-invocation-list__state-icon').exists()).toBe(false);
     expect(wrapper.get('[data-invocation-id="queued"] .vh-invocation-list__state').text()).toBe("Queued");
     expect(wrapper.get('[data-invocation-id="failed"] .vh-invocation-list__state').text()).toBe("Failed");
   });

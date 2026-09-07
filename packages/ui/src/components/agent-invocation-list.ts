@@ -54,12 +54,6 @@ function statusIcon(status: AgentInvocationStatus) {
   })));
 }
 
-function metadataIcon(kind: "agent" | "provider") {
-  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, kind === "agent"
-    ? [h("path", { d: "M4 8h16v10H4z" }), h("path", { d: "M12 8V4M8 12h.01M16 12h.01" })]
-    : [h("path", { d: "M5 7h14M5 12h14M5 17h14" }), h("path", { d: "M7 5v4M17 10v4M10 15v4" })]);
-}
-
 function renderItem(
   item: AgentInvocationListItem,
   selectedId: string | undefined,
@@ -70,10 +64,6 @@ function renderItem(
 ) {
   const timestamp = item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt;
   const time = relativeTime(timestamp, now);
-  const harness = harnessSlot?.({ item }) ?? [
-    item.provider ? h("span", { title: `Provider: ${item.provider}` }, [metadataIcon("provider"), h("span", { class: "vh-visually-hidden" }, `Provider ${item.provider}`)]) : null,
-    item.agent ? h("span", { title: `Agent: ${item.agent}` }, [metadataIcon("agent"), h("span", { class: "vh-visually-hidden" }, `Agent ${item.agent}`)]) : null,
-  ];
   return h("li", { key: item.id }, [
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
@@ -87,12 +77,13 @@ function renderItem(
       h("strong", { class: "vh-invocation-list__title", title: item.title }, item.title),
       h("span", { class: "vh-invocation-list__meta" }, [
         projectIconSlot ? h("span", { class: "vh-invocation-list__project-icon" }, projectIconSlot({ item })) : null,
-        item.project ? h("span", { class: "vh-invocation-list__project" }, item.project) : null,
         item.context ? h("span", { class: "vh-invocation-list__branch" }, item.context) : null,
-        harnessSlot || item.agent || item.provider ? h("span", { class: "vh-invocation-list__harness" }, harness) : null,
+        harnessSlot ? h("span", { class: "vh-invocation-list__harness" }, harnessSlot({ item })) : null,
         h("span", { class: "vh-invocation-list__state", title: item.description }, [
-          h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
-          h("span", statusLabel(item.status)),
+          item.status === "completed"
+            ? h("span", { class: "vh-visually-hidden" }, statusLabel(item.status))
+            : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
+          item.status === "completed" ? null : h("span", statusLabel(item.status)),
           time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,
         ]),
         item.channel ? channelIcon(item.channel) : null,
