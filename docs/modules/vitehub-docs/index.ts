@@ -1,12 +1,14 @@
 import { resolve } from "node:path";
 import { defineNuxtModule } from "nuxt/kit";
-import { readDocsArtifactsManifest, writeDocsArtifacts } from "./artifacts";
+import { writeDocsArtifacts } from "./artifacts";
+import { createCapabilityReferences, writeCapabilityReferences } from "./capability-references";
 
-function collectPrerenderRoutes(manifest: NonNullable<ReturnType<typeof readDocsArtifactsManifest>>) {
+function collectPrerenderRoutes(manifest: { sections: Array<{ pages: Array<{ path: string }> }> }) {
   const routes: string[] = ["/docs", "/about", "/contact", "/privacy"];
 
   for (const section of manifest.sections) {
     for (const page of section.pages) {
+      if (page.path === "/docs/frameworks-hosts/support-matrix") continue;
       routes.push(page.path);
     }
   }
@@ -21,6 +23,12 @@ function removeDocusCatchAllPage(pages: Array<{ path?: string, file?: string }>)
   }
 }
 
+export function isDocsArtifactSource(path: string) {
+  const normalizedPath = path.replace(/\\/g, "/");
+  return /content\/(?:docs|blog|trust)\/.*\.md$/.test(normalizedPath)
+    || /content\/docs\/(?:.*\/)?\.navigation\.yml$/.test(normalizedPath);
+}
+
 export default defineNuxtModule({
   meta: {
     name: "vitehub-docs",
@@ -29,9 +37,18 @@ export default defineNuxtModule({
     const docsRoot = nuxt.options.rootDir;
     const outputDir = resolve(docsRoot, ".generated");
     const agentErrorHandler = resolve(docsRoot, "server/error-handler.ts");
+    const llmsRawLinksPlugin = resolve(docsRoot, "modules/vitehub-docs/runtime/server/llms-raw-links.ts");
 
-    const manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, outputDir });
+    const capabilityReferences = await createCapabilityReferences();
+    const capabilityReferencesPath = writeCapabilityReferences(outputDir, capabilityReferences);
+    const manifest = writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });
+    nuxt.options.alias["#vitehub-capability-references"] = capabilityReferencesPath;
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
+    nuxt.hook("builder:watch", (_event, path) => {
+      if (isDocsArtifactSource(path)) {
+        writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });
+      }
+    });
     nuxt.hook("prerender:routes", (context) => {
       for (const route of collectPrerenderRoutes(manifest)) {
         context.routes.add(route);
@@ -42,6 +59,14 @@ export default defineNuxtModule({
         ? Array.isArray(config.errorHandler) ? config.errorHandler : [config.errorHandler]
         : [];
       config.errorHandler = [agentErrorHandler, ...configuredHandlers];
+      config.publicAssets ||= [];
+      config.publicAssets.push({
+        baseURL: "/raw",
+        dir: resolve(outputDir, "raw"),
+        maxAge: 300,
+      });
+      config.plugins ||= [];
+      config.plugins.push(llmsRawLinksPlugin);
     });
 
     // Remove Docus catch-all page; ViteHub owns the docs route shell.

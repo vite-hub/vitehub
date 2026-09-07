@@ -25,10 +25,10 @@ describe("agent-owned Box", () => {
   })
 
   it("preserves an explicitly supplied runtime Box context", async () => {
-    const supplied = { definitions: { custom: { value: 1 } }, get: (name: string) => name === "custom" ? { value: 1 } : undefined }
-    const agent = defineAgent({ box: { own: { value: 2 } }, driver: { run: () => "ok" }, runtime: false })
+    const supplied = { definitions: { custom: { value: 1 } }, get: <T>(name: string) => name === "custom" ? { value: 1 } as T : undefined }
+    const agent = defineAgent({ box: { own: { value: 2 } }, driver: { run: context => context.box?.get("custom") }, runtime: false })
     const context = { ...runtime(), box: supplied }
     const seen = await runAgentInline(agent, context, {})
-    expect(seen).toBe("ok")
+    expect(seen).toEqual({ value: 1 })
   })
 })

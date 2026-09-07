@@ -1,17 +1,17 @@
 import { defineCapability, eagerFinishExtensionSymbol } from "../capability-runtime.ts"
-import { enrichAgentUsageCost, vercelAiGatewayPricing } from "../internal/usage-pricing.ts"
+import { enrichAgentUsageCost, modelsDevPricing } from "../internal/usage-pricing.ts"
 
 import type { AgentCapabilityDefinition, AgentRuntimeConfig, AgentUsageRecord } from "../types.ts"
 import type { AgentUsagePricing } from "../internal/usage-pricing.ts"
 
 export {
-  vercelAiGatewayPricing,
+  modelsDevPricing,
 } from "../internal/usage-pricing.ts"
 export type {
   AgentUsagePrice,
   AgentUsagePricing,
   AgentUsagePricingContext,
-  VercelAiGatewayPricingOptions,
+  ModelsDevPricingOptions,
 } from "../internal/usage-pricing.ts"
 
 export interface CostOptions {
@@ -27,9 +27,9 @@ declare global {
 export function cost<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: CostOptions = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
-  const pricing = options.pricing || vercelAiGatewayPricing()
+  const pricing = options.pricing || modelsDevPricing()
 
-  return Object.assign(defineCapability<TRuntimeConfig>({
+  return Object.assign(defineCapability({
     id: "cost",
     metadata: {
       kind: "cost",

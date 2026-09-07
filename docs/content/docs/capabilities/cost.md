@@ -23,7 +23,7 @@ export default defineAgent({
 })
 ```
 
-By default, `cost()` prices regular input, cache-read, cache-write, and output tokens from Vercel AI Gateway's public model catalog. ViteHub uses exact decimal arithmetic, caches successful catalog responses for five minutes, and bounds each request to ten seconds.
+By default, `cost()` prices regular input, cache-read, cache-write, and output tokens from the models.dev catalog. ViteHub uses exact decimal arithmetic, caches successful catalog responses for one hour, and bounds each request to ten seconds.
 
 Pricing is best-effort. A missing model match, unavailable catalog, timeout, invalid price, or pricing callback error leaves the usage record and successful Agent Invocation unchanged. A cost already reported by the provider remains authoritative.
 
@@ -99,12 +99,12 @@ export default defineAgent({
 
 Return `undefined` when pricing is unavailable. Custom pricing receives the model, response metadata, Agent Run metadata, and token usage, and can return a provider quote or a calculation from an application-owned decimal library. Keep it deterministic for those inputs because ViteHub may call it while a stream is consumed.
 
-Import `vercelAiGatewayPricing()` when application-owned work adds usage after the Capability runs and must reprice the record with the same catalog behavior.
+Import `modelsDevPricing()` when application-owned work adds usage after the Capability runs and must reprice the record with the same catalog behavior.
 
 ```ts
-import { vercelAiGatewayPricing } from 'vite-hub/agent/capabilities'
+import { modelsDevPricing } from 'vite-hub/agent/capabilities'
 
-const pricing = vercelAiGatewayPricing()
+const pricing = modelsDevPricing()
 ```
 
 ## Options

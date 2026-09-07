@@ -5,7 +5,7 @@ export {
 
 export type {
   AgentHealthHandlerOptions,
-  AgentHealthReport,
+  AgentHealthReport as AgentDefinitionHealthReport,
   AgentHealthStatus,
 } from "./health.ts"
 

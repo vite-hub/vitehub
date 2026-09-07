@@ -30,6 +30,17 @@ const emptyWorkspace = () => ({
 })
 
 describe("repositoryHostContext", () => {
+  it("retains repository identity from a wrapped context store", async () => {
+    const { repositoryHostContext } = await import("../src/capabilities.ts")
+    const values = new Map<string, unknown>([
+      ["repository", { full_name: "acme/app" }],
+      ["issue", { number: 42, title: "Fix UI", pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" } }],
+    ])
+    const host = repositoryHostContext.read({ context: { get: (key: string) => values.get(key) } })
+    await expect(host.get("issue")).resolves.toMatchObject({ number: 42, repository: "acme/app" })
+    await expect(host.get("pullRequest")).resolves.toMatchObject({ number: 42, repository: "acme/app" })
+  })
+
   it("requires the Vite plugin to compile materialization path strings", async () => {
     const { repositoryHostContext } = await import("../src/capabilities.ts")
 

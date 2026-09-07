@@ -681,7 +681,7 @@ function contextReader(input: unknown): ContextReader | undefined {
 function repositoryHostContextValues(input: unknown): Partial<RepositoryHostContextValue> {
   const store = contextReader(input)
   const record = isRecord(input) ? input : undefined
-  const rootRepository = normalizedRepositoryFullName(record?.repository)
+  const rootRepository = normalizedRepositoryFullName(record?.repository ?? store?.get("repository"))
   const rawIssue = record?.issue ?? store?.get("issue")
   const rawPullRequest = record?.pullRequest ?? record?.pull_request ?? store?.get("pullRequest") ?? (record?.issue ? undefined : input)
   const directPullRequest = readPullRequestContext(rawPullRequest)

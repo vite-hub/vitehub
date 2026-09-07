@@ -1,6 +1,11 @@
 export {
   access,
 } from "./access.ts"
+export { cost } from "./cost.ts"
+export type { CostOptions } from "./cost.ts"
+export { repositoryHost } from "./repository-host.ts"
+export { repositoryHostContext } from "./repository-host-context.ts"
+export { subagents } from "./subagents.ts"
 export {
   createAgentEvlog,
   observability,
@@ -35,6 +40,9 @@ export {
   email,
 } from "./email.ts"
 export {
+  executor,
+} from "./executor.ts"
+export {
   git,
 } from "./git.ts"
 export {
@@ -64,12 +72,6 @@ export {
   progressSummary,
 } from "./progress-summary.ts"
 export {
-  repositoryHost,
-} from "./repository-host.ts"
-export {
-  repositoryHostContext,
-} from "./repository-host-context.ts"
-export {
   llmRoute,
 } from "./llm-route.ts"
 export {
@@ -79,9 +81,6 @@ export {
   agentScheduleIdFromCron,
   schedule,
 } from "./schedule.ts"
-export {
-  subagents,
-} from "./subagents.ts"
 export {
   skills,
 } from "./skills.ts"
@@ -104,18 +103,26 @@ export {
   openRouterTranscriptionModel,
 } from "./transcription-openrouter.ts"
 export {
-  cost,
-  vercelAiGatewayPricing,
-} from "./cost.ts"
+  diagnostics,
+} from "./diagnostics.ts"
+export type {
+  DiagnosticsCapabilityOptions,
+} from "./diagnostics.ts"
+export type {
+  ExecutorCapabilityOptions,
+  ExecutorConnectionOptions,
+  ExecutorCredential,
+} from "./executor.ts"
+export {
+  modelsDevPricing,
+  usage,
+} from "./usage.ts"
 export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
   AgentUsagePrice,
-  CostOptions,
-  VercelAiGatewayPricingOptions,
-} from "./cost.ts"
-export {
-  usage,
+  ModelsDevPricingOptions,
+  UsageOptions,
 } from "./usage.ts"
 export {
   workspaceShell,
@@ -139,6 +146,12 @@ export {
 export {
   mcp,
 } from "./mcp.ts"
+export {
+  otlp,
+} from "./otlp.ts"
+export type {
+  OtlpCapabilityOptions,
+} from "./otlp.ts"
 export {
   webSearch,
 } from "./web-search/index.ts"
@@ -327,11 +340,6 @@ export type {
   RuntimeScheduleCapabilityOptions,
   ScheduleCapabilityToolPolicy,
 } from "./schedule.ts"
-export type {
-  SubagentDefinition,
-  SubagentsOptions,
-  SubagentToolInput,
-} from "./subagents.ts"
 export type {
   StreamTranscriptionOptions,
   StreamingTranscription,

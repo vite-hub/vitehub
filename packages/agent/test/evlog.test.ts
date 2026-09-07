@@ -98,7 +98,7 @@ it.each(["minimal", "standard", "full"] as const)("applies %s level before expor
   telemetry.event("agent.lifecycle", { invocation_id: "i", prompt: "private prompt", output_summary: "safe summary", tool_name: "shell", tool_status: "ok" })
   await telemetry.flush()
   const payload = exporter.capture.mock.calls[0]?.[1] || {}
-  expect(JSON.stringify(payload)).not.toContain("private prompt")
+  if (level !== "full") expect(JSON.stringify(payload)).not.toContain("private prompt")
   if (level === "minimal") expect(payload).not.toHaveProperty("tool_name")
   if (level === "standard") expect(payload).toHaveProperty("output_summary", "safe summary")
   if (level === "full") expect(payload).toHaveProperty("prompt", "private prompt")
