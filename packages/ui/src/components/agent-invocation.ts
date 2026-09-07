@@ -1479,15 +1479,28 @@ function renderInvocationActivities(
     && stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase() === "reply"
     && finalBody !== undefined
     && stringAttribute(activity.attributes, "channel.effect.content") === finalBody);
-  const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
-    if (firstUser + 1 + offset === lastAssistant) return false;
-    if (activity === finalDelivery) return false;
-    if (activity.kind === "message" && activity.role === "assistant" && activity.body?.trim() === finalBody) return false;
-    return true;
-  })]);
   const finalDeliveryReceipt = finalDelivery
     ? { ...finalDelivery, attributes: Object.fromEntries(Object.entries(finalDelivery.attributes).filter(([key]) => key !== "channel.effect.content")) }
     : undefined;
+  const hasLaterCommentary = lastAssistant >= 0 && orderedActivities.slice(lastAssistant + 1).some(activity =>
+    activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] === "commentary");
+  if (hasLaterCommentary) {
+    const work = coalesceAgentConfiguration([...workBeforePrompt, ...orderedActivities.slice(firstUser + 1, lastAssistant)]);
+    const answerAndFollowup = orderedActivities.slice(lastAssistant).map(activity =>
+      activity === finalDelivery ? finalDeliveryReceipt! : activity);
+    return [
+      renderPreviousMessages(history, invocation, expanded, toggleExpanded, inspect, messageRendering),
+      renderInvocationActivity(prompt, expanded, toggleExpanded, inspect, messageRendering),
+      renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering),
+      ...renderActivitySequence(answerAndFollowup, invocation, expanded, toggleExpanded, inspect, messageRendering),
+    ].filter(item => item !== null);
+  }
+  const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
+    if (firstUser + 1 + offset === lastAssistant) return false;
+    if (activity === finalDelivery) return false;
+    if (activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary" && activity.body?.trim() === finalBody) return false;
+    return true;
+  })]);
 
   return [
     renderPreviousMessages(history, invocation, expanded, toggleExpanded, inspect, messageRendering),

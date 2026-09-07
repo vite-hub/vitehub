@@ -2603,6 +2603,35 @@ describe("Agent Invocation UI", () => {
     wrapper.unmount();
   });
 
+  it.each([
+    { status: "completed", commentary: "One more check." },
+    { status: "failed", commentary: "One more check." },
+    { status: "completed", commentary: "Found it." },
+    { status: "failed", commentary: "Found it." },
+  ] as const)("preserves final then commentary order in a prompted $status session with $commentary", ({ status, commentary }) => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "interleaved-phases",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check this" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "message.content": "Found it.", "message.phase": "final", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" },
+        { attributes: { "message.content": commentary, "message.phase": "commentary", "message.role": "assistant" }, name: "agent.message.delta", sequence: 3, timestamp, type: "lifecycle" },
+        { attributes: { "channel.effect.kind": "reply", "channel.effect.content": "Found it." }, name: "agent.channel.delivery", sequence: 5, timestamp, type: "run" },
+      ],
+      status,
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const messages = wrapper.findAll(".vh-invocation-activities > .vh-invocation-message");
+    expect(messages).toHaveLength(3);
+    expect(messages[1]!.text()).toContain("Found it.");
+    expect(messages[2]!.text()).toContain(commentary);
+    expect(wrapper.text().match(/Found it\./g)).toHaveLength(commentary === "Found it." ? 2 : 1);
+    wrapper.unmount();
+  });
+
   it("keeps nested truncation local to its activity", () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const invocation = {
