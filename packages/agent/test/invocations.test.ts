@@ -1,6 +1,6 @@
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
-import { createTraceEventLog } from "@vite-hub/runtime"
+import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -1418,6 +1418,35 @@ describe("Agent Invocations", () => {
     expect(configured?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
   })
 
+  it("retains realistic Agent tool configuration without marking setup as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("tool-configuration"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const tools = Array.from({ length: 40 }, (_, index) => ({
+      description: `Inspect support resource ${index}`,
+      name: `support_resource_${index}`,
+      parameters: {
+        additionalProperties: false,
+        properties: { query: { type: "string" } },
+        required: ["query"],
+        type: "object",
+      },
+    }))
+    await journal.context.traceLog?.append({
+      attributes: { "vitehub.agent.configuration": { capabilities: [{ id: "support", tools }] } },
+      name: "vitehub.agent.configured",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const configured = (await invocations.getByRunId("tool-configuration"))?.observations
+      .find(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      capabilities: [{ tools }],
+    })
+  })
+
   it("preserves sanitized Agent configuration depth and indexes its resolved model", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const saturatedAnnotations = Object.fromEntries(
@@ -1474,6 +1503,27 @@ describe("Agent Invocations", () => {
     const observation = (await invocations.getByRunId("bounded-ordinary-observation"))?.observations
       .find(entry => entry.name === "tool.finish")
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+  })
+
+  it("omits nested optional metadata without reporting content truncation", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("optional-observation-metadata"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      attributes: {
+        "usage.record": {
+          usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: 42 },
+        },
+      },
+      name: "agent.invocation.finish",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("optional-observation-metadata"))?.observations
+      .find(entry => entry.name === "agent.invocation.finish")
+    expect(observation?.attributes?.["usage.record"]).toEqual({ usage: { totalTokens: 42 } })
+    expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
   })
 
   it("reserves the observation attribute limit for the truncation marker", async () => {
@@ -1682,7 +1732,6 @@ describe("Agent Invocations", () => {
     expect(observation?.payload).toEqual({
       value: {
         array: [null],
-        direct: null,
         files: [["README.md", null]],
         paths: [null],
       },
@@ -2959,7 +3008,7 @@ describe("Agent Invocations", () => {
           for (let index = 0; index < 300; index++) {
             await context.traceLog?.append({
               attributes: {
-                "message.content": String(index % 10).repeat(20),
+                "message.content": String(index % 10).repeat(2_000),
                 "message.id": "answer",
                 "message.role": "assistant",
               },
@@ -2993,9 +3042,46 @@ describe("Agent Invocations", () => {
     const full = await run("full-content", "content")
     const fullDeltas = full.filter(entry => entry.name === "agent.message.delta")
     expect(fullDeltas.map(entry => entry.attributes?.["message.content"]).join(""))
-      .toBe(Array.from({ length: 300 }, (_, index) => String(index % 10).repeat(20)).join(""))
-    expect(fullDeltas.every(entry => String(entry.attributes?.["message.content"]).length <= 512)).toBe(true)
+      .toBe(Array.from({ length: 300 }, (_, index) => String(index % 10).repeat(2_000)).join(""))
+    expect(fullDeltas).toHaveLength(10)
+    expect(fullDeltas.every(entry => String(entry.attributes?.["message.content"]).length <= 64 * 1024)).toBe(true)
     expect(fullDeltas.every(entry => !entry.attributes?.["content.omitted"])).toBe(true)
+  })
+
+  it("preserves privacy filtering when coalesced message content crosses the former chunk boundary", async () => {
+    const first = `${"x".repeat(510)}Authorization: Bear`
+    const second = "er sensitive-value"
+    const run = async (runId: string, content: "content" | "metadata") => {
+      const invocations = defineAgentInvocations({ content, store: createMemoryAgentInvocationStore() })
+      const agent = defineAgent({
+        driver: { async run(context) {
+          for (const value of [first, second]) {
+            await context.traceLog?.append({
+              attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+              name: "agent.message.delta",
+              type: "run",
+            })
+          }
+          return "done"
+        } },
+        invocations,
+        runtime: false,
+      })
+      await runAgent(agent, { ...runtime(runId), traceLog: createTraceEventLog({ content: "content" }) }, {})
+      return (await invocations.getByRunId(runId))?.observations || []
+    }
+
+    const metadata = await run("private-coalesced-message", "metadata")
+    expect(JSON.stringify(metadata)).not.toContain("sensitive-value")
+    expect(metadata.find(entry => entry.name === "agent.message.delta")?.attributes).toMatchObject({
+      "content.omitted": ["message.content"],
+    })
+
+    const content = await run("exported-coalesced-message", "content")
+    expect(content.filter(entry => entry.name === "agent.message.delta")).toHaveLength(1)
+    expect(JSON.stringify(content)).toContain("Authorization: Bearer [REDACTED]")
+    expect(JSON.stringify(content)).not.toContain("sensitive-value")
+    expect(JSON.stringify(traceEventsToOpenTelemetrySpans(content, { content: "metadata" }))).not.toContain("sensitive-value")
   })
 
   it("persists bounded message chunks while an invocation is still running", async () => {

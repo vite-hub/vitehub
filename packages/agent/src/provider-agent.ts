@@ -71,6 +71,7 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
+import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
@@ -523,9 +524,7 @@ function redactProviderDiagnostic(
     .filter((item): item is string => hasRuntimeType(item, "string") && item.length > 0))]
     .sort((left, right) => right.length - left.length)
   for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
-  return redacted
-    .replace(/\b(Bearer|Basic)\s+[^\s]+/gi, "$1 [REDACTED]")
-    .replace(/\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\s]+)/g, "$1=[REDACTED]")
+  return redactCredentialText(redacted)
 }
 
 async function providerLaunchFailure(
@@ -1709,8 +1708,11 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
-  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
-  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  const usedTokens = usage.usedTokens ?? usage.lastUsedTokens
+  const cumulativeOnly = usage.totalProcessedTokens !== undefined && usedTokens !== undefined && usage.totalProcessedTokens !== usedTokens
+  const inputTokens = cumulativeOnly ? undefined : usage.inputTokens ?? usage.lastInputTokens
+  const outputTokens = cumulativeOnly ? undefined : usage.outputTokens ?? usage.lastOutputTokens
+  const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
   return {
     type: "usage",
     usageRecord: {
@@ -1718,13 +1720,13 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       raw: usage,
       usage: {
         details: {
-          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(cumulativeOnly || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(cumulativeOnly || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
           ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
         inputTokens,
         outputTokens,
-        totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
+        totalTokens,
       },
     },
   }
@@ -2089,14 +2091,16 @@ async function* runProvider<
       }
     }
     const inspectedTools = inspectAgentTools(context.tools)
-    await updateAgentTelemetryConfiguration(context.context, {
-      driver: {
-        ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
-        provider: options.provider,
-      },
-      ...(instructions ? { instructions: [instructions] } : {}),
-      ...(inspectedTools ? { tools: inspectedTools } : {}),
-    })
+    if (!isAuxiliaryAgentAdapterContext(context)) {
+      await updateAgentTelemetryConfiguration(context.context, {
+        driver: {
+          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          provider: options.provider,
+        },
+        ...(instructions ? { instructions: [instructions] } : {}),
+        ...(inspectedTools ? { tools: inspectedTools } : {}),
+      })
+    }
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))

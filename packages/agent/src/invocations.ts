@@ -2,6 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
+import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
@@ -27,6 +28,8 @@ const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_AGENT_CONFIGURATION_DEPTH = 64
 const MAX_OBSERVATION_VALUE_ITEMS = 256
+const MAX_AGENT_CONFIGURATION_ITEMS = 32 * 1024
+const MAX_AGENT_CONFIGURATION_COLLECTION_ITEMS = 8 * 1024
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
 const APPENDED_OBSERVATION_ATTRIBUTE = "vitehub.observation.appended"
@@ -393,9 +396,9 @@ function normalizedTimestamp(value: Date | string): string {
 }
 
 interface ObservationBudget {
+  collectionItems?: number
   items: number
   maxDepth?: number
-  collectionItems?: number
   stringLength: number
   truncated: boolean
 }
@@ -510,6 +513,7 @@ function boundedObservationValue(
   maxStringLength = MAX_METADATA_STRING_LENGTH,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
+  const collectionItems = budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS
   if (value && hasRuntimeType(value, "object")) {
     const builtIn = builtIns?.get(value)
     if (builtIn) {
@@ -552,7 +556,7 @@ function boundedObservationValue(
     return "[truncated]"
   }
   if (Array.isArray(value)) {
-    const length = Math.min(value.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const length = Math.min(value.length, collectionItems, budget.items)
     if (length < value.length) budget.truncated = true
     return Array.from({ length }, (_, index) => {
       if (!Object.hasOwn(value, index)) {
@@ -578,7 +582,7 @@ function boundedObservationValue(
   if (value instanceof Map) {
     budget.truncated = true
     const entries: [unknown, unknown][] = []
-    const limit = Math.min((budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const limit = Math.min(collectionItems, budget.items)
     for (const entry of value) {
       if (entries.length >= limit) break
       entries.push(entry)
@@ -592,7 +596,7 @@ function boundedObservationValue(
   if (value instanceof Set) {
     budget.truncated = true
     const entries: unknown[] = []
-    const limit = Math.min((budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const limit = Math.min(collectionItems, budget.items)
     for (const entry of value) {
       if (entries.length >= limit) break
       entries.push(entry)
@@ -602,12 +606,12 @@ function boundedObservationValue(
   }
   if (value instanceof ArrayBuffer) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const length = Math.min(value.byteLength, collectionItems, budget.items)
     return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
   }
   if (ArrayBuffer.isView(value)) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const length = Math.min(value.byteLength, collectionItems, budget.items)
     return {
       bytes: boundedObservationValue(
         Array.from(new Uint8Array(value.buffer, value.byteOffset, length)),
@@ -638,7 +642,7 @@ function boundedObservationValue(
     for (const [key, child] of Object.entries(value)) {
       if (key !== "cause" && key !== "errors") details.push([key, child])
     }
-    const length = Math.min(details.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS))
+    const length = Math.min(details.length, collectionItems)
     if (length < details.length) budget.truncated = true
     return Object.fromEntries(details.slice(0, length).map(([key, child]) => [
       boundedString(key),
@@ -656,8 +660,10 @@ function boundedObservationValue(
     return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  // Match JSON object semantics: optional undefined properties are absent data, not truncated data.
   const entries = Object.entries(value as Record<string, unknown>)
-  const length = Math.min(entries.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    .filter(([, child]) => child !== undefined)
+  const length = Math.min(entries.length, collectionItems, budget.items)
   if (length < entries.length) budget.truncated = true
   return Object.fromEntries(entries
     .slice(0, length)
@@ -708,8 +714,11 @@ function boundedObservation(
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
   limits = defaultObservationLimits,
 ): TraceEventLogEntry {
+  const agentConfiguration = observation.name === "vitehub.agent.configured"
   const budget: ObservationBudget = {
-    items: MAX_OBSERVATION_VALUE_ITEMS,
+    ...(agentConfiguration ? { collectionItems: MAX_AGENT_CONFIGURATION_COLLECTION_ITEMS } : {}),
+    items: agentConfiguration ? MAX_AGENT_CONFIGURATION_ITEMS : MAX_OBSERVATION_VALUE_ITEMS,
+    ...(agentConfiguration ? { maxDepth: MAX_AGENT_CONFIGURATION_DEPTH } : {}),
     stringLength: limits.maxStringLength,
     truncated: false,
   }
@@ -1239,9 +1248,10 @@ function journalTraceLog(
   nextSequence: () => number,
   content: TraceEventContentPolicy,
   metadataContent: ReadonlySet<string>,
+  maxMessageDeltaCharacters: number,
 ): TraceEventLog {
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
+  const messageDeltaChunkCharacters = maxMessageDeltaCharacters
   const messageDeltaChunkEvents = 32
   let pendingMessageDelta: TraceEventLogEntry | undefined
   let pendingMessageDeltaEvents = 0
@@ -1258,6 +1268,13 @@ function journalTraceLog(
   }
   const flushMessageDelta = () => {
     if (!pendingMessageDelta) return
+    const content = pendingMessageDelta.attributes?.["message.content"]
+    if (typeof content === "string") {
+      pendingMessageDelta = {
+        ...pendingMessageDelta,
+        attributes: { ...pendingMessageDelta.attributes, "message.content": redactCredentialText(content) },
+      }
+    }
     emit(pendingMessageDelta)
     pendingMessageDelta = undefined
     pendingMessageDeltaEvents = 0
@@ -1627,6 +1644,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }
       }
       const observe = (observation: TraceEventLogEntry) => {
+        if (observation.attributes?.["vitehub.auxiliary.kind"] === "title") return
         const capabilityId = observationCapabilityId(observation)
         if (capabilityId && observedCapabilityIds.size < MAX_CAPABILITY_IDS) observedCapabilityIds.add(capabilityId)
         if (finished) {
@@ -1667,7 +1685,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength),
         },
         async finish(status, error) {
           if (finished || finishing) return

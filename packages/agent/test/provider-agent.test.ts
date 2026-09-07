@@ -2330,6 +2330,27 @@ cli_auth_credentials_store = "keyring"
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
   })
 
+  it("does not replace primary telemetry configuration during an auxiliary provider run", async () => {
+    const threadId = "thread-auxiliary-configuration"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId)
+    await setAgentTelemetryConfiguration(runContext.context, {
+      capabilities: [{ id: "support" }],
+      driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "codex" }, provider: "codex" },
+      runtime: { name: "vite" },
+      tools: [{ name: "support_search" }],
+    })
+    const primary = getAgentTelemetryConfiguration(runContext.context)?.value
+
+    await createProviderAgentAdapter({
+      instructions: "Generate a short title.",
+      model: "gpt-5.6-luna",
+      provider: "codex",
+    }).generate(markAuxiliaryMessageChannelInstructionContext(runContext) as never)
+
+    expect(getAgentTelemetryConfiguration(runContext.context)?.value).toEqual(primary)
+  })
+
   it("persists provider-native activity through a complete Agent invocation", async () => {
     const threadId = "thread-provider-invocation-trace"
     const runId = "run-provider-invocation-trace"
