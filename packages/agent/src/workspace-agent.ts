@@ -82,6 +82,7 @@ import type {
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
   WorkspaceRules,
+  WorkspaceSourceInput,
   WorkspaceSourceMaterializationStatus,
 } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -267,12 +268,13 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
+  // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
   const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
-  const sources = {
-    ...(colocatedInstructions ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "startup" as const, mount: "", workspacePath: "AGENTS.md" } } : {}),
-    ...colocatedSkills,
-    ...ownedWorkspace.sources,
+  const sources: Record<string, WorkspaceSourceInput> = {}
+  if (colocatedInstructions) {
+    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
   }
+  Object.assign(sources, colocatedSkills, ownedWorkspace.sources)
   const workspaceOptions = {
     ...options,
     workspace: {
