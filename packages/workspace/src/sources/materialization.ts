@@ -272,7 +272,7 @@ async function removeStaleMaterializedSourceFiles(
   const staleDirectories = new Set<string>()
   const entries = source.mountPath
     ? await store.list(source.mountPath, { recursive: true })
-    : previousPaths.size
+    : previousPaths.size || (store.getMeta && store.setMeta)
       ? await Promise.all([...previousPaths].map(async path => await store.stat(path)))
       : await store.list("", { recursive: true })
   for (const entry of entries) {
