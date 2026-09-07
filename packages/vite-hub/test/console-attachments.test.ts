@@ -18,6 +18,27 @@ const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwM
 const uploadBatch = async (files: Array<{ url: string, filename?: string }>) => (await storeConsoleInputMessage("", { files })).parts.filter(part => part.type === "image")
 const upload = async (url: string) => (await uploadBatch([{ url, filename: "test.png" }]))[0]!
 
+it.each(["YQ", "YR=="])("rejects non-canonical base64 before storing bytes: %s", async (data) => {
+  await expect(upload(`data:image/png;base64,${data}`)).rejects.toMatchObject({ statusCode: 400 })
+})
+
+it.each(["//other.test/image", "javascript:alert(1)"])("rolls back an image with an unusable serving URL: %s", async (url) => {
+  const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
+  setBlobRuntimeConfig({ store: { driver: "fs", base }, serve: { route: "/files/", store: "default", publicBaseUrl: "https://example.test" } })
+  installConsoleBlob(base, {
+    ...blob,
+    async put(path, bytes, options) {
+      const result = await blob.put(path, bytes, options)
+      if (result[1]) result[1].url = url
+      return result
+    },
+  })
+  await expect(upload(`data:image/png;base64,${png}`)).rejects.toMatchObject({ statusCode: 503 })
+  const [failure, listing] = await blob.list()
+  expect(failure).toBeNull()
+  expect(listing?.blobs).toEqual([])
+})
+
 it("retains image bytes and metadata across storage restart without embedding bytes in the message", async () => {
   const base = await mkdtemp(join(tmpdir(), "console-attachments-")); dirs.push(base)
   const connect = () => {

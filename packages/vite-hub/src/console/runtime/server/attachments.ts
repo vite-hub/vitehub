@@ -33,6 +33,7 @@ async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachme
     const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})$/.exec(file.url)
     if (!match || !imageTypes.has(match[1]!)) throw error(415, "Use a PNG, JPEG, WebP, or GIF image.")
     const bytes = Buffer.from(match[2]!, "base64")
+    if (bytes.toString("base64") !== match[2]) throw error(400, "The image data is not valid base64.")
     totalBytes += bytes.length
     if (!bytes.length || totalBytes > maximumBytes) throw error(413, "Images must be non-empty and total at most 10 MiB.")
     return { bytes, mediaType: match[1]!, name: file.filename.slice(0, 255) }
@@ -52,7 +53,7 @@ async function withStoredConsoleAttachments<T>(body: unknown, consume: (attachme
       paths.push(path)
       const [failure, stored] = await storage.put(path, file.bytes, { contentType: file.mediaType })
       if (failure) throw failure
-      if (!stored.url) throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
+      if (!stored.url || !/^(https?:\/\/|\/(?!\/))/.test(stored.url)) throw error(503, "Configure Blob serving so Console attachments can be opened after reload.")
       attachments.push({ id, mediaType: file.mediaType, name: file.name, size: file.bytes.length, type: "image", url: stored.url })
     }
     return await consume(attachments, () => { handedOff = true })
