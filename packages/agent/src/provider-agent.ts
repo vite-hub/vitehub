@@ -2356,7 +2356,8 @@ async function* runProvider<
       }
       const current = raced.provider
       if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
-      if (current.value.threadId && current.value.threadId !== threadId) {
+      if ((current.value.threadId && current.value.threadId !== threadId)
+        || (current.value.turnId && current.value.turnId !== turn.turnId)) {
         nextEvent = events.next()
         continue
       }

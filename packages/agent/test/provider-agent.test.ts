@@ -2879,6 +2879,10 @@ cli_auth_credentials_store = "keyring"
     let releaseTurn!: () => void
     const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
     const provider = runtime(threadId, [
+      event("content.delta", threadId, { delta: "rejected output", streamKind: "assistant_text" }, { turnId: "turn-2" }),
+      event("item.started", threadId, { data: { command: "rejected command" }, itemType: "command_execution", title: "shell" }, { itemId: "rejected-tool", turnId: "turn-2" }),
+      event("turn.aborted", threadId, { reason: "rejected steering" }, { turnId: "turn-2" }),
+      event("content.delta", threadId, { delta: "original output", streamKind: "assistant_text" }, { turnId: "turn-1" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ], {
       beforeEvent: () => turnReleased,
@@ -2895,7 +2899,10 @@ cli_auth_credentials_store = "keyring"
     await expect(sendAgentInvocationInput(invocationId, { prompt: "follow-up" }, { mode: "steer" })).resolves.toBe(cancellationFails ? "invalid-state" : "unsupported")
     expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-2")
     releaseTurn()
-    expect(JSON.stringify(await result)).not.toContain("input.steered")
+    const output = await result
+    expect(output).toContainEqual({ type: "text-delta", text: "original output", phase: "final" })
+    expect(JSON.stringify(output)).not.toContain("rejected")
+    expect(JSON.stringify(output)).not.toContain("input.steered")
   })
 
   it("preserves the primary input handler during auxiliary provider runs", async () => {
