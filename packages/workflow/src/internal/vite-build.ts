@@ -784,16 +784,16 @@ function readAgentInstructions(file: string, dependencies?: Set<string>): string
     : undefined
 }
 
-function readAgentSkills(file: string): Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> | undefined {
+function readAgentSkills(file: string): Record<string, { content: string, encoding: "base64", materialize: "startup", mount: "", workspacePath: string }> | undefined {
   const files = readColocatedAgentFiles(file, "skills")
   if (!files) return
   return Object.fromEntries(Object.entries(files).map(([path, source]) => {
-    const workspacePath = `skills/${path}`
+    const workspacePath = `.agents/skills/${path}`
     return [
       `__vitehubAgentSkill:${workspacePath}`,
       {
         ...source,
-        materialize: "build",
+        materialize: "startup",
         mount: "",
         workspacePath,
       },
@@ -814,7 +814,7 @@ function renderAgentWorkflowRegistryEntry(
     `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
-    `    const agent = agentWithColocatedSkills(workspaceAgentWithSourceRoot(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(instructions)}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(instructions)}), ${JSON.stringify(readAgentSkills(definition.handler))})`,
+    `    const agent = workspaceAgentWithSourceRoot(agentWithColocatedSkills(agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, ${JSON.stringify(instructions)}), ${JSON.stringify(readAgentSkills(definition.handler))}), ${JSON.stringify(resolveAgentWorkspaceSourceRoot(definition.handler))}, ${JSON.stringify(instructions)})`,
     `    const entry = { options: { rootStep: false }, handler: async (context) => await runAgentWorkflowDefinition(agent, { ...context, payload: { ...context.payload, agentIdentity: context.payload?.agentIdentity || { name: ${JSON.stringify(definition.agentIdentity || definition.name)} } } }, runAgentInline)${definition.source === "agent-workflow-recovery" ? ", internalAgentInvocationRecovery: true" : ""} }`,
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",

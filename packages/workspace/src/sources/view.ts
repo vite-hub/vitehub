@@ -351,6 +351,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const normalized = normalizeWorkspacePath(path)
+    if (!path && options.recursive) {
+      for (const source of getLazySourcesForPath(path)) {
+        if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
+        await ensurePrepared(source.key)
+        if (!usesLiveProvider(source)) await ensureMaterialized(source.key)
+      }
+    }
     const storeEntries = isDescriptorPath(normalized) ? [] : await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
     for (const entry of descriptorPathEntries(path, options)) {
@@ -360,7 +367,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))
     }
 
-    let refreshStoreEntries = false
     for (const source of getLazySourcesForPath(path)) {
       if (isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
       await ensurePrepared(source.key)
@@ -384,8 +390,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         continue
       }
       if (!path && options.recursive && source.materialize === "startup") {
-        await ensureMaterialized(source.key)
-        refreshStoreEntries = true
+        continue
       }
       else if (sourceMountContainsPath(source, path) || !source.mountPath && path) {
         await ensureMaterialized(source.key)
@@ -394,10 +399,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       else if (!path && !result.has(source.mountPath)) {
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
       }
-    }
-
-    if (refreshStoreEntries) {
-      for (const entry of await store.list(path, options)) result.set(entry.path, entry)
     }
 
     addLiveSourceEntries(result, path, options, sources)

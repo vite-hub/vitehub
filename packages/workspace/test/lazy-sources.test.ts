@@ -153,7 +153,43 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
       content: new TextEncoder().encode("# Review\n"),
     })
-    expect(list).toHaveBeenCalledTimes(2)
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["", "docs"])("omits deleted startup files from the first recursive listing at mount '%s'", async (mount) => {
+    let keys = ["stale.md", "current.md"]
+    const definition = {
+      name: "startup-root-list-refresh",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          mount,
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+        pending: custom({
+          materialize: "lazy" as const,
+          async getKeys() { return ["later.md"] },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("user.md", { path: "user.md", content: "keep" })
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["docs"] })
+    keys = ["current.md"]
+    const view = createWorkspaceSourceView({ ...definition }, store)
+    const prefix = mount ? `${mount}/` : ""
+
+    const entries = await view.list("", { recursive: true })
+
+    expect(entries).not.toEqual(expect.arrayContaining([expect.objectContaining({ path: `${prefix}stale.md` })]))
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: `${prefix}current.md`, type: "file" }),
+      expect.objectContaining({ path: "user.md", type: "file" }),
+      expect.objectContaining({ path: "pending", type: "directory" }),
+    ]))
+    await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
   it("does not let snapshot-reusing inspection suppress normal startup refresh", async () => {
