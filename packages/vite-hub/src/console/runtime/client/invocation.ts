@@ -1,4 +1,5 @@
 import * as v from "valibot"
+import { watch } from "vue"
 
 import { requestConsole } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -13,6 +14,19 @@ interface ConsoleInvocationTarget {
 }
 const invocationResultSchema = v.object({ id: v.pipe(v.string(), v.nonEmpty()) })
 
+/** Each selection change invalidates pending results, even when returning to the same Agent. */
+export function useConsoleInvocationTarget(target: () => ConsoleInvocationTarget): () => { target: ConsoleInvocationTarget, isCurrent: () => boolean } {
+  let generation = 0
+  watch(() => {
+    const { agent, base, invokerProfileId } = target()
+    return [agent, base, invokerProfileId]
+  }, () => { generation++ }, { flush: "sync" })
+  return () => {
+    const captured = generation
+    return { target: { ...target() }, isCurrent: () => generation === captured }
+  }
+}
+
 /** Capture the destination before uploads so switching Agents cannot redirect the input. */
 export async function startConsoleAgentInvocation(
   { agent, base, invokerProfileId }: ConsoleInvocationTarget,
@@ -23,11 +37,7 @@ export async function startConsoleAgentInvocation(
   const files = [...message.files ?? []]
   if (files.length > 10) throw new Error("Use at most ten images.")
   if (files.length) {
-    body.attachments = []
-    for (const file of files) {
-      const uploaded = await requestConsole(`${base.replace(/\/agents$/, "")}/attachments`, { method: "POST", body: file })
-      body.attachments.push({ id: v.parse(invocationResultSchema, uploaded).id, name: file.filename?.slice(0, 255) || "image" })
-    }
+    body.files = files.map(file => ({ url: file.url, filename: file.filename?.slice(0, 255) || "image" }))
   }
   const response = await requestConsole(`${base}/${encodeURIComponent(agent)}/invocations`, { body, method: "POST" })
   const result = v.safeParse(invocationResultSchema, response)

@@ -3,7 +3,7 @@ import { AgentChatPrompt } from "@vite-hub/ui";
 import type { FileUIPart } from "ai";
 import { computed, ref, watch } from "vue";
 
-import { startConsoleAgentInvocation } from "../client/invocation";
+import { startConsoleAgentInvocation, useConsoleInvocationTarget } from "../client/invocation";
 
 interface ConsoleAgentProfile {
   id: string;
@@ -25,6 +25,11 @@ const files = ref<FileUIPart[]>([]);
 const error = ref<unknown>();
 const loading = ref(false);
 const selectedProfileId = ref<string>();
+const captureTarget = useConsoleInvocationTarget(() => ({
+  agent: props.agent,
+  base: props.base,
+  invokerProfileId: selectedProfileId.value,
+}));
 const profileItems = computed(() =>
   props.profiles.map((profile) => ({ label: profile.label || profile.id, value: profile.id })),
 );
@@ -56,17 +61,16 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
   if (loading.value || (!message.text.trim() && !message.files?.length)) return;
   loading.value = true;
   error.value = undefined;
-  const agent = props.agent;
-  const base = props.base;
+  const { target, isCurrent } = captureTarget();
   try {
-    const started = await startConsoleAgentInvocation({ agent, base, invokerProfileId: selectedProfileId.value }, message);
-    if (props.agent === agent && props.base === base) {
+    const started = await startConsoleAgentInvocation(target, message);
+    if (isCurrent()) {
       draft.value = "";
       files.value = [];
       emit("started", started);
     }
   } catch (value) {
-    if (props.agent === agent && props.base === base) error.value = value;
+    if (isCurrent()) error.value = value;
   } finally {
     loading.value = false;
   }
