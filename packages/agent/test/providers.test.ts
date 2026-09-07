@@ -12565,6 +12565,9 @@ describe("server helpers", () => {
       const deliveries = await readAgentChannelDeliveries(state)
       expect(deliveries.some(delivery => delivery.status === "rejected")).toBe(true)
       expect(deliveries.filter(delivery => delivery.status === "received" || delivery.status === "running")).toEqual([])
+      expect(deliveries.filter(delivery => delivery.status === "rejected").every(delivery =>
+        delivery.events.filter(event => event.type === "completed" || event.type === "failed" || event.type === "rejected").length === 1,
+      )).toBe(true)
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
@@ -16252,13 +16255,31 @@ describe("server helpers", () => {
 
     try {
       await state.connect()
+      const remoteOwner = await state.acquireLock("chat:calories:telegram:inline-steer:agent:owner", 60_000)
+      if (!remoteOwner) throw new Error("Expected a simulated remote inline owner lock")
       const first = handler(chatWebhookRequest(91_106), "telegram", { agentIdentity: { name: "calories" } })
+      await new Promise(resolve => setTimeout(resolve, 75))
+      expect(runs).toBe(0)
+      await state.releaseLock(remoteOwner)
       await vi.waitFor(() => expect(runs).toBe(1))
+      const otherInvoker = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+        body: JSON.stringify({ message: {
+          chat: { id: 458, type: "private" },
+          from: { id: 456, username: "other" },
+          message_id: 91_108,
+          text: "do not steer another user",
+        } }),
+        method: "POST",
+      }), "telegram", { agentIdentity: { name: "calories" } })
+      await new Promise(resolve => setTimeout(resolve, 75))
+      expect(runs).toBe(1)
+      expect(steeredPrompt).toBeUndefined()
       const followUp = handler(chatWebhookRequest(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
       await expect(followUp).resolves.toMatchObject({ status: 200 })
       await expect(first).resolves.toMatchObject({ status: 200 })
+      await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
 
-      expect(runs).toBe(1)
+      expect(runs).toBe(2)
       expect(steeredPrompt).toBe("hello")
     } finally {
       releaseFirst()

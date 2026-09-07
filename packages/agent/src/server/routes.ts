@@ -4715,7 +4715,8 @@ async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number
 
 interface InlineChatTurn {
   done: Promise<void>
-  finish: () => void
+  finish: () => Promise<void>
+  invokerKey: string
   runId?: string
 }
 
@@ -4848,18 +4849,44 @@ async function handleChatSdkMessage(
     }
 
     if (inlineKey) {
+      const inlineInvokerKey = JSON.stringify(invoker)
       let waitedForActiveTurn = false
       while (!inlineTurn) {
         const active = inlineChatTurns.get(inlineKey)
         if (!active) {
+          const ownerLockKey = `${inlineKey}:owner`
+          const ownerLock = await state.state.acquireLock(ownerLockKey, 30_000)
+          if (!ownerLock) {
+            await pollInlineChatTurn({ done: new Promise(() => undefined), finish: async () => undefined, invokerKey: inlineInvokerKey }, maximumInvocationDeadline)
+            continue
+          }
+          let ownershipLost = false
+          const renewal = setInterval(() => {
+            void state.state.extendLock(ownerLock, 30_000).then((extended) => {
+              if (!extended) ownershipLost = true
+            }).catch(() => {
+              ownershipLost = true
+            })
+          }, 10_000)
+          let finishDone = false
           let finish!: () => void
           const done = new Promise<void>(resolve => { finish = resolve })
-          inlineTurn = { done, finish }
+          inlineTurn = {
+            done,
+            async finish() {
+              if (finishDone) return
+              finishDone = true
+              clearInterval(renewal)
+              finish()
+              if (!ownershipLost) await state.state.releaseLock(ownerLock).catch(() => undefined)
+            },
+            invokerKey: inlineInvokerKey,
+          }
           inlineChatTurns.set(inlineKey, inlineTurn)
           break
         }
         waitedForActiveTurn = true
-        if (active.runId) {
+        if (active.runId && active.invokerKey === inlineInvokerKey) {
           const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
           const outcome = steerMessage
             ? await sendAgentInvocationInput(active.runId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
@@ -5686,7 +5713,7 @@ async function handleChatSdkMessage(
   } finally {
     if (inlineTurn) {
       if (inlineKey && inlineChatTurns.get(inlineKey) === inlineTurn) inlineChatTurns.delete(inlineKey)
-      inlineTurn.finish()
+      await inlineTurn.finish()
     }
     typing?.stop()
     if (invocationStarted && !invocationFailed && !durableHandoff) {
