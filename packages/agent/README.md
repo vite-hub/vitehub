@@ -427,6 +427,10 @@ The defaults are `/api/health` and
 `{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
 `(invocationId, path?)` and return a Response; for GitHub checkouts, use
 `createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.
+The default Workspace route also serves Console RPC inspection, so retained GitHub
+snapshots remain available after disposable checkouts are removed. A custom route
+keeps its own URL and does not replace the default Console inspector.
+
 These are opt-in host routes: the application owns access control, including any
 middleware protecting Workspace content. They do not grant Console authorization.
 
