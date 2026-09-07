@@ -1444,6 +1444,34 @@ describe("agent message protocol", () => {
     })
   })
 
+  it.each([64 * 1024 - 1, 64 * 1024, 64 * 1024 + 1])("marks steered input trace truncation only above the content limit (%i characters)", async (length) => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const message = "x".repeat(length)
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+        yield { data: { kind: "input.message", value: { message, mode: "steer" } }, id: "follow-up-1", type: "data-agent-event" }
+        yield { type: "finish" }
+      })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Review the repository" })],
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    const observations = traceLog.entries().filter(event => event.name === "agent.input.message")
+    expect(observations).toHaveLength(1)
+    expect(observations[0]?.attributes).toMatchObject({
+      "input.mode": "steer",
+      "message.content": message.slice(0, 64 * 1024),
+      "message.id": "follow-up-1",
+      "message.role": "user",
+    })
+    expect(observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(length > 64 * 1024 ? true : undefined)
+  })
+
   it("exports product actions as execute_tool spans with ViteHub rendering semantics", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

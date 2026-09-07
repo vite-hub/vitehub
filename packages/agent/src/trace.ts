@@ -299,6 +299,7 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
         "message.content": value.message.slice(0, MAX_TRACE_TEXT_EVENT_LENGTH),
         "message.id": event.id,
         "message.role": "user",
+        ...(value.message.length > MAX_TRACE_TEXT_EVENT_LENGTH ? { "vitehub.observation.truncated": true } : {}),
       },
       name: "agent.input.message",
       type: "run",
