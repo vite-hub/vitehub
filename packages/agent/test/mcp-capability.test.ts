@@ -483,12 +483,14 @@ describe("mcp capability", () => {
     expect(second.close).toHaveBeenCalledTimes(1)
   })
 
-  it("attempts every owned client close when one fails", async () => {
+  it.each(["rejects", "throws"])("attempts every owned client close when one %s", async (failure) => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { mcp } = await import("../src/capabilities.ts")
     const first = createClient({ first: { execute: vi.fn() } })
     const second = createClient({ second: { execute: vi.fn() } })
-    second.close.mockRejectedValueOnce(new Error("second close failed"))
+    const error = new Error("second close failed")
+    if (failure === "throws") second.close.mockImplementationOnce(() => { throw error })
+    else second.close.mockRejectedValueOnce(error)
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [mcp({ servers: { first: () => first, second: () => second } })],

@@ -211,7 +211,9 @@ export function defineMcpToolCapability<
       const clients = clientsByContext.get(context) || []
       clientsByContext.delete(context)
       const errors: unknown[] = []
-      const closes = await Promise.allSettled(clients.splice(0).reverse().flatMap(client => client ? [client.close()] : []))
+      const closes = await Promise.allSettled(clients.splice(0).reverse().map(async client => {
+        await client?.close()
+      }))
       for (const result of closes) if (result.status === "rejected") errors.push(result.reason)
       if (errors.length === 1) throw errors[0]
       if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple MCP clients failed to close.")
