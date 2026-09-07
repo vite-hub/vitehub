@@ -45,6 +45,33 @@ function inspectableToolCapability() {
 }
 
 describe("Agent Invocations", () => {
+  it.each([2, 100, 400])("persists truncation when a bound journal cannot retain configuration in %i bytes", async (maxBytes) => {
+    const invocations = defineAgentInvocations({
+      configuration: "content",
+      observations: { maxBytes },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const runId = `unretainable-configuration-${maxBytes}`
+    const journal = await bindAgentInvocations(invocations, runtime(runId))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.running()
+    await journal.context.traceLog?.append({
+      name: "vitehub.agent.configured",
+      type: "run",
+      attributes: {
+        note: "x".repeat(400),
+        "vitehub.agent.configuration": { instructions: "x".repeat(1_000) },
+      },
+    })
+
+    await journal.finish("completed")
+
+    const record = await invocations.getByRunId(runId)
+    expect(record).toMatchObject({ observationsTruncated: true, status: "completed" })
+    expect(record?.observations).not.toContainEqual(expect.objectContaining({ name: "vitehub.agent.configured" }))
+    expect(new TextEncoder().encode(JSON.stringify(record?.observations)).byteLength).toBeLessThanOrEqual(maxBytes)
+  })
+
   it.each([2, 100, 400])("rejects configuration updates when the marker cannot fit a %i-byte budget", (maxBytes) => {
     expect(() => byteBoundedObservations([
       {
