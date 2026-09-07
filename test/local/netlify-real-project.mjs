@@ -174,7 +174,11 @@ async function writeFixtureFiles(overrides) {
 async function createProject({ packageSource, preview }) {
   await mkdir(baseDir, { recursive: true })
   await rm(appDir, { force: true, recursive: true })
-  run("vp", ["create", "vite:application", "--directory", appName, "--no-interactive", "--no-hooks", "--package-manager", "pnpm"], { cwd: baseDir })
+  const vitePlus = await readPackageJson(join(repoRoot, "node_modules/vite-plus/package.json"))
+  run("vp", ["create", "vite:application", "--directory", appName, "--no-interactive", "--no-hooks", "--package-manager", "pnpm"], {
+    cwd: baseDir,
+    env: { VP_VERSION: vitePlus.version },
+  })
 
   const overrides = packageSource === "local"
     ? await createLocalPackageSpecs(join(baseDir, "vitehub-packs"))
