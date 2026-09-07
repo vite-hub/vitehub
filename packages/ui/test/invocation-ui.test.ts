@@ -247,8 +247,22 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll(".vh-invocation-list__title").map(title => title.text())).toEqual(items.map(item => item.title));
   });
 
+  it("preserves completed status and default metadata without custom slots", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [{ id: "finished", status: "completed", title: "Support session", project: "Console", agent: "Helper", provider: "OpenAI" }],
+      },
+    });
+    const row = wrapper.get("button");
+    expect(row.text()).toContain("Done");
+    expect(row.get(".vh-invocation-list__state-icon svg").attributes("aria-hidden")).toBe("true");
+    expect(row.text()).toContain("Console");
+    expect(row.text()).toContain("Agent Helper");
+    expect(row.text()).toContain("Provider OpenAI");
+  });
+
   it("renders flat-list project and harness slots with the invocation item", () => {
-    const item = { id: "custom", status: "completed" as const, title: "Custom session" };
+    const item = { id: "custom", status: "completed" as const, title: "Custom session", agent: "Default agent", provider: "Default provider" };
     const wrapper = mount(AgentInvocationList, {
       props: { items: [item] },
       slots: {
@@ -259,6 +273,8 @@ describe("Agent Invocation UI", () => {
 
     expect(wrapper.get(".vh-invocation-list__project-icon").text()).toBe("Custom project");
     expect(wrapper.get(".vh-invocation-list__project-icon [data-slot-item]").attributes("data-slot-item")).toBe(item.id);
+    expect(wrapper.text()).not.toContain("Default agent");
+    expect(wrapper.text()).not.toContain("Default provider");
     expect(wrapper.get(".vh-invocation-list__harness").text()).toBe("Custom harness");
     expect(wrapper.get(".vh-invocation-list__harness [data-slot-item]").attributes("data-slot-item")).toBe(item.id);
   });
@@ -2273,7 +2289,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.emitted("endReached")).toHaveLength(2);
   });
 
-  it("shows statuses only when they communicate active or failed work", () => {
+  it("shows status labels for completed, queued, and failed work", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
         items: [
@@ -2284,7 +2300,7 @@ describe("Agent Invocation UI", () => {
       },
     });
 
-    expect(wrapper.get('[data-invocation-id="done"] .vh-invocation-list__state').text()).toBe("");
+    expect(wrapper.get('[data-invocation-id="done"] .vh-invocation-list__state').text()).toBe("Done");
     expect(wrapper.get('[data-invocation-id="queued"] .vh-invocation-list__state').text()).toBe("Queued");
     expect(wrapper.get('[data-invocation-id="failed"] .vh-invocation-list__state').text()).toBe("Failed");
   });
