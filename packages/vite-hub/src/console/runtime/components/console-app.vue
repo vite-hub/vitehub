@@ -839,6 +839,7 @@ onBeforeUnmount(() => {
       :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
       :ui="{
         root: 'md:flex',
+        header: 'p-0',
         body: 'gap-0 overflow-hidden p-0',
         footer: 'px-2 py-1',
         content: 'md:hidden',
@@ -921,7 +922,6 @@ onBeforeUnmount(() => {
                 <div class="flex items-start justify-between gap-3">
                   <div>
                     <p class="text-sm font-medium">Filter sessions</p>
-                    <p class="text-xs text-muted">Narrow the complete session history.</p>
                   </div>
                   <UBadge v-if="activeFilterCount" color="primary" size="sm" variant="subtle">{{ activeFilterCount }}</UBadge>
                 </div>
@@ -967,8 +967,7 @@ onBeforeUnmount(() => {
                     No filter values recorded yet.
                   </p>
                 </template>
-                <div class="flex items-center justify-between gap-2 border-t border-default pt-2">
-                  <p class="text-xs text-muted">Filters apply to all sessions.</p>
+                <div class="flex justify-end border-t border-default pt-2">
                   <UButton
                     color="neutral"
                     label="Reset"
