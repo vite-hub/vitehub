@@ -5782,7 +5782,7 @@ async function handleChatSdkMessages(
           : undefined
         if (!queuedThread.isDM && !queuedMessage.isMention) {
           if (queuedDelivery) await recordChannelDeliveryEvidence(queuedDelivery, { type: "rejected" })
-          if (requestDelivery && requestDelivery.delivery.id !== queuedDelivery?.delivery.id) {
+          if (queuedMessage === message && requestDelivery && requestDelivery.delivery.id !== queuedDelivery?.delivery.id) {
             await recordChannelDeliveryEvidence(requestDelivery, { type: "rejected" })
           }
           continue

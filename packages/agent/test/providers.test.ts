@@ -5736,6 +5736,75 @@ describe("server helpers", () => {
     expect(adapter.startTyping).not.toHaveBeenCalled()
   })
 
+  it("settles ignored serial messages without rejecting the active request", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-ignored-serial-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const run = vi.fn(async () => {
+      if (run.mock.calls.length === 1) {
+        started.resolve()
+        await release.promise
+      }
+      return "ok"
+    })
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { concurrency: "serial", state, stream: false, triggerHistory: "none" },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    const request = (id: number, isMention: boolean) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ update_id: id, message: {
+        chat: { id: 789, type: "group" },
+        from: { id: 123, username: "maxi" },
+        isMention,
+        message_id: id,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const options = { agentName: "support" }
+    try {
+      await state.connect()
+      const first = handler(request(2030, true), "telegram", options)
+      await started.promise
+      await expect(handler(request(2031, false), "telegram", options)).resolves.toMatchObject({ status: 200 })
+      await expect(handler(request(2032, true), "telegram", options)).resolves.toMatchObject({ status: 200 })
+      release.resolve()
+      await expect(first).resolves.toMatchObject({ status: 200 })
+      await expect(handler(request(2033, false), "telegram", options)).resolves.toMatchObject({ status: 200 })
+      expect(run).toHaveBeenCalledTimes(2)
+      const deliveries = await handler.deliveries(request(2033, false), "telegram", options)
+      for (const id of ["2031", "2033"]) {
+        const delivery = deliveries.find(delivery => delivery.sourceId === id)
+        expect(delivery?.status).toBe("rejected")
+        expect(delivery?.events.filter(event => ["rejected", "completed", "failed"].includes(event.type)).map(event => event.type)).toEqual(["rejected"])
+      }
+      for (const id of ["2030", "2032"]) {
+        const delivery = deliveries.find(delivery => delivery.sourceId === id)
+        expect(delivery?.status).toBe("completed")
+        expect(delivery?.events.some(event => event.type === "rejected")).toBe(false)
+      }
+    } finally {
+      release.resolve()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("accepts an unmentioned direct message", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
