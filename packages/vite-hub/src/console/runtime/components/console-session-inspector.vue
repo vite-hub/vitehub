@@ -237,7 +237,7 @@ async function openWorkspaceInstructions() {
   openView("workspace");
   if (!workspace.value) await loadWorkspace();
   if (props.invocation.id !== invocationId) return;
-  // Agent instructions live at the workspace root; a source's AGENTS.md is unrelated.
+  if (!workspace.value?.paths.includes("AGENTS.md")) return;
   openFile("AGENTS.md");
 }
 
@@ -620,10 +620,10 @@ function message(error: unknown) {
           </p>
         </section>
         <section v-if="props.workspaceBase" class="session-inspector__instruction-fallback">
-          <h4>System instructions</h4>
-          <p>Open the current agent instructions from the live workspace.</p>
+          <h4>Workspace instructions</h4>
+          <p>Inspect the root AGENTS.md when this Workspace provides one.</p>
           <button v-if="props.workspaceBase" type="button" @click="openWorkspaceInstructions">
-            <UIcon name="i-lucide-file-text" />Open AGENTS.md in Workspace<UIcon
+            <UIcon name="i-lucide-file-text" />Find root AGENTS.md in Workspace<UIcon
               name="i-lucide-arrow-right"
             />
           </button>

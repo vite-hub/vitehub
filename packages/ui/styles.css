@@ -2814,3 +2814,14 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 .vh-agent-tool-list__properties small { display: block; color: var(--ui-text-muted); }
 .vh-agent-tool-list__schema pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .vh-agent-tool-list__unavailable { color: var(--ui-text-muted); font-size: 0.6875rem; }
+.vh-channel-icon {
+  display: inline-flex;
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+
+.vh-channel-icon svg {
+  width: 100%;
+  height: 100%;
+}

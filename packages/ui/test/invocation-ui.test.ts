@@ -774,7 +774,7 @@ describe("Agent Invocation UI", () => {
     expect(prompt.get('button[aria-label="Copied"]').text()).toBe("Copied");
   });
 
-  it("collapses Teams history and renders one trigger, work summary, and final answer", () => {
+  it("collapses Teams history and renders one trigger, work summary, and final answer", async () => {
     const timestamp = "2026-08-22T14:35:00.000Z";
     const history = Array.from({ length: 49 }, (_, index) => ({
       id: `history-${index}`,
@@ -821,6 +821,12 @@ describe("Agent Invocation UI", () => {
         timestamp,
         type: "lifecycle" as const,
       }, {
+        attributes: { "channel.effect.intent": "failed", "channel.effect.kind": "reaction" },
+        name: "agent.channel.delivery",
+        sequence: 5.5,
+        timestamp,
+        type: "run" as const,
+      }, {
         attributes: { "channel.delivery.provider": "msteams", "channel.effect.content": "The order multiple comes from BC.", "channel.effect.kind": "reply" },
         name: "agent.channel.delivery",
         sequence: 6,
@@ -845,7 +851,12 @@ describe("Agent Invocation UI", () => {
     expect(rows[4]!.text()).toContain("The order multiple comes from BC.");
     expect(wrapper.text().match(/The order multiple comes from BC\./g)).toHaveLength(1);
     expect(wrapper.text()).not.toContain("Order multiple source");
-    expect(wrapper.find('[data-kind="delivery"]').exists()).toBe(true);
+    const work = rows[2]!.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    expect(wrapper.findAll('[data-kind="delivery"]')).toHaveLength(2);
+    expect(rows[2]!.find('[data-kind="delivery"]').exists()).toBe(true);
   });
 
   it("does not announce message copy success when the clipboard rejects", async () => {
