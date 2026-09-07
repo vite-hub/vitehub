@@ -114,6 +114,9 @@ it("uses server-backed session filters and a larger initial page", () => {
   expect(consolePage).toContain("limit: 50");
   expect(consolePage).toContain("Used capability");
   expect(consolePage).toContain("Triggered by");
+  expect(consolePage).toContain('@end-reached="loadMoreSessions"');
+  expect(consolePage).toContain("No matching sessions");
+  expect(consolePage).toContain("Clear filters");
   expect(consolePage).not.toContain('icon: "i-ph-robot-light"');
 });
 

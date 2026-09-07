@@ -190,8 +190,13 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
 
   if (path === "/api/_vitehub/console/invocation-capabilities") {
+    const agentName = url.searchParams.get("agent") || undefined
     json(response, {
-      capabilities: await invocations.listCapabilityIds(url.searchParams.get("agent") || undefined),
+      capabilities: await invocations.listCapabilityIds(agentName),
+      triggeredBy: [...new Set(fixture.invocations
+        .filter(invocation => !agentName || invocation.agentName === agentName)
+        .map(invocation => invocation.annotations?.triggeredBy)
+        .filter((value): value is string => Boolean(value)))].sort(),
     })
     return true
   }
@@ -222,7 +227,9 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     })
     json(response, {
       ...page,
-      invocations: await Promise.all(page.invocations.map(async (item) => {
+      invocations: await Promise.all(page.invocations
+        .filter(item => !url.searchParams.get("triggeredBy") || item.annotations?.triggeredBy === url.searchParams.get("triggeredBy"))
+        .map(async (item) => {
         const record = await invocations.get(item.id)
         const usage = record ? invocationUsage(record) : undefined
         return { ...item, ...(usage ? { usage } : {}) }

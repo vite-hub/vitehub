@@ -493,6 +493,11 @@ function resetSessionFilters(): void {
   void applySessionFilters();
 }
 
+function loadMoreSessions(): void {
+  if (!list.cursor.value || list.isLoadingMore.value || list.loadMoreError.value) return;
+  void list.loadMore();
+}
+
 async function toggleUsage(): Promise<void> {
   sessionsOpen.value = false;
   if (isUsageRoute.value) {
@@ -1049,6 +1054,7 @@ onBeforeUnmount(() => {
           :remaining-statuses="list.remainingStatuses.value"
           :now="nowMs"
           :selected-id="selectedInvocationId"
+          @end-reached="loadMoreSessions"
           @select="selectInvocation($event)"
         >
           <template #loading />
@@ -1060,7 +1066,7 @@ onBeforeUnmount(() => {
                 size="xs"
                 variant="soft"
                 :loading="list.isLoadingMore.value"
-                @click="list.loadMore()"
+                @click="loadMoreSessions"
               />
             </div>
           </template>
@@ -1068,8 +1074,9 @@ onBeforeUnmount(() => {
             ><UEmpty
               class="px-4"
               icon="i-ph-chat-dots-light"
-              title="No sessions yet"
-              description="The first Agent Invocation will appear here."
+              :title="activeFilterCount ? 'No matching sessions' : 'No sessions yet'"
+              :description="activeFilterCount ? undefined : 'The first Agent Invocation will appear here.'"
+              :actions="activeFilterCount ? [{ label: 'Clear filters', onClick: resetSessionFilters }] : undefined"
           /></template>
         </AgentInvocationList>
       </template>

@@ -13,6 +13,9 @@
       "startedAt": "2026-09-07T12:00:00.000Z",
       "updatedAt": "2026-09-07T12:00:08.000Z",
       "completedAt": "2026-09-07T12:00:08.000Z",
+      "annotations": {
+        "triggeredBy": "Ferdinand"
+      },
       "observations": [
         {
           "name": "agent.invocation.started",
@@ -70,6 +73,18 @@
             ]
           },
           "sequence": 1,
+          "timestamp": "2026-09-07T12:00:00.000Z",
+          "type": "run",
+          "trace": {
+            "id": "trace_history_math"
+          }
+        },
+        {
+          "name": "vitehub.capability.used",
+          "attributes": {
+            "capability.id": "eve.pkg-_agithub-tools_seve-extension"
+          },
+          "sequence": 1.5,
           "timestamp": "2026-09-07T12:00:00.000Z",
           "type": "run",
           "trace": {
