@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { WorkspaceStore } from "../src/index.ts"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
-import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } from "../src/sources/view.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
@@ -122,6 +122,62 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/foo.md")).resolves.toBe("# Source view\n")
     await expect(view.writeFile("docs/foo.md", "nope")).rejects.toThrow("read-only")
     await expect(view.writeFile("generated/result.md", "ok")).resolves.toBe("generated/result.md")
+  })
+
+  it("materializes startup Sources during the first recursive root listing", async () => {
+    const store = createMemoryWorkspaceStore()
+    const list = vi.spyOn(store, "list")
+    const view = createWorkspaceSourceView({
+      name: "startup-root-list",
+      sources: {
+        instructions: {
+          content: "# Instructions\n",
+          materialize: "startup",
+          mount: "",
+          workspacePath: "AGENTS.md",
+        },
+        skill: {
+          content: new TextEncoder().encode("# Review\n"),
+          materialize: "startup",
+          mount: "",
+          workspacePath: ".agents/skills/review/SKILL.md",
+        },
+      },
+    }, store)
+
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+      expect.objectContaining({ path: ".agents/skills/review/SKILL.md", type: "file" }),
+    ]))
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# Instructions\n" })
+    await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Review\n"),
+    })
+    expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not let snapshot-reusing inspection suppress normal startup refresh", async () => {
+    const getKeys = vi.fn(async () => ["AGENTS.md"])
+    const definition = {
+      name: "startup-inspection-isolation",
+      sources: {
+        instructions: custom({
+          materialize: "startup" as const,
+          mount: "",
+          getKeys,
+          async getItem(key: string) { return { key, content: "# Instructions\n" } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await invalidateWorkspaceSourceMaterialization(definition, store, ["instructions"])
+    await createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true }).list("", { recursive: true })
+    expect(getKeys).toHaveBeenCalledOnce()
+
+    await createWorkspaceSourceView(definition, store).list("", { recursive: true })
+    expect(getKeys).toHaveBeenCalledTimes(2)
   })
 
   it("normalizes keyed source mounts and cache defaults", () => {

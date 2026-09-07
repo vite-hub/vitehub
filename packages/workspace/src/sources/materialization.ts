@@ -268,12 +268,13 @@ async function removeStaleMaterializedSourceFiles(
   previousPaths = new Set<string>(),
   onRemoved?: (path: string, bytes: number) => void,
 ) {
-  const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
+  const entries = source.mountPath
+    ? await store.list(source.mountPath, { recursive: true })
+    : await Promise.all([...previousPaths].map(async path => await store.stat(path)))
   for (const entry of entries) {
-    if (!materializationPathMatches(entry.path, scope)) continue
-    if (nextPaths.has(entry.path) || entry.type !== "file") continue
+    if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     const currentOwner = file?.metadata?.source
     const overlapsAnotherSource = sources.some(candidate =>
@@ -287,9 +288,9 @@ async function removeStaleMaterializedSourceFiles(
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
   }
-  for (const entry of entries.filter(entry => entry.type === "directory" && staleDirectories.has(entry.path) && !nextDirectories.has(entry.path)).sort((a, b) => b.path.length - a.path.length)) {
+  for (const path of [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)) {
     try {
-      await control.mutate(() => store.rm(entry.path, { force: true }))
+      await control.mutate(() => store.rm(path, { force: true }))
     }
     catch {}
   }
