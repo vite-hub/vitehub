@@ -1549,7 +1549,7 @@ interface ProviderSourceProvenance {
 }
 
 function providerSourceProvenance(context: AgentAdapterRunContext, materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>): ProviderSourceProvenance[] {
-  if (!materialized || !context.workspaceDefinition?.sources) return []
+  if (!materialized?.ready || !context.workspaceDefinition?.sources) return []
   let metadata
   try {
     metadata = new Map(normalizeWorkspaceSourcesMetadata(context.workspaceDefinition.sources).map(source => [source.key, source]))
@@ -1561,8 +1561,11 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
     if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(status.revision.id)) return []
     const source = metadata.get(status.source)
     if (!source || source.mountPath !== status.mountPath) return []
-    const fingerprint = source?.source.fingerprint
-    if (!isRuntimeRecord(fingerprint)) return []
+    const sourceFingerprint = source.source.fingerprint
+    if (!isRuntimeRecord(sourceFingerprint)) return []
+    let fingerprint = sourceFingerprint
+    if (isRuntimeRecord(fingerprint.sourceResolution) && isRuntimeRecord(fingerprint.source)) fingerprint = fingerprint.source
+    if (fingerprint.inferredSource === "github" && isRuntimeRecord(fingerprint.options)) fingerprint = fingerprint.options
     const repo = fingerprint.repo
     const root = fingerprint.root ?? ""
     if (!hasRuntimeType(repo, "string") || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return []

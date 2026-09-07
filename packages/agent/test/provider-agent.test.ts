@@ -3498,7 +3498,7 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
-  it("supplies verified GitHub source provenance without serializing unsafe source configuration", async () => {
+  it.each(["direct", "inferred", "resolved", "resolved-inferred"])("supplies verified %s GitHub source provenance without serializing unsafe source configuration", async (form) => {
     const threadId = "thread-source-provenance"
     let root = ""
     let instructions = ""
@@ -3532,6 +3532,13 @@ cli_auth_credentials_store = "keyring"
       async getKeys() { return [] },
       name: "github",
     })
+    const options = { repo: "quiverdk/forecasting-engine", auth: "secret-provenance-token" }
+    const fingerprint = form === "resolved-inferred"
+      ? { inferredSource: "github", options }
+      : { repo: options.repo }
+    const engine = form === "direct" ? github(options)
+      : form === "inferred" ? options
+        : source({ source: fingerprint, sourceResolution: {} })
     const workspace = { fs: {}, materializeSources, startSession: vi.fn(async (options: { target: string }) => { root = options.target; return session }), tools: {} }
 
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
@@ -3540,7 +3547,7 @@ cli_auth_credentials_store = "keyring"
         name: "docs",
         sources: {
           custom: source({ repo: "owner/custom", root: "" }),
-          engine: { mount: "references/engine", source: github({ repo: "quiverdk/forecasting-engine" }) },
+          engine: { mount: "references/engine", source: engine },
           mismatched: { mount: "references/expected", source: source({ repo: "owner/mismatched", root: "" }) },
           mutable: source({ repo: "owner/mutable", root: "" }),
           unsafe: source({ repo: "https://token@github.com/owner/repo?auth=secret", root: "" }),
@@ -3551,6 +3558,8 @@ cli_auth_credentials_store = "keyring"
     expect(instructions).toContain('"mount": "references/engine"')
     expect(instructions).toContain('"root": ""')
     expect(instructions).toContain(`"id": "${"a".repeat(40)}"`)
+    expect(instructions).toContain("https://github.com/quiverdk/forecasting-engine")
+    expect(instructions).not.toContain("secret-provenance-token")
     expect(instructions).not.toContain("token@")
     expect(instructions).not.toContain("auth=secret")
     expect(instructions).not.toContain("owner/mutable")
@@ -3634,7 +3643,11 @@ cli_auth_credentials_store = "keyring"
 
   it("keeps session materialization enabled after selected Source errors", async () => {
     const threadId = "thread-workspace-materialization-error"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    let root = ""
+    let instructions = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { instructions = await readFile(`${root}/AGENTS.md`, "utf8") },
+    })
     const session = {
       close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
@@ -3648,17 +3661,25 @@ cli_auth_credentials_store = "keyring"
       durationMs: 0,
       files: 0,
       path: "",
-      sources: [{ source: "docs", status: "error" }],
+      sources: [
+        { source: "docs", status: "error" },
+        { mountPath: "engine", provider: "github", revision: { id: "a".repeat(40), immutable: true }, source: "engine", status: "ready" },
+      ],
     }))
-    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async () => session), tools: {} }
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async (options: { target: string }) => {
+      root = options.target
+      await writeFile(`${root}/AGENTS.md`, "native instructions after rematerialization")
+      return session
+    }), tools: {} }
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
       workspace,
-      workspaceDefinition: { name: "docs" },
+      workspaceDefinition: { name: "docs", sources: { engine: github({ repo: "owner/engine" }) } },
     }) as never)
 
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ materializeSources: false }))
+    expect(instructions).toBe("native instructions after rematerialization")
   })
 
   it("keeps colocated Skills readable and out of Workspace writeback", async () => {
