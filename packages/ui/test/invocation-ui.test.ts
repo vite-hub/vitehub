@@ -247,6 +247,22 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll(".vh-invocation-list__title").map(title => title.text())).toEqual(items.map(item => item.title));
   });
 
+  it("renders flat-list project and harness slots with the invocation item", () => {
+    const item = { id: "custom", status: "completed" as const, title: "Custom session" };
+    const wrapper = mount(AgentInvocationList, {
+      props: { items: [item] },
+      slots: {
+        harness: ({ item: slotItem }) => h("span", { "data-slot-item": slotItem.id }, "Custom harness"),
+        projectIcon: ({ item: slotItem }) => h("span", { "data-slot-item": slotItem.id }, "Custom project"),
+      },
+    });
+
+    expect(wrapper.get(".vh-invocation-list__project-icon").text()).toBe("Custom project");
+    expect(wrapper.get(".vh-invocation-list__project-icon [data-slot-item]").attributes("data-slot-item")).toBe(item.id);
+    expect(wrapper.get(".vh-invocation-list__harness").text()).toBe("Custom harness");
+    expect(wrapper.get(".vh-invocation-list__harness [data-slot-item]").attributes("data-slot-item")).toBe(item.id);
+  });
+
   it("does not render lifecycle headings or counts", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {

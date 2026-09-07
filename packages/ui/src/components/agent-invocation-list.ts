@@ -1,5 +1,5 @@
 import { channelIcon } from "../internal/channel-icon.ts";
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, watch } from "vue";
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "../types.ts";
 
 function statusLabel(status: AgentInvocationStatus): string {
@@ -59,6 +59,8 @@ function renderItem(
   selectedId: string | undefined,
   now: number | undefined,
   select: (item: AgentInvocationListItem) => void,
+  projectIconSlot?: Slot,
+  harnessSlot?: Slot,
 ) {
   const timestamp = item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt;
   const time = relativeTime(timestamp, now);
@@ -74,7 +76,9 @@ function renderItem(
     }, [
       h("strong", { class: "vh-invocation-list__title", title: item.title }, item.title),
       h("span", { class: "vh-invocation-list__meta" }, [
+        projectIconSlot ? h("span", { class: "vh-invocation-list__project-icon" }, projectIconSlot({ item })) : null,
         item.context ? h("span", { class: "vh-invocation-list__branch" }, item.context) : null,
+        harnessSlot ? h("span", { class: "vh-invocation-list__harness" }, harnessSlot({ item })) : null,
         h("span", { class: "vh-invocation-list__state", title: item.description }, [
           item.status === "completed" ? null : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
           item.status === "completed" ? null : h("span", statusLabel(item.status)),
@@ -176,7 +180,7 @@ export const AgentInvocationList = defineComponent({
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
       props.items.length
-        ? h("ul", { "aria-busy": props.loading ? "true" : undefined, class: "vh-invocation-list__group-items" }, props.items.map(item => renderItem(item, props.selectedId, props.now, select)))
+        ? h("ul", { "aria-busy": props.loading ? "true" : undefined, class: "vh-invocation-list__group-items" }, props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
         : null,
       props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading", role: "status" }, "Loading sessions…") : null,
       slots.footer?.({ items: props.items }),

@@ -26,6 +26,23 @@ describe("UI server rendering", () => {
     expect(await renderToString(custom)).toContain("Custom image");
   });
 
+  it("composes custom Markdown plugins with built-in math support", async () => {
+    let customPluginRuns = 0;
+    const app = createSSRApp({
+      render: () => h(AgentMarkdown, {
+        plugins: [{
+          name: "custom",
+          markdownItPlugins: [() => { customPluginRuns++; }],
+        }],
+        value: "Inline $x$",
+      }),
+    });
+
+    const html = await renderToString(app);
+    expect(customPluginRuns).toBe(1);
+    expect(html).toContain("katex");
+  });
+
   it("renders runtime Nuxt UI components through the Vue plugin", async () => {
     const app = createSSRApp({
       render: () =>

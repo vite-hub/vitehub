@@ -27,6 +27,7 @@ export const AgentMarkdown = defineComponent({
   props: {
     components: { type: Object as PropType<MarkdownProps["components"]> },
     options: { type: Object as PropType<MarkdownProps["options"]> },
+    plugins: { type: Array as PropType<MarkdownProps["plugins"]> },
     streaming: { default: false, type: Boolean },
     value: { default: "", type: String },
   },
@@ -37,7 +38,7 @@ export const AgentMarkdown = defineComponent({
         ...attrs,
         class: [defaults.markdown.class, attrs.class],
         components: { img: ImagePreview, math: AgentMath, ...props.components },
-        plugins: [markdownMath, ...(props.options?.plugins ?? [])],
+        plugins: [markdownMath, ...(props.plugins ?? []), ...(props.options?.plugins ?? [])],
         options: { ...props.options, streaming: props.streaming },
         value: props.value,
       });
