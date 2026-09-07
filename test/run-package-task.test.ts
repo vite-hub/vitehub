@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -58,6 +58,49 @@ async function runFixture(packages: string[], env: NodeJS.ProcessEnv = {}) {
 }
 
 describe("package task runner", () => {
+  it.each([
+    "",
+    "vp run -t @fixture/compound#build && ",
+    "vp run -t @fixture/shared#build && vp run -t @fixture/compound#build && ",
+  ])("runs all test commands without replaying completed builds: %s", async (buildPrefix) => {
+    const log = await tempFile("events.log")
+    const workspace = join(log, "..")
+    const packageDir = join(workspace, "packages/compound")
+    const binDir = join(workspace, "node_modules/.bin")
+    await mkdir(packageDir, { recursive: true })
+    await mkdir(binDir, { recursive: true })
+    await writeFile(join(workspace, "package.json"), JSON.stringify({ private: true, packageManager: "pnpm@10.33.0" }))
+    await writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n")
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({
+      name: "@fixture/compound",
+      dependencies: { "@fixture/shared": "workspace:*" },
+      scripts: { build: "vp pack compound", test: `${buildPrefix}vp test && vp test --config workerd.config.ts` },
+    }))
+    const sharedDir = join(workspace, "packages/shared")
+    await mkdir(sharedDir, { recursive: true })
+    await writeFile(join(sharedDir, "package.json"), JSON.stringify({
+      name: "@fixture/shared",
+      scripts: { build: "vp pack shared" },
+    }))
+    const fakeVp = join(binDir, "vp")
+    await writeFile(fakeVp, [
+      "#!/usr/bin/env node",
+      'const { appendFileSync } = require("node:fs")',
+      'appendFileSync(process.env.VITEHUB_FIXTURE_LOG, JSON.stringify(process.argv.slice(2)) + "\\n")',
+      'if (process.argv.includes("--config")) process.exitCode = 7',
+    ].join("\n"))
+    await chmod(fakeVp, 0o755)
+    await writeFile(`${fakeVp}.cmd`, `@node "${fakeVp}" %*`)
+
+    const result = await execFileAsync(process.execPath, [runner, "test", "--workspace", workspace], {
+      env: { ...process.env, VITEHUB_FIXTURE_LOG: log },
+    }).then(result => ({ ...result, code: 0 }), (error: Error & { code: number, stdout: string }) => error)
+
+    expect(result.code, result.stdout).toBe(7)
+    expect(await readFile(log, "utf8")).toBe('["pack","shared"]\n["pack","compound"]\n["test"]\n["test","--config","workerd.config.ts"]\n')
+    expect(result.stdout).toContain("FAIL @fixture/compound")
+  }, 30_000)
+
   it("aggregates independent failures, skips dependents, and builds the diamond once", async () => {
     const result = await runFixture(
       ["@fixture/app", "@fixture/core", "@vite-hub/env", "@vite-hub/markdown-template", "@vite-hub/runtime"],

@@ -1,9 +1,15 @@
+import { readFileSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("node:fs", async importOriginal => {
+  const fs = await importOriginal<typeof import("node:fs")>()
+  return { ...fs, readFileSync: vi.fn(fs.readFileSync) }
+})
 
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
@@ -213,6 +219,27 @@ function dependencyPluginByName(plugins: PluginOption[], name: string): Plugin {
 }
 
 describe("vitehub", () => {
+  it("reads owner manifests only when provider output needs aliases and reuses the result", async () => {
+    vi.resetModules()
+    vi.mocked(readFileSync).mockClear()
+    const ownerManifestPaths = new Set(generatedOwnerPackageCases
+      .filter(([, access]) => access === "resolve")
+      .map(([name]) => fileURLToPath(import.meta.resolve(`${name}/package.json`))))
+    const ownerReads = () => vi.mocked(readFileSync).mock.calls
+      .filter(([path]) => typeof path === "string" && ownerManifestPaths.has(path))
+    const { vitehub: freshVitehub } = await import("../src/index.ts")
+    const plugins = freshVitehub({ preset: "node" })
+    // SAFETY: The named dependency plugin owns the provider-output alias callback.
+    const plugin = dependencyPluginByName(plugins, "vite-hub/dependencies") as ProviderImportPlugin
+
+    expect(ownerReads()).toHaveLength(0)
+    const aliases = await plugin.vitehub.providerOutput.getImportAliases()
+    expect(aliases["@vite-hub/agent"]).toBe(fileURLToPath(import.meta.resolve("@vite-hub/agent")))
+    expect(ownerReads()).toHaveLength(ownerManifestPaths.size)
+    expect(await plugin.vitehub.providerOutput.getImportAliases()).toBe(aliases)
+    expect(ownerReads()).toHaveLength(ownerManifestPaths.size)
+  })
+
   it("serializes the built-in Provider Output finalizer", () => {
     const output = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-output")
 

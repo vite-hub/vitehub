@@ -31,14 +31,15 @@ function isNestedUnder(path: string, prefix: string) {
   return !prefix || path === prefix || path.startsWith(`${prefix}/`)
 }
 
-function createDirectorySet(paths: string[]) {
+function createDirectorySet(paths: string[], prefix: string) {
   const directories = new Set<string>()
+  const start = prefix ? prefix.length + 1 : 0
 
   for (const path of paths) {
-    const segments = normalizeSourcePath(path).split("/").filter(Boolean)
-    for (let index = 1; index < segments.length; index++) {
-      directories.add(segments.slice(0, index).join("/"))
-    }
+    const normalized = normalizeSourcePath(path).split("/").filter(Boolean).join("/")
+    if (prefix && !normalized.startsWith(`${prefix}/`)) continue
+    const end = normalized.indexOf("/", start)
+    if (end !== -1) directories.add(normalized.slice(0, end))
   }
 
   return directories
@@ -108,14 +109,10 @@ export function createSource(source: Source, context?: Partial<SourceContext>) {
       await ensurePrepared()
       const normalizedPrefix = prefix ? normalizeSafeSourcePath(prefix, { allowEmpty: true }) : ""
       const sourceKeys = await keys()
-      const directories = createDirectorySet(sourceKeys)
+      const directories = createDirectorySet(sourceKeys, normalizedPrefix)
       const result = new Map<string, SourceListEntry<string>>()
 
       for (const directory of directories) {
-        if (directory === normalizedPrefix) continue
-        if (!isNestedUnder(directory, normalizedPrefix)) continue
-        const rest = normalizeSourcePath(directory.slice(normalizedPrefix.length)).replace(/^\//, "")
-        if (rest.includes("/")) continue
         result.set(directory, { key: directory, type: "directory" })
       }
 
