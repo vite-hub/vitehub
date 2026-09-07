@@ -25,6 +25,8 @@ export interface PublicPackageBinContract {
 
 const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/agent", ["@vite-hub/workflow"]],
+  ["@vite-hub/agent/evlog", ["evlog"]],
+  ["@vite-hub/agent/evlog/posthog", ["evlog", "posthog-node"]],
   ["@vite-hub/agent/eval", ["evalite", "vitest"]],
   ["@vite-hub/agent/runtime/workflow", ["@vite-hub/workflow"]],
   ["@vite-hub/auth/agent", ["@vite-hub/agent"]],
@@ -40,6 +42,8 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/workflow/runtime/openworkflow", ["openworkflow"]],
   ["@vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
   ["vite-hub", ["vite"]],
+  ["vite-hub/agent/evlog", ["evlog"]],
+  ["vite-hub/agent/evlog/posthog", ["evlog", "posthog-node"]],
   ["vite-hub/agent/eval", ["evalite", "vitest"]],
   ["vite-hub/browser/controllers/playwright", ["playwright-core"]],
   ["vite-hub/nuxt", ["vite"]],
