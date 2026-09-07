@@ -2576,6 +2576,33 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it.each(["running", "failed"] as const)("keeps commentary before later tools in a prompted %s session", async (status) => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "prompted-commentary",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check this" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "message.content": "Checking the fix.", "message.phase": "commentary", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" },
+        { attributes: { "tool.id": "check", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 3, timestamp, type: "run" },
+      ],
+      status,
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.findAll(".vh-invocation-activities > .vh-invocation-message")).toHaveLength(1);
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    const activities = wrapper.get(".vh-invocation-work__activities");
+    expect(activities.text()).toContain("Checking the fix.");
+    expect(activities.text().indexOf("Checking the fix.")).toBeLessThan(activities.text().indexOf("Shell"));
+    wrapper.unmount();
+  });
+
   it("keeps nested truncation local to its activity", () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const invocation = {

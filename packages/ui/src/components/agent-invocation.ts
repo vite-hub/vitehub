@@ -1453,7 +1453,8 @@ function renderInvocationActivities(
   const firstUser = promptActivityIndex(orderedActivities);
   let lastAssistant = -1;
   for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
-    if (index > firstUser && orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "assistant") {
+    const activity = orderedActivities[index]!;
+    if (index > firstUser && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary") {
       lastAssistant = index;
       break;
     }
