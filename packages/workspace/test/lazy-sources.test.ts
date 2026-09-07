@@ -255,6 +255,7 @@ describe("lazy sources", () => {
       },
     }
     await createWorkspaceSourceView(initial, store).materializeSources()
+    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed" } })
     await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "removed" })
 
     const next = { name: initial.name, sources: { retained } }
