@@ -38,6 +38,24 @@ describe("CI merge gate", () => {
     expect(result.status, result.stderr).toBe(0)
   })
 
+  it("requires the default success condition across all consumer matrix shards", () => {
+    const marker = workflow.jobs["consumer-contracts-success"]
+    expect(marker?.needs).toEqual(["consumer-contracts"])
+    expect(marker?.if).toBeUndefined()
+  })
+
+  it.each(["push", "workflow_dispatch"])("rejects a partial matrix rerun with failed shards on %s", (event) => {
+    // A partial rerun can report matrix success while the default success()
+    // condition still skips the marker because another shard remains failed.
+    const result = runGate({
+      ...successfulJobs,
+      "consumer-contracts": { result: "success" },
+      "consumer-contracts-success": { result: "skipped" },
+    }, event)
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain("consumer-contracts-success: skipped")
+  })
+
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
       result: ["checks", "package-tests"].includes(name) ? "success" : "skipped",
