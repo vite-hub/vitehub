@@ -1262,7 +1262,7 @@ describe("Agent telemetry", () => {
     expect(exports.find(exported => exported.signal === "logs")?.records).toEqual(expect.arrayContaining([
       expect.objectContaining({ eventName: "agent.invocation.cancelled", severityText: "ERROR" }),
     ]))
-    expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ status: expect.objectContaining({ code: "ERROR" }) })] })
+    expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ status: expect.objectContaining({ code: "UNSET" }) })] })
   })
 
   it("coalesces live changes behind one blocked export and sends terminal telemetry next", async () => {
