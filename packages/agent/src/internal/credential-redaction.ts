@@ -171,8 +171,9 @@ const maxCredentialStructureDepth = 128
 
 function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
   const line = source.slice(0, offset).split(/\r\n|[\r\n]/).at(-1) ?? ""
-  const yamlIndent = /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
-  const yamlFlow = /[{,]\s*$/.test(line) && prefix.trimEnd().endsWith(":")
+  // Flow separators remain significant when the next key starts on a new line.
+  const yamlFlow = /[{[,]\s*$/.test(source.slice(0, offset)) && prefix.trimEnd().endsWith(":")
+  const yamlIndent = !yamlFlow && /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
   return { escaped: false, started: false, ...(yamlIndent === undefined ? {} : { yamlIndent }), ...(yamlFlow ? { yamlFlow } : {}) }
 }
 
@@ -417,7 +418,7 @@ export function credentialTextLineContext(value: string): string {
   }
   const lastLine = block.line
   if (/^ *- *$/.test(lastLine)) return lastLine
-  const flowBoundary = /[{,][\t ]*$/.exec(lastLine)?.[0]
+  const flowBoundary = /[{[,][\t \r\n]*$/.exec(value)?.[0]
   if (flowBoundary) return flowBoundary
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
   if (authorizationHeader) return "Authorization: "

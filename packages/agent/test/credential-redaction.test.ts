@@ -24,6 +24,10 @@ it.each([
   ["{password: ", "}"],
   ["config: {password: ", ", status: ok}"],
   ["{status: ok, secret: ", "}"],
+  ["config: {status: ok,\n  password: ", ",\n  status: ok}"],
+  ["config: {\n  password: ", ", status: ok}"],
+  ["config: {status: ok,\r\n  password: ", "}"],
+  ["config: [\n  password: ", "]"],
 ])("redacts YAML flow mapping values after %s", (prefix, suffix) => {
   expect(redactCredentialText(prefix + "sensitive value" + suffix)).toBe(prefix + "[REDACTED]" + suffix)
   const keyStart = prefix.search(/(?:password|secret):/)
