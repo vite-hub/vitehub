@@ -65,6 +65,32 @@ describe("Agent Invocations", () => {
       .toEqual(["A1", "B1", "A2", "This is "])
   })
 
+  it.each([
+    ["Authorization: token ", "ghp_sensitive", ";status=ok"],
+    ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
+    ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
+    ['{"authorization":"Custom-Auth ', "sensitive-value", '", "status":"ok"}'],
+  ])("redacts bounded custom authorization headers: %s", async (prefix, credential, suffix) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const padding = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of [padding, ...(prefix + credential + suffix)]) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "custom-auth", "message.content": character } })
+          // Force each retained header fragment through an intervening-event flush.
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("custom-authorization"), {})
+    const observations = (await invocations.getByRunId("custom-authorization"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(padding + prefix + "[REDACTED]" + suffix)
+  })
+
   it.each([2, 100, 400])("rejects configuration updates when the marker cannot fit a %i-byte budget", (maxBytes) => {
     expect(() => byteBoundedObservations([
       {

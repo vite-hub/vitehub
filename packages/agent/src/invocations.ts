@@ -2,10 +2,10 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { consumeCredentialAssignment, credentialTextMayContinue, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
+import { consumeAuthorization, consumeCredentialAssignment, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
-import type { CredentialAssignmentState } from "./internal/credential-redaction.ts"
+import type { AuthorizationState, CredentialAssignmentState } from "./internal/credential-redaction.ts"
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
@@ -1269,7 +1269,7 @@ function journalTraceLog(
   let activeMessageDeltaKey: string | undefined
   const precedingMessageText = new Map<string, string>()
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
-  const redactingCredentialDeltas = new Map<string, { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
+  const redactingCredentialDeltas = new Map<string, { kind: "authorization", state: AuthorizationState } | { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1300,7 +1300,11 @@ function journalTraceLog(
         const quote = pendingCredentialQuote(content, precedingText)
         const scheme = pendingCredentialScheme(content, precedingText)
         const assignment = pendingCredentialAssignmentState(content)
-        if (assignment) {
+        const authorization = pendingAuthorizationState(content)
+        if (authorization) {
+          redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
+        }
+        else if (assignment) {
           redactingCredentialDeltas.set(key, { kind: "shell", state: assignment })
           // Complete only the persisted placeholder; the scanner retains the raw state.
           if (!assignment.started) content += "[REDACTED]"
@@ -1386,8 +1390,10 @@ function journalTraceLog(
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
-      if (redaction.kind === "shell") {
-        const boundary = consumeCredentialAssignment(content, redaction.state)
+      if (redaction.kind === "shell" || redaction.kind === "authorization") {
+        const boundary = redaction.kind === "authorization"
+          ? consumeAuthorization(content, redaction.state)
+          : consumeCredentialAssignment(content, redaction.state)
         if (boundary === content.length) return
         redactingCredentialDeltas.delete(key)
         content = content.slice(boundary)

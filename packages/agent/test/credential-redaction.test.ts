@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { consumeCredentialAssignment, credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
+import { consumeAuthorization, consumeCredentialAssignment, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
 describe("structured credential redaction", () => {
   it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: BASIC"])("redacts quoted %s values", (scheme) => {
@@ -301,4 +301,28 @@ it("keeps a closed marker-like credential attached to its assignment", () => {
   const text = `${".".repeat(512)}PASSWORD="secret"`
   expect(pendingCredentialAssignmentState(text)).toEqual({ escaped: false, started: true })
   expect(redactCredentialText(text)).toBe(`${".".repeat(512)}PASSWORD="[REDACTED]"`)
+})
+
+
+it.each([
+  ["Authorization: token ", "ghp_sensitive", ";status=ok"],
+  ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
+  ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
+  ['{"authorization":"Custom-Auth ', "sensitive-value", '", "status":"ok"}'],
+])("redacts explicit %s headers across every credential boundary", (prefix, credential, suffix) => {
+  expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+  for (let split = 0; split <= credential.length; split++) {
+    const first = prefix + credential.slice(0, split)
+    expect(credentialTextMayContinue(first)).toBe(true)
+    const state = pendingAuthorizationState(first)!
+    expect(state).toBeDefined()
+    const rest = credential.slice(split) + suffix
+    expect(rest.slice(consumeAuthorization(rest, state))).toBe(suffix)
+  }
+})
+
+it("retains an incomplete custom authorization scheme", () => {
+  expect(credentialTextMayContinue("Authorization: Custom-Au")).toBe(true)
+  expect(pendingCredentialTextSuffix("prefix Authorization: Custom-Au")).toBe("Authorization: Custom-Au")
+  expect(redactCredentialText("Use token examples and Digest prose")).toBe("Use token examples and Digest prose")
 })
