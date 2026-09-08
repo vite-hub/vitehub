@@ -204,3 +204,12 @@ it("retains the CLI prefix when its name also prefixes an authorization header",
   expect(pendingCredentialTextSuffix(`${".".repeat(512)}--a`)).toBe("--a")
   expect(redactCredentialText("token --api-key sensitive")).toBe("token --api-key [REDACTED]")
 })
+
+it.each(["=", " "])("redacts conventional token flags with separator %s", (separator) => {
+  expect(redactCredentialText(`--token${separator}sensitive;status=ok`)).toBe(`--token${separator}[REDACTED];status=ok`)
+  expect(redactCredentialText(`--token${separator}"sensitive words"`)).toBe(`--token${separator}"[REDACTED]"`)
+  expect(pendingCredentialAssignment(`--token${separator}`)).toBe("assignment")
+  expect(pendingCredentialAssignment(`--token${separator}sensitive`)).toBe("unquoted")
+  expect(pendingCredentialQuote(`--token${separator}"sensitive`)).toBe('"')
+  expect(redactCredentialText(`sort --key${separator}1,1`)).toBe(`sort --key${separator}1,1`)
+})

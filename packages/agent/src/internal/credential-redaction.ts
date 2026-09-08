@@ -14,7 +14,7 @@ function isCredentialKey(key: string): boolean {
 function isCredentialAssignment(key: string, prefix: string): boolean {
   if (!isCredentialKey(key)) return false
   const cli = prefix.startsWith("--")
-  if (cli && /^(?:key|token)$/i.test(key)) return false
+  if (cli && /^key$/i.test(key)) return false
   if (!/[:=]\s*$/.test(prefix)) return cli
   if (!prefix.trimEnd().endsWith(":")) return true
   // Generic token/key fields also describe parser tokens and object identifiers.
