@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
+it("bounds structured credential state across an unclosed stream", () => {
+  const state = pendingCredentialAssignmentState("PASSWORD={")!
+  for (let chunk = 0; chunk < 128; chunk++) {
+    expect(consumeCredentialAssignment("{[".repeat(1024), state)).toBe(2048)
+    expect(state.structureClosers!.length).toBeLessThanOrEqual(128)
+  }
+  const tail = '}]'.repeat(1024) + " private-value;status=ok"
+  expect(consumeCredentialAssignment(tail, state)).toBe(tail.length)
+  expect(redactCredentialText("PASSWORD=" + "{".repeat(129) + tail)).toBe("PASSWORD=[REDACTED]")
+})
+
+it("preserves the suffix after a structured credential within the nesting limit", () => {
+  const value = "{[".repeat(64) + '"private"' + "]}".repeat(64)
+  expect(redactCredentialText("PASSWORD=" + value + ";status=ok")).toBe("PASSWORD=[REDACTED];status=ok")
+  const state = pendingCredentialAssignmentState("PASSWORD=" + value.slice(0, 128))!
+  const rest = value.slice(128) + ";status=ok"
+  expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+})
+
 it.each([
   ["{password: ", "}"],
   ["config: {password: ", ", status: ok}"],

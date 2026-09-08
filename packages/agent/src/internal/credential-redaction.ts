@@ -154,6 +154,7 @@ export interface CredentialAssignmentState {
   started: boolean
   quote?: string
   structureClosers?: string[]
+  structureOverflow?: boolean
   shellDollar?: boolean
   shellProcess?: boolean
   shellSubstitutions?: { closer: string, quote?: string }[]
@@ -166,6 +167,7 @@ export interface CredentialAssignmentState {
 // Retain ordinary separators without letting whitespace-only stream deltas
 // grow the redaction state without bound.
 const maxYamlSeparatorLength = 1024
+const maxCredentialStructureDepth = 128
 
 function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
   const line = source.slice(0, offset).split(/\r\n|[\r\n]/).at(-1) ?? ""
@@ -196,6 +198,9 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
 // Shell assignments concatenate adjacent quoted and unquoted segments.
 // YAML scalar assignments continue through indented lines until their dedent.
 export function consumeCredentialAssignment(value: string, state: CredentialAssignmentState): number {
+  // After losing nesting context, redact the remainder rather than guess a
+  // boundary that could expose credential bytes. Keep continuation memory fixed.
+  if (state.structureOverflow) return value.length
   for (let index = 0; index < value.length; index++) {
     const character = value[index]!
     if (state.structureClosers?.length === 0) return index
@@ -309,8 +314,13 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       else if (character === substitution.closer) state.quote = state.shellSubstitutions!.pop()!.quote
     }
     else if (state.structureClosers) {
-      if (character === "{") state.structureClosers.push("}")
-      else if (character === "[") state.structureClosers.push("]")
+      if (character === "{" || character === "[") {
+        if (state.structureClosers.length >= maxCredentialStructureDepth) {
+          state.structureOverflow = true
+          return value.length
+        }
+        state.structureClosers.push(character === "{" ? "}" : "]")
+      }
       else if (character === state.structureClosers.at(-1)) state.structureClosers.pop()
     }
     else if (!state.yamlFlow && /[\s,;&{}<>]/.test(character)) return index
