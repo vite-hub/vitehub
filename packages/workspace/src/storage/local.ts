@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
-import { createReadStream, createWriteStream } from "node:fs"
+import { constants, createReadStream, createWriteStream } from "node:fs"
 import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
@@ -40,6 +40,14 @@ async function backupFile(path: string, backup: string): Promise<void> {
       throw error
     }
   }
+}
+
+function assertTrustedMetadata(path: string, info: import("node:fs").Stats, root: import("node:fs").Stats) {
+  const sharedGroup = (root.mode & 0o020) !== 0 && info.gid === root.gid
+  const trustedOwner = info.uid === root.uid || info.uid === process.geteuid?.() || sharedGroup
+  if (info.isSymbolicLink() || (process.platform !== "win32" && (
+    !trustedOwner || (info.mode & 0o002) !== 0 || ((info.mode & 0o020) !== 0 && !sharedGroup)
+  ))) throw workspaceError(`[vitehub] Untrusted Workspace metadata path: ${path}.`)
 }
 
 async function applyMetadataPermissions(path: string, mode: number, gid: number) {
@@ -222,9 +230,19 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #readFileMetadata(path: string) {
-    const { open } = await import("node:fs/promises")
+    const { lstat, open } = await import("node:fs/promises")
+    const { root } = await this.#prepareMetadataDirectories(path, false, false)
+    if (!root) return
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
-    const file = await open(metadataPath, "r").catch((error: NodeJS.ErrnoException) => {
+    const info = await lstat(metadataPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (info) {
+      assertTrustedMetadata(metadataPath, info, root)
+      if (!info.isFile()) return
+    }
+    const file = await open(metadataPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
     })
@@ -235,6 +253,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
     let content: string
     let version: string
     try {
+      const opened = await file.stat()
+      assertTrustedMetadata(metadataPath, opened, root)
+      if (!opened.isFile()) return
       // Read and identify the same sidecar even if another writer replaces its path.
       const info = await file.stat({ bigint: true })
       version = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
@@ -262,28 +283,31 @@ class LocalWorkspaceStore implements WorkspaceStore {
     return result
   }
 
-  async #prepareMetadataDirectories(path: string, create: boolean) {
-    const { mkdir, stat } = await import("node:fs/promises")
+  async #prepareMetadataDirectories(path: string, create: boolean, repair = true) {
+    const { lstat, mkdir, stat } = await import("node:fs/promises")
     const root = await stat(this.root).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" && !create) return undefined
       throw error
     })
-    if (!root) return { mode: 0o600, gid: undefined }
+    if (!root) return { mode: 0o600, gid: undefined, root: undefined }
     const mode = root.mode & 0o770
     let directory = this.#fileMetadataRoot
     for (const part of ["", ...normalizeWorkspacePath(path).split("/").filter(Boolean)]) {
       if (part) directory = resolveInside(directory, part)
-      if (create) await mkdir(directory, { recursive: true, mode: 0o700 })
-      const info = await stat(directory).catch((error: NodeJS.ErrnoException) => {
+      if (create) await mkdir(directory, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error
+      })
+      const info = await lstat(directory).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT" && !create) return undefined
         throw error
       })
-      if (!info) break
-      if (process.platform !== "win32") {
+      if (!info) return { mode: mode & 0o666, gid: root.gid, root: undefined }
+      assertTrustedMetadata(directory, info, root)
+      if (repair && process.platform !== "win32") {
         await applyMetadataPermissions(directory, mode, root.gid)
       }
     }
-    return { mode: mode & 0o666, gid: root.gid }
+    return { mode: mode & 0o666, gid: root.gid, root }
   }
 
   async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {

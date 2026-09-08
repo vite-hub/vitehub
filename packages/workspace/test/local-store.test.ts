@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { chmod, chown, copyFile, link, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises"
+import { chmod, chown, copyFile, link, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -14,6 +14,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     chown: vi.fn(actual.chown),
+    lstat: vi.fn(actual.lstat),
     stat: async (...args: Parameters<typeof actual.stat>) => {
       const info = await actual.stat(...args)
       if (String(args[0]) === permissionsFixture.root) Reflect.set(info, "gid", Number(info.gid) + 1)
@@ -54,6 +55,57 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it("ignores a directory in place of a metadata sidecar", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("file.txt", { path: "file.txt", content: "original", metadata: { source: "original" } })
+    const sidecar = `${metadataRoot(root)}/file.txt/metadata.json`
+    await rm(sidecar)
+    await mkdir(sidecar, { mode: 0o700 })
+    await expect(store.readFile("file.txt")).resolves.toMatchObject({ content: new TextEncoder().encode("original"), metadata: undefined })
+    await expect(store.list()).resolves.toHaveLength(1)
+    await expect(store.snapshot()).resolves.toBeDefined()
+  })
+
+  it.skipIf(process.platform === "win32").each(["root", "directory", "file"])("rejects symlinked metadata %s before reading or repairing it", async (component) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("nested/file.txt", { path: "nested/file.txt", content: "original", metadata: { source: "original" } })
+    const target = component === "root" ? metadataRoot(root)
+      : component === "directory" ? `${metadataRoot(root)}/nested` : `${metadataRoot(root)}/nested/file.txt/metadata.json`
+    const outside = `${root}/outside`
+    await rename(target, outside)
+    await symlink(outside, target)
+    const before = await stat(outside)
+    await expect(store.readFile("nested/file.txt")).rejects.toThrow("Untrusted Workspace metadata path")
+    await expect(store.writeFile("nested/file.txt", { path: "nested/file.txt", content: "replacement" })).rejects.toThrow("Untrusted Workspace metadata path")
+    expect(await readFile(`${root}/nested/file.txt`, "utf8")).toBe("original")
+    expect((await stat(outside)).mode).toBe(before.mode)
+  })
+
+  it.skipIf(process.platform === "win32").each(["owner", "public-write", "group-write"])("rejects forged sidecars with untrusted %s", async (condition) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await chmod(root, 0o700)
+    await store.writeFile("file.txt", { path: "file.txt", content: "original", metadata: { source: "original" } })
+    const sidecars = metadataRoot(root)
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(lstat).mockImplementation(async (...args: Parameters<typeof actual.lstat>) => {
+      const info = await actual.lstat(...args)
+      if (String(args[0]) === sidecars) {
+        if (condition === "owner") Reflect.set(info, "uid", Number(info.uid) + 10000)
+        else Reflect.set(info, "mode", Number(info.mode) | (condition === "public-write" ? 0o002 : 0o020))
+      }
+      return info
+    })
+    try {
+      await expect(store.readFile("file.txt")).rejects.toThrow("Untrusted Workspace metadata path")
+      await expect(store.writeFile("file.txt", { path: "file.txt", content: "replacement" })).rejects.toThrow("Untrusted Workspace metadata path")
+      expect(await readFile(`${root}/file.txt`, "utf8")).toBe("original")
+    }
+    finally { vi.mocked(lstat).mockImplementation(actual.lstat) }
+  })
+
   it.each([false, true])("replaces files without hard-link support, streamed: %s", async (streamed) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
@@ -360,8 +412,8 @@ describe("local workspace store", () => {
     await Promise.all(paths.map(async (path) => {
       await writeFile(join(root, path), "content")
       const directory = `${metadataRoot(root)}/${path}`
-      await mkdir(directory, { recursive: true })
-      await writeFile(`${directory}/metadata.json`, JSON.stringify({ path, mediaType: "text/plain" }))
+      await mkdir(directory, { recursive: true, mode: 0o700 })
+      await writeFile(`${directory}/metadata.json`, JSON.stringify({ path, mediaType: "text/plain" }), { mode: 0o600 })
     }))
     const handle = await open(`${metadataRoot(root)}/${paths[0]}/metadata.json`, "r")
     const read = vi.spyOn(Object.getPrototypeOf(handle), "readFile")
