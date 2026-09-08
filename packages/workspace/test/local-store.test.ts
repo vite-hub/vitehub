@@ -191,6 +191,35 @@ describe("local workspace store", () => {
     await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject(expected)
   })
 
+  it.each([undefined, { source: "old" }])("refreshes cached attributes after another Store writes: %j", async (metadata) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const reader = createLocalWorkspaceStore(root)
+    const writer = createLocalWorkspaceStore(root)
+    await writer.writeFile("file.txt", { path: "file.txt", content: "old", metadata })
+    await expect(reader.readFile("file.txt")).resolves.toMatchObject({ metadata })
+
+    await writer.writeFile("file.txt", {
+      path: "file.txt",
+      content: "new",
+      mediaType: "text/plain",
+      metadata: { source: "new" },
+    })
+    await expect(reader.readFile("file.txt")).resolves.toMatchObject({
+      content: new TextEncoder().encode("new"),
+      mediaType: "text/plain",
+      metadata: { source: "new" },
+    })
+
+    // Attribute-only writes must invalidate the cache even when file bytes stay unchanged.
+    await writer.writeFile("file.txt", { path: "file.txt", content: "new", metadata: { source: "updated" } })
+    await expect(reader.stat("file.txt")).resolves.toMatchObject({ metadata: { source: "updated" } })
+    await writer.writeFile("file.txt", { path: "file.txt", content: "new" })
+    await expect(reader.list()).resolves.toEqual([
+      expect.objectContaining({ path: "file.txt", mediaType: undefined, metadata: undefined }),
+    ])
+  })
+
   it("keeps metadata paths distinct for suffix-related Workspace paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)

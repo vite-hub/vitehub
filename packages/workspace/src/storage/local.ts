@@ -179,7 +179,7 @@ async function fileDigest(path: string): Promise<string> {
 
 class LocalWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
-  #files = new Map<string, Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined>()
+  #files = new Map<string, { version: string, value: Pick<WorkspaceFile, "mediaType" | "metadata"> }>()
   #fileMetadataRoot: string
   #meta = new Map<string, unknown>()
   #metaLoaded = false
@@ -190,24 +190,31 @@ class LocalWorkspaceStore implements WorkspaceStore {
     this.#metaPath = `${root}.meta.json`
   }
 
-  #cacheFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined) {
-    this.#files.delete(path)
-    this.#files.set(path, value)
-    if (this.#files.size > 1024) this.#files.delete(this.#files.keys().next().value!)
-  }
-
   async #readFileMetadata(path: string) {
-    if (this.#files.has(path)) return this.#files.get(path)
-    const { readFile } = await import("node:fs/promises")
+    const { open } = await import("node:fs/promises")
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
-    const content = await readFile(metadataPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+    const file = await open(metadataPath, "r").catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
     })
-    if (!content) {
-      this.#cacheFileMetadata(path, undefined)
+    if (!file) {
+      this.#files.delete(path)
       return
     }
+    let content: string
+    let version: string
+    try {
+      // Read and identify the same sidecar even if another writer replaces its path.
+      const info = await file.stat({ bigint: true })
+      version = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
+      const cached = this.#files.get(path)
+      if (cached?.version === version) return cached.value
+      content = await file.readFile("utf8")
+    }
+    finally {
+      await file.close()
+    }
+    if (!content) return
     const parsed = safeParse(object({
       path: literal(path),
       mediaType: fallback(optional(string()), undefined),
@@ -215,7 +222,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
     }), JSON.parse(content))
     if (!parsed.success) return
     const { path: _path, ...result } = parsed.output
-    this.#cacheFileMetadata(path, result)
+    this.#files.delete(path)
+    this.#files.set(path, { version, value: result })
+    if (this.#files.size > 1024) this.#files.delete(this.#files.keys().next().value!)
     return result
   }
 
@@ -225,7 +234,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
     if (value.mediaType === undefined && value.metadata === undefined) {
       await rm(metadataPath, { force: true })
-      this.#cacheFileMetadata(path, undefined)
+      this.#files.delete(path)
       return
     }
     const temp = `${metadataPath}.${randomUUID()}.tmp`
@@ -238,7 +247,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
-    this.#cacheFileMetadata(path, value)
+    this.#files.delete(path)
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
