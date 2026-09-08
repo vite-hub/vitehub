@@ -7,7 +7,7 @@ import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { Message } from "chat"
+import { Chat, Message } from "chat"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { mergeConfig, build as viteBuild } from "vite"
@@ -7830,6 +7830,63 @@ describe("server helpers", () => {
     expect(second.status).toBe(200)
     expect(adapter.initialize).toHaveBeenCalledOnce()
     expect(triggerOnlyAdapter.initialize).not.toHaveBeenCalled()
+  })
+
+  it.each(["serial", "steer", "queue"] as const)("records rejected polling listener messages with %s concurrency", async (concurrency) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createTelegramPollingRouteHandler } = await import("../src/server.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-polling-rejection-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: The fixture implements the Adapter methods exercised by this listener.
+          adapter: () => adapter as never,
+          mode: "polling",
+          messages: { concurrency, delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: { run },
+    })
+    const request = (messageId: number, isMention: boolean) => new Request("https://example.com/listener", {
+      body: JSON.stringify({ message: {
+        chat: { id: 456, type: "group" },
+        from: { id: 123, username: "maxi" },
+        isMention,
+        message_id: messageId,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+
+    try {
+      const response = await createTelegramPollingRouteHandler(agent as never)(
+        new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"),
+        { agentName: "support" },
+      )
+      expect(response.status).toBe(200)
+      // Dispatch through the initialized listener, without a webhook request delivery tracker.
+      await adapter.handleWebhook(request(91_140, true))
+      await adapter.handleWebhook(request(91_141, false))
+
+      expect(run).toHaveBeenCalledOnce()
+      const deliveries = await readAgentChannelDeliveries(state)
+      const rejected = deliveries.filter(delivery => delivery.sourceId === "91141")
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]).toMatchObject({ agentName: "support", channelId: "telegram", provider: "telegram", status: "rejected" })
+      expect(rejected[0]?.events.filter(event => event.type === "rejected")).toHaveLength(1)
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+    } finally {
+      const chat = adapter._chatInstance()
+      if (chat instanceof Chat) await chat.shutdown()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("rejects generated GitHub webhooks without configured secrets", async () => {

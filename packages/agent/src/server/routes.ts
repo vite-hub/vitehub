@@ -5895,6 +5895,16 @@ async function handleChatSdkMessages(
               : undefined)
           : undefined
         if (!queuedThread.isDM && !queuedMessage.isMention) {
+          if (!queuedDelivery && !requestDelivery) {
+            const listenerDelivery = await openAgentChannelDelivery(state.state, {
+              agentName: context.agentIdentity?.name || "agent",
+              channelId: registration.channelId,
+              provider: chatRegistrationOrigin(registration),
+              scope: `${state.keyPrefix}${queuedThread.id}`,
+              sourceId: queuedMessageId || randomToken(),
+            })
+            await recordChannelDeliveryEvidence(listenerDelivery, { type: "rejected" })
+          }
           if (queuedDelivery) await recordChannelDeliveryEvidence(queuedDelivery, { type: "rejected" })
           if (queuedMessage === message && requestDelivery && requestDelivery.delivery.id !== queuedDelivery?.delivery.id) {
             await recordChannelDeliveryEvidence(requestDelivery, { type: "rejected" })
