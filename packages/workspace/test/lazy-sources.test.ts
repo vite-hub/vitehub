@@ -205,6 +205,27 @@ describe("lazy sources", () => {
     await expect(store.getMeta?.("source:first:snapshot")).resolves.toMatchObject({ status: "error" })
   })
 
+  it("restores higher-priority startup content before reporting a lower-priority recovery failure", async () => {
+    const store = createMemoryWorkspaceStore()
+    const definition = {
+      name: "inspection-recovery-precedence",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "higher" }] }),
+        second: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "middle" }] }),
+        third: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "lower" }] }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).readFile("docs/shared.md")
+    await store.rm("docs/shared.md")
+    const middle = definition.sources.second
+    middle.files = undefined
+    middle.getKeys = async () => ["shared.md"]
+    middle.getItem = async () => { throw new Error("provider unavailable") }
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots: true })
+    await expect(view.list("docs", { recursive: true })).rejects.toThrow("Workspace Source recovery failed: second")
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("higher")
+  })
+
   it("refreshes nested startup files before the first directory listing", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["stale.md"]

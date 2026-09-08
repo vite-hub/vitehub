@@ -392,6 +392,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     }
     const refreshedSources: typeof sources = []
+    let recoveryError: unknown
     for (const source of [...items].reverse()) {
       await ensurePrepared(source.key)
       const generation = generationBySource.get(source.key)
@@ -399,7 +400,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (incomplete.has(source.key) || !preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
           const result = await materializeSerialized({ sources: [source.key] })
           if (result.sources.some(item => item.status === "error")) {
-            throw workspaceError(`[vitehub] Workspace Source recovery failed: ${source.key}.`)
+            recoveryError = workspaceError(`[vitehub] Workspace Source recovery failed: ${source.key}.`)
           }
         }
         else {
@@ -420,6 +421,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
       }
     }
+    if (recoveryError) throw recoveryError
   }
 
   async function listSourceAware(path = "", options: ListOptions = {}) {
