@@ -335,6 +335,7 @@ async function removeStaleMaterializedSourceFiles(
   }
   for (const path of [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)) {
     try {
+      if ((await store.stat(path))?.type !== "directory") continue
       await control.mutate(() => store.rm(path, { force: true }))
       removedDirectories.add(path)
     }
@@ -408,6 +409,9 @@ async function reconcileRemovedStartupSourcesInternal(
       await control.mutate(() => store.rm(path, { force: true }))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
+      // A replaced ancestor can also make stat fail with ENOTDIR. Neither case
+      // provides current directory evidence for cleanup or ownership transfer.
+      if ((await store.stat(path).catch(() => undefined))?.type !== "directory") continue
       for (const currentSource of currentSources) {
         if (!pathContains(path, currentSource.mountPath)) continue
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)

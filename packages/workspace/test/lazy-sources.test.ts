@@ -398,7 +398,16 @@ describe("lazy sources", () => {
     await expect(reopened.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
   })
 
-  it.each([false, true])("cleans child directories after a Local Store stream write fails with restart=%s", async (restart) => {
+  it.each([
+    { restart: false, replaceDirectory: "" },
+    { restart: true, replaceDirectory: "" },
+    { restart: false, replaceDirectory: "docs/child/nested" },
+    { restart: true, replaceDirectory: "docs/child/nested" },
+    { restart: false, replaceDirectory: "docs/child" },
+    { restart: true, replaceDirectory: "docs/child" },
+    { restart: false, replaceDirectory: "docs" },
+    { restart: true, replaceDirectory: "docs" },
+  ])("cleans failed Local Store stream directories without deleting replacements: %j", async ({ restart, replaceDirectory }) => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)
     const definition = {
@@ -425,9 +434,18 @@ describe("lazy sources", () => {
     await expect(store.stat("docs/child/nested")).resolves.toMatchObject({ type: "directory" })
     await expect(store.stat("docs/child/nested/file.md")).resolves.toBeUndefined()
 
+    if (replaceDirectory) {
+      await store.rm(replaceDirectory, { recursive: true })
+      await store.writeFile(replaceDirectory, { path: replaceDirectory, content: "user replacement" })
+    }
     const reopened = restart ? createLocalWorkspaceStore(root) : store
     await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
-    await expect(reopened.stat("docs")).resolves.toBeUndefined()
+    if (replaceDirectory) {
+      await expect(reopened.readFile(replaceDirectory)).resolves.toMatchObject({ content: "user replacement" })
+    }
+    else {
+      await expect(reopened.stat("docs")).resolves.toBeUndefined()
+    }
   })
 
   it("removes files owned by startup Sources removed from the definition", async () => {
