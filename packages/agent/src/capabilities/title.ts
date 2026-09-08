@@ -209,7 +209,8 @@ function titleTraceLog(traceLog: TraceEventLog | undefined): TraceEventLog | und
       if (event.name !== "run.error"
         && event.name !== "run.finish"
         && event.name !== "agent.invocation.finish"
-        && event.name !== "agent.stream.error"
+        && event.name !== "agent.message.delta"
+        && (event.name !== "agent.stream.error" || event.attributes?.["error.recoverable"] === true)
         && event.name !== "agent.invocation.error"
         && event.name !== "agent.invocation.cancelled") {
         await traceLog.append(tagged)

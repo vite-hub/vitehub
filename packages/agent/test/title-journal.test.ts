@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { deriveTraceRuns } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime"
 import { title } from "../src/capabilities/title.ts"
 import { defineAgent, runAgent, streamAgent } from "../src/index.ts"
 import { createMessage } from "../src/messages.ts"
@@ -17,6 +17,31 @@ function journal() {
 const runtime = (runId: string) => ({ memo: vi.fn(), run: { runId }, runtime: "unknown" as const, waitUntil: vi.fn() })
 
 describe("title journal ownership", () => {
+  it("retains recoverable title diagnostics without exporting title deltas", async () => {
+    const traceLog = createTraceEventLog({ content: "content" })
+    const invocations = journal()
+    await runAgent(defineAgent({
+      capabilities: [title({ driver: { async run(context) {
+        await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.content": "Private title draft" } })
+        await context.traceLog?.append({ name: "agent.stream.error", type: "run", attributes: { "error.recoverable": true, "error.message": "Retrying title provider" } })
+        await context.traceLog?.append({ name: "agent.stream.error", type: "run", attributes: { "error.recoverable": false, "error.message": "Title provider failed" } })
+        return "Separate title"
+      } } })],
+      driver: { run: () => "Done." }, invocations,
+    }), { ...runtime("title-diagnostics"), traceLog }, { prompt: "Explain title ownership" })
+    const auxiliary = traceLog.entries().filter(entry => entry.attributes?.["vitehub.auxiliary.kind"] === "title")
+    expect(auxiliary.some(entry => entry.name === "agent.message.delta")).toBe(false)
+    expect(JSON.stringify(traceLog.entries())).not.toContain("Private title draft")
+    expect(auxiliary.filter(entry => entry.name === "agent.stream.error")).toEqual([
+      expect.objectContaining({ attributes: expect.objectContaining({ "error.recoverable": true, "error.message": "Retrying title provider" }) }),
+    ])
+    const invocation = (await invocations.getByRunId("title-diagnostics"))!
+    expect(invocation.observations.filter(entry => entry.name === "agent.stream.error")).toEqual([
+      expect.objectContaining({ attributes: expect.objectContaining({ "error.recoverable": true }) }),
+    ])
+    expect(invocation.status).toBe("completed")
+  })
+
   it.each(["run.error", "agent.invocation.error", "agent.stream.error", "agent.invocation.cancelled"])("preserves title trace order around %s", async (failure) => {
     const invocations = journal()
     let checked = false
