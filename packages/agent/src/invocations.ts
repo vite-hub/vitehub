@@ -1389,7 +1389,9 @@ function journalTraceLog(
           queueMessageDelta(safeEntry)
         }
         else {
-          flushMessageDeltas(safeEntry.name === "agent.invocation.finish")
+          flushMessageDeltas(safeEntry.name === "agent.invocation.finish"
+            || safeEntry.name === "agent.invocation.error"
+            || safeEntry.name === "agent.invocation.cancelled")
           emit(safeEntry)
         }
       }

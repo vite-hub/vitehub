@@ -3253,6 +3253,38 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(observations)).not.toContain("sensitive-value")
   })
 
+  it.each(["failed", "cancelled"] as const)("retains buffered response evidence when an invocation is %s", async (status) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const abort = new AbortController()
+    const failure = new Error("stopped")
+    const runId = `buffered-${status}`
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { "message.content": "Basic", "message.id": "answer", "message.role": "assistant" },
+          name: "agent.message.delta",
+          type: "run",
+        })
+        if (status === "cancelled") abort.abort(failure)
+        throw failure
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime(runId), { abortSignal: abort.signal })).rejects.toThrow("stopped")
+
+    const record = await invocations.getByRunId(runId)
+    expect(record?.status).toBe(status)
+    const observations = record?.observations ?? []
+    const deltas = observations.filter(entry => entry.name === "agent.message.delta")
+    expect(deltas).toHaveLength(1)
+    expect(deltas[0]?.attributes?.["message.content"]).toBe("Basic")
+    const terminal = observations.find(entry => entry.name === (status === "failed" ? "agent.invocation.error" : "agent.invocation.cancelled"))
+    expect(terminal).toBeDefined()
+    expect(deltas[0]!.sequence).toBeLessThan(terminal!.sequence)
+  })
+
   it("persists bounded message chunks while an invocation is still running", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     let runningObservations: string[] = []
