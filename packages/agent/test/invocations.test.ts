@@ -45,6 +45,26 @@ function inspectableToolCapability() {
 }
 
 describe("Agent Invocations", () => {
+  it("flushes interleaved message identities and safe text before tool events", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const [id, text] of [["a", "A1"], ["b", "B1"], ["a", "A2"], ["c", "This is a"]]) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": id, "message.content": text } })
+        }
+        await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("interleaved-messages"), {})
+    const observations = (await invocations.getByRunId("interleaved-messages"))!.observations
+    const beforeTool = observations.slice(0, observations.findIndex(entry => entry.name === "tool.call"))
+    expect(beforeTool.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]))
+      .toEqual(["A1", "B1", "A2", "This is "])
+  })
+
   it.each([2, 100, 400])("rejects configuration updates when the marker cannot fit a %i-byte budget", (maxBytes) => {
     expect(() => byteBoundedObservations([
       {

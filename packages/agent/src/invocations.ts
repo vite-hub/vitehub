@@ -1265,6 +1265,7 @@ function journalTraceLog(
   const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
   const admittedMessageDeltaKeys = new Set<string>()
   let messageDeltaKeysTruncated = false
+  let activeMessageDeltaKey: string | undefined
   const precedingMessageText = new Map<string, string>()
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
   const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
@@ -1285,7 +1286,7 @@ function journalTraceLog(
     entry.attributes?.["message.role"],
     entry.attributes?.["vitehub.auxiliary.kind"],
   ])
-  const flushMessageDelta = (key: string, final = true) => {
+  const flushMessageDelta = (key: string, final = true, interveningEvent = false) => {
     const pending = pendingMessageDeltas.get(key)
     if (!pending) return
     const rawContent = pending.entry.attributes?.["message.content"]
@@ -1294,7 +1295,7 @@ function journalTraceLog(
       let content = rawContent
       const precedingText = precedingMessageText.get(key) ?? ""
       if (!final && credentialTextMayContinue(content, precedingText)) {
-        if (content.length < maxPendingCredentialCharacters) return
+        if (!interveningEvent && content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content)
         const scheme = pendingCredentialScheme(content, precedingText)
         const assignment = pendingCredentialAssignment(content)
@@ -1345,10 +1346,14 @@ function journalTraceLog(
   const flushMessageDeltas = (final = true) => {
     // Flushing may reinsert a retained suffix; visit each original key only once.
     // oxlint-disable-next-line unicorn/no-useless-spread
-    for (const key of [...pendingMessageDeltas.keys()]) flushMessageDelta(key, final)
+    for (const key of [...pendingMessageDeltas.keys()]) flushMessageDelta(key, final, true)
   }
   const queueMessageDelta = (entry: TraceEventLogEntry) => {
     const key = messageDeltaKey(entry)
+    if (activeMessageDeltaKey !== undefined && activeMessageDeltaKey !== key) {
+      flushMessageDelta(activeMessageDeltaKey, false, true)
+    }
+    activeMessageDeltaKey = key
     if (!admittedMessageDeltaKeys.has(key)) {
       if (admittedMessageDeltaKeys.size >= maxMessageDeltaKeys) {
         if (!messageDeltaKeysTruncated) {
