@@ -1,4 +1,4 @@
-import type { AgentAdapterMetadataContext } from "../src/types.ts"
+import type { AgentProviderCredentialContext } from "../src/types.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
@@ -156,7 +156,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "title-parent-metadata"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const workspace = { fs: {}, startSession: vi.fn(), tools: {} }
-    const env = vi.fn((metadata: AgentAdapterMetadataContext) => {
+    const env = vi.fn((metadata: AgentProviderCredentialContext) => {
       expect(metadata.workspace).toBe(workspace)
       expect(metadata.fs).toBe(workspace.fs)
       return { TITLE_METADATA: "available" }
