@@ -3,12 +3,13 @@ import { pathToFileURL } from "node:url"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
 import type { ViteHubOptions } from "./index.ts"
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 /** An explicit Node data directory selects local storage; the host owns durability. */
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
   if (options.dataDir === undefined) return options
-  if (options.preset !== "node") throw new TypeError("[vitehub] dataDir requires the node preset and a persistent filesystem. Configure remote stores for other hosts.")
-  if (!options.dataDir.trim()) throw new TypeError("[vitehub] dataDir must be a non-empty directory path.")
+  if (options.preset !== "node") throw viteHubErrorDiagnostics.VITE_HUB_R0120({ message: "[vitehub] dataDir requires the node preset and a persistent filesystem. Configure remote stores for other hosts." })
+  if (!options.dataDir.trim()) throw viteHubErrorDiagnostics.VITE_HUB_R0121({ message: "[vitehub] dataDir must be a non-empty directory path." })
   const root = resolve(options.dataDir)
   const file = (name: string) => pathToFileURL(join(root, name)).href
   const kvStore = (store: KVStoreConfig, name?: string): KVStoreConfig => store.driver === "fs-lite"

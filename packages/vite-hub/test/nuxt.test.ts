@@ -603,6 +603,21 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it.each([true, false])("carries the Node data directory into the Nuxt Console bootstrap (dev: %s)", async (dev) => {
+    const application = createNuxt(dev)
+    await viteHubNuxtModule({
+      preset: "node",
+      dataDir: "/tmp/vitehub-nuxt/persistent data",
+      agent: true,
+      console: { exposure: "host-managed" },
+    }, application.nuxt)
+
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      'databaseUrl: "file:///tmp/vitehub-nuxt/persistent%20data/console.sqlite"',
+    )
+    await application.runCloseHook()
+  })
+
   it("installs only KV navigation and metadata for a KV-only Console", async () => {
     const development = createNuxt(true)
 

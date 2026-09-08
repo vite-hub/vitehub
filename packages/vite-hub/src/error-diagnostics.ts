@@ -8,6 +8,8 @@ const dynamicError = {
 export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics",
   codes: {
+    VITE_HUB_R0120: dynamicError,
+    VITE_HUB_R0121: dynamicError,
     VITE_HUB_R0116: dynamicError,
     VITE_HUB_R0117: dynamicError,
     VITE_HUB_R0118: dynamicError,
