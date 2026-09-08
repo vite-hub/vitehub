@@ -63,6 +63,8 @@ type SourceConfiguration = Pick<ResolvedWorkspaceSource, "cache" | "key" | "mate
 
 function sourceConfigFingerprint(source: SourceConfiguration) {
   return {
+    // Replay legacy snapshots once so local files acquire persisted ownership.
+    fileMetadataVersion: 1,
     cache: source.cache,
     key: source.key,
     materialize: source.materialize,
