@@ -17079,14 +17079,14 @@ describe("server helpers", () => {
     }
   })
 
-  it("preserves first-read steering history before the incoming message is indexed", async () => {
+  it.each([false, true])("preserves first-read steering history before the incoming message is indexed with durable history %s", async (durableHistory) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-initial-history-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
-    const adapter = createTestChatAdapter({ persistThreadHistory: false })
+    const adapter = createTestChatAdapter({ persistThreadHistory: durableHistory })
     adapter.fetchMessages.mockResolvedValue({
       messages: [new Message({
         attachments: [],
@@ -17105,7 +17105,7 @@ describe("server helpers", () => {
           adapter: () => adapter as never,
           messages: {
             concurrency: "steer", delivery: "manual", durable: false, state,
-            triggerHistory: { maxMessages: 2, source: "thread" },
+            triggerHistory: { maxMessages: 3, source: "thread" },
           },
         }),
       },
@@ -17120,6 +17120,22 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
     try {
       await state.connect()
+      if (durableHistory) {
+        await state.appendToList("msg-history:telegram:456", new Message({
+          attachments: [],
+          author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+          formatted: { children: [], type: "root" },
+          id: "91121",
+          metadata: { dateSent: new Date("2026-06-12T12:00:00.000Z"), edited: false },
+          raw: {}, text: "future context", threadId: "telegram:456",
+        }).toJSON(), { maxLength: 25 })
+        const appendToList = state.appendToList.bind(state)
+        vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+          // Simulate the incoming message not yet appearing in the durable history window.
+          if (key === "msg-history:telegram:456") return
+          await appendToList(key, value, options)
+        })
+      }
       const response = await handler(chatWebhookRequest(91_120, 456, "current"), "telegram")
       expect(response.status).toBe(200)
       expect(histories).toEqual([["earlier context", "current"]])

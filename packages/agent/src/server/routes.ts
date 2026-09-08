@@ -4123,7 +4123,8 @@ async function chatTriggerMessages(
   let durable = await durableChatThreadMessages(thread, limit)
   if (boundHistory && message.id) {
     const currentIndex = durable.findIndex(item => item.id === message.id)
-    durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : historyThroughCurrent ? [] : durable
+    // Without the current message, the later durable read has no safe history boundary.
+    durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : []
   }
   let messages = [
     ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))))),
