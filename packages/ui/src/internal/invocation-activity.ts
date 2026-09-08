@@ -382,20 +382,22 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   // A finish record can truncate usage metadata while preserving the whole response.
   // Only suppress its message warning when an untruncated assistant turn proves it intact.
   const completeAssistantTexts = new Set<string>();
-  let latestFinalSequence = -Infinity;
+  let latestMessageSequence = -Infinity;
   for (const observations of groups.values()) {
     const sequence = Math.max(...observations.map(item => item.sequence));
-    if (sequence > latestFinalSequence && observations.every(item => item.name.startsWith("agent.message")
-      && item.attributes?.["message.phase"] !== "commentary"
-      && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant"))) latestFinalSequence = sequence;
+    if (sequence > latestMessageSequence && observations.every(item => item.name.startsWith("agent.message")
+      || item.name === "agent.input.message")) latestMessageSequence = sequence;
   }
   for (const observations of groups.values()) {
-    if (Math.max(...observations.map(item => item.sequence)) !== latestFinalSequence) continue;
+    if (Math.max(...observations.map(item => item.sequence)) !== latestMessageSequence) continue;
     if (observations.some(item => item.attributes?.["vitehub.observation.truncated"] === true)) continue;
     if (!observations.every(item => item.name.startsWith("agent.message")
       && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
       && item.attributes?.["message.phase"] !== "commentary")) continue;
-    const text = observations.map(item => stringAttribute(item.attributes ?? {}, "message.content") ?? "").join("");
+    const text = observations.map(item => {
+      const content = item.attributes?.["message.content"];
+      return typeof content === "string" ? content : "";
+    }).join("").trim();
     if (!text) continue;
     completeAssistantTexts.add(text);
     try {
