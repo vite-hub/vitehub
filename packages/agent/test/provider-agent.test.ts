@@ -2847,6 +2847,42 @@ cli_auth_credentials_store = "keyring"
     expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: "private follow-up", threadId })
   })
 
+  it("drains late accepted steering evidence before the provider stream finishes", async () => {
+    const threadId = "thread-late-steering-evidence"
+    let releaseTerminal!: () => void
+    let releaseSteering!: () => void
+    const terminal = new Promise<void>(resolve => { releaseTerminal = resolve })
+    const steering = new Promise<void>(resolve => { releaseSteering = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { beforeEvent: () => terminal })
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
+    provider.sendTurn.mockImplementationOnce(async () => {
+      await steering
+      return { resumeCursor: undefined, threadId, turnId: "turn-1" }
+    })
+    const submitted = sendAgentInvocationInput(invocationId, { prompt: "late follow-up" }, { mode: "steer" })
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledTimes(2))
+    releaseTerminal()
+    try {
+      await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).not.toBe(true))
+      expect(provider.close).not.toHaveBeenCalled()
+    } finally {
+      releaseSteering()
+      await result
+    }
+    await expect(submitted).resolves.toBe("accepted")
+    const output = await result
+    const kinds = output.flatMap(item => isRuntimeRecord(item) && item.type === "data-agent-event" && isRuntimeRecord(item.data) ? [item.data.kind] : [])
+    expect(kinds).toEqual(expect.arrayContaining(["input.message", "input.steered"]))
+    expect(kinds.filter(kind => kind === "input.message")).toHaveLength(1)
+    expect(kinds.filter(kind => kind === "input.steered")).toHaveLength(1)
+  })
+
   it.each(["messages", "prompt"] as const)("falls back before submitting live steering with attachments in %s", async (inputField) => {
     const threadId = "thread-steer-attachment"
     let releaseTurn!: () => void

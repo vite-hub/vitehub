@@ -1956,6 +1956,7 @@ async function* runProvider<
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
+  const pendingSteering = new Set<Promise<void>>()
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
   const capabilityApprovalIds = new Set<string>()
   let notifyToolEvent: (() => void) | undefined
@@ -2302,6 +2303,9 @@ async function* runProvider<
             if (messages.some(message => message.parts.some(isAttachmentPart))) return "unsupported"
             const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
             if (!text.trim()) return "unsupported"
+            let resolveSteering!: () => void
+            const settled = new Promise<void>(resolve => { resolveSteering = resolve })
+            pendingSteering.add(settled)
             try {
               const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
               if (steeredTurn.turnId !== turn.turnId) {
@@ -2313,6 +2317,9 @@ async function* runProvider<
               return "accepted"
             } catch {
               return "invalid-state"
+            } finally {
+              pendingSteering.delete(settled)
+              resolveSteering()
             }
           }
           if (inputOptions.mode !== "respond") return "unsupported"
@@ -2388,7 +2395,12 @@ async function* runProvider<
           : agentDiagnostics.AGENT_R0722({ message: `[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
         if (effectiveSignal?.aborted) throw caught
       }
-      if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
+      if (isTerminalEvent(current.value, turn.turnId)) {
+        unregister?.()
+        unregister = undefined
+        await Promise.race([Promise.all(pendingSteering), aborted])
+        if (!caught) completed = true
+      }
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
       for (const event of normalized) yield event
       if (caught) throw caught
