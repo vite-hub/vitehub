@@ -627,6 +627,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         const file = await store.readFile(resolution.workspacePath)
         if (file) return decodeFile(file.content, options)
+        if (resolution.source.materialize === "startup") {
+          completedSources.delete(resolution.sourceKey)
+          reusedStartupSources.delete(resolution.sourceKey)
+        }
         await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
@@ -707,8 +711,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
         const stored = await store.stat(resolution.workspacePath)
         if (stored) return stored
-        if (resolution.source.materialize === "startup" && (completedSources.has(resolution.sourceKey) || reusedStartupSources.has(resolution.sourceKey))) {
-          throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+        if (resolution.source.materialize === "startup") {
+          completedSources.delete(resolution.sourceKey)
+          reusedStartupSources.delete(resolution.sourceKey)
         }
         await ensureMaterialized(resolution.sourceKey)
         const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source))
@@ -741,7 +746,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
         if (await store.stat(resolution.workspacePath)) return true
-        if (resolution.source.materialize === "startup" && (completedSources.has(resolution.sourceKey) || reusedStartupSources.has(resolution.sourceKey))) return false
+        if (resolution.source.materialize === "startup") {
+          completedSources.delete(resolution.sourceKey)
+          reusedStartupSources.delete(resolution.sourceKey)
+        }
         await ensureMaterialized(resolution.sourceKey)
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
       }
