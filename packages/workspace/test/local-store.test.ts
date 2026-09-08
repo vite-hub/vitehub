@@ -57,6 +57,40 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each([false, true])("rejects restored ownership after interrupted removal, recursive: %s", async (recursive) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = recursive ? "docs/file.txt" : "file.txt"
+    const removedPath = recursive ? "docs" : path
+    await store.writeFile(path, { path, content: "original", metadata: { source: "docs" } })
+    await store.readFile(path)
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const sidecars = `${metadataRoot(root)}/${removedPath}`
+    vi.mocked(rm).mockImplementation(async (target, options) => {
+      if (String(target) === sidecars) throw Object.assign(new Error("cleanup interrupted"), { code: "EIO" })
+      return await actual.rm(target, options)
+    })
+    try {
+      await expect(store.rm(removedPath, { recursive })).rejects.toThrow("cleanup interrupted")
+    }
+    finally {
+      vi.mocked(rm).mockImplementation(actual.rm)
+    }
+    if (recursive) await mkdir(`${root}/docs`)
+    await writeFile(`${root}/${path}`, "restored externally")
+    for (const reader of [store, createLocalWorkspaceStore(root)]) {
+      await expect(reader.readFile(path)).rejects.toThrow("Interrupted Workspace removal")
+      await expect(reader.stat(path)).rejects.toThrow("Interrupted Workspace removal")
+      await expect(reader.list("", { recursive: true })).rejects.toThrow("Interrupted Workspace removal")
+      await expect(reader.snapshot()).rejects.toThrow("Interrupted Workspace removal")
+    }
+    await createLocalWorkspaceStore(root).rm(removedPath, { recursive, force: true })
+    if (recursive) await mkdir(`${root}/docs`)
+    await writeFile(`${root}/${path}`, "new file")
+    await expect(store.readFile(path)).resolves.toMatchObject({ metadata: undefined })
+    expect(await readdir(`${root}/.vitehub/file-removals`)).toEqual([])
+  })
+
   it.each([
     "",
     "{",

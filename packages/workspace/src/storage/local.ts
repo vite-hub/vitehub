@@ -321,8 +321,34 @@ class LocalWorkspaceStore implements WorkspaceStore {
     this.#metaPath = `${root}.meta.json`
   }
 
+  #removalMarker(path: string) {
+    return `${this.root}/.vitehub/file-removals/${createHash("sha256").update(path).digest("hex")}`
+  }
+
+  async #assertNoPendingRemoval(path: string) {
+    const { lstat, stat } = await import("node:fs/promises")
+    const directory = `${this.root}/.vitehub/file-removals`
+    const info = await lstat(directory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!info) return
+    assertTrustedMetadata(directory, info, await stat(this.root))
+    if (!info.isDirectory()) throw workspaceError(`[vitehub] Invalid Workspace removal directory.`)
+    const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
+    for (let index = 0; index <= parts.length; index++) {
+      const ancestor = parts.slice(0, index).join("/")
+      const pending = await lstat(this.#removalMarker(ancestor)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (pending) throw workspaceError(`[vitehub] Interrupted Workspace removal at ${ancestor || "/"}; retry removal before accessing ${path}.`)
+    }
+  }
+
   async #readFileMetadata(path: string) {
     const { lstat, open } = await import("node:fs/promises")
+    await this.#assertNoPendingRemoval(path)
     const { root } = await this.#prepareMetadataDirectories(path, false, false)
     if (!root) return
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
@@ -412,6 +438,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {
+    await this.#assertNoPendingRemoval(path)
     const { lstat, rename, rm, writeFile } = await import("node:fs/promises")
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
     const hasMetadata = value.mediaType !== undefined || value.metadata !== undefined
@@ -683,9 +710,27 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { rm } = await import("node:fs/promises")
+    const { lstat, mkdir, open, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
+    const marker = this.#removalMarker(normalized)
+    if (metadata.root) {
+      const directory = `${this.root}/.vitehub/file-removals`
+      await mkdir(directory, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error
+      })
+      const info = await lstat(directory)
+      assertTrustedMetadata(directory, info, metadata.root)
+      if (!info.isDirectory()) throw workspaceError(`[vitehub] Invalid Workspace removal directory.`)
+      if (process.platform !== "win32") await applyMetadataPermissions(directory, metadata.root.mode & 0o770, metadata.root.gid)
+      // Keep this marker outside the sidecar subtree so interrupted recursive
+      // cleanup cannot expose descendants with reusable ownership metadata.
+      const file = await open(marker, "wx", 0o600).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "EEXIST") return undefined
+        throw error
+      })
+      await file?.close()
+    }
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
@@ -698,6 +743,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     }
     const { rm: removeMetadata } = await import("node:fs/promises")
     if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
+    await rm(marker, { force: true })
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {

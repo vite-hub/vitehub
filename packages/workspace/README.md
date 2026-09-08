@@ -19,6 +19,8 @@ Use `skipLibCheck: true` in app TypeScript configs while ViteHub depends on runt
 
 ## Minimal API
 
+The local Store persists file metadata inside `.vitehub` under the Workspace root. If file removal stops before metadata cleanup completes, reads reject with `Interrupted Workspace removal` so a restored file cannot reuse deleted ownership. Retry removal of the reported path with `force: true` and, for directories, `recursive: true` before restoring files.
+
 ```text
 server/
   workspaces/
