@@ -27,6 +27,7 @@ import type {
   ResolvedAgentRuntimeContext,
   ResolvedAgentTriggerDefinition,
 } from "./types.ts"
+import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import type { StreamEvent } from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -437,7 +438,21 @@ export async function resolveAgentTriggerInvocation<
       requireSecretHeader: requiresWebhookSecretHeader(trigger.webhooks),
     })
   }
-  return resolveAgentTriggerInvocationResult(await trigger.invoke(input), trigger)
+  let validatedInput = input
+  if (trigger.input && "~standard" in Object(trigger.input)) {
+    try {
+      validatedInput = await parseStandardSchema(trigger.input, input, `Agent trigger "${trigger.id}" input`) as TInput
+    } catch (error) {
+      if (trigger.webhooks?.length && context.request) {
+        return {
+          response: Response.json({ accepted: false, reason: "invalid_payload" }, { status: 400 }),
+          trigger: trigger as never,
+        }
+      }
+      throw error
+    }
+  }
+  return resolveAgentTriggerInvocationResult(await trigger.invoke(validatedInput), trigger)
 }
 
 export function resolveAgentTriggerInvocationResult<

@@ -1,6 +1,7 @@
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import * as v from "valibot"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, traceEventsToOpenTelemetrySpans, ViteHubError } from "@vite-hub/runtime"
@@ -3080,6 +3081,48 @@ describe("agent message protocol", () => {
       },
     })
     await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("channel:portal:hello")
+  })
+
+  it("validates and transforms Standard Schema trigger input before invoke", async () => {
+    const { defineAgent, resolveAgentTriggerInvocation, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const validation = vi.fn((value: string) => value.length > 0)
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          messages: false,
+          triggers: {
+            webhook: defineChannelTrigger({
+              input: v.object({ payload: v.object({ text: v.pipe(v.string(), v.trim(), v.check(validation, "private validation detail")) }) }),
+              invoke: (_context, input) => ({ input: { prompt: input.payload.text } }),
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
+            }),
+          },
+        }),
+      },
+      driver: { run: context => context.prompt },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(runAgentTrigger(agent, runtime, "portal.webhook", { payload: { text: "  hello  " } })).resolves.toBe("hello")
+    validation.mockClear()
+    const invalid = await resolveAgentTriggerInvocation(agent, {
+      ...runtime,
+      request: new Request("https://example.test/webhook", { headers: { "x-webhook-secret": "secret" }, method: "POST" }),
+    }, "portal.webhook", { payload: { text: "" } })
+    expect("response" in invalid && invalid.response.status).toBe(400)
+    if ("response" in invalid) await expect(invalid.response.json()).resolves.toEqual({ accepted: false, reason: "invalid_payload" })
+    expect(validation).toHaveBeenCalledTimes(1)
+
+    validation.mockClear()
+    await expect(resolveAgentTriggerInvocation(agent, {
+      ...runtime,
+      request: new Request("https://example.test/webhook", { headers: { "x-webhook-secret": "wrong" }, method: "POST" }),
+    }, "portal.webhook", { payload: { text: "" } })).rejects.toMatchObject({
+      message: "[vitehub] Webhook secret verification failed.",
+      statusCode: 401,
+    })
+    expect(validation).not.toHaveBeenCalled()
   })
 
   it("adds only the active Channel Capabilities", async () => {

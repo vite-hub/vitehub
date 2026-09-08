@@ -2762,6 +2762,14 @@ export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   return channel
 }
 
+export function defineChannelTrigger<
+  TInput,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+>(definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>>): typeof definition {
+  return definition
+}
+
 export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: DiscordChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
