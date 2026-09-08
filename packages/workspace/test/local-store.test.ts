@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { chmod, copyFile, link, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises"
+import { chmod, chown, copyFile, link, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -7,10 +7,18 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
+const permissionsFixture = vi.hoisted(() => ({ root: "" }))
+
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
   return {
     ...actual,
+    chown: vi.fn(actual.chown),
+    stat: async (...args: Parameters<typeof actual.stat>) => {
+      const info = await actual.stat(...args)
+      if (String(args[0]) === permissionsFixture.root) Reflect.set(info, "gid", Number(info.gid) + 1)
+      return info
+    },
     copyFile: vi.fn(actual.copyFile),
     link: vi.fn(actual.link),
     readFile: vi.fn(actual.readFile),
@@ -33,6 +41,7 @@ function metadataRoot(root: string) {
 }
 
 afterEach(async () => {
+  permissionsFixture.root = ""
   vi.clearAllMocks()
   await Promise.all(tempDirs.splice(0).flatMap(path => [
     path,
@@ -164,6 +173,48 @@ describe("local workspace store", () => {
     }
     expect((await stat(`${sidecars}/nested/file.txt/metadata.json`)).mode & 0o777).toBe(0o660)
     await expect(createLocalWorkspaceStore(root).readFile("nested/file.txt")).resolves.toMatchObject({ metadata: { source: "shared" } })
+  })
+
+  it.skipIf(process.platform === "win32").each([0o755, 0o777])("excludes public access for Workspace mode %i", async (mode) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await chmod(root, mode)
+    await store.writeFile("nested/file.txt", { path: "nested/file.txt", content: "private", metadata: { source: "private" } })
+    const sidecars = metadataRoot(root)
+    for (const path of [sidecars, `${sidecars}/nested`, `${sidecars}/nested/file.txt`]) {
+      expect((await stat(path)).mode & 0o777).toBe(mode & 0o770)
+    }
+    expect((await stat(`${sidecars}/nested/file.txt/metadata.json`)).mode & 0o777).toBe(mode & 0o660)
+  })
+
+  it.skipIf(process.platform === "win32").each(["EPERM", "EACCES"])("continues writes and removals when group repair fails with %s", async (code) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await chmod(root, 0o777)
+    permissionsFixture.root = root
+    vi.mocked(chown).mockRejectedValue(Object.assign(new Error("group assignment denied"), { code }))
+    try {
+      for (const streamed of [false, true]) {
+        const file = { path: "nested/file.txt", metadata: { source: String(streamed) } }
+        if (streamed) await store.writeFileStream!(file.path, { ...file, content: new Blob(["after"]).stream() })
+        else await store.writeFile(file.path, { ...file, content: "before" })
+        await expect(createLocalWorkspaceStore(root).readFile(file.path)).resolves.toMatchObject({ metadata: file.metadata })
+        const sidecars = metadataRoot(root)
+        for (const path of [sidecars, `${sidecars}/nested`, `${sidecars}/nested/file.txt`]) {
+          expect((await stat(path)).mode & 0o777).toBe(0o700)
+        }
+        expect((await stat(`${sidecars}/nested/file.txt/metadata.json`)).mode & 0o777).toBe(0o600)
+      }
+      await store.writeFile("nested/file.txt", { path: "nested/file.txt", content: "cleared" })
+      await expect(createLocalWorkspaceStore(root).readFile("nested/file.txt")).resolves.toMatchObject({ metadata: undefined })
+      await store.rm("nested/file.txt")
+      await expect(store.stat("nested/file.txt")).resolves.toBeUndefined()
+      expect(chown).toHaveBeenCalled()
+    }
+    finally {
+      const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      vi.mocked(chown).mockImplementation(actual.chown)
+    }
   })
 
   it.each([

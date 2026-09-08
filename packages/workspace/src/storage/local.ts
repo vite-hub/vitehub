@@ -30,7 +30,7 @@ async function backupFile(path: string, backup: string): Promise<void> {
   try {
     await link(path, backup)
   } catch (error) {
-    if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EXDEV"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error
+    if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EXDEV"].includes(Reflect.get(Object(error), "code"))) throw error
     // Some filesystems cannot hard-link. Copy before publishing so readers
     // retain the original content and failed writes can still roll back.
     try {
@@ -40,6 +40,20 @@ async function backupFile(path: string, backup: string): Promise<void> {
       throw error
     }
   }
+}
+
+async function applyMetadataPermissions(path: string, mode: number, gid: number) {
+  const { chmod, chown, stat } = await import("node:fs/promises")
+  const info = await stat(path)
+  if (info.gid !== gid) {
+    try { await chown(path, info.uid, gid) }
+    catch (error) {
+      if (!["EPERM", "EACCES"].includes(Reflect.get(Object(error), "code"))) throw error
+      // If the Workspace group cannot be assigned, keep metadata owner-only.
+      mode &= 0o700
+    }
+  }
+  if ((info.mode & 0o777) !== mode) await chmod(path, mode)
 }
 
 async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
@@ -249,13 +263,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #prepareMetadataDirectories(path: string, create: boolean) {
-    const { chmod, chown, mkdir, stat } = await import("node:fs/promises")
+    const { mkdir, stat } = await import("node:fs/promises")
     const root = await stat(this.root).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" && !create) return undefined
       throw error
     })
     if (!root) return { mode: 0o600, gid: undefined }
-    const mode = root.mode & 0o777
+    const mode = root.mode & 0o770
     let directory = this.#fileMetadataRoot
     for (const part of ["", ...normalizeWorkspacePath(path).split("/").filter(Boolean)]) {
       if (part) directory = resolveInside(directory, part)
@@ -266,15 +280,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
       })
       if (!info) break
       if (process.platform !== "win32") {
-        if (info.gid !== root.gid) await chown(directory, info.uid, root.gid)
-        if ((info.mode & 0o777) !== mode) await chmod(directory, mode)
+        await applyMetadataPermissions(directory, mode, root.gid)
       }
     }
     return { mode: mode & 0o666, gid: root.gid }
   }
 
   async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {
-    const { chmod, chown, rename, rm, stat, writeFile } = await import("node:fs/promises")
+    const { rename, rm, writeFile } = await import("node:fs/promises")
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
     const hasMetadata = value.mediaType !== undefined || value.metadata !== undefined
     const permissions = await this.#prepareMetadataDirectories(path, hasMetadata)
@@ -286,10 +299,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const temp = `${metadataPath}.${randomUUID()}.tmp`
     try {
       await writeFile(temp, JSON.stringify({ path, ...value }), { mode: 0o600 })
-      if (process.platform !== "win32") {
-        const info = await stat(temp)
-        if (permissions.gid !== undefined && info.gid !== permissions.gid) await chown(temp, info.uid, permissions.gid)
-        await chmod(temp, permissions.mode)
+      if (process.platform !== "win32" && permissions.gid !== undefined) {
+        await applyMetadataPermissions(temp, permissions.mode, permissions.gid)
       }
       await rename(temp, metadataPath)
     }
