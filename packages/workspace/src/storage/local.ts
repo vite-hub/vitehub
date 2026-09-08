@@ -286,13 +286,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
     }
     if (!content) return
     let value: unknown
-    try { value = JSON.parse(content) } catch { return }
+    try { value = JSON.parse(content) }
+    catch { throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`) }
     const parsed = safeParse(object({
       path: literal(path),
       mediaType: fallback(optional(string()), undefined),
       metadata: fallback(optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()))), undefined),
     }), value)
-    if (!parsed.success) return
+    if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
     const { path: _path, ...result } = parsed.output
     // Keep scans larger than the cache from evicting every reusable entry.
     if (this.#files.has(path) || this.#files.size < 1024) {
