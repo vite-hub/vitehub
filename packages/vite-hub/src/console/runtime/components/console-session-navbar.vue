@@ -8,6 +8,7 @@ const props = defineProps<{
   hasDisplay: boolean;
   hasSelection: boolean;
   loading: boolean;
+  refreshable: boolean;
   project: string;
   title: string;
   tokens?: string;
@@ -40,26 +41,15 @@ defineEmits<{
   >
     <template #title>
       <div v-if="hasDisplay" class="flex min-w-0 items-center gap-2 text-sm">
-        <UIcon name="i-lucide-folder" class="size-3.5 shrink-0 text-muted" />
-        <span class="max-w-40 shrink-0 truncate font-normal text-muted">{{ project }}</span>
-        <span class="text-dimmed" aria-hidden="true">/</span>
+        <span v-if="project" class="max-w-40 shrink-0 truncate font-normal text-muted">{{
+          project
+        }}</span>
+        <span v-if="project" class="text-dimmed" aria-hidden="true">/</span>
         <strong class="min-w-0 truncate font-medium text-highlighted">{{ title }}</strong>
       </div>
       <span v-else class="text-sm font-medium">{{ title }}</span>
     </template>
     <template #right>
-      <div
-        v-if="cost || tokens"
-        class="hidden shrink-0 items-center gap-3 text-xs tabular-nums text-muted sm:flex"
-        aria-label="Session usage"
-      >
-        <span v-if="cost" class="inline-flex items-center gap-1" title="Total session cost">
-          <UIcon name="i-lucide-circle-dollar-sign" class="size-3.5" />{{ cost }}
-        </span>
-        <span v-if="tokens" class="inline-flex items-center gap-1" title="Processed tokens">
-          <UIcon name="i-lucide-gauge" class="size-3.5" />{{ tokens }}
-        </span>
-      </div>
       <UTooltip text="Open sessions">
         <UButton
           data-slot="mobile-session-navigation"
@@ -67,7 +57,7 @@ defineEmits<{
           icon="i-lucide-panel-left"
           color="neutral"
           variant="ghost"
-          size="sm"
+          size="xs"
           aria-label="Open sessions"
           @click="$emit('openSessions')"
         />
@@ -79,16 +69,16 @@ defineEmits<{
           :icon="externalTarget.icon"
           color="neutral"
           variant="ghost"
-          size="sm"
+          size="xs"
           :aria-label="externalTarget.label"
         />
       </UTooltip>
-      <UTooltip text="Refresh session">
+      <UTooltip v-if="refreshable" text="Refresh session">
         <UButton
           icon="i-lucide-refresh-cw"
           color="neutral"
           variant="ghost"
-          size="sm"
+          size="xs"
           :loading="loading"
           aria-label="Refresh session"
           @click="$emit('refresh')"
@@ -100,7 +90,7 @@ defineEmits<{
           icon="i-lucide-panel-right"
           color="neutral"
           :variant="detailsOpen ? 'soft' : 'ghost'"
-          size="sm"
+          size="xs"
           :disabled="!hasSelection"
           aria-label="Session details"
           :aria-pressed="detailsOpen"

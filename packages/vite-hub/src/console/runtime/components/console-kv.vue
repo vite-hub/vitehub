@@ -352,11 +352,11 @@ onBeforeUnmount(() => {
       </template>
 
       <template #default="{ collapsed }">
-        <div class="px-2 py-2">
+        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
           <UDashboardSearchButton
             :collapsed="collapsed"
             block
-            class="w-full bg-transparent ring-0 hover:bg-elevated/60"
+            class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60"
             label="Search console"
           />
         </div>

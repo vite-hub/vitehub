@@ -29,6 +29,8 @@ export interface GitHubHostCredentials {
 }
 
 export interface GitHubHostCredentialContext {
+  /** Repository whose GitHub credentials are needed; omitted for unscoped access. */
+  repository?: string
   signal: AbortSignal
 }
 
@@ -66,7 +68,7 @@ export interface GitHubGraphQLBudgetOptions extends GitHubHostCheckoutOptions {
 
 export interface GitHubHostCommandOptions extends GitHubHostCheckoutOptions {
   cwd?: string
-  env?: NodeJS.ProcessEnv
+  env?: Record<string, string | undefined>
   repository?: string
 }
 
@@ -245,8 +247,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const fallbackIdentityLimit = 1_000
   const budgetStateLimit = 1_000
   const budgetStateAccess = new Map<string, number>()
-  let appToken: { expiresAt: number, token: string } | undefined
-  let appTokenKey: string | undefined
+  const appTokens = new Map<string, { expiresAt: number, token: string }>()
 
   function touchBudgetState(key: string, now: number): void {
     if (budgetStateAccess.has(key)) {
@@ -273,11 +274,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     budgetStateAccess.set(key, now)
   }
 
-  async function credentials(input: GitHubHostCheckoutOptions): Promise<GitHubHostCredentials> {
+  async function credentials(input: GitHubHostAccessOptions): Promise<GitHubHostCredentials> {
     const operation = controlledOperation(input)
     try {
       operation.signal.throwIfAborted()
-      const pending = Promise.resolve().then(() => options.credentials({ signal: operation.signal }))
+      const pending = Promise.resolve().then(() => options.credentials({ repository: input.repository, signal: operation.signal }))
       return await waitForCaller(pending, { signal: operation.signal })
     }
     finally {
@@ -333,7 +334,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   async function scopedAccess(input: GitHubHostAccessOptions): Promise<GitHubHostAccess & { rateLimitKey: string }> {
-    const config = await credentials({ signal: input.signal })
+    const config = await credentials({ repository: input.repository, signal: input.signal })
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
     const appOwner = String(config.owner || "").trim().toLowerCase()
@@ -355,7 +356,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         const numericInstallationId = positiveInteger(installationId, "GitHub App installationId")
         rateLimitKey = `app:${numericAppId}:${numericInstallationId}`
         const key = `${numericAppId}:${numericInstallationId}:${privateKey}`
-        if (input.refresh || !appToken || appTokenKey !== key || appToken.expiresAt <= Date.now() + 60_000) {
+        let appToken = appTokens.get(key)
+        if (input.refresh || !appToken || appToken.expiresAt <= Date.now() + 60_000) {
           const response = await fetch(`https://api.github.com/app/installations/${numericInstallationId}/access_tokens`, {
             headers: {
               accept: "application/vnd.github+json",
@@ -374,7 +376,8 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
             expiresAt: hasRuntimeType(expiresAt, "string") ? Date.parse(expiresAt) || Date.now() + 50 * 60_000 : Date.now() + 50 * 60_000,
             token: responseToken,
           }
-          appTokenKey = key
+          if (appTokens.size >= 128) appTokens.delete(appTokens.keys().next().value!)
+          appTokens.set(key, appToken)
         }
         token = appToken.token
       }
@@ -676,7 +679,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   return {
     channel(channelOptions = {}) {
-      return github({ ...channelOptions, app: { token: async () => (await access()).token, ...(identity.login ? { identity: { login: identity.login } } : {}) } })
+      return github({ ...channelOptions, app: { token: async (_context, scope) => (await access({ repository: scope.repository })).token, ...(identity.login ? { identity: { login: identity.login } } : {}) } })
     },
     async environment() {
       const current = checkoutScope.getStore()

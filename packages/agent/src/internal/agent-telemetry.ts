@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./runtime-type.ts"
+import type { WorkspaceDefinition } from "@vite-hub/workspace"
 import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {
   AgentInspectionValue,
@@ -15,6 +16,32 @@ function compareCodeUnits(left: string, right: string): number {
 }
 
 const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTelemetryConfigurationState>()
+
+export function agentTelemetryWorkspaceSources(
+  sources: NonNullable<WorkspaceDefinition["sources"]>,
+): NonNullable<NonNullable<AgentTelemetryConfiguration["workspace"]>["sources"]> {
+  return Object.keys(sources).sort().map((id) => {
+    let source = sources[id]
+    while (hasRuntimeType(source, "object") && source !== null && "source" in source) source = source.source
+    if (!hasRuntimeType(source, "object") || source === null) return id
+    // Custom Sources own their fields; only plain shorthand infers GitHub from repo.
+    const customSource = "getKeys" in source && hasRuntimeType(source.getKeys, "function")
+      && "getItem" in source && hasRuntimeType(source.getItem, "function")
+    // GitHub sources expose the repository in their credential-free fingerprint.
+    let metadata = "name" in source && source.name === "github" && "fingerprint" in source
+      ? source.fingerprint
+      : customSource ? undefined : source
+    while (metadata && hasRuntimeType(metadata, "object") && "sourceResolution" in metadata && "source" in metadata) {
+      metadata = metadata.source
+    }
+    const repository = metadata && hasRuntimeType(metadata, "object") && "repo" in metadata
+      ? metadata.repo
+      : undefined
+    return hasRuntimeType(repository, "string") && /^[\w.-]+\/[\w.-]+$/.test(repository)
+      ? { id, repository }
+      : id
+  })
+}
 
 function secretMetadataKey(key: string): boolean {
   const normalized = key

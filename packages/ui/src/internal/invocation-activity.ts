@@ -25,6 +25,11 @@ interface InvocationCommand {
   output?: string;
 }
 
+interface InvocationSkillRead {
+  name: string;
+  path: string;
+}
+
 export interface InvocationActivity {
   attributes: Record<string, unknown>;
   body?: string;
@@ -40,6 +45,8 @@ export interface InvocationActivity {
   reasoningTokens?: number;
   role?: "assistant" | "system" | "tool" | "user";
   sequence: number;
+  skill?: InvocationSkillRead;
+  skills?: readonly InvocationSkillRead[];
   startedAt?: string;
   status: "running" | "completed" | "failed";
   totalTokens?: number;
@@ -185,6 +192,35 @@ function commandDetails(
   };
 }
 
+function skillReadDetails(attributes: Record<string, unknown>): InvocationSkillRead[] {
+  const reads: InvocationSkillRead[] = [];
+  const add = (path: string) => {
+    if (path.includes("\\") || path.includes("//")) return;
+    const match = /^\.agents\/skills\/([^/.][^/]*)\/SKILL\.md$/.exec(path);
+    if (match?.[1] && !reads.some(read => read.path === path)) reads.push({ name: match[1], path });
+  };
+  for (const key of ["tool.output", "tool.input"]) {
+    const payload = record(attributes[key]);
+    const item = record(payload?.item) ?? payload;
+    if (!item || !Array.isArray(item.commandActions)) continue;
+    for (const value of item.commandActions) {
+      const action = record(value);
+      const cwd = hasRuntimeType(item.cwd, "string") ? item.cwd.replace(/\/+$/, "") : undefined;
+      if (action?.type === "read" && hasRuntimeType(action.path, "string")) {
+        add(cwd && action.path.startsWith(`${cwd}/`)
+          ? action.path.slice(cwd.length + 1)
+          : action.path.replace(/^\.\//, ""));
+        continue;
+      }
+      if (action?.type !== "unknown" || !hasRuntimeType(action.command, "string")) continue;
+      const tokens = action.command.trim().split(/\s+/);
+      if (tokens[0] !== "cat" || tokens.length < 2 || tokens.slice(1).some(token => token.startsWith("-") || /[\\'"`$;&|<>(){}\[\]*?!]/.test(token))) continue;
+      for (const token of tokens.slice(1)) add(token.replace(/^\.\//, ""));
+    }
+  }
+  return reads;
+}
+
 export function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = attributes[key];
@@ -254,7 +290,8 @@ function activityKind(
   if (attributes["tool.name"] || attributes["tool.id"] || observation.name.includes(".tool.")) return "tool";
   if (attributes["approval.id"] || observation.name.includes(".approval.")) return "approval";
   if (observation.type === "error" || observation.name.endsWith(".error")) return "error";
-  if (attributes["message.phase"] === "commentary" || attributes["message.phase"] === "reasoning") return "reasoning";
+  if (attributes["message.phase"] === "commentary") return "message";
+  if (attributes["message.phase"] === "reasoning") return "reasoning";
   if (observation.name.includes(".reasoning.")) return "reasoning";
   if (observation.name.includes(".model.")) return "model";
   if (attributes["message.role"] || attributes["message.content"] || attributes["input.prompt"] || attributes["input.messages"] || attributes["result.text"]) return "message";
@@ -283,6 +320,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   for (const observation of invocation.observations ?? []) {
     if (observation.name === "agent.title.recorded") continue;
     const originalAttributes = observation.attributes ?? {};
+    if (originalAttributes["vitehub.auxiliary.kind"] === "title") continue;
     if (
       observation.name === "agent.stream.error"
       && originalAttributes["error.recoverable"] === true
@@ -353,7 +391,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || /\.(error|failed)$/.test(item.name))
-        || (kind === "delivery" && Boolean(stringAttribute(attributes, "error.message")));
+        || (kind === "delivery" && Boolean(stringAttribute(attributes, "error.message")))
+        || attributes["agent.capability.outcome"] === "error";
       const approvalDenied = attributes["approval.approved"] === false;
       const completed = sorted.some(item => /\.(abort|cancelled|completed|decision|error|failed|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
@@ -363,6 +402,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
+      const skills = skillReadDetails(attributes);
       const observedEndedAt = sorted.at(-1)?.timestamp;
       const invocationEndedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt;
       const started = /\.(request|start|started)$/.test(first.name);
@@ -395,6 +435,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         patches,
         paths,
         sequence: first.sequence,
+        ...(skills.length ? { skill: skills[0], skills } : {}),
         startedAt: terminalStartedAt ?? first.timestamp,
         ...(numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") !== undefined
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
@@ -415,21 +456,23 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       };
     })
     .sort((left, right) => left.sequence - right.sequence);
-  const contentTruncated = traceTruncated || activities.some(activity => activity.truncated);
-  const compactActivities = activities.map(({ truncated: _truncated, ...activity }) => activity);
-  if (contentTruncated && !compactActivities.some(activity => activity.name === "vitehub.observation.truncated")) {
-    compactActivities.push({
+  const visibleActivities = activities.filter(activity => !(
+    activity.kind === "run"
+    && /^agent\.invocation\.(?:start|started)$/.test(activity.name)
+  ));
+  if (traceTruncated && !visibleActivities.some(activity => activity.name === "vitehub.observation.truncated")) {
+    visibleActivities.push({
       attributes: {},
       id: "trace-truncated",
       kind: "system",
       name: "vitehub.observation.truncated",
       patches: [],
       paths: [],
-      sequence: (compactActivities.at(-1)?.sequence ?? -1) + 1,
+      sequence: (visibleActivities.at(-1)?.sequence ?? -1) + 1,
       status: "completed",
     });
   }
-  return compactActivities;
+  return visibleActivities;
 }
 
 export function latestInvocationTokens(activities: readonly InvocationActivity[]): number | undefined {
@@ -442,10 +485,12 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (hasRuntimeType(explicit, "string") && explicit.trim()) return explicit.trim();
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
   if (activity.name === "vitehub.agent.configured") return "Agent configured";
+  if (activity.skill) return `Read ${activity.skill.name} skill`;
   if (activity.kind === "preparation") return "Prepared session";
   if (activity.kind === "system") return "System configuration";
   if (activity.kind === "delivery") return channelDeliveryTitle(activity);
   if (activity.attributes["vitehub.action.name"] === "progress-summary.update") return "Updated loading message";
+  if (activity.attributes["vitehub.action.name"] === "input.steered") return "Steered active session";
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));

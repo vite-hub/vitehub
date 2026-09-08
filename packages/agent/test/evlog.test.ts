@@ -168,3 +168,26 @@ it("builds Console links and owns its host lifecycle from the shared configurati
   await hooks.get("close")!()
   expect(telemetry.status().closed).toBe(true)
 })
+
+it("exports only failed HTTP logs by default", async () => {
+  const { telemetry, exporter } = setup()
+  telemetry.drain({ event: { service: "test", environment: "development", level: "info", method: "GET", path: "/health", status: 200, timestamp: new Date().toISOString() }, request: { method: "GET", path: "/health" } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "error", method: "POST", path: "/rpc", status: 500, timestamp: new Date().toISOString() }, request: { method: "POST", path: "/rpc" } })
+  await telemetry.flush()
+  expect(exporter.logs).toHaveBeenCalledTimes(1)
+  expect(exporter.logs.mock.calls[0]?.[0]).toEqual([expect.objectContaining({ path: "/rpc", status: 500 })])
+})
+
+it.each(["failures", "all", false] as const)("preserves application logs with HTTP log policy %s", async (logs) => {
+  const { telemetry, exporter } = setup({}, { logs })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "info", event: "job.finished", timestamp: new Date().toISOString() } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "debug", event: "job.progress", timestamp: new Date().toISOString() } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "info", event: "outbound.finished", method: "GET", path: "/health", status: 200, timestamp: new Date().toISOString() } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "info", method: "GET", path: "/health", status: 200, timestamp: new Date().toISOString() }, request: { method: "GET", path: "/health" } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "error", method: "POST", path: "/rpc", status: 500, timestamp: new Date().toISOString() }, request: { method: "POST", path: "/rpc" } })
+  await telemetry.flush()
+  expect(exporter.logs).toHaveBeenCalledTimes(1)
+  const records = exporter.logs.mock.calls[0]![0]
+  expect(records.filter(record => record.event).map(record => record.event)).toEqual(["job.finished", "job.progress", "outbound.finished"])
+  expect(records.filter(record => !record.event).map(record => record.status)).toEqual(logs === "all" ? [200, 500] : logs === "failures" ? [500] : [])
+})
