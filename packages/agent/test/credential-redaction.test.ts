@@ -542,10 +542,16 @@ it.each(["The bearer of good news arrived", "A basic explanation follows"])("pre
   expect(pendingCredentialScheme(text)).toBeUndefined()
 })
 
-it.each(["bearer", "BEARER", "bEaReR", "basic", "BASIC", "bAsIc"])("redacts bare scheme lines: %s", (scheme) => {
+it.each(["BEARER", "BASIC"])("redacts bare scheme lines: %s", (scheme) => {
   const prefix = `launcher failed\n  ${scheme} `
   expect(redactCredentialText(`${prefix}sensitive-value;status=ok`)).toBe(`${prefix}[REDACTED];status=ok`)
   expect(pendingCredentialScheme(`${prefix}sensitive`)).toBe("unquoted")
+})
+
+it.each(["bearer", "bEaReR", "basic", "bAsIc"])("preserves lowercase bare scheme prose: %s", (scheme) => {
+  const value = `launcher failed\n  ${scheme} sensitive-value;status=ok`
+  expect(redactCredentialText(value)).toBe(value)
+  expect(pendingCredentialScheme(value)).toBeUndefined()
 })
 
 it("keeps preceding prose context across scheme detection boundaries", () => {
