@@ -480,7 +480,7 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
-  it("reports mount stat errors per Source and continues materializing later Sources", async () => {
+  it("reports mount stat errors per Source while materializing other Sources", async () => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)
     const definition = {
@@ -863,7 +863,10 @@ describe("lazy sources", () => {
     })
     const retained = source()
     const initial = { name: "shared-empty-startup-mount", sources: { removed: source(), retained } }
-    await createWorkspaceSourceView(initial, store).materializeSources()
+    // Establish the removed Source as the original directory owner explicitly.
+    const initialView = createWorkspaceSourceView(initial, store)
+    await initialView.materializeSources({ sources: ["removed"] })
+    await initialView.materializeSources({ sources: ["retained"] })
     await expect(store.getMeta?.("source:removed:snapshot")).resolves.toMatchObject({ ownsMount: true })
     await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false, status: "ready" })
 
@@ -893,7 +896,10 @@ describe("lazy sources", () => {
     })
     const retained = source("retained.md")
     const initial = { name: "shared-nonempty-startup-mount", sources: { removed: source("removed.md"), retained } }
-    await createWorkspaceSourceView(initial, store).materializeSources()
+    // Establish the removed Source as the original directory owner explicitly.
+    const initialView = createWorkspaceSourceView(initial, store)
+    await initialView.materializeSources({ sources: ["removed"] })
+    await initialView.materializeSources({ sources: ["retained"] })
     await expect(store.getMeta?.("source:removed:snapshot")).resolves.toMatchObject({ ownsMount: true })
     await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false })
 

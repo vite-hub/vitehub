@@ -611,7 +611,9 @@ async function materializeWorkspaceSourcesInternal(
   let directories = 0
   let bytes = 0
 
-  for (const source of sources) {
+  // Path resolution selects the first matching Source. Write it last so batch
+  // preparation leaves the same content in the Store as subsequent reads.
+  for (const source of sources.toReversed()) {
     throwIfAborted(options.abortSignal)
     const sourceStarted = Date.now()
     await reportMaterializationProgress(options, source, { status: "started" })
@@ -961,7 +963,7 @@ async function materializeWorkspaceSourcesInternal(
     durationMs: Date.now() - started,
     files,
     path: normalizeWorkspacePath(options.path || ""),
-    sources: resultSources,
+    sources: resultSources.reverse(),
   }
 }
 
