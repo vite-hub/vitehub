@@ -616,6 +616,11 @@ export async function materializeWorkspaceSources(
           items: scopedItems,
         }))
       }
+      else {
+        // Retain migrated items for later scoped calls without marking the
+        // unvisited portion of the source as a fresh, complete snapshot.
+        await control.mutate(() => writeSourceSnapshotMetadata(store, { ...ready, status: "updating" }))
+      }
       const durationMs = Date.now() - sourceStarted
       const resultSource: WorkspaceSourceMaterializationStatus = {
         ...ready, cacheStatus, counts: { ...counts }, durationMs, provider: source.source.name,

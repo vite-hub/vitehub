@@ -63,3 +63,63 @@ it.each([3600, 0])("restores legacy materialization ownership with cache maxAge 
       .map(path => rm(path, { recursive: true, force: true })))
   }
 })
+
+it.each([3600, 0])("converges scoped legacy materialization ownership with cache maxAge %i", async (maxAge) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-metadata-migration-"))
+  const sidecars = `${root}.vitehub-file-metadata-${createHash("sha256").update(root).digest("hex").slice(0, 16)}`
+  try {
+    const getItem = vi.fn(async (key: string) => ({ key, content: "original", mediaType: "text/plain" }))
+    const definition = {
+      name: "legacy-metadata",
+      sources: {
+        docs: {
+          cache: { maxAge },
+          mount: { path: "" },
+          materialize: "startup" as const,
+          async getKeys() { return ["docs/file.txt", "other.txt"] },
+          async getMeta() { return { etag: "unchanged" } },
+          getItem,
+        },
+      },
+    }
+    const store = createLocalWorkspaceStore(root)
+    await materializeWorkspaceSources(definition, store)
+    expect(getItem).toHaveBeenCalledTimes(2)
+
+    // Reproduce the pre-sidecar snapshot format and its metadata-free files.
+    const source = normalizeWorkspaceSources(definition.sources)[0]!
+    const configHash = await sha256({
+      cache: source.cache, key: source.key, materialize: source.materialize,
+      mountPath: source.mountPath, source: source.source.fingerprint,
+    })
+    const snapshotKey = sourceSnapshotMetaKey(source.key)
+    const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
+    await store.setMeta!(snapshotKey, {
+      ...snapshot, configHash,
+      materializedAt: new Date(Date.now() - 1000).toISOString(),
+    })
+    await rm(sidecars, { recursive: true })
+
+    const restarted = createLocalWorkspaceStore(root)
+    await expect(restarted.readFile("docs/file.txt")).resolves.toMatchObject({ metadata: undefined })
+    const result = await materializeWorkspaceSources(definition, restarted, { path: "docs" })
+    expect(result.sources[0]?.status).toBe("ready")
+    expect(getItem).toHaveBeenCalledTimes(3)
+    await expect(createLocalWorkspaceStore(root).readFile("docs/file.txt")).resolves.toMatchObject({
+      content: new TextEncoder().encode("original"), mediaType: "text/plain",
+      metadata: { source: "docs", sourcePath: "docs/file.txt" },
+    })
+    await expect(createLocalWorkspaceStore(root).getMeta!(snapshotKey)).resolves.toMatchObject({ status: "updating" })
+    await materializeWorkspaceSources(definition, createLocalWorkspaceStore(root), { path: "docs" })
+    expect(getItem).toHaveBeenCalledTimes(3)
+    await expect(restarted.readFile("other.txt")).resolves.toMatchObject({ metadata: undefined })
+    await materializeWorkspaceSources(definition, createLocalWorkspaceStore(root))
+    expect(getItem).toHaveBeenCalledTimes(4)
+    await expect(restarted.readFile("other.txt")).resolves.toMatchObject({ metadata: { source: "docs" } })
+    await expect(createLocalWorkspaceStore(root).getMeta!(snapshotKey)).resolves.toMatchObject({ status: "ready", files: 2 })
+  }
+  finally {
+    await Promise.all([root, sidecars, `${root}.meta.json`, `${root}.vitehub-locks`, `${root}.vitehub-lock`]
+      .map(path => rm(path, { recursive: true, force: true })))
+  }
+})
