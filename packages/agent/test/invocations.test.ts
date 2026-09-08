@@ -646,11 +646,13 @@ describe("Agent Invocations", () => {
     try {
       for (const [index, store] of stores.entries()) {
         const runId = `truncated-capability-${index}`
-        const invocations = defineAgentInvocations({ store })
+        // A small explicit journal exercises the same overflow without hundreds of disk writes.
+        const maxCount = 8
+        const invocations = defineAgentInvocations({ observations: { maxCount }, store })
         const journal = await bindAgentInvocations(invocations, runtime(runId))
         if (!journal) throw new Error("Expected the invocation journal to be configured.")
         await journal.running()
-        for (let observation = 0; observation < 256; observation++) {
+        for (let observation = 0; observation < maxCount; observation++) {
           await journal.context.traceLog?.append({ name: `ordinary-${observation}`, type: "run" })
         }
         await journal.context.traceLog?.append({
@@ -667,7 +669,7 @@ describe("Agent Invocations", () => {
         })
         const record = await invocations.getByRunId(runId)
         expect(record).toMatchObject({ observationsTruncated: true })
-        expect(record?.observations).toHaveLength(256)
+        expect(record?.observations).toHaveLength(maxCount)
         expect(record?.observations.some(observation => observation.attributes?.["capability.id"] === "late-capability"))
           .toBe(false)
         await journal.finish("completed")

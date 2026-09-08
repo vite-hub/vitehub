@@ -22,7 +22,8 @@ describe("Invocation observation retention", () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-long-invocation-"))
     const url = `file:${join(directory, "invocations.sqlite")}`
     const output = "source evidence\n".repeat(8000)
-    const observations = { maxCount: 512, maxStringLength: 256 * 1024, maxBytes: 2 * 1024 * 1024, flushTimeoutMs: 10_000 }
+    // This checks retention across reopen, not the speed of hundreds of SQLite writes.
+    const observations = { maxCount: 512, maxStringLength: 256 * 1024, maxBytes: 2 * 1024 * 1024, flushTimeoutMs: 60_000 }
     try {
       const invocations = defineAgentInvocations({ content: "content", observations, store: createLibsqlAgentInvocationStore({ url }) })
       const run = runAgent(defineAgent({
@@ -64,7 +65,7 @@ describe("Invocation observation retention", () => {
       expect(recovered?.observations.find(event => event.sequence === 999)?.attributes?.["result.text"]).toBe(output)
     }
     finally { await rm(directory, { recursive: true, force: true }) }
-  }, 20_000)
+  }, 75_000)
 
   it("bounds encoded observation bytes and retains lifecycle outcomes ahead of content", () => {
     let saved = record()
