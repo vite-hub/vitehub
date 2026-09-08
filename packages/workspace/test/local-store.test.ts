@@ -26,6 +26,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     readFile: vi.fn(actual.readFile),
     readdir: vi.fn(actual.readdir),
     rename: vi.fn(actual.rename),
+    rm: vi.fn(actual.rm),
     writeFile: vi.fn(actual.writeFile),
   }
 })
@@ -151,6 +152,33 @@ describe("local workspace store", () => {
       expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
     } finally {
       vi.mocked(rename).mockImplementation(actual.rename)
+    }
+  })
+
+  it.each([false, true])("succeeds after publication when backup cleanup fails, streamed: %s", async (streamed) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { source: "original" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const failure = Object.assign(new Error("backup cleanup failed"), { code: "EIO" })
+    vi.mocked(rm).mockImplementation(async (target, options) => {
+      if (String(target).endsWith(".bak")) throw failure
+      await actual.rm(target, options)
+    })
+    try {
+      const file = { path: "file.txt", metadata: { source: "replacement" } }
+      await (streamed
+        ? store.writeFileStream!("file.txt", { ...file, content: new Blob(["after"]).stream() })
+        : store.writeFile("file.txt", { ...file, content: "after" }))
+      await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({
+        content: new TextEncoder().encode("after"), metadata: { source: "replacement" },
+      })
+      const backups = await readdir(join(root, ".vitehub/tmp"))
+      expect(backups).toHaveLength(1)
+      expect(await readFile(join(root, ".vitehub/tmp", backups[0]!), "utf8")).toBe("before")
+      await expect(store.list()).resolves.toHaveLength(1)
+    } finally {
+      vi.mocked(rm).mockImplementation(actual.rm)
     }
   })
 

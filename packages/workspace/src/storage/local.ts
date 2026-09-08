@@ -412,7 +412,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
         else await rm(absolute, { force: true })
         throw error
       }
-      await rm(backup, { force: true, recursive: true })
+      // Publication has committed; backup cleanup must not turn success into failure.
+      await rm(backup, { force: true, recursive: true }).catch(() => undefined)
       return
     }
     catch (error) {
@@ -485,7 +486,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
         else await rm(absolute, { force: true })
         throw error
       }
-      await rm(backup, { force: true })
+      // Publication has committed; backup cleanup must not turn success into failure.
+      await rm(backup, { force: true }).catch(() => undefined)
       return {
         path: normalized,
         type: "file",
