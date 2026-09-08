@@ -396,7 +396,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       && item.attributes?.["message.phase"] !== "commentary")) continue;
     const text = observations.map(item => {
       const content = item.attributes?.["message.content"];
-      return typeof content === "string" ? content : "";
+      return hasRuntimeType(content, "string") ? content : "";
     }).join("").trim();
     if (!text) continue;
     completeAssistantTexts.add(text);
