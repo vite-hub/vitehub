@@ -75,10 +75,13 @@ export function consumeAuthorization(value: string, state: AuthorizationState): 
     const character = value[index]!
     if (state.escaped) state.escaped = false
     else if (character === "\\") state.escaped = true
+    else if (state.outerQuote) {
+      if (character === state.outerQuote) return index
+    }
     else if (state.quote) {
       if (character === state.quote) delete state.quote
     }
-    else if (character === state.outerQuote || /[\r\n;&<>}]/.test(character)) return index
+    else if (/[\r\n;&<>}]/.test(character)) return index
     else if (character === '"' || character === "'") state.quote = character
   }
   return value.length
