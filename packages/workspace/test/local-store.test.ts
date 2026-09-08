@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -37,6 +37,34 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it("reuses cached sidecars across listings larger than the cache", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const paths = Array.from({ length: 1025 }, (_, index) => `file-${String(index).padStart(4, "0")}`)
+    await Promise.all(paths.map(async (path) => {
+      await writeFile(join(root, path), "content")
+      const directory = `${root}.vitehub-file-metadata/${path}`
+      await mkdir(directory, { recursive: true })
+      await writeFile(`${directory}/metadata.json`, JSON.stringify({ path, mediaType: "text/plain" }))
+    }))
+    const handle = await open(`${root}.vitehub-file-metadata/${paths[0]}/metadata.json`, "r")
+    const read = vi.spyOn(Object.getPrototypeOf(handle), "readFile")
+    await handle.close()
+    try {
+      expect(await store.list()).toHaveLength(1025)
+      expect(read).toHaveBeenCalledTimes(1025)
+      read.mockClear()
+      expect(await store.list()).toHaveLength(1025)
+      expect(read).toHaveBeenCalledTimes(1)
+      read.mockClear()
+      expect(await store.list()).toHaveLength(1025)
+      expect(read).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      read.mockRestore()
+    }
+  })
+
   it("supports file tree operations, snapshots, and diffs", async () => {
     const store = await createStore()
 

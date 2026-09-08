@@ -222,9 +222,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
     }), JSON.parse(content))
     if (!parsed.success) return
     const { path: _path, ...result } = parsed.output
-    this.#files.delete(path)
-    this.#files.set(path, { version, value: result })
-    if (this.#files.size > 1024) this.#files.delete(this.#files.keys().next().value!)
+    // Keep scans larger than the cache from evicting every reusable entry.
+    if (this.#files.has(path) || this.#files.size < 1024) {
+      this.#files.set(path, { version, value: result })
+    }
     return result
   }
 
