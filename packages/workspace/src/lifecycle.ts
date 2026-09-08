@@ -4,7 +4,7 @@ import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
-import { readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
+import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
@@ -197,9 +197,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
     for (const source of affected) {
-      const snapshot = await readCurrentSourceSnapshot(store, source)
-      // Files outside the build mount still need their persisted ownership evidence.
-      await store.setMeta?.(sourceSnapshotMetaKey(source.key), snapshot ? { ...snapshot, status: "updating" } : {})
+      await invalidateSourceSnapshot(store, source.key)
     }
     abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
@@ -217,8 +215,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
     for (const startup of affected) {
-      const snapshot = await readCurrentSourceSnapshot(store, startup)
-      await store.setMeta?.(sourceSnapshotMetaKey(startup.key), snapshot ? { ...snapshot, status: "updating" } : {})
+      await invalidateSourceSnapshot(store, startup.key)
     }
     abortSignal?.throwIfAborted()
     await removeRootBuildSourceFiles(store, removedPaths)

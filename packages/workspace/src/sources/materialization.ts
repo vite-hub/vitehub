@@ -102,6 +102,12 @@ async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">
   return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
 }
 
+export async function invalidateSourceSnapshot(store: WorkspaceStore, sourceKey: string) {
+  const snapshot = await readSourceSnapshotMetadata(store, sourceKey)
+  // Configuration changes invalidate reuse, but old file digests still prove cleanup ownership.
+  if (snapshot) await store.setMeta?.(sourceSnapshotMetaKey(sourceKey), { ...snapshot, status: "updating" })
+}
+
 export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
   const configHash = await sourceConfigHash(source)
   const meta = await readSourceSnapshotMetadata(store, source.key)

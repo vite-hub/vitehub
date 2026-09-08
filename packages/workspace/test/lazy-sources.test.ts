@@ -2635,7 +2635,12 @@ describe("lazy sources", () => {
     await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user" })
   })
 
-  it.each(["", "docs"])("retains startup cleanup evidence after a local restart and build invalidation at '%s'", async (buildMount) => {
+  it.each([
+    { buildMount: "", changeConfiguration: false },
+    { buildMount: "docs", changeConfiguration: false },
+    { buildMount: "", changeConfiguration: true },
+    { buildMount: "docs", changeConfiguration: true },
+  ])("retains startup cleanup evidence after a local restart and build invalidation at '$buildMount' with changed configuration=$changeConfiguration", async ({ buildMount, changeConfiguration }) => {
     const root = await createRoot()
     const definition = {
       name: "restarted-invalidated-startup",
@@ -2660,7 +2665,16 @@ describe("lazy sources", () => {
     const restarted = createLocalWorkspaceStore(root)
     await restarted.writeFile("edited.md", { path: "edited.md", content: "user edit" })
     await restarted.writeFile("claimed.md", { path: "claimed.md", content: "original", metadata: { source: "other" } })
-    await syncWorkspaceDefinition(definition, restarted)
+    const currentDefinition = changeConfiguration
+      ? {
+          ...definition,
+          sources: {
+            ...definition.sources,
+            generated: custom({ ...definition.sources.generated, fingerprint: { version: 2 } }),
+          },
+        }
+      : definition
+    await syncWorkspaceDefinition(currentDefinition, restarted)
     await expect(restarted.stat("generated/stale.md")).resolves.toBeDefined()
 
     await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
