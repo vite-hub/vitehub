@@ -36,6 +36,7 @@ afterEach(async () => {
     `${path}.vitehub-lock`,
     `${path}.vitehub-locks`,
     `${path}.vitehub-file-metadata`,
+    metadataRoot(path),
     `${path}.meta.json`,
   ]).map(path => rm(path, { recursive: true, force: true })))
 })
