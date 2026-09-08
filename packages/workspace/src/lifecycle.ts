@@ -160,13 +160,12 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
 }
 
 async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[], buildSources: ResolvedWorkspaceSource[]) {
-  const buildKeys = new Set(buildSources.map(source => source.key))
   for (const source of startupSources) {
     const snapshot = await readCurrentSourceSnapshot(store, source)
     if (snapshot?.status !== "ready") continue
     for (const path of Object.keys(snapshot.items || {})) {
       const file = await store.readFile(path)
-      if (typeof file?.metadata?.source !== "string" || !buildKeys.has(file.metadata.source)) continue
+      if (!buildSources.some(buildSource => buildSource.key === file?.metadata?.source)) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
       // Retain the item index so the next startup can still clean up its stale files.
       await store.setMeta?.(sourceSnapshotMetaKey(source.key), { ...snapshot, status: "updating" })
