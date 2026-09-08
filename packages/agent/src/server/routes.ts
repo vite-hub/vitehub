@@ -4056,6 +4056,7 @@ async function chatTriggerMessages(
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
   historyThroughCurrent = false,
+  previousMessages?: UIMessageLike[],
 ): Promise<UIMessageLike[]> {
   const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
     includeReplyAttachmentInput: true,
@@ -4098,7 +4099,7 @@ async function chatTriggerMessages(
 
   if (historyThroughCurrent && current.id) {
     const currentIndex = messages.findIndex((item) => item.id === current.id)
-    messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : [current]
+    messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : previousMessages ?? [current]
   } else if (!current.id || !messages.some((item) => item.id === current.id)) {
     messages.push(current)
   }
@@ -4990,7 +4991,7 @@ async function handleChatSdkMessage(
       }
       if (waitedForActiveTurn) {
         messages = scopeCurrentChatUiMessage(
-          await chatTriggerMessages(thread, message, options, messageContext, true),
+          await chatTriggerMessages(thread, message, options, messageContext, true, messages),
           message.id,
           input.run?.runId || delivery.delivery.id,
         )

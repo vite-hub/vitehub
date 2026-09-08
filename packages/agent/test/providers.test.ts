@@ -17125,6 +17125,75 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["missing", "unavailable"] as const)("preserves inline steering history when refreshed history is %s", async (historyMode) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-history-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ persistThreadHistory: false })
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "unsupported" as const)
+    const histories: string[][] = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "steer", delivery: "manual", durable: false, state,
+            triggerHistory: { maxMessages: 2, source: "thread" },
+          },
+        }),
+      },
+      driver: {
+        async run(context) {
+          histories.push(context.messages.map(message => message.parts.find(part => part.type === "text")?.text || ""))
+          if (histories.length === 1) {
+            const runId = context.run?.runId
+            if (!runId) throw new Error("Expected an invocation run ID")
+            const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+            started.resolve()
+            try {
+              await release.promise
+            } finally {
+              unregister()
+            }
+          }
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_120, 456, "A"), "telegram"))
+      await started.promise
+      pending.push(handler(chatWebhookRequest(91_121, 456, "B"), "telegram"))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      const initialHistory = await adapter.fetchMessages("telegram:456")
+      if (historyMode === "missing") {
+        adapter.fetchMessages.mockResolvedValue({ messages: initialHistory.messages.filter(message => message.id !== "91121") })
+      } else {
+        adapter.fetchMessages.mockRejectedValue(new Error("History temporarily unavailable"))
+      }
+      release.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200])
+      expect(histories.map(history => history.at(-1)).sort()).toEqual(["A", "B"])
+      expect(histories.find(history => history.at(-1) === "B")).toEqual(["A", "B"])
+    } finally {
+      release.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("does not steer an unmentioned group follow-up into an active invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
