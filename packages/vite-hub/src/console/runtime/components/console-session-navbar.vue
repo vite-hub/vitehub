@@ -8,6 +8,7 @@ const props = defineProps<{
   hasDisplay: boolean;
   hasSelection: boolean;
   loading: boolean;
+  refreshable: boolean;
   project: string;
   title: string;
   tokens?: string;
@@ -82,7 +83,7 @@ defineEmits<{
           </template>
         </UButton>
       </UTooltip>
-      <UTooltip text="Refresh session">
+      <UTooltip v-if="refreshable" text="Refresh session">
         <UButton
           icon="i-lucide-refresh-cw"
           color="neutral"

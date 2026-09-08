@@ -4,6 +4,7 @@ import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
+import { matchesWorkspaceFile } from "./console-workspace-file";
 import { useConsoleWordWrap } from "./console-wrap";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
@@ -15,7 +16,7 @@ type WorkspaceDescriptor = {
   repository: string;
   revision: string;
 };
-type WorkspaceFile = { content: string; path: string; revision: string; size: number };
+type WorkspaceFile = { content: string; path: string; provenance?: { source: string }; revision: string; size: number };
 
 const props = withDefaults(
   defineProps<{
@@ -28,8 +29,8 @@ const props = withDefaults(
 );
 const emit = defineEmits<{ close: []; focusActivity: [activityId: string]; toggleMaximized: [] }>();
 const tab = defineModel<InspectorTab>("tab", { default: "details" });
-const activeSurface = defineModel<string>("activeSurface", { default: "view:details" });
-const openViews = defineModel<InspectorTab[]>("openViews", { default: () => ["details"] });
+const activeSurface = defineModel<string>("activeSurface", { default: "" });
+const openViews = defineModel<InspectorTab[]>("openViews", { default: () => [] });
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
 const workspace = ref<WorkspaceDescriptor>();
@@ -86,7 +87,6 @@ const workspaceLabel = computed(() =>
       : `${workspace.value.repository}@${workspace.value.revision.slice(0, 7)}`
     : "Agent Workspace",
 );
-const invocationUsage = computed(() => record(props.invocation)?.usage);
 const breadcrumbs = computed(() => selectedPath.value?.split("/") ?? []);
 type InspectorSurfaceItem = TabsItem & {
   icon: string;
@@ -163,7 +163,8 @@ watch(
       if (tab.value === "workspace") tab.value = "details";
       if (activeSurface.value === "view:workspace" || activeSurface.value.startsWith("file:")) activeSurface.value = "view:details";
     }
-    if (tab.value === "workspace") void loadWorkspace();
+    if (selectedPath.value) void loadFile(selectedPath.value);
+    else if (tab.value === "workspace") void loadWorkspace();
   },
   { immediate: true },
 );
@@ -171,10 +172,11 @@ watch(
 watch(
   tab,
   (value) => {
+    if (!activeSurface.value) return;
     if (!openViews.value.includes(value)) openViews.value = [...openViews.value, value];
-    if (value === "workspace" && !workspace.value && !workspaceLoading.value) void loadWorkspace();
+    if (value === "workspace" && !selectedPath.value && !workspace.value && !workspaceLoading.value)
+      void loadWorkspace();
   },
-  { immediate: true },
 );
 
 watch(selectedPath, (path) => {
@@ -224,6 +226,7 @@ function openView(value: InspectorTab) {
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
+    if (!workspace.value && !workspaceLoading.value) void loadWorkspace();
   }
 }
 
@@ -365,7 +368,7 @@ async function loadFile(path: string) {
         controller.signal,
       ),
     );
-    if (loadedFile.path !== path || loadedFile.revision !== workspace.value?.revision)
+    if (!matchesWorkspaceFile(loadedFile, path, workspace.value))
       throw viteHubErrorDiagnostics.VITE_HUB_R0107({
         message: "The host returned a Workspace file for a different path or revision.",
       });
@@ -419,11 +422,15 @@ function parseWorkspaceFile(value: unknown): WorkspaceFile {
   const path = stringValue(file?.path);
   const revision = stringValue(file?.revision);
   const size = numericValue(file?.size);
+  const provenanceValue = record(file?.provenance);
+  const source = stringValue(provenanceValue?.source);
   if (content === undefined || !path || !revision || size === undefined)
     throw viteHubErrorDiagnostics.VITE_HUB_R0109({
       message: "The host returned an invalid Workspace file.",
     });
-  return { content, path, revision, size };
+  const result: WorkspaceFile = { content, path, revision, size };
+  if (source) result.provenance = { source };
+  return result;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -442,14 +449,6 @@ function numericValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function formatTokens(value: unknown): string {
-  const resolved = numericValue(value);
-  if (resolved === undefined) return "Unavailable";
-  return new Intl.NumberFormat("en", {
-    maximumFractionDigits: 1,
-    notation: resolved >= 10_000 ? "compact" : "standard",
-  }).format(resolved);
-}
 
 function message(error: unknown) {
   return error instanceof Error ? error.message : "This session data is unavailable.";
@@ -568,67 +567,15 @@ function message(error: unknown) {
       class="session-inspector__details"
       @select-activity="emit('focusActivity', $event)"
     >
-      <template #metadata>
-        <section v-if="invocationUsage">
-          <h4>Usage</h4>
-          <dl class="grid grid-cols-2 gap-3">
-            <div>
-              <dt class="text-xs text-muted">Processed tokens</dt>
-              <dd class="mt-1 text-sm font-semibold tabular-nums">
-                {{ formatTokens(invocationUsage.totalTokens) }}
-              </dd>
-            </div>
-            <div v-if="record(invocationUsage.cost)">
-              <dt class="text-xs text-muted">Cost</dt>
-              <dd class="mt-1 text-sm font-semibold tabular-nums">
-                {{ stringValue(record(invocationUsage.cost)?.display) || "Unavailable" }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-xs text-muted">Input</dt>
-              <dd class="mt-1 text-xs tabular-nums text-toned">
-                {{ formatTokens(invocationUsage.inputTokens) }}
-              </dd>
-            </div>
-            <div>
-              <dt class="text-xs text-muted">Output</dt>
-              <dd class="mt-1 text-xs tabular-nums text-toned">
-                {{ formatTokens(invocationUsage.outputTokens) }}
-              </dd>
-            </div>
-            <div v-if="numericValue(invocationUsage.cachedInputTokens) !== undefined">
-              <dt class="text-xs text-muted">Cached input</dt>
-              <dd class="mt-1 text-xs tabular-nums text-toned">
-                {{ formatTokens(invocationUsage.cachedInputTokens) }}
-              </dd>
-            </div>
-            <div v-if="numericValue(invocationUsage.cacheWriteTokens) !== undefined">
-              <dt class="text-xs text-muted">Cache writes</dt>
-              <dd class="mt-1 text-xs tabular-nums text-toned">
-                {{ formatTokens(invocationUsage.cacheWriteTokens) }}
-              </dd>
-            </div>
-            <div v-if="numericValue(invocationUsage.reasoningTokens) !== undefined">
-              <dt class="text-xs text-muted">Reasoning</dt>
-              <dd class="mt-1 text-xs tabular-nums text-toned">
-                {{ formatTokens(invocationUsage.reasoningTokens) }}
-              </dd>
-            </div>
-          </dl>
-          <p v-if="record(invocationUsage.cost)" class="mt-3 text-[11px] leading-4 text-dimmed">
-            {{ record(invocationUsage.cost)?.estimated === true ? "Estimated" : "Reported" }}
-            by {{ stringValue(record(invocationUsage.cost)?.source) || "the provider" }}
-          </p>
-        </section>
-        <section v-if="props.workspaceBase" class="session-inspector__instruction-fallback">
-          <h4>Workspace instructions</h4>
-          <p>Inspect the root AGENTS.md when this Workspace provides one.</p>
-          <button v-if="props.workspaceBase" type="button" @click="openWorkspaceInstructions">
-            <UIcon name="i-lucide-file-text" />Find root AGENTS.md in Workspace<UIcon
-              name="i-lucide-arrow-right"
-            />
-          </button>
-        </section>
+      <template #identityActions>
+        <button
+          v-if="props.workspaceBase"
+          class="session-inspector__instructions-link"
+          type="button"
+          @click="openWorkspaceInstructions"
+        >
+          <UIcon name="i-lucide-file-text" />Instructions
+        </button>
       </template>
     </AgentInvocationInspector>
 
@@ -670,7 +617,7 @@ function message(error: unknown) {
               aria-label="Reload Workspace"
               @click="loadWorkspace"
           /></UTooltip>
-          <UTooltip :text="treeOpen ? 'Hide file tree' : 'Show file tree'"
+          <UTooltip v-if="workspace" :text="treeOpen ? 'Hide file tree' : 'Show file tree'"
             ><UButton
               icon="i-lucide-folder-tree"
               color="neutral"
@@ -682,21 +629,21 @@ function message(error: unknown) {
           /></UTooltip>
         </div>
       </div>
-      <div v-if="workspaceLoading" class="session-inspector__state">
+      <div v-if="workspaceLoading && !selectedPath" class="session-inspector__state">
         <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading Workspace…
       </div>
       <UEmpty
         :ui="{ root: 'border-0' }"
-        v-else-if="workspaceError"
+        v-else-if="workspaceError && !selectedPath"
         icon="i-lucide-folder-x"
         title="Workspace unavailable"
         :description="workspaceError"
         :actions="[{ label: 'Try again', onClick: loadWorkspace }]"
       />
-      <template v-else-if="workspace">
-        <div class="session-inspector__workspace-body" :data-tree-open="treeOpen">
+      <template v-else-if="workspace || selectedPath">
+        <div class="session-inspector__workspace-body" :data-tree-open="treeOpen && !!workspace">
           <div class="session-inspector__file">
-            <div v-if="!selectedPath" class="session-inspector__snapshot">
+            <div v-if="!selectedPath && workspace" class="session-inspector__snapshot">
               <UIcon name="i-lucide-folder-git-2" />
               <span class="session-inspector__eyebrow">{{
                 ["current", "live"].includes(workspace.revision) ? "Live workspace" : "Immutable snapshot"
@@ -724,7 +671,7 @@ function message(error: unknown) {
               <UIcon name="i-lucide-mouse-pointer-2" />Select a file to preview it.
             </div>
           </div>
-          <aside v-if="treeOpen" ref="filesPanel" class="session-inspector__files">
+          <aside v-if="treeOpen && workspace" ref="filesPanel" class="session-inspector__files">
             <AgentFileTree
               class="session-inspector__tree"
               :paths="workspace.paths"
@@ -733,9 +680,11 @@ function message(error: unknown) {
           </aside>
         </div>
       </template>
-      <footer v-if="workspace" class="session-inspector__file-status">
-        <span :title="workspace.revision === 'current' ? 'Files currently mounted on this host; not a snapshot of this run.' : workspace.revision">{{ workspace.revision === 'current' ? 'Current mounted files' : workspace.revision }}</span>
-        <span>{{ workspace.paths.length }} files<span v-if="file"> · {{ file.size.toLocaleString() }} bytes</span></span>
+      <footer v-if="workspace || file" class="session-inspector__file-status">
+        <span v-if="workspace" :title="workspace.revision === 'current' ? 'Files currently mounted on this host; not a snapshot of this run.' : workspace.revision">{{ workspace.revision === 'current' ? 'Current mounted files' : workspace.revision }}</span>
+        <span v-else-if="file">{{ file.revision === "current" ? "Current mounted file" : file.revision }}</span>
+        <span v-if="file?.provenance">From {{ file.provenance.source }}</span>
+        <span><template v-if="workspace">{{ workspace.paths.length }} files<span v-if="file"> · </span></template><template v-if="file">{{ file.size.toLocaleString() }} bytes</template></span>
       </footer>
     </div>
   </aside>

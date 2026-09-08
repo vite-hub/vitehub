@@ -6,7 +6,7 @@ import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it, vi } from "vitest";
 import type { UIMessage } from "ai";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
-import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
+import { AgentInvocation, AgentInvocationInspector, workspaceArtifactPath } from "../src/components/agent-invocation.ts";
 import { AgentMessageParts } from "../src/components/agent-message-parts.ts";
 import { channelIcon } from "../src/internal/channel-icon.ts";
 import { invocationActivities, invocationActivityTitle } from "../src/internal/invocation-activity.ts";
@@ -14,6 +14,36 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("recognizes safe absolute provider Workspace artifact links", () => {
+    expect(workspaceArtifactPath("/workspace/vitehub-provider-DjQaJy/artifacts/source-map.html")).toBe("artifacts/source-map.html");
+    expect(workspaceArtifactPath("/workspace/run/../.env")).toBeUndefined();
+    expect(workspaceArtifactPath("/workspace/run/report.html#summary")).toBe("report.html");
+    expect(workspaceArtifactPath("/workspace/run/image.png?download=1#preview")).toBe("image.png");
+    expect(workspaceArtifactPath("/workspace/run/report%23summary%3Fdraft.html?download=1")).toBe("report#summary?draft.html");
+    expect(workspaceArtifactPath("/workspace/run/%2e%2e/.env?download=1")).toBeUndefined();
+  });
+
+  it("opens provider Workspace artifact links through the inspector", async () => {
+    const wrapper = mount(AgentInvocation, { props: { invocation: {
+      createdAt: "2026-09-08T00:00:00.000Z",
+      id: "artifact-run",
+      traceId: "artifact-trace",
+      observations: [{
+        attributes: { "message.content": "[Source map](/workspace/provider-session/artifacts/source-map.html)", "message.id": "answer", "message.role": "assistant" },
+        name: "agent.message",
+        sequence: 1,
+        timestamp: "2026-09-08T00:00:01.000Z",
+        type: "lifecycle",
+      }],
+      status: "completed",
+      updatedAt: "2026-09-08T00:00:01.000Z",
+    } } });
+    const link = document.createElement("a");
+    link.href = "/workspace/provider-session/artifacts/source-map.html";
+    wrapper.element.append(link);
+    link.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, cancelable: true }));
+    expect(wrapper.emitted("inspect")?.at(-1)).toEqual(["workspace", "artifacts/source-map.html"]);
+  });
   it.each(["ticketing", "constructor", "<custom-channel>"])("renders %s with a neutral Channel mark and its own label", (origin) => {
     const wrapper = mount({ render: () => channelIcon(origin) });
     const custom = mount({ render: () => channelIcon("application-channel") });
@@ -32,6 +62,26 @@ describe("Agent Invocation UI", () => {
     const github = mount({ render: () => channelIcon("github") });
     expect(wrapper.attributes("aria-label")).toBe("GitHub");
     expect(wrapper.get("svg").html()).toBe(github.get("svg").html());
+  });
+
+  it("normalizes the Microsoft Teams channel kind", () => {
+    const wrapper = mount({ render: () => channelIcon("msteams") });
+    expect(wrapper.attributes("aria-label")).toBe("Microsoft Teams");
+  });
+
+  it("uses channel marks for configured invocation channels", () => {
+    const timestamp = "2026-09-08T00:00:00.000Z";
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation: {
+      configuration: { channels: [{ id: "support", kind: "msteams" }, { id: "records", kind: "airtable" }] },
+      createdAt: timestamp,
+      id: "configured-channels",
+      observations: [],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: timestamp,
+    } } });
+    const icons = wrapper.findAll(".vh-invocation-inspector__badge .vh-channel-icon");
+    expect(icons.map(icon => icon.attributes("aria-label"))).toEqual(["Microsoft Teams", "airtable"]);
   });
 
   it("hydrates message timestamps before applying browser locale formatting", async () => {
@@ -456,6 +506,7 @@ describe("Agent Invocation UI", () => {
     ]);
 
     const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.get(".vh-invocation-capabilities__summary").text()).toContain("Agent configured");
     expect(wrapper.get('[data-kind="system"] .vh-invocation-event__suffix').text()).toBe("claude-sonnet-4-5 · 2 capabilities · 1 tool");
     const system = wrapper.get('[data-kind="system"]');
     expect(system.get("summary").element.tagName).toBe("SUMMARY");
@@ -1156,6 +1207,166 @@ describe("Agent Invocation UI", () => {
       exitCode: 0,
       output: "clean",
     });
+  });
+
+  it("links structured workspace skill reads without inferring them from command text", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const skillPath = ".agents/skills/quiver-evidence/SKILL.md";
+    const invocation = {
+      createdAt: timestamp,
+      id: "skill-read",
+      observations: [{
+        attributes: {
+          "tool.id": "skill",
+          "tool.input": {
+            item: {
+              command: "/bin/sh -lc 'cat .agents/skills/quiver-evidence/SKILL.md'",
+              commandActions: [{
+                command: "cat .agents/skills/quiver-evidence/SKILL.md",
+                name: "SKILL.md",
+                path: `/workspace/capsule/${skillPath}`,
+                type: "read",
+              }],
+              cwd: "/workspace/capsule",
+            },
+          },
+          "tool.name": "Ran command",
+        },
+        name: "agent.tool.finish",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }, {
+        attributes: {
+          "tool.id": "mention-only",
+          "tool.input": { command: "echo .agents/skills/not-used/SKILL.md" },
+          "tool.name": "Ran command",
+        },
+        name: "agent.tool.finish",
+        sequence: 2,
+        timestamp,
+        type: "run" as const,
+      }, ...["../outside", ".agents/skills/../other/SKILL.md", ".agents//skills/other/SKILL.md", ".agents\\skills\\other\\SKILL.md"].map((path, index) => ({
+        attributes: {
+          "tool.id": `invalid-skill-${index}`,
+          "tool.input": {
+            item: {
+              commandActions: [{ path, type: "read" }],
+              cwd: "/workspace/capsule",
+            },
+          },
+          "tool.name": "Ran command",
+        },
+        name: "agent.tool.finish",
+        sequence: index + 3,
+        timestamp,
+        type: "run" as const,
+      }))],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const activities = invocationActivities(invocation);
+    expect(activities[0]?.skill).toEqual({ name: "quiver-evidence", path: skillPath });
+    expect(invocationActivityTitle(activities[0]!)).toBe("Read quiver-evidence skill");
+    expect(activities[1]?.skill).toBeUndefined();
+    expect(activities.slice(2).every(activity => activity.skill === undefined)).toBe(true);
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    await wrapper.get('[data-activity-id="skill"] .vh-invocation-event__title-link').trigger("click");
+    expect(wrapper.emitted("inspect")).toEqual([["workspace", skillPath]]);
+
+    const withoutWorkspace = mount(AgentInvocation, { props: { invocation, workspaceInspectable: false } });
+    expect(withoutWorkspace.find(".vh-invocation-event__title-link").exists()).toBe(false);
+  });
+
+  it("links every literal skill path in a structured cat action", async () => {
+    const timestamp = "2026-09-08T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "literal-cat-skill-reads",
+      observations: [{
+        attributes: {
+          "tool.id": "cat-skills",
+          "tool.input": { item: {
+            commandActions: [{
+              command: "cat AGENTS.md .agents/skills/show-me/SKILL.md .agents/skills/unslop/SKILL.md",
+              type: "unknown",
+            }],
+            cwd: "/workspace/capsule",
+          } },
+          "tool.name": "Ran command",
+        },
+        name: "agent.tool.finish",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }, {
+        attributes: {
+          "tool.id": "not-cat",
+          "tool.input": { item: { commandActions: [{ command: "echo .agents/skills/not-read/SKILL.md", type: "unknown" }] } },
+          "tool.name": "Ran command",
+        },
+        name: "agent.tool.finish",
+        sequence: 2,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const activities = invocationActivities(invocation);
+    expect(activities[0]?.skills).toEqual([
+      { name: "show-me", path: ".agents/skills/show-me/SKILL.md" },
+      { name: "unslop", path: ".agents/skills/unslop/SKILL.md" },
+    ]);
+    expect(activities[1]?.skills).toBeUndefined();
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const links = wrapper.findAll('[data-activity-id="cat-skills"] .vh-invocation-event__title-link');
+    expect(links.map(link => link.text())).toEqual(["Read show-me skill", "Read unslop skill"]);
+    expect(wrapper.find('[data-activity-id="cat-skills"] .vh-invocation-event__disclosure').exists()).toBe(true);
+    await links[0]!.trigger("click");
+    await links[1]!.trigger("click");
+    expect(wrapper.emitted("inspect")).toEqual([
+      ["workspace", ".agents/skills/show-me/SKILL.md"],
+      ["workspace", ".agents/skills/unslop/SKILL.md"],
+    ]);
+  });
+
+  it("presents image-view tools as one readable disclosure", () => {
+    const timestamp = "2026-09-08T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "image-view",
+      observations: [{
+        attributes: {
+          "tool.id": "image",
+          "tool.input": { item: { id: "exec-9f5", path: "/tmp/source-map.png", type: "imageView" } },
+          "tool.name": "Image view",
+          "tool.output": { completedAtMs: 1_788_851, item: { path: "/tmp/source-map.png" } },
+        },
+        name: "agent.tool.finish",
+        sequence: 1,
+        timestamp,
+        type: "run" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    const row = mount(AgentInvocation, { props: { invocation } }).get('[data-activity-id="image"]');
+    expect(row.get(".vh-invocation-event__title").text()).toBe("View image");
+    expect(row.get(".vh-invocation-event__suffix").text()).toBe("source-map.png");
+    expect(row.find('[data-icon="eye"]').exists()).toBe(true);
+    expect(row.findAll("details")).toHaveLength(1);
+    expect(row.findAll(".vh-invocation-event__payload")).toHaveLength(0);
+    expect(row.get(".vh-invocation-image-details").text()).toContain("/tmp/source-map.png");
+    expect(row.get(".vh-invocation-image-details pre").text()).toContain('"completedAtMs": 1788851');
   });
 
   it("explores structured tool payloads and selects a timed trace activity", async () => {
@@ -1922,8 +2133,7 @@ describe("Agent Invocation UI", () => {
 
     expect(writeText).toHaveBeenCalledWith(invocation.traceId);
     expect(copy.attributes("aria-label")).toBe("Trace ID copied");
-    expect(copy.text()).toContain("Copied");
-    expect(copy.find(".vh-invocation-inspector__copy-state").attributes("aria-live")).toBeUndefined();
+    expect(copy.find(".vh-invocation-inspector__copy-icon").exists()).toBe(true);
     expect(wrapper.get('[role="status"]').text()).toBe("Trace ID copied");
     wrapper.unmount();
   });
@@ -1947,7 +2157,7 @@ describe("Agent Invocation UI", () => {
     await Promise.resolve();
 
     expect(wrapper.get('[role="status"]').text()).toBe("Trace ID could not be copied");
-    expect(wrapper.get('button[aria-label="Copy Trace ID"]').text()).toContain("Copy");
+    expect(wrapper.get('button[aria-label="Copy Trace ID"]').find(".vh-invocation-inspector__copy-icon").exists()).toBe(true);
 
     const status = wrapper.get('[role="status"]');
     await wrapper.get('button[aria-label="Copy Trace ID"]').trigger("click");
@@ -2734,7 +2944,92 @@ describe("Agent Invocation UI", () => {
     const activities = wrapper.get(".vh-invocation-work__activities");
     expect(activities.text()).toContain("Checking the fix.");
     expect(activities.text().indexOf("Checking the fix.")).toBeLessThan(activities.text().indexOf("Shell"));
+    const commentary = activities.get('.vh-invocation-message[data-phase="commentary"]');
+    expect(commentary.find(".vh-invocation-message__meta").exists()).toBe(false);
     wrapper.unmount();
+  });
+
+  it("keeps provider summary and commentary items as separate markdown blocks", async () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "reasoning-commentary-boundary",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check this" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "message.content": "**Reading related facts**", "message.id": "reasoning_summary_text:turn", "message.phase": "commentary", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" },
+        { attributes: { "message.content": "I’m also applying the evidence skill.", "message.id": "assistant_text:comment", "message.phase": "commentary", "message.role": "assistant" }, name: "agent.message.delta", sequence: 3, timestamp, type: "lifecycle" },
+        { attributes: { "tool.id": "check", "tool.name": "search" }, name: "agent.tool.start", sequence: 4, timestamp, type: "run" },
+      ],
+      status: "running",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    const rows = wrapper.get(".vh-invocation-work__activities").findAll(":scope > li");
+    expect(rows[0]!.attributes("data-phase")).toBe("commentary");
+    expect(rows[0]!.text()).toContain("Reading related facts");
+    expect(rows[1]!.attributes("data-phase")).toBe("commentary");
+    expect(rows[1]!.text()).toContain("I’m also applying the evidence skill.");
+    expect(rows[0]!.text()).not.toContain("I’m also applying");
+    expect(rows[1]!.find(".vh-invocation-message__meta").exists()).toBe(false);
+  });
+
+  it("folds consecutive capability lifecycle evidence into one quiet row", async () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "capability-lifecycle",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Run it" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "agent.capability.id": "workspace", "agent.capability.outcome": "success" }, name: "agent.capability.input", sequence: 2, timestamp, type: "run" },
+        { attributes: { "agent.capability.id": "workspace", "agent.capability.outcome": "success" }, name: "agent.capability.output", sequence: 3, timestamp, type: "run" },
+        { attributes: { "agent.capability.id": "workspace", "agent.capability.outcome": "success" }, name: "agent.capability.configure", sequence: 4, timestamp, type: "run" },
+        { attributes: { "agent.capability.id": "sources", "agent.capability.outcome": "success" }, name: "agent.capability.prepare", sequence: 5, timestamp, type: "run" },
+        { attributes: { "agent.capability.id": "sources", "agent.capability.outcome": "success" }, name: "agent.capability.resolve", sequence: 6, timestamp, type: "run" },
+        { attributes: { "agent.capability.id": "sources", "agent.capability.outcome": "error" }, name: "agent.capability.close", sequence: 7, timestamp, type: "run" },
+      ],
+      status: "running",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const group = wrapper.get(".vh-invocation-capabilities__details");
+    expect(group.get("summary").text()).toContain("Capability activity failed · 2 capabilities");
+    expect(group.get("summary").text()).toContain("2 capabilities");
+    expect(group.get("summary").find('[data-icon="activity"]').exists()).toBe(false);
+    expect(group.findAll(".vh-invocation-capabilities__rows > li")).toHaveLength(6);
+    expect(group.get('[data-activity-id="observation:7"]').attributes("data-status")).toBe("failed");
+    expect((group.element as HTMLDetailsElement).open).toBe(false);
+
+    const successful = mount(AgentInvocation, { props: { invocation: {
+      ...invocation,
+      observations: invocation.observations.map(observation => ({
+        ...observation,
+        attributes: { ...observation.attributes, "agent.capability.outcome": "success" },
+      })),
+    } } });
+    expect(successful.get(".vh-invocation-capabilities__summary").text()).toBe("Prepared 2 capabilities");
+  });
+
+  it("uses a generic capability summary when lifecycle events omit capability IDs", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "anonymous-capability-lifecycle",
+      observations: [
+        { attributes: {}, name: "agent.capability.configure", sequence: 1, timestamp, type: "run" },
+        { attributes: {}, name: "agent.capability.prepare", sequence: 2, timestamp, type: "run" },
+      ],
+      status: "running",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const summary = mount(AgentInvocation, { props: { invocation } }).get(".vh-invocation-capabilities__summary").text();
+    expect(summary).toContain("Capability activity · 2 events");
   });
 
   it.each([
@@ -2932,10 +3227,13 @@ describe("Agent Invocation UI", () => {
     if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
     work.element.open = true;
     await work.trigger("toggle");
-    expect(wrapper.get(".vh-invocation-preparation__summary").text()).toContain("Session prepared");
-    expect(wrapper.get(".vh-invocation-preparation__summary").text()).toContain("2 steps");
-    expect(wrapper.get('.vh-invocation-preparation__context a').attributes("href")).toBe(invocation.annotations["github.url"]);
-    await wrapper.get(".vh-invocation-preparation__summary").trigger("click");
+    expect(wrapper.get(".vh-invocation-preparation__summary").text()).toBe("Prepared workspace");
+    expect(wrapper.findAll(".vh-invocation-preparation__steps > li")).toHaveLength(2);
+    const preparation = wrapper.get(".vh-invocation-preparation__details");
+    if (!(preparation.element instanceof HTMLDetailsElement)) throw new TypeError("Expected preparation details");
+    preparation.element.open = true;
+    await preparation.trigger("toggle");
+    expect(wrapper.get('.vh-invocation-preparation__steps .vh-invocation-preparation__context a').attributes("href")).toBe(invocation.annotations["github.url"]);
     await wrapper.get('button[aria-label="Open Workspace"]').trigger("click");
     expect(wrapper.emitted("inspect")).toEqual([["workspace"]]);
 
@@ -2946,7 +3244,7 @@ describe("Agent Invocation UI", () => {
     if (!(withoutWorkspaceWork.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
     withoutWorkspaceWork.element.open = true;
     await withoutWorkspaceWork.trigger("toggle");
-    await withoutWorkspace.get(".vh-invocation-preparation__summary").trigger("click");
+    expect(withoutWorkspace.get(".vh-invocation-preparation__summary").text()).toBe("Prepared workspace");
     expect(withoutWorkspace.find('button[aria-label="Open Workspace"]').exists()).toBe(false);
 
     const prompt = wrapper.findAll('.vh-invocation-message[data-role="user"]').at(-1)!;
@@ -2956,7 +3254,7 @@ describe("Agent Invocation UI", () => {
 
     expect(wrapper.get(".vh-invocation-work__title").text()).toBe("Worked for 2m 43s");
     expect(wrapper.get(".vh-invocation-work__summary").element.firstElementChild?.classList).toContain("vh-invocation-work__disclosure");
-    expect(wrapper.find(".vh-invocation-work__summary .vh-invocation-framework-mark").exists()).toBe(true);
+    expect(wrapper.find(".vh-invocation-work__summary .vh-invocation-framework-mark").exists()).toBe(false);
     expect(wrapper.get(".vh-invocation-framework-mark").attributes("style")).toBeUndefined();
     expect(wrapper.get(".vh-invocation-work__activities").text()).toContain("Checked the diff.");
     expect(wrapper.findAll('.vh-invocation-message[data-role="assistant"]').at(-1)!.text()).toContain("Merged after checks passed.");
@@ -3269,6 +3567,42 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('[role="note"]').text()).toContain("Some setup values were shortened");
   });
 
+  it("does not label a historical response breakdown as invocation usage", () => {
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation: {
+      createdAt: "2026-09-08T00:00:00.000Z",
+      id: "historic-usage",
+      observations: [],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-09-08T00:01:00.000Z",
+      usage: { totalTokens: 59222, inputTokens: 21267, outputTokens: 118, cachedInputTokens: 20352, cacheWriteTokens: 100 },
+    } } });
+    const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
+    expect(summary).toContain("Tokens59,222");
+    expect(summary).not.toContain("Input");
+    expect(summary).not.toContain("Output");
+    expect(summary).not.toContain("Cached");
+    expect(summary).not.toContain("Cache writes");
+  });
+
+  it.each([true, false])("preserves cache writes and the cost estimate qualifier (%s)", estimated => {
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation: {
+      createdAt: "2026-09-08T00:00:00.000Z",
+      id: "usage-details",
+      observations: [],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-09-08T00:01:00.000Z",
+      usage: {
+        totalTokens: 1200, inputTokens: 1100, outputTokens: 100, cacheWriteTokens: 1024,
+        cost: { display: "$0.01", estimated, source: estimated ? "pricing" : "provider" },
+      },
+    } } });
+    const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
+    expect(summary).toContain("Cache writes1,024");
+    expect(summary).toContain(`Cost$0.01 (${estimated ? "estimated" : "reported"})`);
+  });
+
   it("groups recorded Agent Definition details as captured setup", () => {
     const invocation: AgentInvocationView = {
       configuration: {
@@ -3286,7 +3620,7 @@ describe("Agent Invocation UI", () => {
           },
           { description: "Search the workspace.", name: "search" },
         ],
-        workspace: { mode: "write", name: "babysitter", sources: ["github:vite-hub/vitehub"] },
+        workspace: { mode: "write", name: "babysitter", sources: [{ id: "vitehub", repository: "vite-hub/vitehub" }] },
       },
       createdAt: "2026-08-24T00:00:00.000Z",
       id: "configured",
@@ -3310,18 +3644,30 @@ describe("Agent Invocation UI", () => {
       traceId: "trace",
       updatedAt: "2026-08-24T00:00:01.000Z",
     };
+    invocation.usage = { totalTokens: 1200, inputTokens: 1100, outputTokens: 100, cachedInputTokens: 0, cacheWriteTokens: 0 };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+
+    const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
+    expect(summary).toContain("Tokens1,200");
+    expect(summary).toContain("Input1,100");
+    expect(summary).toContain("Output100");
+    expect(summary).toContain("Cached0");
+    expect(summary).toContain("Cache writes0");
+    expect(summary).not.toContain("Reasoning");
+    expect(summary).toContain("CostUnknown");
 
     expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("OpenAI");
     expect(wrapper.find(".vh-invocation-execution__model-icon path").exists()).toBe(true);
-    expect(wrapper.get(".vh-invocation-execution__workspace svg").attributes("stroke")).toBe("currentColor");
-    expect(wrapper.get(".vh-invocation-execution__workspace").text()).toContain("Read and write");
+    expect(wrapper.find(".vh-invocation-execution__workspace").exists()).toBe(false);
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
     expect(wrapper.get(".vh-invocation-inspector__agent").text()).toContain("v2");
-    expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews · github");
+    expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("reviews");
+    expect(wrapper.get(".vh-invocation-inspector__badges").find("svg").exists()).toBe(true);
     expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Agent setup");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
+    expect(wrapper.get('.vh-invocation-inspector__badge[href="https://github.com/vite-hub/vitehub"]').text()).toBe("vitehub");
+    expect(wrapper.get('.vh-invocation-inspector__badge[href="https://github.com/vite-hub/vitehub"] .vh-channel-icon').attributes("aria-label")).toBe("GitHub");
     expect(wrapper.get(".vh-agent-tool-list__disclosure").text()).toContain("Run a shell command.");
     expect(wrapper.get(".vh-agent-tool-list__schema").text()).toContain("command");
     expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");
