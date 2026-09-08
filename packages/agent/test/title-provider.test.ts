@@ -33,6 +33,17 @@ import { title } from "../src/capabilities.ts";
 import { createMessage, defineAgent, runAgent } from "../src/index.ts";
 
 describe("title provider inheritance", () => {
+  it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2_147_483_648])(
+    "rejects unsupported title timeout: %s",
+    (timeoutMs) => {
+      expect(() => title({ timeoutMs })).toThrow("must be an integer between 1 and 2147483647 milliseconds");
+    },
+  );
+
+  it.each([undefined, 1, 20_000, 2_147_483_647])("accepts supported title timeout: %s", (timeoutMs) => {
+    expect(() => title({ timeoutMs })).not.toThrow();
+  });
+
   it.each(["", " ", "\t\n"])("rejects empty title reasoning effort: %j", (reasoningEffort) => {
     expect(() => title({ reasoningEffort })).toThrow("must be a non-empty model-advertised value");
   });
