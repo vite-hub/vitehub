@@ -459,3 +459,13 @@ describe("credential line context across journal chunks", () => {
     expect(credentialTextLineContext('password: "sensitive-value"')).toBe("x ")
   })
 })
+
+
+it.each([
+  "password:\nstatus: ok",
+  "password: \nstatus: ok",
+  "password: # optional\nstatus: ok",
+  "config:\n  secret: \r\n  status: ok",
+])("preserves empty YAML credential values: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+})

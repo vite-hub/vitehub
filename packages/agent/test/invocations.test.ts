@@ -47,6 +47,29 @@ function inspectableToolCapability() {
 
 describe("Agent Invocations", () => {
   it.each([
+    "password:\nstatus: ok",
+    "password: \nstatus: ok",
+    "password: # optional\nstatus: ok",
+    "config:\n  secret: \r\n  status: ok",
+  ])("preserves empty YAML values across forced flushes: %s", async (text) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of text) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "empty-yaml", "message.content": character } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("empty-yaml-credential"), {})
+    const observations = (await invocations.getByRunId("empty-yaml-credential"))!.observations
+    expect(observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")).toBe(text)
+  })
+
+  it.each([
     ["password: ", "correct horse battery", "\nstatus: ok"],
     ["api_token: ", "sensitive value", " # public comment\nstatus: ok"],
     ["config:\n  password: ", "correct horse\n    battery\n\n   staple", "\n  status: ok"],

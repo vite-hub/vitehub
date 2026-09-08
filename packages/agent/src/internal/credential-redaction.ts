@@ -57,7 +57,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?(?:\s*(?:\?=|\+=|:=|[:=])\s*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?(?:\s*(?:\?=|\+=|:=|[:=])[\t ]*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
@@ -179,8 +179,8 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       delete state.yamlProperty
     }
     // An empty YAML credential field has no value to redact. Stop at its
-    // line break so the following property remains intact.
-    if (!state.started && state.yamlIndent !== undefined && character === "\n") return index
+    // line break or comment so ordinary configuration evidence remains intact.
+    if (!state.started && state.yamlIndent !== undefined && /[\r\n#]/.test(character)) return index
     if (!state.started && /\s/.test(character)) continue
     if (!state.started && state.yamlIndent !== undefined && (character === "&" || character === "!")) {
       state.yamlProperty = true

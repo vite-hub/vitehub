@@ -1324,6 +1324,8 @@ function journalTraceLog(
           redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
         }
         else if (assignment) {
+          // Wait for scalar content before replacing a possibly empty YAML value.
+          if (!assignment.started && assignment.yamlIndent !== undefined) return
           redactingCredentialDeltas.set(key, { kind: "shell", state: assignment })
           // Complete only the persisted placeholder; the scanner retains the raw state.
           if (!assignment.started) content += "[REDACTED]"
