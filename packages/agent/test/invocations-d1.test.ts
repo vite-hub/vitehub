@@ -229,10 +229,18 @@ describe("D1 Agent Invocation store", () => {
     expect(await journal.listAgentNames?.()).toEqual(["alpha", "beta"])
     expect(await journal.listCapabilityIds?.()).toEqual(["files", "search"])
     expect(await journal.listCapabilityIds?.("alpha")).toEqual(["search"])
-    expect(await journal.listTriggeredBy?.()).toEqual([" Ferdinand ", "Maxi"])
-    expect(await journal.listTriggeredBy?.("alpha")).toEqual([" Ferdinand "])
+    expect(await journal.listTriggeredBy?.()).toEqual([`${whitespace}Ferdinand${whitespace}`, "Maxi"].sort())
+    expect(await journal.listTriggeredBy?.("alpha")).toEqual([`${whitespace}Ferdinand${whitespace}`])
     expect(await journal.getSummary("one")).not.toHaveProperty("observations")
     expect(await journal.list({ status: [] })).toEqual({ invocations: [] })
+  })
+
+  it.each([123, true, false, null])("ignores non-string triggering-person annotations %j", async (triggeredBy) => {
+    const journal = store()
+    const filter = triggeredBy === true ? "1" : triggeredBy === false ? "0" : String(triggeredBy)
+    await journal.create(invocation("scalar", { annotations: { triggeredBy } }))
+    await journal.create(invocation("text", { annotations: { triggeredBy: filter } }))
+    expect((await journal.list({ triggeredBy: filter })).invocations.map(item => item.id)).toEqual(["text"])
   })
 
   it("prunes terminal records and their claims while retaining active records", async () => {

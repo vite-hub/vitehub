@@ -611,6 +611,34 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it.each([123, true, false, null])("ignores non-string triggering-person annotations %j across stores", async (triggeredBy) => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-person-filter-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    const timestamp = new Date().toISOString()
+    const filter = triggeredBy === true ? "1" : triggeredBy === false ? "0" : String(triggeredBy)
+    try {
+      for (const store of stores) {
+        for (const [id, value] of [["scalar", triggeredBy], ["text", filter]] as const) {
+          await store.create({
+            annotations: { triggeredBy: value },
+            createdAt: timestamp,
+            id,
+            observations: [],
+            status: "completed",
+            traceId: id,
+            updatedAt: timestamp,
+          })
+        }
+        expect((await store.list({ triggeredBy: filter })).invocations.map(item => item.id)).toEqual(["text"])
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
   it("keeps Capability use queryable after the observation journal is truncated", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-truncated-capability-filter-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
