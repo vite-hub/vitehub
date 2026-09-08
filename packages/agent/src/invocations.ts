@@ -907,7 +907,6 @@ function outcomeObservationPriority(observation: TraceEventLogEntry): number | u
   if (terminalObservation(observation)) return 1
   if (deliveryOutcomeObservation(observation)) return 2
   if (observationTitle(observation)) return 3
-  if (observation.attributes?.["content.truncated"] === true) return 4
 }
 
 function recoverableOutcomeObservation(observation: TraceEventLogEntry): boolean {
@@ -1516,9 +1515,13 @@ function journalTraceLog(
           queueMessageDelta(safeEntry)
         }
         else {
-          flushMessageDeltas(safeEntry.name === "agent.invocation.finish"
+          const terminal = safeEntry.name === "agent.invocation.finish"
             || safeEntry.name === "agent.invocation.error"
-            || safeEntry.name === "agent.invocation.cancelled")
+            || safeEntry.name === "agent.invocation.cancelled"
+          flushMessageDeltas(terminal)
+          if (terminal && messageDeltaKeysTruncated) {
+            safeEntry.attributes = { ...safeEntry.attributes, "content.truncated": true }
+          }
           emit(safeEntry)
         }
       }
@@ -1848,7 +1851,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, Math.floor(limits.maxCount / 2)),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount),
         },
         async finish(status, error) {
           if (finished || finishing) return
