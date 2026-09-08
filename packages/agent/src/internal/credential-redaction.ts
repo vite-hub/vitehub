@@ -39,12 +39,13 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   return true
 }
 
-function isCredentialScheme(scheme: string, prefix: string, value: string): boolean {
+function isCredentialScheme(scheme: string, prefix: string, value: string, endsLine = false): boolean {
   if (scheme === "Bearer" || scheme === "Basic" || scheme === scheme.toUpperCase()) return true
   if (/\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)) return true
   // Bare lowercase schemes also occur in prose. Require a token-shaped value
-  // (digits, punctuation, or quotes) before committing to credential redaction.
-  return /(?:^|[\r\n])\s*$/.test(prefix) && /[^a-z]/i.test(value)
+  // (digits, punctuation, or quotes), or a completed standalone value.
+  // Streaming probes leave alphabetic prefixes pending until prose can follow.
+  return /(?:^|[\r\n])\s*$/.test(prefix) && (/[^a-z]/i.test(value) || endsLine)
 }
 
 function pendingBareCredentialScheme(value: string): string | undefined {
@@ -157,7 +158,7 @@ export function redactCredentialText(value: string, precedingText = ""): string 
       return `${scheme} ${quote}[REDACTED]${closed ? quote : ""}`
     })
     .replace(new RegExp(String.raw`\b(Bearer|Basic)\s+${unquotedCredentialValue}+`, "gi"), (match, scheme: string, offset: number, source: string) =>
-      isCredentialScheme(scheme, precedingText + source.slice(0, offset), match.slice(scheme.length).trimStart()) ? `${scheme} [REDACTED]` : match)
+      isCredentialScheme(scheme, precedingText + source.slice(0, offset), match.slice(scheme.length).trimStart(), /^[\t ]*(?:[\r\n]|$)/.test(source.slice(offset + match.length))) ? `${scheme} [REDACTED]` : match)
 
   return redactCredentialAssignments(redacted, precedingText)
 }

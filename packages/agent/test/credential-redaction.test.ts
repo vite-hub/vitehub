@@ -813,3 +813,10 @@ it.each(["bearer", "basic", "bEaReR", "bAsIc"])("retains ambiguous bare %s token
   expect(pendingCredentialTextSuffix(prefix)).toBe(`${scheme} sensitive`)
   expect(pendingCredentialScheme(`${scheme} sensitive-value`)).toBe("unquoted")
 })
+
+it.each(["bearer", "basic", "bEaReR", "bAsIc"])("redacts completed alphabetic standalone %s credentials", (scheme) => {
+  for (const suffix of ["", "  ", "\nstatus ok", "\r\nstatus ok"]) {
+    expect(redactCredentialText(`launcher failed\n  ${scheme} abcdef${suffix}`))
+      .toBe(`launcher failed\n  ${scheme} [REDACTED]${suffix}`)
+  }
+})

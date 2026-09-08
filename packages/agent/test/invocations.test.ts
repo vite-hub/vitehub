@@ -3951,6 +3951,9 @@ describe("Agent Invocations", () => {
 
   it.each(["bearer", "basic", "bEaReR", "bAsIc"].flatMap(scheme => [
     { scheme, start: "sensitive", end: "-value;status=ok", expected: "[REDACTED];status=ok" },
+    { scheme, start: "sensitive", end: "", expected: "[REDACTED]" },
+    { scheme, start: "sensitive", end: "value", expected: "[REDACTED]" },
+    { scheme, start: "sensitive", end: "\nstatus ok", expected: "[REDACTED]\nstatus ok" },
     { scheme, start: "of", end: " good news", expected: "of good news" },
   ]))("distinguishes bounded bare $scheme content ending in $end", async ({ scheme, start, end, expected }) => {
     const invocations = defineAgentInvocations({
