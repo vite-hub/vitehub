@@ -10,6 +10,7 @@ import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 const agentBrowserVersion = "0.35.2"
 const puppeteerBrowsersVersion = "2.10.10"
 const chromiumBundleVersion = "149.0.0"
+const chromeForTestingVersion = "149.0.7827.155"
 const browserRuntimeEnvironmentContextKey = "vitehub.browser.runtime.environment"
 const preparations = new Map<string, Promise<PreparedBrowserRuntime>>()
 
@@ -28,7 +29,7 @@ export interface BrowserRuntimePreparationOptions {
 function defaultCacheRoot(): string {
   const configured = process.env.VITEHUB_CACHE_DIR?.trim()
   const xdg = process.env.XDG_CACHE_HOME?.trim()
-  return join(configured || join(xdg || join(homedir(), ".cache"), "vitehub"), "browser", `agent-browser-${agentBrowserVersion}-chromium-${chromiumBundleVersion}`)
+  return join(configured || join(xdg || join(homedir(), ".cache"), "vitehub"), "browser", `agent-browser-${agentBrowserVersion}-chromium-${chromiumBundleVersion}-chrome-${chromeForTestingVersion}`)
 }
 
 function run(command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv, timeoutMs?: number }): Promise<string> {
@@ -64,7 +65,7 @@ async function findChrome(root: string): Promise<string | undefined> {
       const nested = await findChrome(path)
       if (nested) return nested
     }
-    else if (entry.isFile() && (entry.name === "chrome" || entry.name === "chrome.exe")) return path
+    else if (entry.isFile() && (entry.name === "chrome" || entry.name === "chrome.exe" || entry.name === "Google Chrome for Testing")) return path
   }
 }
 
@@ -137,12 +138,12 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
   const packageRoot = join(root, "package")
   const binRoot = join(packageRoot, "node_modules", ".bin")
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
-  const browserCache = join(root, "chromium")
+  const browserVersion = platform === "linux" ? chromiumBundleVersion : chromeForTestingVersion
   const socketRoot = join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}`)
   const skillPath = join(root, "core.SKILL.md")
   const marker = join(root, "ready.json")
-  const readyRuntime = async (ready: { chrome?: string, noSandbox?: boolean, version?: string, linuxBundle?: boolean }): Promise<PreparedBrowserRuntime | undefined> => {
-    if (ready.version !== agentBrowserVersion || !ready.chrome) return
+  const readyRuntime = async (ready: { chrome?: string, noSandbox?: boolean, version?: string, browserVersion?: string, linuxBundle?: boolean }): Promise<PreparedBrowserRuntime | undefined> => {
+    if (ready.version !== agentBrowserVersion || ready.browserVersion !== browserVersion || ready.linuxBundle !== (platform === "linux") || !ready.chrome) return
     const executablePath = join(root, ready.chrome)
     if (!(await stat(command).catch(() => undefined))?.isFile() || !(await stat(executablePath).catch(() => undefined))?.isFile()) return
     const browserEnvironment: Record<string, string> = {}
@@ -198,7 +199,7 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
       stagingChrome = join(stagingBrowserCache, "chromium")
     }
     else {
-      await run(stagingBrowsersCommand, ["install", "chrome@stable", "--path", stagingBrowserCache], { env: installEnv })
+      await run(stagingBrowsersCommand, ["install", `chrome@${chromeForTestingVersion}`, "--path", stagingBrowserCache], { env: installEnv })
       stagingChrome = await findChrome(stagingBrowserCache)
     }
     if (!stagingChrome) throw new Error("[vitehub] Browser runtime installation did not produce a Chrome executable.")
@@ -210,7 +211,7 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
     const skillContent = `${officialSkill.replace(/^hidden:\s*true\s*$/m, "").replace(/^Install:.*$/m, "").trim()}\n\n## ViteHub screenshots\n\nSave screenshots under \`screenshots/\`. To attach one to the final reply, add \`![Description](screenshots/name.png)\` on its own line.\n`
     await writeFile(join(staging, "core.SKILL.md"), skillContent)
     const chrome = stagingChrome.slice(staging.length + 1)
-    await writeFile(join(staging, "ready.json"), JSON.stringify({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion }))
+    await writeFile(join(staging, "ready.json"), JSON.stringify({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion }))
     await mkdir(dirname(root), { recursive: true })
     if (invalidCache) await rm(root, { force: true, recursive: true })
     try {
@@ -225,7 +226,7 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
       return prepared
     }
     await mkdir(socketRoot, { mode: 0o700, recursive: true })
-    const prepared = await readyRuntime({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion })
+    const prepared = await readyRuntime({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion })
     if (!prepared) throw new Error("[vitehub] Browser runtime cache validation failed after installation.")
     return prepared
   }

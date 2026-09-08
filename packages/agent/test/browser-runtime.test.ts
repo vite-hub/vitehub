@@ -17,7 +17,7 @@ const fs=require('node:fs'),path=require('node:path'); const here=path.dirname(p
 const fail=path.join(here,'fail-next'); if(fs.existsSync(fail)){fs.unlinkSync(fail);process.exit(7)}
 const prefix=process.argv[process.argv.indexOf('--prefix')+1],bin=path.join(prefix,'node_modules','.bin'); fs.mkdirSync(bin,{recursive:true});
 const browsers=path.join(bin,'browsers'); fs.writeFileSync(browsers,\`#!/usr/bin/env node
-const fs=require('node:fs'),path=require('node:path'),root=process.argv[process.argv.indexOf('--path')+1],dir=path.join(root,'fixture'); fs.mkdirSync(dir,{recursive:true}); const chrome=path.join(dir,'chrome'); fs.writeFileSync(chrome,"#!/usr/bin/env node\\\\nprocess.stdout.write('<html></html>')\\\\n"); fs.chmodSync(chrome,0o755);\`); fs.chmodSync(browsers,0o755);
+const fs=require('node:fs'),path=require('node:path'),root=process.argv[process.argv.indexOf('--path')+1],dir=path.join(root,'chrome','mac_arm-149.0.7827.155','chrome-mac-arm64','Google Chrome for Testing.app','Contents','MacOS'); if(process.argv[3]!=='chrome@149.0.7827.155') process.exit(8); fs.mkdirSync(dir,{recursive:true}); const chrome=path.join(dir,'Google Chrome for Testing'); fs.writeFileSync(chrome,"#!/usr/bin/env node\\\\nprocess.stdout.write('<html></html>')\\\\n"); fs.chmodSync(chrome,0o755);\`); fs.chmodSync(browsers,0o755);
 const cli=path.join(bin,'agent-browser'); fs.writeFileSync(cli,"#!/usr/bin/env node\\nprocess.exit(0)\\n"); fs.chmodSync(cli,0o755);
 const skill=path.join(prefix,'node_modules','agent-browser','skills','agent-browser'); fs.mkdirSync(skill,{recursive:true}); fs.writeFileSync(path.join(skill,'SKILL.md'),'---\\nname: agent-browser\\nhidden: true\\n---\\nInstall: remove me\\nRun agent-browser skills get core.\\n');
 `)
@@ -43,12 +43,26 @@ describe("browser runtime", () => {
     const value = await fixture()
     const [one, two] = await Promise.all([prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" }), prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })])
     expect(two).toBe(one)
+    expect(one.environment.AGENT_BROWSER_EXECUTABLE_PATH).toContain("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
     expect(one.skillContent).toContain("skills get core")
     expect(one.skillContent).not.toContain("hidden: true")
     expect(one.skillContent).toContain("Keep the configured `AGENT_BROWSER_SESSION`")
     resetBrowserRuntimePreparationForTest()
     await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
+  })
+
+  it("repairs a cache with a different Chrome build", async () => {
+    const value = await fixture()
+    await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    const markerPath = join(value.cache, "ready.json")
+    const marker = JSON.parse(await readFile(markerPath, "utf8"))
+    expect(marker.browserVersion).toBe("149.0.7827.155")
+    await writeFile(markerPath, JSON.stringify({ ...marker, browserVersion: "148.0.0.0" }))
+    resetBrowserRuntimePreparationForTest()
+    await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(2)
+    expect(JSON.parse(await readFile(markerPath, "utf8")).browserVersion).toBe("149.0.7827.155")
   })
 
   it("retries failed installs and repairs a missing browser", async () => {
