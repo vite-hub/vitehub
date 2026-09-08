@@ -1263,7 +1263,7 @@ function journalTraceLog(
   const messageDeltaChunkEvents = 32
   const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
-  const redactingCredentialDeltas = new Map<string, boolean | { quote: string, escaped: boolean }>()
+  const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment" } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1292,11 +1292,15 @@ function journalTraceLog(
         if (content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content)
         if (quote) {
-          redactingCredentialDeltas.set(key, { quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
+          redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
         }
         else if (/\b(?:Bearer|Basic)\s+[^\s"',;&{}<>]*$/i.test(content)
           || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;&{}<>]*$/i.test(content)) {
-          redactingCredentialDeltas.set(key, /\b(?:Bearer|Basic)\s*$/i.test(content))
+          redactingCredentialDeltas.set(key, {
+            kind: /\b(?:Bearer|Basic)\s*$/i.test(content)
+              ? "scheme"
+              : content.endsWith("=") ? "assignment" : "unquoted",
+          })
           if (/\b(?:Bearer|Basic)\s+$/i.test(content)
             || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?$/i.test(content)) {
             content += "[REDACTED]"
@@ -1339,25 +1343,34 @@ function journalTraceLog(
     const rawContent = entry.attributes?.["message.content"]
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
-      const redaction = redactingCredentialDeltas.get(key)
+      let redaction = redactingCredentialDeltas.get(key)!
+      if (redaction.kind === "assignment" && (content[0] === '"' || content[0] === "'")) {
+        redaction = { kind: "quoted", quote: content[0], escaped: false, omitClosingQuote: true }
+        redactingCredentialDeltas.set(key, redaction)
+        content = content.slice(1)
+      }
+      else if (redaction.kind === "assignment" && content) {
+        redaction = { kind: "unquoted" }
+        redactingCredentialDeltas.set(key, redaction)
+      }
       let boundary: number
-      if (typeof redaction === "object") {
+      if (redaction.kind === "quoted") {
         boundary = -1
         for (let index = 0; index < content.length; index++) {
           const character = content[index]
           if (redaction.escaped) redaction.escaped = false
           else if (character === "\\") redaction.escaped = true
           else if (character === redaction.quote) {
-            boundary = index
+            boundary = index + (redaction.omitClosingQuote ? 1 : 0)
             break
           }
         }
       }
       else {
-        if (redaction) {
+        if (redaction.kind === "scheme") {
           content = content.trimStart()
           if (!content) return
-          redactingCredentialDeltas.set(key, false)
+          redactingCredentialDeltas.set(key, { kind: "unquoted" })
         }
         boundary = content.search(/[\s"',;&{}<>]/)
       }

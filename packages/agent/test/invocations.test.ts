@@ -3218,6 +3218,34 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`PASSWORD=${quote}[REDACTED]${quote};status=ok`)
   })
 
+  it.each(['"', "'"])("redacts a quoted password when its opening %s arrives after a flush", async (quote) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${prefix}PASSWORD=`, quote, "secret", "\\", quote, "private", "\\", "\\", quote, ";status=ok"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-quoted-password"), {})
+    const observations = (await invocations.getByRunId("split-quoted-password"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${prefix}PASSWORD=[REDACTED];status=ok`)
+  })
+
   it.each(["Bearer", "Basic"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
     const invocations = defineAgentInvocations({
       content: "content",
