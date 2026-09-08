@@ -2106,7 +2106,7 @@ cli_auth_credentials_store = "keyring"
   it.each([
     { inputTokens: 7, outputTokens: 5 },
     { lastInputTokens: 7, lastOutputTokens: 5 },
-  ])("preserves latest-response partitions independently of the cumulative total: %j", async (partition) => {
+  ])("omits latest-response partitions that do not match the cumulative total: %j", async (partition) => {
     const threadId = "thread-cumulative-usage"
     runtime(threadId, [
       event("thread.token-usage.updated", threadId, { usage: {
@@ -2126,9 +2126,9 @@ cli_auth_credentials_store = "keyring"
       usageRecord: {
         raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
         usage: {
-          details: { cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1 },
-          inputTokens: 7,
-          outputTokens: 5,
+          details: { toolUses: 1 },
+          inputTokens: undefined,
+          outputTokens: undefined,
           totalTokens: 100,
         },
       },
