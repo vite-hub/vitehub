@@ -20,6 +20,7 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
     return cli
   }
   if (!prefix.trimEnd().endsWith(":")) return true
+  if (yamlBlockContext(precedingText).inside) return false
   // Generic token/key fields also describe parser tokens and object identifiers.
   if (/^(?:key|token)$/i.test(key)) return false
   // Quoted fields and YAML mapping boundaries establish assignments; inline prose labels do not.
@@ -325,10 +326,55 @@ export function pendingCredentialQuote(value: string, precedingText = ""): strin
 }
 
 // Preserve assignment context between bounded journal chunks without retaining values.
+function yamlBlockContext(value: string): { inside: boolean, header?: string, line: string } {
+  const lines = value.split(/\r\n|[\r\n]/)
+  let parentIndent: number | undefined
+  let contentIndent: number | undefined
+  let header: string | undefined
+  for (const [index, line] of lines.entries()) {
+    const indent = line.match(/^ */)![0].length
+    if (parentIndent !== undefined && line.trim()) {
+      if (indent < (contentIndent ?? parentIndent + 1)) {
+        parentIndent = undefined
+        contentIndent = undefined
+        header = undefined
+      }
+      else {
+        contentIndent ??= indent
+      }
+    }
+    if (parentIndent === undefined && index < lines.length - 1) {
+      const match = /^( *)(- +)?[^:\r\n]+:[\t ]*[|>]([1-9+-]*)[\t ]*(?:#.*)?$/.exec(line)
+      if (match) {
+        parentIndent = match[1]!.length + (match[2]?.length ?? 0)
+        const explicitIndent = /[1-9]/.exec(match[3]!)?.[0]
+        contentIndent = explicitIndent ? parentIndent + Number(explicitIndent) : undefined
+        header = `${" ".repeat(parentIndent)}x: |${match[3]}\n`
+      }
+    }
+  }
+  const line = lines.at(-1) ?? ""
+  const indent = line.match(/^ */)![0].length
+  // A synthetic content line retains inferred indentation without scalar text.
+  if (header && contentIndent !== undefined) header += `${" ".repeat(contentIndent)}x\n`
+  return { inside: parentIndent !== undefined && indent >= (contentIndent ?? parentIndent + 1), header, line }
+}
+
 export function credentialTextLineContext(value: string): string {
-  const lastLine = value.split(/[\r\n]/).at(-1) ?? ""
+  const block = yamlBlockContext(value)
+  if (block.header) {
+    return block.header + block.line.match(/^ */)![0] + (block.line.trim() ? "x" : "")
+  }
+  const lastLine = block.line
+  if (/^ *- *$/.test(lastLine)) return lastLine
   const flowBoundary = /[{,][\t ]*$/.exec(lastLine)?.[0]
   if (flowBoundary) return flowBoundary
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
-  return authorizationHeader ? "Authorization: " : /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
+  if (authorizationHeader) return "Authorization: "
+  // Retain a possible block header across chunks, without retaining its key.
+  const header = /^( *(?:- +)?)([^:\r\n]+)(:[\t ]*(?:[|>][1-9+-]*[\t ]*(?:#.*)?)?)?$/.exec(block.line)
+  if (header && !/["']/.test(block.line) && !/^(?:[\t ]*| *- +)$/.test(block.line)) {
+    return `${header[1]}x${header[3]?.replace(/#.*$/, "#") ?? /\s*$/.exec(block.line)![0]}`
+  }
+  return /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
 }

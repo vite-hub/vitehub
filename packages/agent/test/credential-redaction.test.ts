@@ -19,6 +19,26 @@ it.each([
   }
 })
 
+it.each([
+  ["", "|", "  ", ""],
+  ["", ">", "  ", ""],
+  ["", "|-", "  ", ""],
+  ["", ">+", "  ", ""],
+  ["", "|2", "  ", ""],
+  ["config:\n  ", "|", "    ", "  "],
+  ["- ", "|2", "    ", "  "],
+])("preserves field-like prose inside YAML %s%s scalars", (prefix, style, indent, siblingIndent) => {
+  const prose = `${prefix}message: ${style}\n${indent}password: "ordinary words"\n${indent}secret: ordinary text\n`
+  const input = prose + `${siblingIndent}password: sensitive-value\n${siblingIndent}status: ok`
+  const expected = prose + `${siblingIndent}password: [REDACTED]\n${siblingIndent}status: ok`
+  expect(redactCredentialText(input)).toBe(expected)
+  for (let split = 0; split <= prose.length; split++) {
+    let context = ""
+    for (const character of input.slice(0, split)) context = credentialTextLineContext(context + character)
+    expect(redactCredentialText(input.slice(split), context)).toBe(expected.slice(split))
+  }
+})
+
 describe("plain YAML credential scalars", () => {
   it.each(["", "\n"])("bounds retained separators after a credential and %j", (lineBreak) => {
     const state = pendingCredentialAssignmentState("password: sensitive" + lineBreak)!
