@@ -238,7 +238,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
     plugin: host => agentEvlogPlugin(telemetry, reporter ? [reporter] : [])(host),
     drain(context: DrainContext) {
       if (closing || !exporter) return
-      const httpRequest = hasRuntimeType(context.event.method, "string") && hasRuntimeType(context.event.path, "string")
+      const httpRequest = context.request !== undefined
       if (httpRequest && exportedLogs === false) return
       if (httpRequest && exportedLogs === "failures"
         && context.event.level !== "warn"
