@@ -255,7 +255,7 @@ function metadataRecord(message: UIMessageLike | undefined): Record<string, unkn
 }
 
 function nestedSessionId(metadata: Record<string, unknown> | undefined): string | undefined {
-  const chat = typeof metadata?.chat === "object" && metadata.chat !== null ? metadata.chat as Record<string, unknown> : undefined
+  const chat = metadata?.chat as Record<string, unknown> | undefined
   const session = typeof metadata?.session === "object" && metadata.session !== null ? metadata.session as Record<string, unknown> : undefined
   return firstString(
     metadata?.sessionId,
@@ -436,7 +436,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   let selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
   if (options.concurrency === "queue") {
     const metadata = metadataRecord(messages.at(-1))
-    const chat = typeof metadata?.chat === "object" && metadata.chat !== null ? metadata.chat as Record<string, unknown> : undefined
+    const chat = metadata?.chat as Record<string, unknown> | undefined
     const skippedCount = chat?.skippedCount
     if (typeof skippedCount === "number" && Number.isSafeInteger(skippedCount) && skippedCount > 0) {
       // Retained queue input belongs to this invocation, even when history is disabled.
