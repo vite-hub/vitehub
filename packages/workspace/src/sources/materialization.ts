@@ -323,6 +323,12 @@ async function removeStaleMaterializedSourceFiles(
         if (sourceOwnsDirectory(source, directory)
           && (directory !== source.mountPath || previousSnapshot?.ownsMount)) staleDirectories.add(directory)
       }
+      for (const candidate of sources) {
+        if (candidate.key === source.key) continue
+        const retainedSnapshot = await readSourceSnapshotMetadata(store, candidate.key)
+        if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[entry.path]) continue
+        await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
+      }
       await control.mutate(() => store.rm(entry.path, { force: true }))
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }

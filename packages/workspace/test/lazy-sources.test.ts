@@ -34,6 +34,33 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each([false, true])("restores retained startup files after scoped owner cleanup with a new view=%s", async (newView) => {
+    const store = createMemoryWorkspaceStore()
+    let ownerKeys = ["shared.md"]
+    const definition = {
+      name: "scoped-owner-cleanup",
+      sources: {
+        retained: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "retained" }] }),
+        owner: custom({
+          materialize: "startup",
+          mount: "",
+          sync: { stale: "remove" },
+          async getKeys() { return ownerKeys },
+          async getItem(key) { return { key, content: "owner" } },
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources({ sources: ["retained"] })
+    await view.materializeSources({ sources: ["owner"] })
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "owner" })
+
+    ownerKeys = []
+    await view.materializeSources({ sources: ["owner"] })
+    const reader = newView ? createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true }) : view
+    await expect(reader.readFile("shared.md", { encoding: "utf8" })).resolves.toBe("retained")
+  })
+
   it("indexes custom file lists without resolving other content", async () => {
     const guideContent = vi.fn(async (context: { workspace: string }) => {
       expect(context.workspace).toBe("custom-files")

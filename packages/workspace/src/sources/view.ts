@@ -334,7 +334,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
     if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
       const maxAge = source.cache && source.cache.maxAge
-      if (source.materialize !== "lazy" || !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
+      if (source.materialize === "startup"
+        ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)
+        : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
       materializedSources.delete(sourceKey)
     }
     if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
