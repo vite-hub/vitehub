@@ -579,8 +579,10 @@ export function traceAgentStreamEvents<TRuntimeConfig extends AgentRuntimeConfig
   return (async function* () {
     const timing = createStreamTraceTiming(context)
     for await (const event of events) {
-      // SAFETY: Provider stream events follow the stream event contract.
-      await timing.trace(timing.track(event as StreamEvent))
+      if (isRuntimeRecord(event) && hasRuntimeType(event.type, "string")) {
+        // SAFETY: The runtime guard establishes the stream event shape used by tracing.
+        await timing.trace(timing.track(event as StreamEvent))
+      }
       // SAFETY: Trace normalization establishes the asserted telemetry event contract.
       yield event as StreamEvent
     }

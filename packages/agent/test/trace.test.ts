@@ -7,6 +7,25 @@ import type { StreamEvent } from "../src/messages.ts"
 import { type AgentTraceContext, createAgentStreamEventTracer, createToolDurationTracker, traceAgentStreamEvents } from "../src/trace.ts"
 
 describe("Agent stream trace", () => {
+  it("passes malformed chunks through without interrupting tracing valid events", async () => {
+    const traceLog = createTraceEventLog({ content: "content" })
+    // SAFETY: Stream tracing only reads the context store and runtime trace fields.
+    const context = { context: createAgentInvocationContextStore(), runtime: { traceLog } } as AgentTraceContext
+    const chunks: unknown[] = [null, undefined, false, 42, "text", {}, { type: 42 },
+      { id: "tool-1", name: "shell", type: "tool-call" },
+      { durationMs: 42, id: "tool-1", name: "shell", type: "tool-result" }]
+    async function* events(): AsyncIterable<unknown> {
+      yield* chunks
+    }
+
+    const yielded = []
+    for await (const event of traceAgentStreamEvents(events(), context)) yielded.push(event)
+
+    expect(yielded).toEqual(chunks)
+    expect(traceLog.entries().map(event => event.name)).toEqual(["agent.tool.start", "agent.tool.finish"])
+    expect(traceLog.entries().at(-1)).toMatchObject({ attributes: { "tool.durationMs": 42 } })
+  })
+
   it("measures a tool result from its observed start when the provider reports zero", () => {
     let now = 1_000
     const track = createToolDurationTracker(() => now)
