@@ -25,20 +25,16 @@ import type {
   WorkspaceStore,
 } from "../core/types.ts"
 
-async function backupFile(path: string, backup: string): Promise<void> {
-  const { copyFile, link, rm } = await import("node:fs/promises")
+async function backupFile(path: string, backup: string): Promise<boolean> {
+  const { link, rename } = await import("node:fs/promises")
   try {
     await link(path, backup)
+    return false
   } catch (error) {
     if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EXDEV"].includes(Reflect.get(Object(error), "code"))) throw error
-    // Some filesystems cannot hard-link. Copy before publishing so readers
-    // retain the original content and failed writes can still roll back.
-    try {
-      await copyFile(path, backup)
-    } catch (error) {
-      await rm(backup, { force: true }).catch(() => undefined)
-      throw error
-    }
+    // Preserve the original inode for rollback when hard links are unavailable.
+    await rename(path, backup)
+    return true
   }
 }
 
@@ -391,11 +387,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
     ])
     try {
       await writeFile(temp, bytes)
-      // Keep the live file readable until the replacement rename commits.
+      // Prefer a hard link so the live file remains readable during publication.
       const hadExisting = existing?.type === "file"
-      if (hadExisting) await backupFile(absolute, backup)
+      const moved = hadExisting && await backupFile(absolute, backup)
       await rename(temp, absolute).catch(async (error) => {
-        await rm(backup, { force: true }).catch(() => undefined)
+        if (moved) await rename(backup, absolute)
+        await rm(backup, { force: true })
         throw error
       })
       try {
@@ -467,9 +464,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
 
       const hadExisting = existing?.type === "file"
-      if (hadExisting) await backupFile(absolute, backup)
+      const moved = hadExisting && await backupFile(absolute, backup)
       await rename(temp, absolute).catch(async (error) => {
-        await rm(backup, { force: true }).catch(() => undefined)
+        if (moved) await rename(backup, absolute)
+        await rm(backup, { force: true })
         throw error
       })
       try {

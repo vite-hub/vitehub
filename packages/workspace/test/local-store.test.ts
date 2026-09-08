@@ -120,13 +120,16 @@ describe("local workspace store", () => {
       })
       expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
     }
-    expect(copyFile).toHaveBeenCalledTimes(5)
+    expect(copyFile).not.toHaveBeenCalled()
   })
 
-  it.each([false, true])("rolls back copied backups after sidecar failure, streamed: %s", async (streamed) => {
+  it.each([false, true])("preserves original file state without hard links after sidecar failure, streamed: %s", async (streamed) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { source: "original" } })
+    await chmod(join(root, "file.txt"), 0o640)
+    await utimes(join(root, "file.txt"), 1_000, 2_000)
+    const before = await stat(join(root, "file.txt"))
     vi.mocked(link).mockRejectedValueOnce(Object.assign(new Error("hard links unavailable"), { code: "ENOTSUP" }))
     const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
     const failure = new Error("sidecar publication failed")
@@ -139,6 +142,8 @@ describe("local workspace store", () => {
       await expect(streamed
         ? store.writeFileStream!("file.txt", { ...file, content: new Blob(["after"]).stream() })
         : store.writeFile("file.txt", { ...file, content: "after" })).rejects.toThrow(failure)
+      const after = await stat(join(root, "file.txt"))
+      for (const key of ["ino", "mode", "uid", "gid", "mtimeMs"] as const) expect(after[key]).toBe(before[key])
       await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({
         content: new TextEncoder().encode("before"), metadata: { source: "original" },
       })
@@ -149,26 +154,23 @@ describe("local workspace store", () => {
   })
 
   it.each([
-    { copied: false, streamed: false },
-    { copied: false, streamed: true },
-    { copied: true, streamed: false },
-    { copied: true, streamed: true },
-  ])("preserves live files on backup failure: %j", async ({ copied, streamed }) => {
+    { moved: false, streamed: false },
+    { moved: false, streamed: true },
+    { moved: true, streamed: false },
+    { moved: true, streamed: true },
+  ])("preserves live files on backup failure: %j", async ({ moved, streamed }) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     await store.writeFile("file.txt", { path: "file.txt", content: "before" })
     const failure = Object.assign(new Error("backup failed"), { code: "EIO" })
-    vi.mocked(link).mockRejectedValueOnce(copied ? Object.assign(new Error("unsupported"), { code: "ENOTSUP" }) : failure)
-    if (copied) vi.mocked(copyFile).mockImplementationOnce(async (_from, to) => {
-      await writeFile(to, "partial")
-      throw failure
-    })
+    vi.mocked(link).mockRejectedValueOnce(moved ? Object.assign(new Error("unsupported"), { code: "ENOTSUP" }) : failure)
+    if (moved) vi.mocked(rename).mockRejectedValueOnce(failure)
     await expect(streamed
       ? store.writeFileStream!("file.txt", { path: "file.txt", content: new Blob(["after"]).stream() })
       : store.writeFile("file.txt", { path: "file.txt", content: "after" })).rejects.toThrow(failure)
     expect(await readFile(join(root, "file.txt"), "utf8")).toBe("before")
     expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
-    expect(copyFile).toHaveBeenCalledTimes(copied ? 1 : 0)
+    expect(copyFile).not.toHaveBeenCalled()
   })
 
   it.skipIf(process.platform === "win32").each([false, true])("keeps sidecars private with an existing metadata tree: %s", async (existing) => {
