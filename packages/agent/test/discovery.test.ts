@@ -1334,20 +1334,31 @@ describe("agent chat capability discovery", () => {
     const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
-    const invoke = vi.fn((_context: unknown, input: { text: string }) => ({ input: { prompt: input.text } }))
+    const invoke = vi.fn((_context: unknown, input: { text: string, prompt: string }) => ({ input: { prompt: `${input.prompt}: ${input.text}` } }))
     const agent = defineAgent({
       channels: {
         review: defineChannel("review", {
           messages: false,
           triggers: {
             requested: defineChannelTrigger({
-              input: v.strictObject({ text: v.pipe(v.string(), v.trim()) }),
+              input: v.strictObject({ prompt: v.string(), text: v.pipe(v.string(), v.trim()) }),
               invoke,
             }),
           },
         }),
       },
-      driver: { run: ({ input }) => input.prompt },
+      invoker: {
+        profiles: [
+          { id: "default", kind: "customer", label: "Default" },
+          { id: "technical", kind: "technical", label: "Technical" },
+        ],
+      },
+      driver: { run: ({ input, invoker, context }) => {
+        expect(invoker.id).toBe("technical")
+        expect(context.get("channel")).toMatchObject({ meta: { source: "dev-loop" } })
+        expect(input.abortSignal).toBeInstanceOf(AbortSignal)
+        return input.prompt
+      } },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -1357,6 +1368,9 @@ describe("agent chat capability discovery", () => {
       const response = await invokeMiddleware(handlers[0]!, {
         agent: "review",
         payload,
+        prompt: "Please review",
+        invokerProfileId: "technical",
+        meta: { source: "dev-loop" },
         trigger: "review.requested",
       }, agentInvocationStreamRoute, {
         "content-type": "application/json",
@@ -1366,11 +1380,11 @@ describe("agent chat capability discovery", () => {
       if ("unexpected" in payload) {
         expect(events).toContainEqual(expect.objectContaining({ type: "error" }))
       } else {
-        expect(events).toContainEqual({ text: "review this", type: "text-delta" })
+        expect(events).toContainEqual({ text: "Please review: review this", type: "text-delta" })
       }
     }
     expect(invoke).toHaveBeenCalledTimes(1)
-    expect(invoke).toHaveBeenCalledWith(expect.anything(), { text: "review this" })
+    expect(invoke).toHaveBeenCalledWith(expect.anything(), { prompt: "Please review", text: "review this" })
   })
 
   it("derives built-in GitHub webhook dev input from webhook payload", async () => {
