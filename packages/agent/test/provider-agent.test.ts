@@ -3363,7 +3363,7 @@ cli_auth_credentials_store = "keyring"
     }) as never)).rejects.toThrow()
   })
 
-  it("reports native Claude Workspace instructions to invocation inspection", async () => {
+  it.each(["", "docs#v1", "docs?draft", "docs 100%/nested"])("reports native Claude Workspace instructions with source root %j to invocation inspection", async (sourceRoot) => {
     const threadId = "thread-native-claude-instructions"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     let root = ""
@@ -3394,7 +3394,7 @@ cli_auth_credentials_store = "keyring"
     }
     const runContext = context(threadId, {
       workspace,
-      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
+      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }) } },
       workspaceMode: "write",
     })
     await setAgentTelemetryConfiguration(runContext.context, {
@@ -3408,6 +3408,12 @@ cli_auth_credentials_store = "keyring"
     const [instructions] = getAgentTelemetryConfiguration(runContext.context)?.value.instructions || []
     expect(instructions).toMatch(/^native workspace instructions\n\nMounted source provenance/)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+    expect(instructions).toContain("<repository>/blob/<revision.id>/<root>/<relative-path>#L<line>")
+    expect(instructions).toContain(`"root": ${JSON.stringify(sourceRoot)}`)
+    expect(instructions).toContain("Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding.")
+    expect(instructions).toContain("root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor.")
+    expect(instructions).toContain("Never cite /workspace paths")
+    expect(instructions).toContain("If the mounted path cannot be mapped exactly to one provenance entry, cite no link.")
   })
 
   it.each([
@@ -3686,6 +3692,8 @@ cli_auth_credentials_store = "keyring"
 
   it.each([
     { sourceRoot: undefined, expectedRoot: "", conflicting: false },
+    { sourceRoot: "", expectedRoot: "", conflicting: false, nativeInstructions: "large instructions\n".repeat(10_000) },
+    { sourceRoot: "", expectedRoot: "", conflicting: false, launchArgs: '-c developer_instructions="caller"' },
     { sourceRoot: "/docs", expectedRoot: "docs", conflicting: false },
     { sourceRoot: "./docs", expectedRoot: "docs", conflicting: false },
     { sourceRoot: "\\docs\\.\\guide\\", expectedRoot: "docs/guide", conflicting: false },
@@ -3699,7 +3707,7 @@ cli_auth_credentials_store = "keyring"
     { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs/a" },
     { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "" },
     { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs-other" },
-  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount, selectedPaths = ["docs/a.md", "docs/b.md"] }) => {
+  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount, selectedPaths = ["docs/a.md", "docs/b.md"], nativeInstructions = "native Codex workspace instructions", launchArgs }) => {
     const threadId = "thread-native-codex-provenance"
     let root = ""
     let instructions = ""
@@ -3722,7 +3730,7 @@ cli_auth_credentials_store = "keyring"
       startSession: vi.fn(async (options: { target: string }) => {
         root = options.target
         await mkdir(root, { recursive: true })
-        await writeFile(`${root}/AGENTS.md`, "native Codex workspace instructions")
+        await writeFile(`${root}/AGENTS.md`, nativeInstructions)
         return session
       }),
       tools: {},
@@ -3744,17 +3752,18 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This fixture supplies the trusted access context expected by the helper.
     markTrustedWorkspaceAccessScope(runContext.context as never)
     // SAFETY: This fixture supplies the complete provider generation context.
-    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+    await createProviderAgentAdapter({ provider: "codex", providerSettings: { launchArgs } }).generate(runContext as never)
 
     expect(workspace.materializeSources).toHaveBeenCalledTimes(selectedPaths.length)
     if (expectedRoot === undefined) {
-      expect(instructions).toBe("native Codex workspace instructions")
+      expect(instructions).toBe(nativeInstructions)
       return
     }
     expect(instructions).toContain(`"root": "${expectedRoot}"`)
     expect(instructions.match(/"repository":/g)).toHaveLength(1)
-    expect(instructions).toMatch(/^native Codex workspace instructions\n\nMounted source provenance/)
+    expect(instructions.startsWith(`${nativeInstructions}\n\nMounted source provenance`)).toBe(true)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toBe(launchArgs)
   })
 
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {
