@@ -25,12 +25,12 @@ function isCredentialAssignment(key: string, prefix: string): boolean {
 }
 
 function isCredentialScheme(scheme: string, prefix: string): boolean {
-  return scheme.toLowerCase() === "bearer" || scheme === "Basic"
+  return scheme === "Bearer" || scheme === "Basic"
     || /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
 }
 
 export function pendingCredentialScheme(value: string): "scheme" | "unquoted" | undefined {
-  const match = /\b(Bearer|Basic)\s+([^\s"',;&{}<>]*)$/i.exec(value)
+  const match = new RegExp(String.raw`\b(Bearer|Basic)\s+(${unquotedCredentialValue}*)$`, "i").exec(value)
   if (!match || !isCredentialScheme(match[1]!, value.slice(0, match.index))) return
   return match[2] ? "unquoted" : "scheme"
 }
@@ -63,7 +63,7 @@ export function redactCredentialText(value: string): string {
       const closed = quoted.length > 1 && quoted.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(quoted)
       return `${prefix}${quote}[REDACTED]${closed ? quote : ""}`
     })
-    .replace(/\b(Bearer|Basic)\s+[^\s"',;&{}<>]+/gi, (match, scheme: string, offset: number, source: string) =>
+    .replace(new RegExp(String.raw`\b(Bearer|Basic)\s+${unquotedCredentialValue}+`, "gi"), (match, scheme: string, offset: number, source: string) =>
       isCredentialScheme(scheme, source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
     .replace(new RegExp(`${credentialAssignmentPrefix}(${unquotedCredentialValue}+)`, "gi"), (match, prefix: string, key: string) => isCredentialAssignment(key, prefix) ? `${prefix}[REDACTED]` : match)
 }

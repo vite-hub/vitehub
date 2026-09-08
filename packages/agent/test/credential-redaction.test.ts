@@ -83,7 +83,7 @@ it.each([
   expect(credentialTextMayContinue(text)).toBe(false)
 })
 
-it.each(["Authorization: Basic", "Basic", "Bearer", "bearer", "BEARER"])("keeps credential redaction for %s", (scheme) => {
+it.each(["Authorization: Basic", "Basic", "Bearer", "Authorization: bearer", "Authorization: BEARER"])("keeps credential redaction for %s", (scheme) => {
   expect(redactCredentialText(`${scheme} sensitive-value;status=ok`)).toBe(`${scheme} [REDACTED];status=ok`)
   expect(credentialTextMayContinue(`${scheme} sensitive-value`)).toBe(true)
 })
@@ -231,4 +231,21 @@ it.each([String.raw`PASSWORD=correct\ horse`, String.raw`API_TOKEN=abc\;def`, "-
 it("ends unquoted credentials after an even number of backslashes", () => {
   expect(pendingCredentialAssignment(String.raw`PASSWORD=abc\\;`)).toBeUndefined()
   expect(pendingCredentialAssignment(String.raw`PASSWORD=abc\\;status=ok`)).toBeUndefined()
+})
+
+it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: basic"])("redacts escaped scheme values for %s", (scheme) => {
+  for (const separator of [" ", ";", ","]) {
+    const escaped = `${scheme} abc\\${separator}private`
+    expect(redactCredentialText(`${escaped};status=ok`)).toBe(`${scheme} [REDACTED];status=ok`)
+    expect(pendingCredentialScheme(escaped)).toBe("unquoted")
+    expect(pendingCredentialScheme(`${scheme} abc\\`)).toBe("unquoted")
+    const paired = `${scheme} abc\\\\;status=ok`
+    expect(redactCredentialText(paired)).toBe(`${scheme} [REDACTED];status=ok`)
+    expect(pendingCredentialScheme(paired)).toBeUndefined()
+  }
+})
+
+it.each(["The bearer of good news arrived", "A basic explanation follows"])("preserves ordinary scheme prose: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+  expect(pendingCredentialScheme(text)).toBeUndefined()
 })
