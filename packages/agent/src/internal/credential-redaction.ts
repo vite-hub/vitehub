@@ -139,6 +139,7 @@ export interface CredentialAssignmentState {
   quote?: string
   structureClosers?: string[]
   shellDollar?: boolean
+  shellProcess?: boolean
   shellSubstitutions?: { closer: string, quote?: string }[]
   yamlIndent?: number
   yamlProperty?: boolean
@@ -250,13 +251,16 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     const shell = !state.structureClosers && state.yamlIndent === undefined
     const substitution = state.shellSubstitutions?.at(-1)
     const dollar = state.shellDollar
+    const process = state.shellProcess
     delete state.shellDollar
+    delete state.shellProcess
     if (state.escaped) state.escaped = false
     else if (character === "\\" && state.quote !== "'") state.escaped = true
-    else if (shell && dollar && character === "(") {
-      (state.shellSubstitutions ??= []).push({ closer: ")", quote: state.quote })
+    else if (shell && ((dollar && (character === "(" || character === "{")) || (process && character === "("))) {
+      (state.shellSubstitutions ??= []).push({ closer: character === "{" ? "}" : ")", quote: state.quote })
       delete state.quote
     }
+    else if (shell && !state.quote && (character === "<" || character === ">") && (value[index + 1] === "(" || index + 1 === value.length)) state.shellProcess = true
     else if (shell && character === "$" && state.quote !== "'") state.shellDollar = true
     else if (shell && character === "`" && state.quote !== "'") {
       if (substitution?.closer === "`" && !state.quote) {
@@ -272,7 +276,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     }
     else if (character === '"' || character === "'") state.quote = character
     else if (substitution) {
-      if (character === "(" && substitution.closer === ")") state.shellSubstitutions!.push({ closer: ")" })
+      if ((character === "(" && substitution.closer === ")") || (character === "{" && substitution.closer === "}")) state.shellSubstitutions!.push({ closer: substitution.closer })
       else if (character === substitution.closer) state.quote = state.shellSubstitutions!.pop()!.quote
     }
     else if (state.structureClosers) {

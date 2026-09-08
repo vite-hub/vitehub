@@ -402,6 +402,13 @@ it("keeps preceding prose context across scheme detection boundaries", () => {
 
 it.each([
   ["PASSWORD=$(printf supersecret);status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=${UNSET:-sensitive-value};status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=${UNSET:-${OTHER:-secret words}}tail;status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=${UNSET:-$(printf 'secret words')};status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=<(printf sensitive-value);status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=>(cat sensitive-file);status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=<(printf $(printf 'secret) words'))tail;status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=$(cat <(printf secret));status=ok", "PASSWORD=[REDACTED];status=ok"],
   ["PASSWORD=`printf supersecret`;status=ok", "PASSWORD=[REDACTED];status=ok"],
   ['PASSWORD="$(printf "secret words")";status=ok', 'PASSWORD="[REDACTED]";status=ok'],
   ["PASSWORD=$(printf $(printf supersecret))tail;status=ok", "PASSWORD=[REDACTED];status=ok"],
