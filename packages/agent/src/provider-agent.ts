@@ -1787,7 +1787,8 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
   const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
   const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? partitionTotal
-  const includePartition = usage.totalProcessedTokens === undefined || partitionTotal === usage.totalProcessedTokens
+  // Codex reports thread-wide totalProcessedTokens alongside latest-response partitions.
+  const includePartition = usage.totalProcessedTokens === undefined || partitionTotal !== undefined
   return {
     type: "usage",
     usageRecord: {
