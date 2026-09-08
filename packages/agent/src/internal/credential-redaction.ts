@@ -8,8 +8,8 @@ const uppercaseCredentialKeys = [
 function isCredentialKey(key: string): boolean {
   return /^_*auth$/i.test(key)
     || uppercaseCredentialKeys.includes(key.replace(/^_+/, "").toUpperCase())
-    || /(?:^|[_-])(?:key|secret|token|password)$/i.test(key)
-    || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
+    || /(?:^|[_-])(?:key|secret|token|password|passphrase)$/i.test(key)
+    || /[a-z0-9](?:Key|Secret|Token|Password|Passphrase|KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE)$/.test(key)
 }
 
 function isNetrcEntryContext(value: string): boolean {
@@ -65,7 +65,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b_*[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?(_*(?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|AUTH))["']?(?:\s*(?:\?=|\+=|:=|[:=])[\t ]*|(?:(?<=--["']?[A-Z][A-Z0-9_-]*["']?)|(?<=\bPASSWORD))\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?(_*(?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|AUTH))["']?(?:\s*(?:\?=|\+=|:=|[:=])[\t ]*|(?:(?<=--["']?[A-Z][A-Z0-9_-]*["']?)|(?<=\bPASSWORD))\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
@@ -330,7 +330,7 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
   return isCredentialKey(trailingWord)
     || uppercaseCredentialKeys.some(key => key.startsWith(normalized))
     || ["BEARER", "BASIC"].some(marker => marker.startsWith(normalized))
-    || ["KEY", "SECRET", "TOKEN", "PASSWORD", "AUTH"].some(marker => marker.startsWith(finalSegment))
+    || ["KEY", "SECRET", "TOKEN", "PASSWORD", "PASSPHRASE", "AUTH"].some(marker => marker.startsWith(finalSegment))
 }
 
 export function pendingCredentialQuote(value: string, precedingText = ""): string | undefined {

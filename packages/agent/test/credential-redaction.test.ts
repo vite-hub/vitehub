@@ -596,3 +596,34 @@ it.each(["_authToken", "_password", "_auth", "auth", "__APIKEY"])("redacts npm c
 it.each(["auth is configured", "authorization is required", "oauth=enabled", "author=alice"])("preserves non-credential auth text: %s", (text) => {
   expect(redactCredentialText(text)).toBe(text)
 })
+
+describe("passphrase credentials", () => {
+  it.each(["SSH_KEY_PASSPHRASE", "KEYSTORE_PASSPHRASE", "passphrase", "sshPassphrase", "ssh-passphrase"])("redacts %s and retains split key prefixes", (key) => {
+    expect(redactCredentialText(`${key}=sensitive-value;status=ok`)).toBe(`${key}=[REDACTED];status=ok`)
+    expect(redactCredentialText(`${key}="correct horse";status=ok`)).toBe(`${key}="[REDACTED]";status=ok`)
+    for (let split = key.toLowerCase().indexOf("passphrase") + 1; split <= key.length; split++) {
+      const prefix = key.slice(0, split)
+      expect(credentialTextMayContinue(`${".".repeat(512)}${prefix}`), prefix).toBe(true)
+      expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
+    }
+  })
+
+  it.each(["SSH_KEY_PASSPHRASE=", "KEYSTORE_PASSPHRASE=", "--passphrase ", "--passphrase="])("redacts %s values across every split", (prefix) => {
+    for (const secret of ["sensitive-value", '"correct horse"']) {
+      const suffix = ";status=ok"
+      expect(redactCredentialText(prefix + secret + suffix)).toBe(prefix + (secret.startsWith('"') ? '"[REDACTED]"' : "[REDACTED]") + suffix)
+      for (let split = 0; split < secret.length; split++) {
+        const first = prefix + secret.slice(0, split)
+        expect(credentialTextMayContinue(first)).toBe(true)
+        const state = pendingCredentialAssignmentState(first)!
+        expect(state).toBeDefined()
+        const rest = secret.slice(split) + suffix
+        expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(suffix)
+      }
+    }
+  })
+
+  it.each(["passphrase authentication is configured", "bypassphrase=public", "passphrase_hint=public"])("preserves non-credential text %s", (value) => {
+    expect(redactCredentialText(value)).toBe(value)
+  })
+})
