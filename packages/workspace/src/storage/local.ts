@@ -176,7 +176,7 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
     if (index === paths.length) return await operation()
     const lockedPath = paths[index]!
     const key = createHash("sha256").update(lockedPath).digest("hex")
-    const lockPath = `${root}/.vitehub-locks/${key}`
+    const lockPath = `${root}/.vitehub/locks/${key}`
     const next = () => lock(index + 1)
     return !readOnly && index === paths.length - 1
       ? await withFilesystemWriteLock(lockPath, `path: ${lockedPath}.`, next)
@@ -209,7 +209,7 @@ async function walk(
     const absolute = `${current}/${dirent.name}`
     if (privatePaths.some(path => !relative(path, absolute))) continue
     const path = normalizeWorkspacePath(relative(root, absolute))
-    if (path === ".vitehub" || path.startsWith(".vitehub/") || path === ".vitehub-locks" || path.startsWith(".vitehub-locks/")) continue
+    if (path === ".vitehub" || path.startsWith(".vitehub/")) continue
     if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -560,7 +560,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #list(prefix: string, options: ListOptions, includeDigest: boolean): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
-    const privatePaths = [this.#fileMetadataRoot, this.#metaPath, `${this.root}.vitehub-locks`]
+    const privatePaths = [this.#fileMetadataRoot, this.#metaPath]
     const all = await walk(this.root, current, privatePaths, options.exclude, options.recursive === true)
     const filtered = all
       .filter((entry) => {

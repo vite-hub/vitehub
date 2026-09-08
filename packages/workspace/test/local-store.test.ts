@@ -57,6 +57,27 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each(["file", "directory"].flatMap(type => [false, true].map(trailingSlash => ({ type, trailingSlash }))))("preserves existing .vitehub-locks user content: %j", async ({ type, trailingSlash }) => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(directory)
+    const root = trailingSlash ? `${directory}/` : directory
+    const path = type === "file" ? ".vitehub-locks" : ".vitehub-locks/notes.txt"
+    if (type === "directory") await mkdir(`${root}/.vitehub-locks`)
+    await writeFile(`${root}/${path}`, "existing")
+    const store = createLocalWorkspaceStore(root)
+
+    expect(new TextDecoder().decode((await store.readFile(path))!.content as Uint8Array)).toBe("existing")
+    await store.writeFile(path, { path, content: "updated", metadata: { owner: "user" } })
+    await expect(store.stat(path)).resolves.toMatchObject({ path, type: "file", metadata: { owner: "user" } })
+    await expect(store.list("", { recursive: true })).resolves.toContainEqual(expect.objectContaining({ path }))
+    await expect(store.glob("**/*")).resolves.toContainEqual(expect.objectContaining({ path }))
+    const snapshot = await store.snapshot()
+    expect(snapshot.entries[path]).toBeDefined()
+    expect(Object.keys(snapshot.entries).some(entry => entry === ".vitehub" || entry.startsWith(".vitehub/"))).toBe(false)
+    await expect(readFile(`${root}/${path}`, "utf8")).resolves.toBe("updated")
+    if (type === "directory") await expect(readdir(`${root}/.vitehub-locks`)).resolves.toEqual(["notes.txt"])
+  })
+
   it("hides metadata inside a root ending with a separator", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     const root = `${directory}/`
@@ -500,7 +521,7 @@ describe("local workspace store", () => {
       const parts = path.split("/")
       for (let index = 1; index <= parts.length; index++) {
         const key = createHash("sha256").update(parts.slice(0, index).join("/")).digest("hex")
-        expect(await readdir(`${root}/.vitehub-locks/${key}.readers`)).toHaveLength(1)
+        expect(await readdir(`${root}/.vitehub/locks/${key}.readers`)).toHaveLength(1)
       }
       let published = false
       writing = store.writeFile(path, { path, content: "after", metadata: { source: "replacement" } })
@@ -513,7 +534,7 @@ describe("local workspace store", () => {
         expect(result).toMatchObject({ content: new TextEncoder().encode("before"), metadata: { source: "original" } })
       }
       await writing
-      await expect(readdir(`${root}/.vitehub-locks`)).resolves.toEqual([])
+      await expect(readdir(`${root}/.vitehub/locks`)).resolves.toEqual([])
     }
     finally {
       for (const release of releases) release.resolve()
@@ -704,7 +725,7 @@ describe("local workspace store", () => {
     await expect(store.snapshot()).resolves.toMatchObject({
       entries: { "assets/blob.bin": expect.objectContaining({ digest }) },
     })
-    expect(vi.mocked(readFile).mock.calls.filter(([path]) => !String(path).includes(".vitehub-locks/"))).toEqual([])
+    expect(vi.mocked(readFile).mock.calls.filter(([path]) => !String(path).includes(".vitehub/locks/"))).toEqual([])
   })
 
   it("does not traverse excluded directories", async () => {
