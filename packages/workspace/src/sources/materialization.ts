@@ -305,6 +305,12 @@ async function removeStaleMaterializedSourceFiles(
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     const currentOwner = file?.metadata?.source
+    if (currentOwner === undefined && previousSnapshot?.items) {
+      // Local Stores lose file ownership metadata on restart. An indexed path
+      // still belongs to the source only while its materialized content matches.
+      const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+      if (!file || !recordedDigest || await sha256(file.content) !== recordedDigest) continue
+    }
     const overlapsAnotherSource = sources.some(candidate =>
       candidate.key !== source.key
       && candidate.mountPath.length >= source.mountPath.length

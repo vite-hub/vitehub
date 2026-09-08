@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -2683,6 +2683,57 @@ describe("lazy sources", () => {
     await expect(restarted.stat("generated")).resolves.toBeUndefined()
     await expect(createWorkspaceSourceView({ name: definition.name }, restarted).readFile("edited.md")).resolves.toBe("user edit")
     await expect(restarted.readFile("claimed.md")).resolves.toMatchObject({ metadata: { source: "other" } })
+  })
+
+  it.each(["", "docs"])("preserves user edits when a changed startup source at '%s' refreshes after restart", async (mount) => {
+    const root = await createRoot()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    const definition = {
+      name: "restarted-changed-startup",
+      sources: {
+        generated: {
+          ...custom({
+            materialize: "startup",
+            mount,
+            files: [
+              { path: "stale.md", content: "stale" },
+              { path: "edited.md", content: "original" },
+              { path: "claimed.md", content: "original" },
+            ],
+          }),
+          fingerprint: { version: 1 },
+        },
+      },
+    }
+    await createWorkspaceSourceView(definition, createLocalWorkspaceStore(root)).materializeSources()
+    await writeFile(join(root, path("edited.md")), "user edit")
+    const restarted = createLocalWorkspaceStore(root)
+    await restarted.writeFile(path("claimed.md"), { path: path("claimed.md"), content: "original", metadata: { source: "other" } })
+    const currentDefinition = {
+      ...definition,
+      sources: {
+        generated: {
+          ...custom({ materialize: "startup", mount, files: [{ path: "new.md", content: "new" }] }),
+          fingerprint: { version: 2 },
+        },
+      },
+    }
+
+    await syncWorkspaceDefinition(currentDefinition, restarted)
+    await createWorkspaceSourceView(currentDefinition, restarted).materializeSources()
+
+    await expect(restarted.stat(path("stale.md"))).resolves.toBeUndefined()
+    await expect(readFile(join(root, path("edited.md")), "utf8")).resolves.toBe("user edit")
+    await expect(restarted.readFile(path("claimed.md"))).resolves.toMatchObject({ metadata: { source: "other" } })
+    await expect(readFile(join(root, path("new.md")), "utf8")).resolves.toBe("new")
+
+    await createWorkspaceSourceView(currentDefinition, restarted).materializeSources()
+    await expect(readFile(join(root, path("edited.md")), "utf8")).resolves.toBe("user edit")
+
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
+    await expect(restarted.stat(path("new.md"))).resolves.toBeUndefined()
+    await expect(readFile(join(root, path("edited.md")), "utf8")).resolves.toBe("user edit")
+    await expect(restarted.readFile(path("claimed.md"))).resolves.toMatchObject({ metadata: { source: "other" } })
   })
 
   it("removes stale root startup files after build cleanup invalidates their snapshot", async () => {
