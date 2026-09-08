@@ -79,7 +79,9 @@ export function consumeAuthorization(value: string, state: AuthorizationState): 
 }
 
 function* authorizationValues(value: string) {
-  const headers = /\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*(["']?)[\t ]*(?:([!#$%&'*+.^_`|~A-Za-z0-9-]+)[\t ]+)?/gi
+  // Only established scheme names may remain visible. An arbitrary first token
+  // can itself be a schemeless credential, even when more header text follows.
+  const headers = /\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*(["']?)[\t ]*(?:(Bearer|Basic|Digest|Token|ApiKey|Negotiate|AWS4-HMAC-SHA256)[\t ]+)?/gi
   for (const match of value.matchAll(headers)) {
     if (/^(Bearer|Basic)$/i.test(match[2]!)) continue
     const start = match.index + match[0].length
@@ -112,7 +114,7 @@ function redactAuthorizationHeaders(value: string): string {
 }
 
 export function redactCredentialText(value: string, precedingText = ""): string {
-  return redactAuthorizationHeaders(value)
+  const redacted = redactAuthorizationHeaders(value)
     .replace(/\bph[cx]_[A-Za-z0-9_-]+\b/g, "[REDACTED]")
     .replace(/(\bproject\b[^\r\n]{0,160}\btoken\s*:\s*)([^\s"',;&{}<>()]+)/gi, "$1[REDACTED]")
     .replace(/\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?)/gi, (match, scheme: string, quoted: string, offset: number, source: string) => {
@@ -123,29 +125,85 @@ export function redactCredentialText(value: string, precedingText = ""): string 
     })
     .replace(new RegExp(String.raw`\b(Bearer|Basic)\s+${unquotedCredentialValue}+`, "gi"), (match, scheme: string, offset: number, source: string) =>
       isCredentialScheme(scheme, precedingText + source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
-    .replace(new RegExp(`${credentialAssignmentPrefix}(${shellCredentialValue}+)`, "gi"), (match, prefix: string, key: string, content: string) => {
-      if (!isCredentialAssignment(key, prefix)) return match
-      const quote = /^["']/.exec(content)?.[0] ?? ""
-      const state: CredentialAssignmentState = { escaped: false, started: false }
-      consumeCredentialAssignment(content, state)
-      return `${prefix}${quote}[REDACTED]${quote && !state.quote ? quote : ""}`
-    })
+
+  return redactCredentialAssignments(redacted, precedingText)
 }
 
 export interface CredentialAssignmentState {
   escaped: boolean
   started: boolean
   quote?: string
+  yamlIndent?: number
+  yaml?: { header: boolean, modifiers: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
+}
+
+function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
+  const line = source.slice(0, offset).split("\n").at(-1) ?? ""
+  const yamlIndent = /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
+  return { escaped: false, started: false, ...(yamlIndent === undefined ? {} : { yamlIndent }) }
+}
+
+function redactCredentialAssignments(value: string, precedingText: string): string {
+  let result = ""
+  let offset = 0
+  for (const match of value.matchAll(new RegExp(credentialAssignmentPrefix, "gi"))) {
+    if (match.index < offset || !isCredentialAssignment(match[2]!, match[1]!)) continue
+    const start = match.index + match[0].length
+    const content = value.slice(start)
+    if (!content) continue
+    const state = assignmentState(precedingText + value, precedingText.length + match.index, match[1]!)
+    const length = consumeCredentialAssignment(content, state)
+    if (!length) continue
+    const quote = /^["']/.exec(content)?.[0] ?? ""
+    result += value.slice(offset, start) + quote + "[REDACTED]" + (quote && !state.quote ? quote : "")
+    if (state.yaml && length < content.length) result += state.yaml.whitespace
+    offset = start + length
+  }
+  return result + value.slice(offset)
 }
 
 // Shell assignments concatenate adjacent quoted and unquoted segments.
-const shellCredentialValue = String.raw`(?:"(?:\\[\s\S]|[^"\\])*"?|'[^']*'?|${unquotedCredentialValue})`
-
+// YAML scalar assignments continue through indented lines until their dedent.
 export function consumeCredentialAssignment(value: string, state: CredentialAssignmentState): number {
   for (let index = 0; index < value.length; index++) {
     const character = value[index]!
     if (!state.started && /\s/.test(character)) continue
+    if (!state.started && state.yamlIndent !== undefined && (character === "|" || character === ">")) {
+      state.yaml = { header: true, modifiers: true, line: false, spaces: 0, whitespace: "" }
+    }
     state.started = true
+    if (state.yaml) {
+      const yaml = state.yaml
+      if (yaml.header) {
+        if (!/[|>+1-9-]/.test(character)) yaml.modifiers = false
+        if (yaml.modifiers && /[1-9]/.test(character)) yaml.indent = state.yamlIndent! + Number(character)
+        if (character === "\n") {
+          yaml.header = false
+          yaml.line = true
+          yaml.whitespace = "\n"
+        }
+      }
+      else if (character === "\n") {
+        yaml.line = true
+        yaml.whitespace = "\n"
+        yaml.spaces = 0
+      }
+      else if (yaml.line) {
+        if (character === " ") yaml.spaces++
+        else if (character === "\r") continue
+        else {
+          const indent = yaml.spaces
+          if (indent < (yaml.indent ?? state.yamlIndent! + 1)) {
+            yaml.whitespace += " ".repeat(indent)
+            return index
+          }
+          yaml.indent ??= indent
+          yaml.line = false
+          yaml.whitespace = ""
+        }
+      }
+      continue
+    }
     if (state.escaped) state.escaped = false
     else if (character === "\\" && state.quote !== "'") state.escaped = true
     else if (state.quote) {
@@ -157,11 +215,11 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
   return value.length
 }
 
-export function pendingCredentialAssignmentState(value: string): CredentialAssignmentState | undefined {
+export function pendingCredentialAssignmentState(value: string, precedingText = ""): CredentialAssignmentState | undefined {
   for (const match of value.matchAll(new RegExp(credentialAssignmentPrefix, "gi"))) {
     if (!isCredentialAssignment(match[2]!, match[1]!)) continue
     const content = value.slice(match.index + match[0].length)
-    const state: CredentialAssignmentState = { escaped: false, started: false }
+    const state = assignmentState(precedingText + value, precedingText.length + match.index, match[1]!)
     if (consumeCredentialAssignment(content, state) === content.length) return state
   }
 }

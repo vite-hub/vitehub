@@ -1316,7 +1316,7 @@ function journalTraceLog(
         if (!interveningEvent && content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content, precedingText)
         const scheme = pendingCredentialScheme(content, precedingText)
-        const assignment = pendingCredentialAssignmentState(content)
+        const assignment = pendingCredentialAssignmentState(content, precedingText)
         const authorization = pendingAuthorizationState(content)
         if (authorization) {
           redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
@@ -1350,7 +1350,7 @@ function journalTraceLog(
       const emittedRaw = rawContent.slice(0, rawContent.length - (retainedContent?.length ?? 0))
       const lastLine = (precedingText + emittedRaw).split(/[\r\n]/).at(-1) ?? ""
       const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
-      precedingMessageText.set(key, authorizationHeader ? "Authorization: " : /^[\t "']*$/.test(lastLine) ? "" : "x ")
+      precedingMessageText.set(key, authorizationHeader ? "Authorization: " : /^[\t "']*$/.test(lastLine) ? lastLine : "x ")
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
         emit({
           ...pending.entry,
@@ -1413,7 +1413,7 @@ function journalTraceLog(
           : consumeCredentialAssignment(content, redaction.state)
         if (boundary === content.length) return
         redactingCredentialDeltas.delete(key)
-        content = content.slice(boundary)
+        content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? "" : "") + content.slice(boundary)
         entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
       }
       else {
