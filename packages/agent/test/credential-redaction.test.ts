@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { consumeAuthorization, consumeCredentialAssignment, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
+import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
@@ -409,4 +409,22 @@ it.each(["password", "secret"])("redacts bare YAML %s fields with retained line 
   expect(redactCredentialText(prose)).toBe(prose)
   expect(pendingCredentialQuote(`${key}: "ordinary`, "Field label. ")).toBeUndefined()
   expect(credentialTextMayContinue(`${key}: ordinary`, "Field label. ")).toBe(false)
+})
+
+describe("credential line context across journal chunks", () => {
+  it.each(["- ", "  - ", "  -   "])("preserves YAML list prefix %j", (prefix) => {
+    const context = credentialTextLineContext(`config:\n${prefix}`)
+    for (const key of ["password", "secret"]) {
+      const value = `${key}: "sensitive-value"\n    status: ok\n`
+      expect(redactCredentialText(value, context)).toBe(`${key}: "[REDACTED]"\n    status: ok\n`)
+      expect(pendingCredentialAssignmentState(`${key}: "sensitive`, context)?.quote).toBe('"')
+    }
+  })
+
+  it("preserves inline prose and drops previous values from context", () => {
+    const context = credentialTextLineContext("A list - ")
+    expect(context).toBe("x ")
+    expect(redactCredentialText('password: "ordinary words"', context)).toBe('password: "ordinary words"')
+    expect(credentialTextLineContext('password: "sensitive-value"')).toBe("x ")
+  })
 })

@@ -102,6 +102,31 @@ describe("Agent Invocations", () => {
     expect(content).toBe(padding + prefix + "[REDACTED]" + suffix)
   })
 
+  it.each(["password", "secret"].flatMap(key => ["characters", "events"].map(boundary => ({ key, boundary }))))("redacts YAML list $key after a $boundary flush", async ({ key, boundary }) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxStringLength: 128 }, store: createMemoryAgentInvocationStore() })
+    const prefix = `${boundary === "characters" ? ".".repeat(512) + "\n" : ""}config:\n  - `
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const chunks = [
+          ...(boundary === "events" ? Array.from({ length: 31 }, () => "") : []),
+          prefix,
+          `${key}: "sensitive-value"\n    status: ok\n`,
+        ]
+        for (const chunk of chunks) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "yaml-list", "message.content": chunk } })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("yaml-list"), {})
+    const observations = (await invocations.getByRunId("yaml-list"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(`${prefix}${key}: "[REDACTED]"\n    status: ok\n`)
+    expect(JSON.stringify(observations)).not.toContain("sensitive-value")
+  })
+
   it.each(["api_token", "password", "secret"].flatMap(key => ["|", ">-", "|2-", "&credential |", "!!str >-", "&credential !!str |2-", "!<tag:yaml.org,2002:str> &credential >"].map(indicator => ({ key, indicator }))))("redacts YAML $key scalar $indicator across forced message flushes", async ({ key, indicator }) => {
     const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
     const text = `config:\n  ${key}: ${indicator}\n    sensitive-value\n    more-secret\n  status: ok\n`
