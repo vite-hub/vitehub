@@ -293,7 +293,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       mediaType: fallback(optional(string()), undefined),
       metadata: optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
         const source = value.source
-        return source === undefined || typeof source === "string"
+        return source === undefined || safeParse(string(), source).success
       }))),
     }), value)
     if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
