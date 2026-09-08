@@ -2811,7 +2811,7 @@ cli_auth_credentials_store = "keyring"
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
   })
 
-  it("steers a running provider turn and emits input plus method evidence", async () => {
+  it.each(["text", "messages"] as const)("steers a running provider turn with a %s prompt and emits input plus method evidence", async (promptKind) => {
     const threadId = "thread-live-steer"
     let releaseTurn!: () => void
     const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
@@ -2826,7 +2826,9 @@ cli_auth_credentials_store = "keyring"
     const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
-    await expect(sendAgentInvocationInput(invocationId, { prompt: "private follow-up" }, { mode: "steer" })).resolves.toBe("accepted")
+    await expect(sendAgentInvocationInput(invocationId, {
+      prompt: promptKind === "text" ? "private follow-up" : [{ id: "steering-prompt", role: "user", parts: [{ type: "text", text: "private follow-up" }] }],
+    }, { mode: "steer" })).resolves.toBe("accepted")
     releaseTurn()
 
     await expect(result).resolves.toEqual(expect.arrayContaining([{
@@ -2845,7 +2847,7 @@ cli_auth_credentials_store = "keyring"
     expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: "private follow-up", threadId })
   })
 
-  it("falls back before submitting live steering with attachments", async () => {
+  it.each(["messages", "prompt"] as const)("falls back before submitting live steering with attachments in %s", async (inputField) => {
     const threadId = "thread-steer-attachment"
     let releaseTurn!: () => void
     const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
@@ -2861,7 +2863,7 @@ cli_auth_credentials_store = "keyring"
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
     try {
       await expect(sendAgentInvocationInput(invocationId, {
-        messages: [{ id: "message-steer-attachment", role: "user", parts: [
+        [inputField]: [{ id: "message-steer-attachment", role: "user", parts: [
           { type: "text", text: "inspect this image" },
           { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
         ] }],
