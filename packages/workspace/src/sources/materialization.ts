@@ -414,16 +414,21 @@ async function reconcileRemovedStartupSourcesInternal(
       // provides current directory evidence for cleanup or ownership transfer.
       if ((await store.stat(path).catch(() => undefined))?.type !== "directory") continue
       for (const currentSource of currentSources) {
-        if (!pathContains(path, currentSource.mountPath)) continue
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
-        // Retained files can keep this directory nonempty. Carry its ownership
-        // forward even when the removal below cannot delete the shared mount.
+        const containsMount = pathContains(path, currentSource.mountPath)
+        const containsItems = sourceOwnsDirectory(currentSource, path)
+          && Object.keys(retainedSnapshot.items || {}).some(item => pathContains(path, item))
+        if (!containsMount && !containsItems) continue
+        // Retained mounts or files can keep this directory nonempty. Transfer
+        // ownership within the mount separately from its ancestor directories.
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, {
           ...retainedSnapshot,
           ...(path === currentSource.mountPath
             ? path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true } : {}
-            : { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }),
+            : containsMount
+              ? { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }
+              : { ownedDirectories: [...new Set([...(retainedSnapshot.ownedDirectories || []), path])] }),
           status: "updating",
         }))
       }

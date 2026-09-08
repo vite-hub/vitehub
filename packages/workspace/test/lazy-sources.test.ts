@@ -724,6 +724,44 @@ describe("lazy sources", () => {
     { local: false, reuseStartupSnapshots: true },
     { local: true, reuseStartupSnapshots: false },
     { local: true, reuseStartupSnapshots: true },
+  ])("transfers shared child directory ownership with local=$local snapshot reuse=$reuseStartupSnapshots", async ({ local, reuseStartupSnapshots }) => {
+    const root = local ? await createRoot() : undefined
+    let store = root ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    await store.mkdir("docs/generated/user-created")
+    const source = (files: string[]) => custom({
+      materialize: "startup",
+      mount: "docs/generated",
+      files: files.map(path => ({ path, content: path })),
+    })
+    const retained = source(["nested/deep/retained.md", "user-created/retained.md"])
+    const sibling = source(["sibling.md"])
+    const initial = {
+      name: "shared-child-startup-directory",
+      sources: { removed: source(["nested/deep/removed.md"]), retained, sibling },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+
+    const next = { name: initial.name, sources: { retained, sibling } }
+    await syncWorkspaceDefinition(next, store)
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.readFile("docs/generated/nested/deep/retained.md")).resolves.toBe("nested/deep/retained.md")
+    await expect(view.readFile("docs/generated/sibling.md")).resolves.toBe("sibling.md")
+    if (root) store = createLocalWorkspaceStore(root)
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: { sibling } }, store)
+    await expect(store.stat("docs/generated/nested")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated/sibling.md")).resolves.toMatchObject({ type: "file" })
+    await expect(store.stat("docs/generated/user-created")).resolves.toMatchObject({ type: "directory" })
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs/generated/user-created")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each([
+    { local: false, reuseStartupSnapshots: false },
+    { local: false, reuseStartupSnapshots: true },
+    { local: true, reuseStartupSnapshots: false },
+    { local: true, reuseStartupSnapshots: true },
   ])("transfers ancestor mount ownership with local=$local snapshot reuse=$reuseStartupSnapshots", async ({ local, reuseStartupSnapshots }) => {
     const root = local ? await createRoot() : undefined
     let store = root ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
