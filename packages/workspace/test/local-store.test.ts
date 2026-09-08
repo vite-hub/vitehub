@@ -175,6 +175,22 @@ describe("local workspace store", () => {
     await expect(afterRemoval.readFile(".agents/skills/browser/SKILL.md")).resolves.toBeUndefined()
   })
 
+  it.each([
+    { path: "file.txt", mediaType: 42, metadata: { owner: "browser" }, expected: { mediaType: undefined, metadata: { owner: "browser" } } },
+    { path: "file.txt", mediaType: "text/plain", metadata: [], expected: { mediaType: "text/plain", metadata: undefined } },
+    { path: "other.txt", mediaType: "text/plain", metadata: { owner: "browser" }, expected: { mediaType: undefined, metadata: undefined } },
+  ])("validates persisted attributes at the file boundary: %j", async ({ expected, ...attributes }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    await createLocalWorkspaceStore(root).writeFile("file.txt", {
+      path: "file.txt",
+      content: "content",
+      mediaType: "text/plain",
+    })
+    await writeFile(`${root}.vitehub-file-metadata/file.txt/metadata.json`, JSON.stringify(attributes))
+    await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject(expected)
+  })
+
   it("keeps metadata paths distinct for suffix-related Workspace paths", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)

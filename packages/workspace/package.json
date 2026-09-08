@@ -144,7 +144,8 @@
     "mountx": "catalog:workspace",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
-    "ofetch": "catalog:unjs"
+    "ofetch": "catalog:unjs",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

@@ -4,6 +4,8 @@ import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
+import { check, fallback, literal, object, optional, pipe, record, safeParse, string, unknown } from "valibot"
+
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
@@ -206,14 +208,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
       this.#cacheFileMetadata(path, undefined)
       return
     }
-    const value: unknown = JSON.parse(content)
-    if (!value || Object(value) !== value || Array.isArray(value) || Reflect.get(value, "path") !== path) return
-    const result = {
-      ...(typeof Reflect.get(value, "mediaType") === "string" ? { mediaType: Reflect.get(value, "mediaType") as string } : {}),
-      ...(Reflect.get(value, "metadata") && Object(Reflect.get(value, "metadata")) === Reflect.get(value, "metadata") && !Array.isArray(Reflect.get(value, "metadata"))
-        ? { metadata: Reflect.get(value, "metadata") as Record<string, unknown> }
-        : {}),
-    }
+    const parsed = safeParse(object({
+      path: literal(path),
+      mediaType: fallback(optional(string()), undefined),
+      metadata: fallback(optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()))), undefined),
+    }), JSON.parse(content))
+    if (!parsed.success) return
+    const { path: _path, ...result } = parsed.output
     this.#cacheFileMetadata(path, result)
     return result
   }
