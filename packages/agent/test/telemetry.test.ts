@@ -1260,7 +1260,7 @@ describe("Agent telemetry", () => {
 
     const exports = telemetry.mock.calls.map(call => call[0])
     expect(exports.find(exported => exported.signal === "logs")?.records).toEqual(expect.arrayContaining([
-      expect.objectContaining({ eventName: "agent.invocation.error", severityText: "ERROR" }),
+      expect.objectContaining({ eventName: "agent.invocation.cancelled", severityText: "ERROR" }),
     ]))
     expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ status: expect.objectContaining({ code: "ERROR" }) })] })
   })
