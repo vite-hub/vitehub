@@ -1368,7 +1368,7 @@ describe("agent chat capability discovery", () => {
       const response = await invokeMiddleware(handlers[0]!, {
         agent: "review",
         payload,
-        prompt: "Please review",
+        text: "Please review",
         invokerProfileId: "technical",
         meta: { source: "dev-loop" },
         trigger: "review.requested",
