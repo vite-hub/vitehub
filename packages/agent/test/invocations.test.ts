@@ -155,9 +155,41 @@ describe("Agent Invocations", () => {
     })
     await runAgent(agent, runtime("interleaved-messages"), {})
     const observations = (await invocations.getByRunId("interleaved-messages"))!.observations
-    const beforeTool = observations.slice(0, observations.findIndex(entry => entry.name === "tool.call"))
-    expect(beforeTool.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]))
-      .toEqual(["A1", "B1", "A2", "This is "])
+    expect(observations.filter(entry => entry.name === "agent.message.delta" || entry.name === "tool.call")
+      .map(entry => [entry.name, entry.attributes?.["message.content"]]))
+      .toEqual([
+        ["agent.message.delta", "A1"],
+        ["agent.message.delta", "B1"],
+        ["agent.message.delta", "A2"],
+        ["agent.message.delta", "This is a"],
+        ["tool.call", undefined],
+      ])
+  })
+
+  it.each([
+    ["pass", "word=sensitive-value", "password=[REDACTED]"],
+    ["Author", "ization: Bearer sensitive-value", "Authorization: Bearer [REDACTED]"],
+  ])("keeps emitted marker context across tool events: %s", async (prefix, suffix, expected) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const text of [prefix, suffix]) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "split-marker", "message.content": text } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-marker"), {})
+    const observations = (await invocations.getByRunId("split-marker"))!.observations
+    const messagesAndTools = observations.filter(entry => entry.name === "agent.message.delta" || entry.name === "tool.call")
+    expect(messagesAndTools.slice(0, 2).map(entry => [entry.name, entry.attributes?.["message.content"]]))
+      .toEqual([["agent.message.delta", prefix], ["tool.call", undefined]])
+    expect(messagesAndTools.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join(""))
+      .toBe(expected)
+    expect(JSON.stringify(observations)).not.toContain("sensitive-value")
   })
 
   it.each([

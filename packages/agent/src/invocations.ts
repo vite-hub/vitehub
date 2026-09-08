@@ -1287,7 +1287,7 @@ function journalTraceLog(
   let messageDeltaKeysTruncated = false
   let activeMessageDeltaKey: string | undefined
   const precedingMessageText = new Map<string, string>()
-  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
+  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number, emittedCharacters?: number }>()
   const redactingCredentialDeltas = new Map<string, { kind: "authorization", state: AuthorizationState } | { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
@@ -1311,6 +1311,7 @@ function journalTraceLog(
     if (!pending) return
     const rawContent = pending.entry.attributes?.["message.content"]
     let retainedContent: string | undefined
+    let emittedCharacters = 0
     if (hasRuntimeType(rawContent, "string")) {
       let content = rawContent
       const precedingText = precedingMessageText.get(key) ?? ""
@@ -1346,10 +1347,16 @@ function journalTraceLog(
         else {
           // A possible marker is still ordinary text until its separator arrives.
           retainedContent = pendingCredentialTextSuffix(content)
-          if (retainedContent) content = content.slice(0, -retainedContent.length)
+          if (retainedContent) {
+            emittedCharacters = Math.max(0, (pending.emittedCharacters ?? 0) - (content.length - retainedContent.length))
+            // Emit ordinary marker text in place, but keep it as scanner context.
+            // An authorization header may already contain an unknown credential.
+            if (interveningEvent && !retainedContent.includes(":")) emittedCharacters = retainedContent.length
+            else content = content.slice(0, -retainedContent.length)
+          }
         }
       }
-      const redacted = redactCredentialText(content, precedingText)
+      const redacted = redactCredentialText(content, precedingText).slice(pending.emittedCharacters ?? 0)
       // Retain only line and authorization-header context, never credential text.
       const emittedRaw = rawContent.slice(0, rawContent.length - (retainedContent?.length ?? 0))
       precedingMessageText.set(key, credentialTextLineContext(precedingText + emittedRaw))
@@ -1370,6 +1377,7 @@ function journalTraceLog(
       pendingMessageDeltas.set(key, {
         entry: { ...pending.entry, attributes: { ...pending.entry.attributes, "message.content": retainedContent } },
         events: 0,
+        emittedCharacters,
       })
     }
   }
