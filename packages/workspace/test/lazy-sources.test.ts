@@ -34,6 +34,23 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each([false, true])("preserves startup source precedence after listing with an earlier read=%s", async (readFirst) => {
+    const definition = {
+      name: "startup-list-precedence",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "first" }] }),
+        second: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "second" }] }),
+        root: custom({ materialize: "startup", mount: "", files: [{ path: "docs/shared.md", content: "root" }] }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, createMemoryWorkspaceStore())
+    if (readFirst) await expect(view.readFile("docs/shared.md")).resolves.toBe("first")
+    await view.list("docs", { recursive: true })
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("first")
+    await view.list("", { recursive: true })
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("first")
+  })
+
   it("refreshes nested startup files before the first directory listing", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["stale.md"]

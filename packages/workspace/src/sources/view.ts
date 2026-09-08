@@ -354,10 +354,21 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const normalized = normalizeWorkspacePath(path)
     if (!isDescriptorPath(normalized)) {
-      for (const source of getLazySourcesForPath(normalized)) {
+      // Path resolution prefers the first normalized Source. Write it last so
+      // listing and reading select the same owner for overlapping files.
+      const refreshedSources: typeof sources = []
+      for (const source of getLazySourcesForPath(normalized).reverse()) {
         if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
         await ensurePrepared(source.key)
-        if (!usesLiveProvider(source)) await ensureMaterialized(source.key)
+        const generation = generationBySource.get(source.key)
+        if (refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
+          // A lower-priority refresh may have overwritten an already loaded Source.
+          await materializeSerialized({ sources: [source.key] })
+        }
+        else {
+          await ensureMaterialized(source.key)
+        }
+        if (generationBySource.get(source.key) !== generation) refreshedSources.push(source)
       }
     }
     const storeEntries = isDescriptorPath(normalized) ? [] : await store.list(path, options)
