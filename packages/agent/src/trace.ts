@@ -191,7 +191,7 @@ export function createToolDurationTracker(now: () => number = Date.now): (event:
     if (event.type !== "tool-result") return event
     const start = startedAt.get(event.id)
     startedAt.delete(event.id)
-    if (typeof event.durationMs === "number" && Number.isFinite(event.durationMs) && event.durationMs > 0) return event
+    if (hasRuntimeType(event.durationMs, "number") && Number.isFinite(event.durationMs) && event.durationMs > 0) return event
     if (start === undefined) {
       const { durationMs: _durationMs, ...result } = event
       return result
