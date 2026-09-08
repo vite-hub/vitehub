@@ -288,7 +288,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #prepareMetadataDirectories(path: string, create: boolean, repair = true) {
-    const { lstat, mkdir, stat } = await import("node:fs/promises")
+    const { lstat, mkdir, rm, stat } = await import("node:fs/promises")
     const root = await stat(this.root).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" && !create) return undefined
       throw error
@@ -307,6 +307,11 @@ class LocalWorkspaceStore implements WorkspaceStore {
       })
       if (!info) return { mode: mode & 0o666, gid: root.gid, root: undefined }
       assertTrustedMetadata(directory, info, root)
+      if (!info.isDirectory()) {
+        if (repair) await rm(directory, { force: true })
+        if (!create) return { mode: mode & 0o666, gid: root.gid, root: undefined }
+        await mkdir(directory, { mode: 0o700 })
+      }
       if (repair && process.platform !== "win32") {
         await applyMetadataPermissions(directory, mode, root.gid)
       }
@@ -315,10 +320,22 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {
-    const { rename, rm, writeFile } = await import("node:fs/promises")
+    const { lstat, rename, rm, writeFile } = await import("node:fs/promises")
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
     const hasMetadata = value.mediaType !== undefined || value.metadata !== undefined
     const permissions = await this.#prepareMetadataDirectories(path, hasMetadata)
+    if (!permissions.root) {
+      this.#files.delete(path)
+      return
+    }
+    const existing = await lstat(metadataPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (existing) {
+      assertTrustedMetadata(metadataPath, existing, permissions.root)
+      if (existing.isDirectory()) await rm(metadataPath, { recursive: true, force: true })
+    }
     if (!hasMetadata) {
       await rm(metadataPath, { force: true })
       this.#files.delete(path)
@@ -572,7 +589,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
     const { rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
-    await this.#prepareMetadataDirectories(normalized, false)
+    const metadata = await this.#prepareMetadataDirectories(normalized, false)
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
@@ -584,7 +601,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
     }
     const { rm: removeMetadata } = await import("node:fs/promises")
-    await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
+    if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {

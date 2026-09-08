@@ -69,6 +69,41 @@ describe("local workspace store", () => {
     await expect(store.snapshot()).resolves.toBeDefined()
   })
 
+  it.each(["sidecar", "root", "ancestor", "leaf"].flatMap(component =>
+    ["write", "stream", "clear", "remove"].map(operation => ({ component, operation })),
+  ))("recovers malformed metadata paths: %j", async ({ component, operation }) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = "nested/file.txt"
+    await store.writeFile(path, { path, content: "original", metadata: { source: "original" } })
+    const malformed = component === "root" ? metadataRoot(root)
+      : component === "ancestor" ? `${metadataRoot(root)}/nested`
+        : component === "leaf" ? `${metadataRoot(root)}/${path}` : `${metadataRoot(root)}/${path}/metadata.json`
+    await rm(malformed, { recursive: true })
+    if (component === "sidecar") {
+      await mkdir(malformed, { mode: 0o700 })
+      await writeFile(`${malformed}/invalid`, "corrupt")
+    } else await writeFile(malformed, "corrupt", { mode: 0o600 })
+
+    await expect(store.readFile(path)).resolves.toMatchObject({ content: new TextEncoder().encode("original"), metadata: undefined })
+    await expect(store.stat(path)).resolves.toMatchObject({ type: "file", metadata: undefined })
+    await expect(store.list("", { recursive: true })).resolves.toHaveLength(2)
+    await expect(store.snapshot()).resolves.toBeDefined()
+
+    if (operation === "remove") {
+      await store.rm(path)
+      await expect(store.readFile(path)).resolves.toBeUndefined()
+    } else {
+      const metadata = operation === "clear" ? undefined : { source: "replacement" }
+      if (operation === "stream") {
+        await store.writeFileStream!(path, { path, content: new Blob(["replacement"]).stream(), metadata })
+      } else await store.writeFile(path, { path, content: "replacement", metadata })
+      await expect(createLocalWorkspaceStore(root).readFile(path)).resolves.toMatchObject({
+        content: new TextEncoder().encode("replacement"), metadata,
+      })
+    }
+  })
+
   it.skipIf(process.platform === "win32").each(["root", "directory", "file"])("rejects symlinked metadata %s before reading or repairing it", async (component) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
