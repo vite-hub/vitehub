@@ -183,7 +183,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     if (!state.started && state.yamlIndent !== undefined && (character === "|" || character === ">")) {
       state.yaml = { header: true, modifiers: true, line: false, spaces: 0, whitespace: "" }
     }
-    if (!state.started && (character === "{" || character === "[")) state.structureDepth = 0
+    if (!state.started && (character === "{" || character === "[")) state.structureDepth = 1
     state.started = true
     if (state.yaml) {
       const yaml = state.yaml
