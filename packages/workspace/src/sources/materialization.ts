@@ -50,6 +50,7 @@ interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStat
   cacheMaxAge?: number
   ownsMount?: boolean
   ownedAncestors?: string[]
+  ownedDirectories?: string[]
   items?: Record<string, LazyMaterializedMetadata>
 }
 
@@ -379,7 +380,7 @@ async function reconcileRemovedStartupSourcesInternal(
     const previousPaths = invalidatedSnapshot
       ? (await store.list(source.mountPath, { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)
       : Object.keys(snapshot?.items || {})
-    const staleDirectories = new Set(snapshot?.ownedAncestors || [])
+    const staleDirectories = new Set([...(snapshot?.ownedAncestors || []), ...(snapshot?.ownedDirectories || []).filter(path => sourceOwnsDirectory(source, path))])
     if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
     for (const path of previousPaths) {
       const file = await store.readFile(path)
@@ -393,9 +394,6 @@ async function reconcileRemovedStartupSourcesInternal(
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
-      }
-      for (const directory of parentDirectoryPaths(path)) {
-        if (sourceOwnsDirectory(source, directory) && (directory !== source.mountPath || (!invalidatedSnapshot && snapshot?.ownsMount !== false))) staleDirectories.add(directory)
       }
       await control.mutate(() => store.rm(path, { force: true }))
     }
@@ -637,6 +635,7 @@ async function materializeWorkspaceSourcesInternal(
       || !await store.stat(source.mountPath)
     )
     const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
+    const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let revision = existing?.revision
     const retainPriorItems = existing?.configHash === configHash
       || !completeSource && source.materialize === "startup" && existing?.mountPath === source.mountPath
@@ -651,6 +650,7 @@ async function materializeWorkspaceSourcesInternal(
         mountPath: source.mountPath,
         ownsMount,
         ownedAncestors,
+        ownedDirectories: [...ownedDirectories],
         status: "updating",
         revision,
         items: checkpointItems(itemMetadata),
@@ -711,6 +711,9 @@ async function materializeWorkspaceSourcesInternal(
           ...metadata,
           ...entry.metadata,
           source: source.key,
+        }
+        for (const directory of parentDirectoryPaths(path)) {
+          if (directory !== source.mountPath && sourceOwnsDirectory(source, directory) && !await store.stat(directory)) ownedDirectories.add(directory)
         }
         const written = await writeMaterializedFile(store, path, {
           path,
@@ -775,6 +778,7 @@ async function materializeWorkspaceSourcesInternal(
         mountPath: source.mountPath,
         ownsMount,
         ownedAncestors,
+        ownedDirectories: [...ownedDirectories],
         status: "ready",
         revision,
         materializedAt: new Date().toISOString(),
@@ -788,6 +792,7 @@ async function materializeWorkspaceSourcesInternal(
         const scopedItems = checkpointItems(itemMetadata)
         await control.mutate(() => writeSourceSnapshotMetadata(store, {
           ...existing,
+          ownedDirectories: [...ownedDirectories],
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
           files: scopedItems ? Object.keys(scopedItems).length : 0,
           items: scopedItems,
@@ -834,6 +839,7 @@ async function materializeWorkspaceSourcesInternal(
         mountPath: source.mountPath,
         ownsMount,
         ownedAncestors,
+        ownedDirectories: [...ownedDirectories],
         status: "error",
         revision,
         error: error instanceof Error ? error.message : String(error),
@@ -846,7 +852,7 @@ async function materializeWorkspaceSourcesInternal(
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? { ...existing, items: checkpointItemsMetadata }
+            ? { ...existing, ownedDirectories: [...ownedDirectories], items: checkpointItemsMetadata }
             : source.materialize === "startup" ? { ...failed, status: "updating" as const, error: undefined } : undefined
         : failed
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))
