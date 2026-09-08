@@ -2311,12 +2311,21 @@ async function* runProvider<
       providerLauncher = materializedLauncher.path
       providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
     }
+    const auxiliaryEnvironmentLaunchArgs = options.provider === "codex" && isAuxiliaryAgentAdapterContext(context)
+      ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
+      : undefined
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
+      auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
+    // The runtime chooses environment arguments over settings. Give auxiliary
+    // overrides the complete argument list, including managed credential storage.
+    if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
+      providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
+    }
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
       binaryPath: providerLauncher || providerExecutable,

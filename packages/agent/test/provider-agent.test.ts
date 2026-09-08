@@ -899,6 +899,28 @@ describe("Provider Agent Driver", () => {
     }))
   })
 
+  it.each([false, true])("preserves auxiliary Codex environment and settings arguments (managed credentials: %s)", async (managed) => {
+    const threadId = "thread-auxiliary-launch-arguments"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const environmentArgs = '--sandbox read-only -c model_reasoning_effort="low"'
+    const settingsArgs = '--enable responses_websockets_v2 -c model_reasoning_effort="high"'
+    await createProviderAgentAdapter({
+      ...(managed ? { credentials: JSON.stringify({ OPENAI_API_KEY: "private" }) } : {}),
+      env: { T3CODE_CODEX_LAUNCH_ARGS: environmentArgs },
+      provider: "codex",
+      providerSettings: { launchArgs: settingsArgs },
+      // SAFETY: This fixture marks the provider invocation as an auxiliary title run.
+    }).generate(markAuxiliaryMessageChannelInstructionContext(context(threadId)) as never)
+    const runtimeOptions = createProviderRuntime.mock.lastCall![0]
+    const expected = [settingsArgs, environmentArgs,
+      ...(managed ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
+    ].join(" ")
+    // The pinned runtime selects this environment value before settings.launchArgs.
+    expect(runtimeOptions.environment?.T3CODE_CODEX_LAUNCH_ARGS).toBe(expected)
+    expect(runtimeOptions.settings?.launchArgs).toBe(expected)
+    if (managed) expect(runtimeOptions.settings?.homePath).toEqual(expect.any(String))
+  })
+
   it("forces file credential storage after explicit Codex launch arguments", async () => {
     const threadId = "thread-provider-credential-settings"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
