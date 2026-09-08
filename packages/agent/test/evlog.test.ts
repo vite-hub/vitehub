@@ -203,6 +203,16 @@ it("logs HTTP 4xx failures as warnings without exporting exceptions", async () =
   expect(exporter.capture).toHaveBeenCalledWith("http.request.failed", expect.objectContaining({ level: "warn", status_code: 404, request_id: "req-1" }), expect.anything())
 })
 
+it("keeps non-request 4xx failures as exceptions", async () => {
+  const { telemetry, exporter } = setup()
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  hooks.get("error")!(Object.assign(new Error("Upstream rejected background task"), { statusCode: 403 }), {})
+  await telemetry.flush()
+  expect(exporter.exception).toHaveBeenCalledTimes(1)
+  expect(exporter.capture).not.toHaveBeenCalled()
+})
+
 it.each([500, 503])( "keeps HTTP %s failures as exceptions", async (statusCode) => {
   const { telemetry, exporter } = setup()
   const hooks = new Map<string, Function>()

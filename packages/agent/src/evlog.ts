@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
 import { withExportDeadline } from "./internal/export-deadline.ts"
@@ -274,9 +274,9 @@ export interface AgentEvlogHost {
 
 export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { start(): void; stop(): Promise<void> }[] = []): (host: AgentEvlogHost) => void {
   const statusCodeOf = (error: unknown) => {
-    if (!error || typeof error !== "object") return undefined
-    const value = (error as { statusCode?: unknown, status?: unknown }).statusCode ?? (error as { status?: unknown }).status
-    return typeof value === "number" && Number.isInteger(value) ? value : undefined
+    if (!isRuntimeRecord(error)) return undefined
+    const value = error.statusCode ?? error.status
+    return hasRuntimeType(value, "number") && Number.isInteger(value) ? value : undefined
   }
   return (host) => {
     host.hooks.hook("request", event => {
@@ -296,7 +296,7 @@ export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { st
       }
       // Client errors are expected request outcomes. Keep them visible as warning
       // events without creating PostHog exception noise or fake failures.
-      if (status !== undefined && status >= 400 && status < 500) {
+      if (request && status !== undefined && status >= 400 && status < 500) {
         telemetry.event("http.request.failed", { ...properties, level: "warn" })
       } else telemetry.exception(error, properties)
     })
