@@ -17,6 +17,10 @@ describe("Agent Invocation UI", () => {
   it("recognizes safe absolute provider Workspace artifact links", () => {
     expect(workspaceArtifactPath("/workspace/vitehub-provider-DjQaJy/artifacts/source-map.html")).toBe("artifacts/source-map.html");
     expect(workspaceArtifactPath("/workspace/run/../.env")).toBeUndefined();
+    expect(workspaceArtifactPath("/workspace/run/report.html#summary")).toBe("report.html");
+    expect(workspaceArtifactPath("/workspace/run/image.png?download=1#preview")).toBe("image.png");
+    expect(workspaceArtifactPath("/workspace/run/report%23summary%3Fdraft.html?download=1")).toBe("report#summary?draft.html");
+    expect(workspaceArtifactPath("/workspace/run/%2e%2e/.env?download=1")).toBeUndefined();
   });
 
   it("opens provider Workspace artifact links through the inspector", async () => {

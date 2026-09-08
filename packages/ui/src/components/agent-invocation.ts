@@ -186,7 +186,9 @@ function markdown(value: string | undefined, className: string) {
 }
 
 export function workspaceArtifactPath(value: string): string | undefined {
-  const match = /^\/workspace\/[^/]+\/(.+)$/.exec(value);
+  // Separate URL metadata before decoding literal filename delimiters.
+  const pathname = value.split(/[?#]/, 1)[0]!;
+  const match = /^\/workspace\/[^/]+\/(.+)$/.exec(pathname);
   if (!match) return;
   const path = (() => { try { return decodeURIComponent(match[1]!); } catch { return match[1]!; } })();
   if (!path || path.startsWith("/") || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) return;
