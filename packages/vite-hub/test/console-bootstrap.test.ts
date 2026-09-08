@@ -14,6 +14,30 @@ const consolePage = readFileSync(
   new URL("../src/console/runtime/components/console-app.vue", import.meta.url),
   "utf8",
 );
+const sessionInspector = readFileSync(
+  new URL("../src/console/runtime/components/console-session-inspector.vue", import.meta.url),
+  "utf8",
+);
+const sessionNavbar = readFileSync(
+  new URL("../src/console/runtime/components/console-session-navbar.vue", import.meta.url),
+  "utf8",
+);
+
+it("opens the inspector on its launcher and keeps terminal session chrome quiet", () => {
+  expect(consolePage).toContain('const inspectorActiveSurface = ref("");');
+  expect(consolePage).toContain('ref<Array<"details" | "trace" | "workspace">>([])');
+  expect(consolePage).toContain("selectedDisplay.value?.status === \"pending\"");
+  expect(consolePage).toContain("i-ph-caret-down-light");
+  expect(consolePage).not.toContain("i-ph-caret-up-down-light");
+  expect(sessionNavbar).toContain('v-if="refreshable" text="Refresh session"');
+});
+
+it("keeps inspector links and metadata compact", () => {
+  expect(sessionInspector).toContain('class="session-inspector__surface-launcher"');
+  expect(sessionInspector).toContain('<template #identityActions>');
+  expect(sessionInspector).toContain('class="session-inspector__instructions-link"');
+  expect(sessionInspector).not.toContain("Find root AGENTS.md in Workspace");
+});
 
 it("releases bare Agents bootstrap when the newest invocation is unnamed", async () => {
   const scope = effectScope();

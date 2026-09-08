@@ -24,7 +24,7 @@ import {
   resolveConsoleRouteName,
 } from "../console-route";
 import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
-import { rememberConsoleSection } from "../sections";
+import { consoleSectionDetails, rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
@@ -81,8 +81,8 @@ const sessionsOpen = ref(false);
 const detailsOpen = ref(false);
 const detailsMaximized = ref(false);
 const inspectorTab = ref<"details" | "trace" | "workspace">("details");
-const inspectorActiveSurface = ref("view:details");
-const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace">>(["details"]);
+const inspectorActiveSurface = ref("");
+const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace">>([]);
 const inspectorOpenPaths = ref<string[]>([]);
 const inspectorSelectedPath = ref<string>();
 const inspectorWorkspaceIdentity = ref<string>();
@@ -239,6 +239,9 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
   return view;
 });
 const selectedDisplay = computed(() => invocationView.value ?? selectedSummary.value);
+const selectedRefreshable = computed(() =>
+  selectedDisplay.value?.status === "pending" || selectedDisplay.value?.status === "running",
+);
 const selectedCost = computed(() => invocationCostDisplay(selectedDisplay.value));
 const selectedTokens = computed(() => invocationTokenDisplay(selectedDisplay.value));
 const selectedTitle = computed(() =>
@@ -610,13 +613,20 @@ async function refresh(): Promise<void> {
   }
 }
 
-function inspectSession(target: "agent" | "workspace"): void {
+function inspectSession(target: "agent" | "workspace", path?: string): void {
   const view = target === "agent" ? "details" : "workspace";
   inspectorTab.value = view;
   if (!inspectorOpenViews.value.includes(view)) {
     inspectorOpenViews.value = [...inspectorOpenViews.value, view];
   }
-  inspectorActiveSurface.value = `view:${view}`;
+  if (view === "workspace" && path) {
+    if (!inspectorOpenPaths.value.includes(path)) inspectorOpenPaths.value = [...inspectorOpenPaths.value, path];
+    inspectorSelectedPath.value = path;
+    inspectorActiveSurface.value = `file:${path}`;
+  } else {
+    inspectorSelectedPath.value = undefined;
+    inspectorActiveSurface.value = `view:${view}`;
+  }
   detailsOpen.value = true;
 }
 
@@ -868,7 +878,7 @@ onBeforeUnmount(() => {
               class="min-w-0 justify-start rounded-md border border-default px-1.5 hover:bg-elevated"
               color="neutral"
               :label="selectedAgentLabel"
-              :trailing-icon="hasMultipleAgents ? 'i-ph-caret-up-down-light' : undefined"
+              :trailing-icon="hasMultipleAgents ? 'i-ph-caret-down-light' : undefined"
               size="xs"
               variant="ghost"
               :aria-label="
@@ -1108,11 +1118,11 @@ onBeforeUnmount(() => {
             />
             <UTooltip v-if="!isUsageRoute" text="Usage">
               <UButton
-                icon="i-lucide-chart-no-axes-column"
+                :icon="consoleSectionDetails.usage.icon"
                 color="neutral"
                 variant="ghost"
                 size="xs"
-                aria-label="Usage"
+                aria-label="Open Usage"
                 @click="toggleUsage"
               />
             </UTooltip>
@@ -1194,6 +1204,7 @@ onBeforeUnmount(() => {
                   :has-display="Boolean(selectedDisplay)"
                   :has-selection="Boolean(selectedInvocationId)"
                   :loading="refreshing"
+                  :refreshable="selectedRefreshable"
                   :project="hasMultipleAgents ? selectedProject : ''"
                   :title="selectedTitle"
                   :tokens="selectedTokens"
@@ -1285,6 +1296,7 @@ onBeforeUnmount(() => {
               :has-display="Boolean(selectedDisplay)"
               :has-selection="Boolean(selectedInvocationId)"
               :loading="refreshing"
+              :refreshable="selectedRefreshable"
               :project="hasMultipleAgents ? selectedProject : ''"
               :title="selectedTitle"
               :tokens="selectedTokens"
@@ -1403,7 +1415,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__search {
-  border: 0;
+  border: 1px solid var(--ui-border);
 }
 
 .vitehub-console__search-shortcut {

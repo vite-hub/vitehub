@@ -78,7 +78,7 @@ export interface AgentInvocationConfiguration {
   workspace?: {
     mode?: string;
     name?: string;
-    sources?: readonly string[];
+    sources?: readonly (string | { id: string; repository?: string })[];
   };
 }
 
@@ -102,6 +102,12 @@ export interface AgentInvocationView {
   traceId: string;
   updatedAt: string;
   usage?: {
-    cost?: { display?: string };
+    totalTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedInputTokens?: number;
+    cacheWriteTokens?: number;
+    reasoningTokens?: number;
+    cost?: { display?: string; estimated?: boolean; source?: string };
   };
 }

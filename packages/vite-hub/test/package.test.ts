@@ -316,6 +316,9 @@ describe("framework package contract", () => {
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-session-bootstrap.ts`),
     ).toBe(true);
+    expect(
+      existsSync(`${packageRoot}/dist/console/runtime/components/console-workspace-file.ts`),
+    ).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/console-route.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/sections.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true);
@@ -439,7 +442,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain('if (tab.value === "workspace") void loadWorkspace();');
     expect(sessionInspector).toContain("workspaceLoading.value = false;");
     expect(sessionInspector).toContain("workspaceRequest = undefined;");
-    expect(sessionInspector).toContain('<button v-if="props.workspaceBase"');
+    expect(sessionInspector).toMatch(/<button\s+v-if="props.workspaceBase"/);
     expect(sessionInspector).toMatch(
       /const invocationId = props\.invocation\.id;[\s\S]*?if \(!workspace\.value\) await loadWorkspace\(\);[\s\S]*?if \(props\.invocation\.id !== invocationId\) return;/,
     );
@@ -447,7 +450,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toMatch(
       /const loadedWorkspace = parseWorkspaceDescriptor\([\s\S]*?if \(workspaceRequest !== controller\) return;[\s\S]*?workspace\.value = loadedWorkspace;/,
     );
-    expect(sessionInspector).toContain("invocationUsage.totalTokens");
+    expect(sessionInspector).toContain("<template #identityActions>");
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
@@ -505,7 +508,7 @@ describe("framework package contract", () => {
     expect(consoleSessionCss).toMatch(
       /\.session-inspector__file \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\);[\s\S]*?height: 100%;/,
     );
-    expect(consoleSessionCss).toContain("padding: 1rem 1.5rem 2rem 0;");
+    expect(consoleSessionCss).toContain("padding: 0.75rem 0 1.5rem;");
     expect(consolePage).not.toContain("/api/health");
     expect(existsSync(`${packageRoot}/dist/console/runtime/server/status.get.js`)).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
