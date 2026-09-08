@@ -398,6 +398,38 @@ describe("lazy sources", () => {
     await expect(reopened.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
   })
 
+  it.each([false, true])("cleans child directories after a Local Store stream write fails with restart=%s", async (restart) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const definition = {
+      name: "failed-startup-stream-directories",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["child/nested/file.md"] },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream<Uint8Array>({
+                pull(controller) { controller.error(new Error("stream failed")) },
+              }),
+            }
+          },
+        }),
+      },
+    }
+
+    await expect(createWorkspaceSourceView(definition, store).materializeSources()).resolves.toMatchObject({
+      sources: [{ status: "error", error: "stream failed" }],
+    })
+    await expect(store.stat("docs/child/nested")).resolves.toMatchObject({ type: "directory" })
+    await expect(store.stat("docs/child/nested/file.md")).resolves.toBeUndefined()
+
+    const reopened = restart ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+    await expect(reopened.stat("docs")).resolves.toBeUndefined()
+  })
+
   it("removes files owned by startup Sources removed from the definition", async () => {
     const store = createMemoryWorkspaceStore()
     const initial = {

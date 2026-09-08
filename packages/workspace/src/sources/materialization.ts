@@ -735,8 +735,21 @@ async function materializeWorkspaceSourcesInternal(
           contentStream: entry.contentStream,
           mediaType: item.mediaType,
           metadata: fileMetadata,
-        }, control, previous?.content)
-        for (const directory of missingDirectories) ownedDirectories.add(directory)
+        }, {
+          ...control,
+          mutate: operation => control.mutate(async () => {
+            try {
+              return await operation()
+            }
+            finally {
+              // Stores can create parents before a write fails. Check only after
+              // an attempted mutation, so a pre-write abort claims nothing.
+              for (const directory of missingDirectories) {
+                if ((await store.stat(directory))?.type === "directory") ownedDirectories.add(directory)
+              }
+            }
+          }),
+        }, previous?.content)
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]
         itemMetadata[path] = {
