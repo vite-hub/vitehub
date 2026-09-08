@@ -353,7 +353,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const normalized = normalizeWorkspacePath(path)
-    if (!normalized) {
+    if (!isDescriptorPath(normalized)) {
       for (const source of getLazySourcesForPath(normalized)) {
         if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
         await ensurePrepared(source.key)
@@ -391,7 +391,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
         continue
       }
-      if (!normalized && source.materialize === "startup") {
+      if (source.materialize === "startup") {
         continue
       }
       else if (sourceMountContainsPath(source, path) || !source.mountPath && normalized) {
@@ -568,7 +568,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
           return decodeFile(await sourceItemContent(item), options)
         }
-        if (resolution.source.materialize === "startup" && !completedSources.has(resolution.sourceKey) && !reusedStartupSources.has(resolution.sourceKey) && !materializedSources.has(resolution.sourceKey)) {
+        if (resolution.source.materialize === "startup") {
           await ensureMaterialized(resolution.sourceKey)
         }
         const cacheMaxAge = resolution.source.cache && resolution.source.cache.maxAge

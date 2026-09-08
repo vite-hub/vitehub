@@ -34,6 +34,46 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it("refreshes nested startup files before the first directory listing", async () => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["stale.md"]
+    const definition = {
+      name: "nested-startup-list",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          sync: { stale: "remove" },
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["current.md"]
+    const view = createWorkspaceSourceView({ ...definition }, store)
+    const entries = await view.list("docs", { recursive: true })
+    expect(entries.map(entry => entry.path)).toEqual(["docs/current.md"])
+    await expect(store.stat("docs/stale.md")).resolves.toBeUndefined()
+  })
+
+  it.each([false, true])("rechecks nested startup ownership in an existing view with snapshot reuse=%s", async (reuseStartupSnapshots) => {
+    const definition = {
+      name: "nested-startup-build-invalidation",
+      sources: {
+        built: custom({ materialize: "build", mount: "", files: [{ path: "docs/shared.md", content: "build" }] }),
+        generated: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "startup" }] }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("startup")
+
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "build" })
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("startup")
+  })
+
   it.each([false, true])("restores retained startup files after scoped owner cleanup with a new view=%s", async (newView) => {
     const store = createMemoryWorkspaceStore()
     let ownerKeys = ["shared.md"]
