@@ -4094,22 +4094,30 @@ async function chatTriggerMessages(
   if (!limit) return [current]
 
   const fetchedNewestFirst: UIMessageLike[] = []
-  let reachedCurrent = !historyThroughCurrent || !message.id
+  const boundHistory = historyThroughCurrent || options?.concurrency === "steer"
+  const unindexedNewestFirst: UIMessageLike[] = []
+  let reachedCurrent = !boundHistory || !message.id
   try {
     for await (const item of thread.messages) {
       if (!reachedCurrent) {
-        if (item.id !== message.id) continue
+        if (item.id !== message.id) {
+          if (!historyThroughCurrent && unindexedNewestFirst.length < limit) {
+            unindexedNewestFirst.push(await chatSdkMessageToUiMessage(item))
+          }
+          continue
+        }
         reachedCurrent = true
       }
       fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
+  if (!reachedCurrent && !historyThroughCurrent) fetchedNewestFirst.push(...unindexedNewestFirst)
 
   let durable = await durableChatThreadMessages(thread, limit)
-  if (historyThroughCurrent && message.id) {
+  if (boundHistory && message.id) {
     const currentIndex = durable.findIndex(item => item.id === message.id)
-    durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : []
+    durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : historyThroughCurrent ? [] : durable
   }
   let messages = [
     ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))))),
@@ -4133,6 +4141,8 @@ async function chatTriggerMessages(
       : previousMessages && previousIndex >= 0 ? previousMessages.slice(0, previousIndex + 1) : [current]
   } else if (!current.id || !messages.some((item) => item.id === current.id)) {
     messages.push(current)
+  } else if (boundHistory) {
+    messages = messages.slice(0, messages.findIndex((item) => item.id === current.id) + 1)
   }
   return messages.slice(-limit)
 }
@@ -4886,7 +4896,7 @@ async function handleChatSdkMessage(
     }, invoker)
 
     let messages = scopeCurrentChatUiMessage(
-      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent || options?.concurrency === "steer"),
+      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
       message.id,
       input.run?.runId || delivery.delivery.id,
     )

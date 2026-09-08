@@ -17073,6 +17073,56 @@ describe("server helpers", () => {
     }
   })
 
+  it("preserves first-read steering history before the incoming message is indexed", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-initial-history-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ persistThreadHistory: false })
+    adapter.fetchMessages.mockResolvedValue({
+      messages: [new Message({
+        attachments: [],
+        author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+        formatted: { children: [], type: "root" },
+        id: "91119",
+        metadata: { dateSent: new Date("2026-06-10T11:30:00.000Z"), edited: false },
+        raw: {}, text: "earlier context", threadId: "telegram:456",
+      })],
+    })
+    const histories: string[][] = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "steer", delivery: "manual", durable: false, state,
+            triggerHistory: { maxMessages: 2, source: "thread" },
+          },
+        }),
+      },
+      driver: {
+        run(context) {
+          histories.push(context.messages.map(message => message.parts.find(part => part.type === "text")?.text || ""))
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    try {
+      await state.connect()
+      const response = await handler(chatWebhookRequest(91_120, 456, "current"), "telegram")
+      expect(response.status).toBe(200)
+      expect(histories).toEqual([["earlier context", "current"]])
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("limits refreshed inline steering history to each waiting message", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
