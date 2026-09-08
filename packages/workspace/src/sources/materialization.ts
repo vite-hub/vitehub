@@ -638,8 +638,10 @@ async function materializeWorkspaceSourcesInternal(
     )
     const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
     let revision = existing?.revision
-    const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
-      ? { ...existing.items }
+    const retainPriorItems = existing?.configHash === configHash
+      || !completeSource && source.materialize === "startup" && existing?.mountPath === source.mountPath
+    const itemMetadata: Record<string, LazyMaterializedMetadata> = retainPriorItems
+      ? { ...existing?.items }
       : {}
     if (completeSource) {
       assertCurrent()
@@ -794,7 +796,13 @@ async function materializeWorkspaceSourcesInternal(
       else if (source.materialize === "startup") {
         // Keep ownership evidence for removal without treating a partial write
         // as a complete snapshot that subsequent startup reads can reuse.
-        await control.mutate(() => writeSourceSnapshotMetadata(store, { ...ready, status: "updating" }))
+        await control.mutate(() => writeSourceSnapshotMetadata(store, {
+          ...ready,
+          status: "updating",
+          items: checkpointItems(itemMetadata),
+          files: Object.keys(itemMetadata).length,
+          bytes: retainPriorItems ? Math.max(0, (existing?.bytes || 0) + persistedBytesDelta) : sourceBytes,
+        }))
       }
       const durationMs = Date.now() - sourceStarted
       const resultSource: WorkspaceSourceMaterializationStatus = {

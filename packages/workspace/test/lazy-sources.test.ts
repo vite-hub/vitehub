@@ -1880,6 +1880,48 @@ describe("lazy sources", () => {
     expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
   })
 
+  it.each(["memory", "local"])("retains prior cleanup evidence after a scoped startup configuration change on %s Stores", async (kind) => {
+    const root = await createRoot()
+    const store = kind === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "scoped-startup-config-change",
+      sources: {
+        docs: {
+          ...custom({
+            materialize: "startup",
+            files: [
+              { path: "old.md", content: "old" },
+              { path: "edited.md", content: "generated" },
+              { path: "current.md", content: "before" },
+            ],
+          }),
+          fingerprint: { version: 1 },
+        },
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.writeFile("docs/edited.md", { path: "docs/edited.md", content: "user edit" })
+    const changed = {
+      ...definition,
+      sources: {
+        docs: {
+          ...custom({ materialize: "startup", files: [{ path: "current.md", content: "after" }] }),
+          fingerprint: { version: 2 },
+        },
+      },
+    }
+    await createWorkspaceSourceView(changed, store).materializeSources({ path: "docs/current.md" })
+    await expect(store.stat("docs/old.md")).resolves.toBeDefined()
+    const reopened = kind === "local" ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+
+    await expect(reopened.stat("docs/old.md")).resolves.toBeUndefined()
+    await expect(reopened.stat("docs/current.md")).resolves.toBeUndefined()
+    const edited = await reopened.readFile("docs/edited.md")
+    expect(edited).toBeDefined()
+    expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
+  })
+
   it("does not reuse scoped startup evidence as a complete snapshot", async () => {
     const store = createMemoryWorkspaceStore()
     const definition = {
