@@ -21,7 +21,7 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   if (/^(?:key|token)$/i.test(key)) return false
   // Quoted fields and line-start YAML keys establish assignments; inline prose labels do not.
   if (/^(?:password|secret)$/i.test(key)) {
-    return /["']\s*:\s*$/.test(prefix) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText)
+    return /["']\s*:\s*$/.test(prefix) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText) || /(?:[{},])\s*["']?$/.test(prefix)
   }
   return true
 }
