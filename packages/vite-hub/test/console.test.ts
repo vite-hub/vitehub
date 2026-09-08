@@ -3669,6 +3669,8 @@ describe("Agent invocation console", () => {
     })
     expect(getSummary).toHaveBeenCalledTimes(2)
     expect(get).toHaveBeenCalledTimes(2)
+    expect(get).toHaveBeenNthCalledWith(1, "inv-1", { observationNames: ["agent.invocation.finish"] })
+    expect(get).toHaveBeenNthCalledWith(2, "inv-2", { observationNames: ["agent.invocation.finish"] })
   })
 
   it("supplies the console journal to framework Agent Definitions without a store", () => {

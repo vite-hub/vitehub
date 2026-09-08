@@ -76,7 +76,7 @@ async function summaryWithUsage(
   invocations: AgentInvocations,
   summary: AgentInvocationSummary,
 ): Promise<ConsoleInvocationSummary> {
-  const invocation = await invocations.get(summary.id)
+  const invocation = await invocations.get(summary.id, { observationNames: ["agent.invocation.finish"] })
   if (!invocation) return summary
   const usage = invocationUsage(invocation)
   return {

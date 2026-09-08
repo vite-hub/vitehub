@@ -1,6 +1,7 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { applyAgentInvocationStoreUpdate, byteBoundedObservations, isAppendedObservation, observationLimits } from "../invocations.ts"
 import { searchableAgentInvocationText } from "./search.ts"
+import { filteredObservationRecord } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationStoreCreateInput, AgentInvocationSummary } from "../invocations.ts"
@@ -173,9 +174,11 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
       if (!row) throw agentDiagnostics.AGENT_R0915({ message: `[vitehub] D1 Agent Invocation ${JSON.stringify(input.id)} was removed by retention.` })
       return { created: results[before.length]!.meta.changes > 0, record: record(row) }
     },
-    async get(id) {
+    async get(id, options) {
       const db = await database()
-      const result = await db.prepare(`SELECT sequence, record, revision FROM ${table} WHERE id = ?`).bind(id).all<RecordRow>()
+      const args = options?.observationNames ? [JSON.stringify(options.observationNames), id] : [id]
+      const projection = options?.observationNames ? filteredObservationRecord : "record"
+      const result = await db.prepare(`SELECT sequence, ${projection} AS record, revision FROM ${table} WHERE id = ?`).bind(...args).all<RecordRow>()
       return result.results[0] ? record(result.results[0]) : undefined
     },
     async getSummary(id) {

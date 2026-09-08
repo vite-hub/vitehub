@@ -122,7 +122,8 @@ export interface AgentInvocationStore {
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
-  get(id: string): MaybePromise<AgentInvocationRecord | undefined>
+  /** Filter returned observations by exact name when requested. */
+  get(id: string, options?: { observationNames?: readonly string[] }): MaybePromise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): MaybePromise<AgentInvocationSummary | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
@@ -181,7 +182,8 @@ export interface AgentInvocations {
   /** Durably append evidence to a live or terminal invocation. Repeated IDs return the existing observation. */
   appendObservation(id: string, event: TraceEvent, options: { id: string }): Promise<AgentInvocationRecord | undefined>
   readonly [agentInvocationsBrand]: true
-  get(id: string): Promise<AgentInvocationRecord | undefined>
+  /** Filter returned observations by exact name when requested. */
+  get(id: string, options?: { observationNames?: readonly string[] }): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): Promise<AgentInvocationSummary | undefined>
@@ -1146,9 +1148,12 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       records.set(record.id, cloneRecord(record))
       return { created: true, record: cloneRecord(record) }
     },
-    get(id) {
+    get(id, options) {
       const record = records.get(id)
-      return record ? cloneRecord(record) : undefined
+      if (!record) return
+      return cloneRecord(options?.observationNames
+        ? { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
+        : record)
     },
     getSummary(id) {
       const record = records.get(id)
@@ -1843,9 +1848,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       return persisted
     },
-    async get(id) {
+    async get(id, options) {
       assertInvocationId(id)
-      return await store.get(id)
+      const record = await store.get(id, options)
+      if (!record || !options?.observationNames) return record
+      return { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
     },
     async getByRunId(runId, agentName) {
       return await store.get(await agentInvocationId(runId, agentName))

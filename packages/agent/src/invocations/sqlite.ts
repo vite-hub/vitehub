@@ -3,6 +3,7 @@ import { createClient } from "@libsql/client"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
 import { searchableAgentInvocationText } from "./search.ts"
+import { filteredObservationRecord } from "./observation-projection.ts"
 import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type {
@@ -445,11 +446,11 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     })
     await initialized
   }
-  const read = async (id: string): Promise<AgentInvocationRecord | undefined> => {
+  const read: AgentInvocationStore["get"] = async (id, options) => {
     await initialize()
     const result = await client.execute({
-      args: [id],
-      sql: `SELECT sequence, record FROM ${table} WHERE id = ? LIMIT 1`,
+      args: options?.observationNames ? [JSON.stringify(options.observationNames), id] : [id],
+      sql: `SELECT sequence, ${options?.observationNames ? filteredObservationRecord : "record"} AS record FROM ${table} WHERE id = ? LIMIT 1`,
     })
     const row = result.rows[0]
     return row ? deserialize(row.record, row.sequence) : undefined
