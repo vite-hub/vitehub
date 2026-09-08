@@ -1078,11 +1078,10 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   }
 }
 
-function codexLaunchArgs(options: ProviderAgentAdapterOptions, instructions?: string): string | undefined {
+function codexLaunchArgs(options: ProviderAgentAdapterOptions): string | undefined {
   const values = [
     options.reasoningEffort && ["model_reasoning_effort", options.reasoningEffort],
     options.reasoningSummary && ["model_reasoning_summary", options.reasoningSummary],
-    instructions && ["developer_instructions", instructions],
   ].filter((value): value is [string, string] => Boolean(value))
   return values.length
     ? values.map(([key, value]) => {
@@ -2320,10 +2319,9 @@ async function* runProvider<
       providerLauncher = materializedLauncher.path
       providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
     }
-    // Codex can execute in a provider-managed workspace whose path is mapped after launch.
-    // Pass resolved instructions through native configuration as well as AGENTS.md so they
-    // do not depend on generated workspace files surviving that mapping boundary.
-    const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options, instructions) : undefined
+    // Deliver instructions through AGENTS.md, keeping documents out of argv and
+    // preserving explicit caller developer_instructions configuration.
+    const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
       generatedLaunchArgs,
