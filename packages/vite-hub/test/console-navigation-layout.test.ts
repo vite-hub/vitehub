@@ -29,4 +29,9 @@ describe("shared Console navigation layout", () => {
     expect(switcher).toContain(':icon="consoleSectionDetails.usage.icon"')
     expect(switcher).not.toContain('label="Usage"')
   })
+
+  it("loads the Workspace when its active tab is reopened from a file", () => {
+    const inspector = component("console-session-inspector")
+    expect(inspector).toMatch(/selectedPath\.value = undefined;[\s\S]*?if \(!workspace\.value && !workspaceLoading\.value\) void loadWorkspace\(\);/)
+  })
 })

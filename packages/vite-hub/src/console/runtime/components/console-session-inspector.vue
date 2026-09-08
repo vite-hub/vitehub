@@ -225,6 +225,7 @@ function openView(value: InspectorTab) {
     file.value = undefined;
     fileError.value = undefined;
     fileLoading.value = false;
+    if (!workspace.value && !workspaceLoading.value) void loadWorkspace();
   }
 }
 
