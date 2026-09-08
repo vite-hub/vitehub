@@ -187,3 +187,20 @@ it.each(["-", "--"])("retains an incomplete CLI flag prefix %s", (prefix) => {
   expect(credentialTextMayContinue(`${".".repeat(512)}${prefix}`)).toBe(true)
   expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
 })
+
+it.each(["api-key", "password", "x-access-token"])("redacts whitespace-delimited --%s values", (key) => {
+  expect(redactCredentialText(`--${key} sensitive-value;status=ok`)).toBe(`--${key} [REDACTED];status=ok`)
+  expect(redactCredentialText(`--${key} "correct horse" --verbose`)).toBe(`--${key} "[REDACTED]" --verbose`)
+  expect(pendingCredentialAssignment(`--${key} `)).toBe("assignment")
+  expect(pendingCredentialQuote(`--${key} "correct`)).toBe('"')
+  expect(pendingCredentialTextSuffix(`--${key}`)).toBe(`--${key}`)
+})
+
+it.each(["sort --key=1,1", "sort --key 1,1", 'sort --key="1,1"', "Parser token identifier"])("preserves generic arguments: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+})
+
+it("retains the CLI prefix when its name also prefixes an authorization header", () => {
+  expect(pendingCredentialTextSuffix(`${".".repeat(512)}--a`)).toBe("--a")
+  expect(redactCredentialText("token --api-key sensitive")).toBe("token --api-key [REDACTED]")
+})

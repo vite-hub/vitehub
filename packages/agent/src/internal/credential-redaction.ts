@@ -13,6 +13,9 @@ function isCredentialKey(key: string): boolean {
 
 function isCredentialAssignment(key: string, prefix: string): boolean {
   if (!isCredentialKey(key)) return false
+  const cli = prefix.startsWith("--")
+  if (cli && /^(?:key|token)$/i.test(key)) return false
+  if (!/[:=]\s*$/.test(prefix)) return cli
   if (!prefix.trimEnd().endsWith(":")) return true
   // Generic token/key fields also describe parser tokens and object identifiers.
   if (/^(?:key|token)$/i.test(key)) return false
@@ -41,13 +44,14 @@ function pendingAuthorizationHeader(value: string): string | undefined {
 
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
-  return /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
+  return /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
+    ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
     ?? pendingAuthorizationHeader(value)
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[A-Za-z]*$/i.exec(tail)?.[0]
-    ?? /["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
+    ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?\s*[:=]\s*)`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?(?:\s*[:=]\s*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
 
 export function redactCredentialText(value: string): string {
   return value
