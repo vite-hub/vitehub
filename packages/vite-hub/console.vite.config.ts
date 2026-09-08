@@ -35,6 +35,8 @@ export default defineConfig({
     }),
   ],
   build: {
+    // Keep font assets portable in pnpm patches and self-contained Console bundles.
+    assetsInlineLimit: filePath => /\.(?:woff2?|ttf|otf)$/.test(filePath) ? true : undefined,
     cssCodeSplit: false,
     emptyOutDir: true,
     outDir: resolve(import.meta.dirname, ".vitehub/console"),

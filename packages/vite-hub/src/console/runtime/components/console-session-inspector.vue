@@ -2,9 +2,9 @@
 import { AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import { useConsoleWordWrap } from "./console-wrap";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
+import { useConsoleWordWrap } from "./console-wrap";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -32,7 +32,6 @@ const activeSurface = defineModel<string>("activeSurface", { default: "view:deta
 const openViews = defineModel<InspectorTab[]>("openViews", { default: () => ["details"] });
 const openPaths = defineModel<string[]>("openPaths", { default: () => [] });
 const selectedPath = defineModel<string | undefined>("selectedPath");
-const wordWrap = useConsoleWordWrap();
 const workspace = ref<WorkspaceDescriptor>();
 const workspaceError = ref<string>();
 const workspaceLoading = ref(false);
@@ -68,6 +67,7 @@ const inspectorViews = computed<InspectorTab[]>(() => [
   ...(props.workspaceBase ? (["workspace"] as const) : []),
 ]);
 const treeOpen = ref(true);
+const wrapLines = useConsoleWordWrap();
 const tabstrip = ref<HTMLElement>();
 const filesPanel = ref<HTMLElement>();
 let workspaceRequest: AbortController | undefined;
@@ -81,7 +81,9 @@ onBeforeUnmount(() => {
 
 const workspaceLabel = computed(() =>
   workspace.value
-    ? `${workspace.value.repository}@${workspace.value.revision.slice(0, 7)}`
+    ? ["current", "live"].includes(workspace.value.revision)
+      ? `${workspace.value.repository} · Live workspace`
+      : `${workspace.value.repository}@${workspace.value.revision.slice(0, 7)}`
     : "Agent Workspace",
 );
 const invocationUsage = computed(() => record(props.invocation)?.usage);
@@ -128,6 +130,16 @@ const treeOptions = computed(() => ({
     if (path) selectedPath.value = path;
   },
   search: true,
+  unsafeCSS: `
+    [data-file-tree-search-container] {
+      padding-top: var(--trees-item-row-gap);
+    }
+    [data-file-tree-search-input] {
+      box-sizing: border-box;
+      min-width: 0;
+      width: 100%;
+    }
+  `,
 }));
 
 watch(
@@ -201,21 +213,6 @@ watch(activeSurface, async () => {
     scroller.scrollLeft += tabBounds.right - scrollerBounds.right;
 });
 
-watch([workspace, treeOpen], async ([value, open]) => {
-  if (!value || !open) return;
-  await nextTick();
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    const host = filesPanel.value?.querySelector<HTMLElement>("file-tree-container");
-    const search = host?.shadowRoot?.querySelector<HTMLElement>(
-      "[data-file-tree-search-container]",
-    );
-    if (!search) continue;
-    search.style.paddingTop = "var(--trees-item-row-gap)";
-    break;
-  }
-});
-
 function openView(value: InspectorTab) {
   if (value === "workspace" && !props.workspaceBase) return;
   if (!openViews.value.includes(value)) openViews.value = [...openViews.value, value];
@@ -241,13 +238,8 @@ async function openWorkspaceInstructions() {
   openView("workspace");
   if (!workspace.value) await loadWorkspace();
   if (props.invocation.id !== invocationId) return;
-  const path = workspace.value?.paths
-    .filter((path) => /(^|\/)AGENTS\.md$/i.test(path))
-    .sort(
-      (left, right) =>
-        left.split("/").length - right.split("/").length || left.localeCompare(right),
-    )[0];
-  if (path) openFile(path);
+  if (!workspace.value?.paths.includes("AGENTS.md")) return;
+  openFile("AGENTS.md");
 }
 
 function closeFile(path: string) {
@@ -290,6 +282,7 @@ function activateSurface(value: string | number) {
 }
 
 function closeSurface(item: InspectorSurfaceItem) {
+  const closesPanel = surfaceItems.value.length === 1;
   const itemId = item.value === undefined ? "" : String(item.value);
   const index = surfaceItems.value.findIndex((surface) => String(surface.value) === itemId);
   const wasActive =
@@ -298,6 +291,7 @@ function closeSurface(item: InspectorSurfaceItem) {
     (item.kind === "file" && item.path === selectedPath.value);
   if (item.kind === "file" && item.path) {
     closeFile(item.path);
+    if (closesPanel) emit("close");
     return;
   }
   if (item.kind === "view" && item.view)
@@ -309,6 +303,7 @@ function closeSurface(item: InspectorSurfaceItem) {
     activeSurface.value = "";
     selectedPath.value = undefined;
   }
+  if (closesPanel) emit("close");
 }
 
 function fileName(path: string) {
@@ -371,7 +366,9 @@ async function loadFile(path: string) {
       ),
     );
     if (loadedFile.path !== path || loadedFile.revision !== workspace.value?.revision)
-      throw viteHubErrorDiagnostics.VITE_HUB_R0107({ message: "The host returned a Workspace file for a different path or revision." });
+      throw viteHubErrorDiagnostics.VITE_HUB_R0107({
+        message: "The host returned a Workspace file for a different path or revision.",
+      });
     if (fileRequest !== controller || selectedPath.value !== path) return;
     file.value = loadedFile;
   } catch (error) {
@@ -403,7 +400,9 @@ function parseWorkspaceDescriptor(value: unknown): WorkspaceDescriptor {
     !repository ||
     !revision
   )
-    throw viteHubErrorDiagnostics.VITE_HUB_R0108({ message: "The host returned an invalid Workspace descriptor." });
+    throw viteHubErrorDiagnostics.VITE_HUB_R0108({
+      message: "The host returned an invalid Workspace descriptor.",
+    });
   const validatedPaths = paths.filter((path): path is string => path !== undefined);
   const result: WorkspaceDescriptor = {
     paths: validatedPaths,
@@ -421,7 +420,9 @@ function parseWorkspaceFile(value: unknown): WorkspaceFile {
   const revision = stringValue(file?.revision);
   const size = numericValue(file?.size);
   if (content === undefined || !path || !revision || size === undefined)
-    throw viteHubErrorDiagnostics.VITE_HUB_R0109({ message: "The host returned an invalid Workspace file." });
+    throw viteHubErrorDiagnostics.VITE_HUB_R0109({
+      message: "The host returned an invalid Workspace file.",
+    });
   return { content, path, revision, size };
 }
 
@@ -544,7 +545,7 @@ function message(error: unknown) {
       </div>
     </header>
 
-    <div v-if="!activeSurfaceExists" class="session-inspector__empty">
+    <div v-if="!activeSurfaceExists" class="session-inspector__empty border-0">
       <div class="session-inspector__empty-copy">
         <strong>Open a tab</strong>
         <span>Choose what to inspect in this Agent Invocation.</span>
@@ -567,7 +568,7 @@ function message(error: unknown) {
       class="session-inspector__details"
       @select-activity="emit('focusActivity', $event)"
     >
-      <template v-if="invocationUsage || !invocation.configuration?.instructions?.length" #metadata>
+      <template #metadata>
         <section v-if="invocationUsage">
           <h4>Usage</h4>
           <dl class="grid grid-cols-2 gap-3">
@@ -619,14 +620,11 @@ function message(error: unknown) {
             by {{ stringValue(record(invocationUsage.cost)?.source) || "the provider" }}
           </p>
         </section>
-        <section
-          v-if="!invocation.configuration?.instructions?.length"
-          class="session-inspector__instruction-fallback"
-        >
-          <h4>System instructions</h4>
-          <p>Resolved instructions were not recorded for this invocation.</p>
+        <section v-if="props.workspaceBase" class="session-inspector__instruction-fallback">
+          <h4>Workspace instructions</h4>
+          <p>Inspect the root AGENTS.md when this Workspace provides one.</p>
           <button v-if="props.workspaceBase" type="button" @click="openWorkspaceInstructions">
-            <UIcon name="i-lucide-file-text" />Open AGENTS.md in Workspace<UIcon
+            <UIcon name="i-lucide-file-text" />Find root AGENTS.md in Workspace<UIcon
               name="i-lucide-arrow-right"
             />
           </button>
@@ -652,7 +650,17 @@ function message(error: unknown) {
           ></template
         >
         <div class="session-inspector__workspace-actions">
-          <UButton icon="i-lucide-wrap-text" label="Wrap" color="neutral" :variant="wordWrap ? 'soft' : 'ghost'" size="xs" aria-label="Wrap lines" :aria-pressed="wordWrap" @click="wordWrap = !wordWrap" />
+          <UTooltip :text="wrapLines ? 'Disable line wrap' : 'Enable line wrap'">
+            <UButton
+              icon="i-lucide-wrap-text"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              :aria-label="wrapLines ? 'Disable line wrap' : 'Enable line wrap'"
+              :aria-pressed="wrapLines"
+              @click="wrapLines = !wrapLines"
+            />
+          </UTooltip>
           <UTooltip text="Reload Workspace"
             ><UButton
               icon="i-lucide-rotate-cw"
@@ -678,6 +686,7 @@ function message(error: unknown) {
         <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading Workspace…
       </div>
       <UEmpty
+        :ui="{ root: 'border-0' }"
         v-else-if="workspaceError"
         icon="i-lucide-folder-x"
         title="Workspace unavailable"
@@ -689,7 +698,9 @@ function message(error: unknown) {
           <div class="session-inspector__file">
             <div v-if="!selectedPath" class="session-inspector__snapshot">
               <UIcon name="i-lucide-folder-git-2" />
-              <span>Select a file to preview</span>
+              <span class="session-inspector__eyebrow">{{
+                ["current", "live"].includes(workspace.revision) ? "Live workspace" : "Immutable snapshot"
+              }}</span>
               <strong>{{ workspaceLabel }}</strong>
               <small>
                 {{ workspace.paths.length }} files<span v-if="workspace.pullRequest !== undefined">
@@ -707,7 +718,7 @@ function message(error: unknown) {
               v-else-if="selectedPath && file"
               :content="file.content"
               :path="file.path"
-              :wrap="wordWrap"
+              :wrap="wrapLines"
             />
             <div v-else-if="selectedPath" class="session-inspector__state">
               <UIcon name="i-lucide-mouse-pointer-2" />Select a file to preview it.

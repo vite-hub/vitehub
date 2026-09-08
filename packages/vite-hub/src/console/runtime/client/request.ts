@@ -9,7 +9,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleDevframePath = "/_vitehub/rpc/"
-const clients = new Map<string, Promise<DevframeRpcClient>>()
+const clients = new Map<string, { promise: Promise<DevframeRpcClient> }>()
 
 export class ConsoleRequestError extends Diagnostic {
   readonly status: number
@@ -53,10 +53,9 @@ function consoleRpcCall(path: string): { agent?: string; id?: string; method: Co
   return { method }
 }
 
-function consoleDevframeClient(baseURL: string): Promise<DevframeRpcClient> {
-  let client = clients.get(baseURL)
-  if (!client) {
-    client = connectDevframe({
+function createConsoleDevframeClient(baseURL: string): { promise: Promise<DevframeRpcClient> } {
+  const entry = {
+    promise: connectDevframe({
       baseURL,
       otpParam: false,
       simpleAuth: false,
@@ -71,12 +70,39 @@ function consoleDevframeClient(baseURL: string): Promise<DevframeRpcClient> {
         throw error
       }
     }).catch((error) => {
-      clients.delete(baseURL)
+      if (clients.get(baseURL) === entry) clients.delete(baseURL)
       throw error
-    })
-    clients.set(baseURL, client)
+    }),
   }
-  return client
+  clients.set(baseURL, entry)
+  return entry
+}
+
+function cachedConsoleDevframeClient(baseURL: string): { promise: Promise<DevframeRpcClient> } {
+  return clients.get(baseURL) ?? createConsoleDevframeClient(baseURL)
+}
+
+function isTerminalDevframeClient(client: DevframeRpcClient): boolean {
+  return client.status === "disconnected" || client.status === "error"
+}
+
+async function consoleDevframeClient(baseURL: string): Promise<DevframeRpcClient> {
+  const entry = cachedConsoleDevframeClient(baseURL)
+  const client = await entry.promise
+  if (!isTerminalDevframeClient(client)) return client
+  if (clients.get(baseURL) === entry) {
+    clients.delete(baseURL)
+    client.close?.()
+  }
+  return cachedConsoleDevframeClient(baseURL).promise
+}
+
+function evictTerminalDevframeClient(baseURL: string, client: DevframeRpcClient): void {
+  const entry = clients.get(baseURL)
+  if (!entry || !isTerminalDevframeClient(client)) return
+  void entry.promise.then((cachedClient) => {
+    if (cachedClient === client && clients.get(baseURL) === entry) clients.delete(baseURL)
+  })
 }
 
 function abortable<T>(value: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
@@ -121,16 +147,11 @@ export async function requestConsole(
   if (call.id !== undefined) input.id = call.id
   if (options.body !== undefined) input.body = options.body
   const baseURL = consoleDevframeBase(path)
-  const connection = consoleDevframeClient(baseURL)
-  let client = await abortable(connection, options.signal)
-  if (client.status === "disconnected" || client.status === "error") {
-    if (clients.get(baseURL) === connection) {
-      clients.delete(baseURL)
-      client.close?.()
-    }
-    client = await abortable(consoleDevframeClient(baseURL), options.signal)
-  }
-  const response = await abortable(client.call(call.method, input), options.signal)
+  const client = await abortable(consoleDevframeClient(baseURL), options.signal)
+  const response = await abortable(client.call(call.method, input), options.signal).catch((error) => {
+    evictTerminalDevframeClient(baseURL, client)
+    throw error
+  })
   if (!response.ok) throw new ConsoleRequestError(response.status, response.message)
   return response.value
 }
