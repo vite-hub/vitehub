@@ -134,6 +134,7 @@ export interface CredentialAssignmentState {
   started: boolean
   quote?: string
   yamlIndent?: number
+  yamlProperty?: boolean
   yaml?: { header: boolean, modifiers: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
 }
 
@@ -167,7 +168,16 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
 export function consumeCredentialAssignment(value: string, state: CredentialAssignmentState): number {
   for (let index = 0; index < value.length; index++) {
     const character = value[index]!
+    // YAML anchors and tags precede the value, including across chunk boundaries.
+    if (state.yamlProperty) {
+      if (!/\s/.test(character)) continue
+      delete state.yamlProperty
+    }
     if (!state.started && /\s/.test(character)) continue
+    if (!state.started && state.yamlIndent !== undefined && (character === "&" || character === "!")) {
+      state.yamlProperty = true
+      continue
+    }
     if (!state.started && state.yamlIndent !== undefined && (character === "|" || character === ">")) {
       state.yaml = { header: true, modifiers: true, line: false, spaces: 0, whitespace: "" }
     }

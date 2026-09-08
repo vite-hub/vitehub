@@ -335,7 +335,7 @@ it("retains an incomplete custom authorization scheme", () => {
 })
 
 
-it.each(["private_key", "password", "secret"].flatMap(key => ["|", ">-", "|+", "|2", ">2-", "|-2", "| # 9 is a comment"].map(indicator => ({ key, indicator }))))("redacts YAML $key block scalar $indicator through its dedent", ({ key, indicator }) => {
+it.each(["private_key", "password", "secret"].flatMap(key => ["|", ">-", "|+", "|2", ">2-", "|-2", "| # 9 is a comment", "&credential |", "!!str >-", "&credential !!str |2-", "!<tag:yaml.org,2002:str> &credential >"].map(indicator => ({ key, indicator }))))("redacts YAML $key block scalar $indicator through its dedent", ({ key, indicator }) => {
   const prefix = `config:\n  ${key}: `
   const scalar = `${indicator}\n    -----BEGIN PRIVATE KEY-----\n    sensitive-value\n\n    -----END PRIVATE KEY-----`
   const suffix = "\n  status: ok\nnext: retained"
