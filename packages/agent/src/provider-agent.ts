@@ -1,3 +1,4 @@
+import { providerCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
@@ -915,15 +916,16 @@ function providerMetadataContext<
   CALL_OPTIONS,
 >(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  const inherited = providerCallbackMetadata(context)
   // SAFETY: The invocation context and normalized provider runtime establish every metadata field below.
   return {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
     actor: context.actor,
     context: context.context,
-    fs: context.workspace?.fs,
+    fs: context.workspace ? context.workspace.fs : inherited?.fs,
     invoker: context.invoker,
-    workspace: context.workspace,
+    workspace: context.workspace ?? inherited?.workspace,
   } as AgentAdapterMetadataContext<TRuntimeConfig>
 }
 

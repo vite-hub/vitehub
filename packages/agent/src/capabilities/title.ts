@@ -1,3 +1,4 @@
+import { withProviderCallbackMetadata } from "../internal/provider-callback-metadata.ts"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
@@ -332,7 +333,7 @@ function titleAdapterRunContext(
   if (!context.runtimeContext) {
     throw agentDiagnostics.AGENT_R0232({ message: "[vitehub] title({ driver }) requires an agent runtime context." })
   }
-  return markAuxiliaryMessageChannelInstructionContext({
+  return withProviderCallbackMetadata(markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
     context: context.context,
     toolStepReporter: context.runtimeContext.toolStepReporter,
@@ -341,7 +342,7 @@ function titleAdapterRunContext(
     messages: [],
     prompt,
     runtime: { ...context.runtimeContext, traceLog: titleTraceLog(context.runtimeContext.traceLog) },
-  })
+  }), context)
 }
 
 function titleRunContext(

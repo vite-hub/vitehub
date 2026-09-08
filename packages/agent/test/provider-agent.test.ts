@@ -1,3 +1,5 @@
+import type { AgentAdapterMetadataContext } from "../src/types.ts"
+import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
@@ -150,6 +152,26 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
+  it("forwards parent Workspace metadata to auxiliary resolvers without mounting it", async () => {
+    const threadId = "title-parent-metadata"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const workspace = { fs: {}, startSession: vi.fn(), tools: {} }
+    const env = vi.fn((metadata: AgentAdapterMetadataContext) => {
+      expect(metadata.workspace).toBe(workspace)
+      expect(metadata.fs).toBe(workspace.fs)
+      return { TITLE_METADATA: "available" }
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex", env })
+    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+    // SAFETY: The fixture provides the Workspace metadata used by the resolver.
+    withProviderCallbackMetadata(auxiliary, { workspace, fs: workspace.fs } as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(auxiliary as never)
+    expect(env).toHaveBeenCalled()
+    expect(workspace.startSession).not.toHaveBeenCalled()
+    expect(auxiliary).not.toHaveProperty("workspace")
+  })
+
   it("rejects provisioned Codex credentials on Windows before resolving them", async () => {
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
     const credentials = vi.fn(() => JSON.stringify({ OPENAI_API_KEY: "private" }))
