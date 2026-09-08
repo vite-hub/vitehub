@@ -145,6 +145,14 @@ it.each([
   }
 })
 
+it.each(["API_TOKEN ?= sensitive", "PASSWORD += secret", "PASSWORD := value"]) ("redacts compound assignments", (input) => {
+  expect(redactCredentialText(input)).toMatch(/\[REDACTED\]/)
+})
+
+it("redacts whitespace-delimited netrc passwords", () => {
+  expect(redactCredentialText("machine example.com login alice password sensitive-value")).toBe("machine example.com login alice password [REDACTED]")
+})
+
 it.each([
   "This is a basic example",
   "Use basic authentication",
