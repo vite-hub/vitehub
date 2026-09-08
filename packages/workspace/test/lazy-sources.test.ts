@@ -34,6 +34,29 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each([false, true])("isolates startup cleanup for Workspaces sharing a Store with abortable sync %s", async (abortableSync) => {
+    const store = createMemoryWorkspaceStore()
+    const first = {
+      name: "first-workspace",
+      sources: { first: custom({ materialize: "startup", mount: "first", files: [{ path: "file.md", content: "first" }] }) },
+    }
+    const second = {
+      name: "second-workspace",
+      sources: { second: custom({ materialize: "startup", mount: "second", files: [{ path: "file.md", content: "second" }] }) },
+    }
+    await createWorkspaceSourceView(first, store).materializeSources()
+    await syncWorkspaceDefinition(second, store, abortableSync ? new AbortController().signal : undefined)
+    await expect(store.readFile("first/file.md")).resolves.toMatchObject({ content: "first" })
+    await createWorkspaceSourceView(second, store).materializeSources()
+    await expect(store.readFile("first/file.md")).resolves.toMatchObject({ content: "first" })
+
+    await createWorkspaceSourceView({ name: first.name, sources: {} }, store).materializeSources()
+    await expect(store.stat("first/file.md")).resolves.toBeUndefined()
+    await expect(store.readFile("second/file.md")).resolves.toMatchObject({ content: "second" })
+    await syncWorkspaceDefinition({ name: second.name, sources: {} }, store, abortableSync ? new AbortController().signal : undefined)
+    await expect(store.stat("second/file.md")).resolves.toBeUndefined()
+  })
+
   it.each([false, true])("preserves startup source precedence after listing with an earlier read=%s", async (readFirst) => {
     const definition = {
       name: "startup-list-precedence",
@@ -878,7 +901,7 @@ describe("lazy sources", () => {
 
     await syncWorkspaceDefinition(next, store)
     await expect(store.stat("late.md")).resolves.toBeUndefined()
-    await expect(store.getMeta!("workspace:startup-sources")).resolves.toEqual([])
+    await expect(store.getMeta!(`workspace:${initial.name}:startup-sources`)).resolves.toEqual([])
   })
 
   it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
@@ -970,7 +993,7 @@ describe("lazy sources", () => {
     await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
 
-    await store.setMeta?.("workspace:startup-sources", [{ key: "skill", mountPath: ".agents/skills/old" }])
+    await store.setMeta?.("workspace:moved-startup-source:startup-sources", [{ key: "skill", mountPath: ".agents/skills/old" }])
     await createWorkspaceSourceView({
       name: "moved-startup-source",
       sources: { skill: source(".agents/skills/new") },

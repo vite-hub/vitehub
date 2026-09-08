@@ -60,9 +60,8 @@ interface MaterializedStartupSource {
   mountPath: string
 }
 
-const startupSourcesMetaKey = "workspace:startup-sources"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
-const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Set<ResolvedWorkspaceSource>>()
+const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string, Set<ResolvedWorkspaceSource>>>()
 
 export interface MaterializationControl {
   isCurrent(): boolean
@@ -346,6 +345,7 @@ async function removeStaleMaterializedSourceFiles(
 }
 
 export async function reconcileRemovedStartupSources(
+  workspaceName: string,
   store: WorkspaceStore,
   currentSources: ResolvedWorkspaceSource[],
   control: MaterializationControl = {
@@ -360,7 +360,7 @@ export async function reconcileRemovedStartupSources(
   const previous = startupReconciliationByStore.get(materializationStore)
   const current = (async () => {
     await previous
-    await reconcileRemovedStartupSourcesInternal(store, currentSources, control, activeStartupSourcesByStore.get(materializationStore))
+    await reconcileRemovedStartupSourcesInternal(workspaceName, store, currentSources, control, activeStartupSourcesByStore.get(materializationStore)?.get(workspaceName))
   })()
   const tail = current.catch(() => {})
   startupReconciliationByStore.set(materializationStore, tail)
@@ -373,12 +373,14 @@ export async function reconcileRemovedStartupSources(
 }
 
 async function reconcileRemovedStartupSourcesInternal(
+  workspaceName: string,
   store: WorkspaceStore,
   currentSources: ResolvedWorkspaceSource[],
   control: MaterializationControl,
   activeSources: Set<ResolvedWorkspaceSource> = new Set(),
 ) {
   if (!store.getMeta || !store.setMeta) return
+  const startupSourcesMetaKey = `workspace:${workspaceName}:startup-sources`
   const value = await store.getMeta(startupSourcesMetaKey)
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
@@ -556,17 +558,20 @@ export async function materializeWorkspaceSources(
     async checkpoint(operation) { return await operation() },
   },
 ): Promise<WorkspaceMaterializeSourcesResult> {
-  const activeSources = activeStartupSourcesByStore.get(store) ?? new Set<ResolvedWorkspaceSource>()
+  const activeWorkspaces = activeStartupSourcesByStore.get(store) ?? new Map<string, Set<ResolvedWorkspaceSource>>()
+  const activeSources = activeWorkspaces.get(definition.name) ?? new Set<ResolvedWorkspaceSource>()
   const selectedSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "startup" && shouldMaterializeSource(source, options))
   for (const source of selectedSources) activeSources.add(source)
-  activeStartupSourcesByStore.set(store, activeSources)
+  activeWorkspaces.set(definition.name, activeSources)
+  activeStartupSourcesByStore.set(store, activeWorkspaces)
   try {
     return await materializeWorkspaceSourcesInternal(definition, store, options, control)
   }
   finally {
     for (const source of selectedSources) activeSources.delete(source)
-    if (!activeSources.size) activeStartupSourcesByStore.delete(store)
+    if (!activeSources.size) activeWorkspaces.delete(definition.name)
+    if (!activeWorkspaces.size) activeStartupSourcesByStore.delete(store)
   }
 }
 
@@ -587,7 +592,7 @@ async function materializeWorkspaceSourcesInternal(
   const selectedStartupSource = sources.some(source => source.materialize === "startup")
   const reconcileStartupSources = selectedStartupSource || rootMaterialization && !options.sources?.length
   if (reconcileStartupSources) {
-    await reconcileRemovedStartupSources(store, startupSources, control)
+    await reconcileRemovedStartupSources(definition.name, store, startupSources, control)
   }
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
