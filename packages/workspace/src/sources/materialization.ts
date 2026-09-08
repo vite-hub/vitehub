@@ -616,7 +616,7 @@ export async function materializeWorkspaceSources(
           items: scopedItems,
         }))
       }
-      else {
+      else if (existing) {
         // Publish only visited entries. Legacy entries outside this scope
         // still need to be materialized before they can be reused.
         const migratedItems = checkpointItems(itemMetadata)
