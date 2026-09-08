@@ -791,6 +791,11 @@ async function materializeWorkspaceSourcesInternal(
           items: scopedItems,
         }))
       }
+      else if (source.materialize === "startup") {
+        // Keep ownership evidence for removal without treating a partial write
+        // as a complete snapshot that subsequent startup reads can reuse.
+        await control.mutate(() => writeSourceSnapshotMetadata(store, { ...ready, status: "updating" }))
+      }
       const durationMs = Date.now() - sourceStarted
       const resultSource: WorkspaceSourceMaterializationStatus = {
         ...ready, cacheStatus, counts: { ...counts }, durationMs, provider: source.source.name,
@@ -834,7 +839,7 @@ async function materializeWorkspaceSourcesInternal(
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
             ? { ...existing, items: checkpointItemsMetadata }
-            : undefined
+            : source.materialize === "startup" ? { ...failed, status: "updating" as const, error: undefined } : undefined
         : failed
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))
       const durationMs = Date.now() - sourceStarted

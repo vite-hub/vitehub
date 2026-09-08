@@ -1849,6 +1849,83 @@ describe("lazy sources", () => {
     await expect(store.stat("c.bin")).resolves.toBeUndefined()
   })
 
+  it.each(["memory", "local"])("cleans scoped startup writes after source removal on %s Stores", async (kind) => {
+    const root = await createRoot()
+    const store = kind === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "scoped-startup-removal",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          files: [
+            { path: "a.md", content: "A" },
+            { path: "b.md", content: "B" },
+            { path: "edited.md", content: "generated" },
+          ],
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    for (const path of ["a.md", "b.md", "edited.md"]) {
+      await view.materializeSources({ path: `docs/${path}` })
+    }
+    await store.writeFile("docs/edited.md", { path: "docs/edited.md", content: "user edit" })
+    const reopened = kind === "local" ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+
+    await expect(reopened.readFile("docs/a.md")).resolves.toBeUndefined()
+    await expect(reopened.readFile("docs/b.md")).resolves.toBeUndefined()
+    const edited = await reopened.readFile("docs/edited.md")
+    expect(edited).toBeDefined()
+    expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
+  })
+
+  it("does not reuse scoped startup evidence as a complete snapshot", async () => {
+    const store = createMemoryWorkspaceStore()
+    const definition = {
+      name: "scoped-startup-reuse",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "startup" as const,
+          files: [{ path: "a.md", content: "A" }, { path: "b.md", content: "B" }],
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources({ path: "docs/a.md" })
+    await expect(store.readFile("docs/b.md")).resolves.toBeUndefined()
+
+    const view = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+    await expect(view.readFile("docs/b.md")).resolves.toBe("B")
+    await expect(store.readFile("docs/a.md")).resolves.toMatchObject({ content: "A" })
+  })
+
+  it("cleans completed scoped startup writes after cancellation", async () => {
+    const store = createMemoryWorkspaceStore()
+    const abort = new AbortController()
+    const view = createWorkspaceSourceView({
+      name: "scoped-startup-cancel",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["sub/a.md", "sub/b.md"] },
+          async getItem(key) {
+            if (key === "sub/b.md") {
+              abort.abort(new Error("Canceled"))
+              abort.signal.throwIfAborted()
+            }
+            return { key, content: key }
+          },
+        }),
+      },
+    }, store)
+    await expect(view.materializeSources({ path: "docs/sub", abortSignal: abort.signal })).rejects.toThrow("Canceled")
+    await expect(store.readFile("docs/sub/a.md")).resolves.toMatchObject({ content: "sub/a.md" })
+
+    await createWorkspaceSourceView({ name: "scoped-startup-cancel", sources: {} }, store).materializeSources()
+    await expect(store.readFile("docs/sub/a.md")).resolves.toBeUndefined()
+  })
+
   it("keeps cache-hit aggregates after scoped materialization", async () => {
     const files = new Map([["a.md", "# A\n"]])
     const view = createWorkspaceSourceView({
