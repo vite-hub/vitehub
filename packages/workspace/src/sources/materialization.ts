@@ -329,8 +329,14 @@ async function removeStaleMaterializedSourceFiles(
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[entry.path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
+      // Revalidate ownership and content after asynchronous metadata work. A user
+      // write during that gap must never be removed by stale cleanup.
+      const latest = await store.readFile(entry.path)
+      if (!latest || latest.metadata?.source !== currentOwner
+        || (currentOwner === undefined && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+          && await sha256(latest.content) !== previousSnapshot.items[entry.path].materializedContentDigest)) continue
       await control.mutate(() => store.rm(entry.path, { force: true }))
-      onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
+      onRemoved?.(entry.path, contentSize(latest.content))
     }
   }
   for (const path of [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)) {
