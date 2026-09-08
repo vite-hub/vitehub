@@ -725,8 +725,9 @@ async function materializeWorkspaceSourcesInternal(
           ...entry.metadata,
           source: source.key,
         }
+        const missingDirectories: string[] = []
         for (const directory of parentDirectoryPaths(path)) {
-          if (directory !== source.mountPath && sourceOwnsDirectory(source, directory) && !await store.stat(directory)) ownedDirectories.add(directory)
+          if (directory !== source.mountPath && sourceOwnsDirectory(source, directory) && !await store.stat(directory)) missingDirectories.push(directory)
         }
         const written = await writeMaterializedFile(store, path, {
           path,
@@ -735,6 +736,7 @@ async function materializeWorkspaceSourcesInternal(
           mediaType: item.mediaType,
           metadata: fileMetadata,
         }, control, previous?.content)
+        for (const directory of missingDirectories) ownedDirectories.add(directory)
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]
         itemMetadata[path] = {

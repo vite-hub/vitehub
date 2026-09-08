@@ -364,6 +364,40 @@ describe("lazy sources", () => {
     else await expect(reopened.stat("docs")).resolves.toMatchObject({ type: "directory" })
   })
 
+  it.each(["abort", "write"].flatMap(stage => [false, true].map(local => ({ stage, local }))))("does not claim unwritten child directories after $stage with local=$local", async ({ stage, local }) => {
+    const root = await createRoot()
+    const store = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const abort = new AbortController()
+    const definition = {
+      name: "unwritten-startup-directory",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["child/file.md"] },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    if (stage === "abort") {
+      const stat = store.stat.bind(store)
+      vi.spyOn(store, "stat").mockImplementation(async (path) => {
+        const entry = await stat(path)
+        if (path === "docs/child" && !entry) abort.abort(new Error("write canceled"))
+        return entry
+      })
+    }
+    else vi.spyOn(store, "writeFile").mockRejectedValueOnce(new Error("write failed"))
+    const materialization = createWorkspaceSourceView(definition, store).materializeSources({ abortSignal: abort.signal })
+    if (stage === "abort") await expect(materialization).rejects.toThrow("write canceled")
+    else await expect(materialization).resolves.toMatchObject({ sources: [{ status: "error", error: "write failed" }] })
+    vi.restoreAllMocks()
+    await expect(store.stat("docs/child")).resolves.toBeUndefined()
+    await store.mkdir("docs/child", { recursive: true })
+    const reopened = local ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+    await expect(reopened.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it("removes files owned by startup Sources removed from the definition", async () => {
     const store = createMemoryWorkspaceStore()
     const initial = {
