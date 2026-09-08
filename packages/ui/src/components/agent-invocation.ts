@@ -686,12 +686,10 @@ function imageViewPath(activity: InvocationActivity): string | undefined {
 }
 
 function imageViewDetails(activity: InvocationActivity, path: string) {
-  const evidence = {
-    path,
-    ...(activity.attributes["tool.input"] !== undefined ? { input: activity.attributes["tool.input"] } : {}),
-    ...(activity.attributes["tool.output"] !== undefined ? { output: activity.attributes["tool.output"] } : {}),
-    ...(activity.attributes["tool.error"] !== undefined ? { error: activity.attributes["tool.error"] } : {}),
-  };
+  const evidence: Record<string, unknown> = { path };
+  if (activity.attributes["tool.input"] !== undefined) evidence.input = activity.attributes["tool.input"];
+  if (activity.attributes["tool.output"] !== undefined) evidence.output = activity.attributes["tool.output"];
+  if (activity.attributes["tool.error"] !== undefined) evidence.error = activity.attributes["tool.error"];
   return h("section", { class: "vh-invocation-image-details", "aria-label": "Image view details" }, [
     h("strong", "Path"),
     h("code", path),
@@ -1215,10 +1213,8 @@ function statusIcon(status: AgentInvocationView["status"]) {
 }
 
 function sourcePresentation(source: string | { id: string; repository?: string }) {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Recorded sources explicitly allow string IDs and structured descriptors.
-  const id = typeof source === "string" ? source : source.id;
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only string IDs encode repositories with the gh: prefix; descriptors carry a separate field.
-  const repository = typeof source === "string"
+  const id = hasRuntimeType(source, "string") ? source : source.id;
+  const repository = hasRuntimeType(source, "string")
     ? /^gh:([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(source)?.[1]
     : /^[\w.-]+\/[\w.-]+$/.test(source.repository ?? "") ? source.repository : undefined;
   return repository
@@ -1622,8 +1618,7 @@ function renderInvocationActivities(
 export const AgentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue's runtime event validator checks the optional path argument at the component boundary.
-    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || typeof path === "string"),
+    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
   },
   props: {
     header: { default: true, type: Boolean },

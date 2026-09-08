@@ -57,7 +57,9 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
     if (content.includes("\0")) throw failure(415, "Binary files cannot be previewed as text.")
     const promoted = v.safeParse(promotedSourceSchema, stat.metadata?.promotedSourceSkill)
     const source = promoted.success ? promoted.output.source : undefined
-    return { content, path, ...(source ? { provenance: { source } } : {}), revision, size }
+    const result: { content: string, path: string, provenance?: { source: string }, revision: string, size: number } = { content, path, revision, size }
+    if (source) result.provenance = { source }
+    return result
   }
   const entries = await workspace.fs.glob("**/*")
   const paths = entries.filter(entry => entry.type === "file" && visiblePath(entry.path)).map(entry => entry.path).sort()
