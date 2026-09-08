@@ -66,6 +66,9 @@ it.each([
   ["{status: ok, secret: ", "}"],
   ["config: {status: ok,\n  password: ", ",\n  status: ok}"],
   ["config: {\n  password: ", ", status: ok}"],
+  ["config: { # } is prose\n  password: ", ", status: ok\n}"],
+  ["config: { # [ \" \\ is prose\r\n  password: ", ", status: ok\n}"],
+  ["config: {status: ok, # } ] is prose\n  password: ", "}"],
   ["config: {status: ok,\r\n  password: ", "}"],
   ["config: [\n  password: ", "]"],
 ])("redacts YAML flow mapping values after %s", (prefix, suffix) => {
@@ -775,4 +778,19 @@ it.each(["<", ">"])("keeps split redirects inside shell substitutions secret: %s
   const rest = "private-file);status=ok"
   expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
   expect(state.shellProcess).toBeUndefined()
+})
+
+it("bounds retained YAML comment context without parsing comment syntax", () => {
+  let context = credentialTextLineContext("config: { #")
+  for (const character of "} [ \" \\ ".repeat(256)) {
+    context = credentialTextLineContext(context + character)
+    expect(context.length).toBeLessThanOrEqual(4)
+  }
+  context = credentialTextLineContext(context + "\n  ")
+  expect(redactCredentialText("password: private value, status: ok}", context)).toBe("password: [REDACTED], status: ok}")
+})
+
+it("preserves grammar-shaped netrc prose", () => {
+  const prose = "default login uses password authentication"
+  expect(redactCredentialText(prose)).toBe(prose)
 })

@@ -40,7 +40,7 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
 }
 
 function isCredentialScheme(scheme: string, prefix: string): boolean {
-  return /^(?:Bearer|Basic)$/i.test(scheme)
+  return scheme === "Bearer" || scheme === "Basic"
     || /(?:^|[\r\n])[\t "']*$/.test(prefix)
     || /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
 }
@@ -177,8 +177,20 @@ function yamlFlowContext(value: string): string | undefined {
   const open: string[] = []
   let quote = ""
   let escaped = false
+  let comment = false
+  let syntax = ""
   for (let index = 0; index < value.length; index++) {
     const character = value[index]!
+    if (comment) {
+      if (character !== "\r" && character !== "\n") continue
+      comment = false
+    }
+    if (!quote && character === "#" && (index === 0 || /\s/.test(value[index - 1]!))) {
+      comment = true
+      continue
+    }
+    const before = syntax
+    syntax += character
     if (escaped) { escaped = false; continue }
     if (character === "\\") { escaped = true; continue }
     if (quote) {
@@ -187,7 +199,6 @@ function yamlFlowContext(value: string): string | undefined {
     }
     if (character === '"' || character === "'") { quote = character; continue }
     if (character === "{" || character === "[") {
-      const before = value.slice(0, index)
       // An opener must start a YAML value, not occur in ordinary prose.
       if (!open.length && !/(?:^|[\r\n]) *(?:- +)?(?:[^{}[\],:\r\n]+:[\t ]*)?$/.test(before)) continue
       if (open.length >= maxCredentialStructureDepth) return
@@ -199,8 +210,10 @@ function yamlFlowContext(value: string): string | undefined {
     }
   }
   if (open.length) {
-    const suffix = quote ? quote + (escaped ? "\\" : "") : /[{[,]\s*$/.test(value) ? "" : /:\s*$/.test(value) ? "x:" : "x"
-    return open.join("") + suffix + (quote ? "" : /\s*$/.exec(value)?.[0] ?? "")
+    const suffix = quote ? quote + (escaped ? "\\" : "") : /[{[,]\s*$/.test(syntax) ? "" : /:\s*$/.test(syntax) ? "x:" : "x"
+    const context = open.join("") + suffix + (quote ? "" : /\s*$/.exec(syntax)?.[0] ?? "")
+    // Carry only the comment marker across chunks, never its text.
+    return comment ? context.trimEnd() + " #" : context
   }
 }
 
