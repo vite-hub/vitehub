@@ -82,6 +82,25 @@ async function applyMetadataPermissions(path: string, mode: number, gid: number)
   }
 }
 
+async function validateLockDirectory(path: string) {
+  const { lstat } = await import("node:fs/promises")
+  const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
+  if (info && (!info.isDirectory() || info.isSymbolicLink())) {
+    throw workspaceError(`[vitehub] Untrusted Workspace lock path: ${path}.`)
+  }
+}
+
+async function ensureLockDirectory(path: string) {
+  const { mkdir } = await import("node:fs/promises")
+  await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "EEXIST") throw error
+  })
+  await validateLockDirectory(path)
+}
+
 async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle, operation: () => Promise<T>): Promise<T> {
   let renewal = Promise.resolve()
   const timer = setInterval(() => {
@@ -105,10 +124,8 @@ async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle
 
 async function withFilesystemLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
   const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
-  const { dirname } = await import("node:path")
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
-  await mkdir(dirname(lock), { recursive: true })
   let lease: import("node:fs/promises").FileHandle | undefined
   const deadline = Date.now() + timeoutMs
   while (true) {
@@ -126,6 +143,7 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
     }
     catch (error) {
       if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
+      await validateLockDirectory(lock)
       // The owner file is renewed while the operation holds the gate. A directory
       // without an owner can still be reclaimed after an interrupted acquisition.
       const info = await stat(ownerPath).catch(() => stat(lock).catch(() => undefined))
@@ -151,10 +169,10 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
 }
 
 async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
-  const { mkdir, open, rm, rmdir } = await import("node:fs/promises")
+  const { open, rm, rmdir } = await import("node:fs/promises")
   const reader = `${lock}.readers/${randomUUID()}`
   const lease = await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
-    await mkdir(`${lock}.readers`, { recursive: true, mode: 0o700 })
+    await ensureLockDirectory(`${lock}.readers`)
     if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
     return await open(reader, "wx")
   })
@@ -179,6 +197,7 @@ async function withFilesystemWriteLock<T>(lock: string, permissions: Pick<import
     const readers = `${lock}.readers`
     const deadline = Date.now() + 10_000
     while (true) {
+      await validateLockDirectory(readers)
       const active = await readdir(readers).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return []
         throw error
@@ -210,7 +229,7 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
   // Shared service accounts need access to both the persistent lock tree and
   // transient gates/readers, independently of the creating process's umask.
   for (const directory of [`${root}/.vitehub`, `${root}/.vitehub/locks`]) {
-    await mkdir(directory, { recursive: true, mode: 0o700 })
+    await ensureLockDirectory(directory)
     if (process.platform !== "win32") await applyMetadataPermissions(directory, permissions.mode & 0o770, permissions.gid)
   }
 

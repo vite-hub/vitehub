@@ -337,6 +337,27 @@ describe("local workspace store", () => {
     await expect(createLocalWorkspaceStore(root).readFile("nested/file.txt")).resolves.toMatchObject({ metadata: { source: "shared" } })
   })
 
+  it.skipIf(process.platform === "win32").each([".vitehub", ".vitehub/locks", "gate", "readers"])("rejects symlinked lock directory %s without mutating its target", async (level) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const external = await mkdtemp(join(tmpdir(), "vitehub-lock-target-"))
+    tempDirs.push(external)
+    await chmod(root, 0o770)
+    await chmod(external, 0o700)
+    await writeFile(`${external}/sentinel`, "untouched")
+    const key = createHash("sha256").update("file.txt").digest("hex")
+    const path = level === "gate" || level === "readers" ? `.vitehub/locks/${key}.${level}` : level
+    if (level !== ".vitehub") await mkdir(`${root}/${path.slice(0, path.lastIndexOf("/"))}`, { recursive: true })
+    await symlink(external, `${root}/${path}`)
+
+    await expect(store.readFile("file.txt")).rejects.toThrow("Untrusted Workspace lock path")
+    await expect(store.writeFile("file.txt", { path: "file.txt", content: "new" })).rejects.toThrow("Untrusted Workspace lock path")
+    expect((await stat(external)).mode & 0o777).toBe(0o700)
+    expect(await readdir(external)).toEqual(["sentinel"])
+    expect(await readFile(`${external}/sentinel`, "utf8")).toBe("untouched")
+    expect((await lstat(`${root}/${path}`)).isSymbolicLink()).toBe(true)
+  })
+
   it.skipIf(process.platform === "win32")("shares active lock directories with the Workspace group", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
