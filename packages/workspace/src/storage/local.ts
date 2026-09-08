@@ -317,7 +317,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   #metaPath: string
 
   constructor(public root: string) {
-    this.#fileMetadataRoot = `${root}.vitehub-file-metadata-${createHash("sha256").update(root).digest("hex").slice(0, 16)}`
+    this.#fileMetadataRoot = `${root}/.vitehub/file-metadata`
     this.#metaPath = `${root}.meta.json`
   }
 
@@ -387,8 +387,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
     if (!root) return { mode: 0o600, gid: undefined, root: undefined }
     const mode = root.mode & 0o770
-    let directory = this.#fileMetadataRoot
-    for (const part of ["", ...normalizeWorkspacePath(path).split("/").filter(Boolean)]) {
+    let directory = this.root
+    for (const part of [".vitehub", "file-metadata", ...normalizeWorkspacePath(path).split("/").filter(Boolean)]) {
       if (part) directory = resolveInside(directory, part)
       if (create) await mkdir(directory, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== "EEXIST") throw error

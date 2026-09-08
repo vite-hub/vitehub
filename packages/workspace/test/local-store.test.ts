@@ -16,6 +16,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     chmod: vi.fn(actual.chmod),
     chown: vi.fn(actual.chown),
     lstat: vi.fn(actual.lstat),
+    mkdir: vi.fn(actual.mkdir),
     stat: async (...args: Parameters<typeof actual.stat>) => {
       const info = await actual.stat(...args)
       if (String(args[0]) === permissionsFixture.root) Reflect.set(info, "gid", Number(info.gid) + 1)
@@ -40,7 +41,7 @@ async function createStore() {
 }
 
 function metadataRoot(root: string) {
-  return `${root}.vitehub-file-metadata-${createHash("sha256").update(root).digest("hex").slice(0, 16)}`
+  return `${root}/.vitehub/file-metadata`
 }
 
 afterEach(async () => {
@@ -51,12 +52,34 @@ afterEach(async () => {
     `${path}.vitehub-lock`,
     `${path}.vitehub-locks`,
     `${path}.vitehub-file-metadata`,
-    metadataRoot(path),
     `${path}.meta.json`,
   ]).map(path => rm(path, { recursive: true, force: true })))
 })
 
 describe("local workspace store", () => {
+  it("persists file attributes when only the configured root is writable", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const { mkdir: actualMkdir } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(mkdir).mockImplementation(async (path, options) => {
+      if (String(path) !== root && !String(path).startsWith(`${root}/`)) {
+        throw Object.assign(new Error("Parent is read-only"), { code: "EACCES" })
+      }
+      return await actualMkdir(path, options as Parameters<typeof actualMkdir>[1])
+    })
+    try {
+      await store.writeFile("file.txt", { path: "file.txt", content: "hello", mediaType: "text/plain", metadata: { source: "docs" } })
+      const restarted = createLocalWorkspaceStore(root)
+      await expect(restarted.readFile("file.txt")).resolves.toMatchObject({
+        content: new TextEncoder().encode("hello"), mediaType: "text/plain", metadata: { source: "docs" },
+      })
+      expect(Object.keys((await restarted.snapshot()).entries)).toEqual(["file.txt"])
+      await restarted.rm("file.txt")
+      await expect(readdir(metadataRoot(root))).resolves.toEqual([])
+    }
+    finally { vi.mocked(mkdir).mockImplementation(actualMkdir) }
+  })
+
   it.each(["file", "directory"].flatMap(type => [false, true].map(trailingSlash => ({ type, trailingSlash }))))("preserves existing .vitehub-locks user content: %j", async ({ type, trailingSlash }) => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(directory)
@@ -85,7 +108,7 @@ describe("local workspace store", () => {
     const store = createLocalWorkspaceStore(root)
     await store.writeFile("file.txt", { path: "file.txt", content: "hello", metadata: { source: "docs" } })
     await store.setMeta!("test", { private: true })
-    const metadataDirectory = metadataRoot(root).slice(root.length)
+    const metadataDirectory = ".vitehub/file-metadata"
     await expect(readdir(metadataRoot(root))).resolves.toContain("file.txt")
     await expect(store.list("", { recursive: true })).resolves.toMatchObject([{ path: "file.txt" }])
     await expect(store.glob("**/*")).resolves.toMatchObject([{ path: "file.txt" }])
@@ -287,7 +310,7 @@ describe("local workspace store", () => {
     await chmod(root, 0o700)
     const sidecars = metadataRoot(root)
     if (existing) {
-      await mkdir(sidecars)
+      await mkdir(sidecars, { recursive: true })
       await chmod(sidecars, 0o755)
     }
     await store.writeFile("nested/file.txt", {
@@ -946,7 +969,7 @@ describe("local workspace store", () => {
       metadata: { source: "airtable" },
     })
 
-    expect(vi.mocked(writeFile).mock.calls.every(call => String(call[0]).includes(".vitehub-file-metadata"))).toBe(true)
+    expect(vi.mocked(writeFile).mock.calls.every(call => String(call[0]).includes("/.vitehub/file-metadata"))).toBe(true)
     await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
       mediaType: "application/octet-stream",
       metadata: { source: "airtable" },
@@ -981,7 +1004,7 @@ describe("local workspace store", () => {
       }),
     ]))
     await expect(restarted.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: expect.stringContaining("vitehub-file-metadata") }),
+      expect.objectContaining({ path: expect.stringContaining(".vitehub") }),
     ]))
 
     await restarted.rm(".agents/skills/browser", { recursive: true })
@@ -1226,7 +1249,7 @@ describe("local workspace store", () => {
       metadata: { source: "stream" },
     })).resolves.toMatchObject({ digest, path: "assets/blob.bin", size: content.byteLength })
 
-    expect(vi.mocked(writeFile).mock.calls.every(call => String(call[0]).includes(".vitehub-file-metadata"))).toBe(true)
+    expect(vi.mocked(writeFile).mock.calls.every(call => String(call[0]).includes("/.vitehub/file-metadata"))).toBe(true)
     await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
       content,
       mediaType: "application/octet-stream",
