@@ -58,6 +58,12 @@ const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
 export function redactCredentialText(value: string, precedingText = ""): string {
   return value
+    .replace(/\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?)/gi, (match, scheme: string, quoted: string, offset: number, source: string) => {
+      if (!isCredentialScheme(scheme, precedingText + source.slice(0, offset))) return match
+      const quote = quoted[0]!
+      const closed = quoted.length > 1 && quoted.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(quoted)
+      return `${scheme} ${quote}[REDACTED]${closed ? quote : ""}`
+    })
     .replace(new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*"?|'(?:\\\\[\\s\\S]|[^'\\\\])*'?)`, "gi"), (match, prefix: string, key: string, quoted: string) => {
       if (!isCredentialAssignment(key, prefix)) return match
       const quote = quoted[0]!
@@ -78,7 +84,7 @@ export function pendingCredentialAssignment(value: string): "assignment" | "unqu
 export function credentialTextMayContinue(value: string, precedingText = ""): boolean {
   if (/(?<![A-Za-z0-9_-])--?$/.test(value)) return true
   if (pendingAuthorizationHeader(value)) return true
-  if (pendingCredentialQuote(value)) return true
+  if (pendingCredentialQuote(value, precedingText)) return true
   if (pendingCredentialScheme(value, precedingText)) return true
   if (pendingCredentialAssignment(value)) return true
   const tail = value.slice(-128)
@@ -92,7 +98,9 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
     || ["KEY", "SECRET", "TOKEN", "PASSWORD"].some(marker => marker.startsWith(finalSegment))
 }
 
-export function pendingCredentialQuote(value: string): string | undefined {
+export function pendingCredentialQuote(value: string, precedingText = ""): string | undefined {
+  const scheme = /\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*\\?$|'(?:\\[\s\S]|[^'\\])*\\?$)/i.exec(value)
+  if (scheme && isCredentialScheme(scheme[1]!, precedingText + value.slice(0, scheme.index))) return scheme[2]?.[0]
   const assignment = new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*\\\\?$|'(?:\\\\[\\s\\S]|[^'\\\\])*\\\\?$)`, "i").exec(value)
   return assignment && isCredentialAssignment(assignment[2]!, assignment[1]!) ? assignment[3]?.[0] : undefined
 }

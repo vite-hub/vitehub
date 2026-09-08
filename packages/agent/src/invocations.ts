@@ -1296,7 +1296,7 @@ function journalTraceLog(
       const precedingText = precedingMessageText.get(key) ?? ""
       if (!final && credentialTextMayContinue(content, precedingText)) {
         if (!interveningEvent && content.length < maxPendingCredentialCharacters) return
-        const quote = pendingCredentialQuote(content)
+        const quote = pendingCredentialQuote(content, precedingText)
         const scheme = pendingCredentialScheme(content, precedingText)
         const assignment = pendingCredentialAssignment(content)
         if (quote) {
@@ -1379,11 +1379,11 @@ function journalTraceLog(
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
-      if (redaction.kind === "assignment") {
+      if (redaction.kind === "assignment" || redaction.kind === "scheme") {
         content = content.trimStart()
         if (!content) return
       }
-      if (redaction.kind === "assignment" && (content[0] === '"' || content[0] === "'")) {
+      if ((redaction.kind === "assignment" || redaction.kind === "scheme") && (content[0] === '"' || content[0] === "'")) {
         redaction = { kind: "quoted", quote: content[0], escaped: false, omitClosingQuote: true }
         redactingCredentialDeltas.set(key, redaction)
         content = content.slice(1)

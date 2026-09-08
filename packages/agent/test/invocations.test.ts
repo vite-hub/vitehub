@@ -3380,7 +3380,8 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}apiToken=[REDACTED];status=ok`)
   })
 
-  it.each(['"', "'"])("redacts quoted passwords across bounded chunks with %s", async (quote) => {
+  it.each(["PASSWORD=", "Bearer ", "Authorization: basic "].flatMap(prefix => ['"', "'"].map(quote => [prefix, quote])))
+  ("redacts quoted credentials across bounded chunks with %s%s", async (credentialPrefix, quote) => {
     const invocations = defineAgentInvocations({
       content: "content",
       observations: { maxStringLength: 128 },
@@ -3388,7 +3389,7 @@ describe("Agent Invocations", () => {
     })
     const agent = defineAgent({
       driver: { async run(context) {
-        for (const value of [`PASSWORD=${quote}${"secret word ".repeat(50)}`, "more private words", `${quote};status=ok`]) {
+        for (const value of [`${credentialPrefix}${quote}${"secret word ".repeat(50)}`, "more private words", `${quote};status=ok`]) {
           await context.traceLog?.append({
             attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
             name: "agent.message.delta",
@@ -3404,10 +3405,11 @@ describe("Agent Invocations", () => {
     const observations = (await invocations.getByRunId("quoted-password"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
-    expect(text).toBe(`PASSWORD=${quote}[REDACTED]${quote};status=ok`)
+    expect(text).toBe(`${credentialPrefix}${quote}[REDACTED]${quote};status=ok`)
   })
 
-  it.each(['"', "'"])("redacts a quoted password when its opening %s arrives after a flush", async (quote) => {
+  it.each(["PASSWORD=", "Bearer ", "Authorization: basic "].flatMap(prefix => ['"', "'"].map(quote => [prefix, quote])))
+  ("redacts a quoted credential when its opening %s%s arrives after a flush", async (credentialPrefix, quote) => {
     const invocations = defineAgentInvocations({
       content: "content",
       observations: { maxStringLength: 128 },
@@ -3416,7 +3418,7 @@ describe("Agent Invocations", () => {
     const prefix = ".".repeat(512)
     const agent = defineAgent({
       driver: { async run(context) {
-        for (const value of [`${prefix}PASSWORD=`, quote, "secret", "\\", quote, "private", "\\", "\\", quote, ";status=ok"]) {
+        for (const value of [`${prefix}${credentialPrefix}`, quote, "secret", "\\", quote, "private", "\\", "\\", quote, ";status=ok"]) {
           await context.traceLog?.append({
             attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
             name: "agent.message.delta",
@@ -3432,7 +3434,7 @@ describe("Agent Invocations", () => {
     const observations = (await invocations.getByRunId("split-quoted-password"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
-    expect(text).toBe(`${prefix}PASSWORD=[REDACTED];status=ok`)
+    expect(text).toBe(`${prefix}${credentialPrefix}[REDACTED];status=ok`)
   })
 
   it.each(["Bearer", "Basic", "Authorization: basic", "Authorization: BASIC"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {

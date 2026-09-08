@@ -2,6 +2,25 @@ import { describe, expect, it } from "vitest"
 import { credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
 describe("structured credential redaction", () => {
+  it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: BASIC"])("redacts quoted %s values", (scheme) => {
+    for (const quote of ['"', "'"]) {
+      const prefix = `${scheme} ${quote}`
+      expect(redactCredentialText(`${prefix}sensitive token${quote};status=ok`)).toBe(`${prefix}[REDACTED]${quote};status=ok`)
+      expect(redactCredentialText(`${prefix}sensitive\\${quote} token${quote};status=ok`)).toBe(`${prefix}[REDACTED]${quote};status=ok`)
+      expect(redactCredentialText(`${prefix}sensitive token`)).toBe(`${prefix}[REDACTED]`)
+      expect(pendingCredentialQuote(`${prefix}sensitive token`)).toBe(quote)
+      expect(credentialTextMayContinue(`${prefix}sensitive token`)).toBe(true)
+      expect(pendingCredentialQuote(`${prefix}sensitive token${quote};status=ok`)).toBeUndefined()
+    }
+  })
+
+  it("preserves quoted basic prose and uses preceding authorization context", () => {
+    expect(redactCredentialText('Use basic "example words"')).toBe('Use basic "example words"')
+    expect(pendingCredentialQuote('basic "example', "Use ")).toBeUndefined()
+    expect(pendingCredentialQuote('basic "secret', "Authorization: ")).toBe('"')
+    expect(redactCredentialText('basic "secret words"', "Authorization: ")).toBe('basic "[REDACTED]"')
+  })
+
   it.each([
     ['PASSWORD="correct horse battery staple";status=ok', 'PASSWORD="[REDACTED]";status=ok'],
     ["SECRET='correct horse & battery, staple';status=ok", "SECRET='[REDACTED]';status=ok"],
