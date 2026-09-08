@@ -102,6 +102,32 @@ describe("Agent Invocations", () => {
     expect(content).toBe(padding + prefix + "[REDACTED]" + suffix)
   })
 
+  it.each([
+    '{"d":"sensitive"}',
+    '["first-secret","second-secret"]',
+    '{"nested":[{"d":"escaped\\\"} ] secret"},["other-secret"]]}',
+  ])("redacts structured credentials across forced message flushes: %s", async (credential) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
+    const prefix = '{"privateKey":'
+    const suffix = ',"status":"ok"}'
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of prefix + credential + suffix) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "structured", "message.content": character } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("structured-credential"), {})
+    const observations = (await invocations.getByRunId("structured-credential"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(prefix + "[REDACTED]" + suffix)
+    expect(JSON.stringify(observations)).not.toMatch(/sensitive|first-secret|second-secret|other-secret/)
+  })
+
   it.each(["password", "secret"].flatMap(key => ["characters", "events"].map(boundary => ({ key, boundary }))))("redacts YAML list $key after a $boundary flush", async ({ key, boundary }) => {
     const invocations = defineAgentInvocations({ content: "content", observations: { maxStringLength: 128 }, store: createMemoryAgentInvocationStore() })
     const prefix = `${boundary === "characters" ? ".".repeat(512) + "\n" : ""}config:\n  - `

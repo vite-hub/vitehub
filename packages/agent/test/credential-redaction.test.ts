@@ -2,6 +2,26 @@ import { describe, expect, it } from "vitest"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
 describe("structured credential redaction", () => {
+  it.each([
+    '{"d":"sensitive"}',
+    '["first-secret","second-secret"]',
+    '{"nested":[{"d":"escaped\\\"} ] secret"},["other-secret"]]}',
+  ])("redacts complete structured credential values: %s", (credential) => {
+    const prefix = '{"privateKey":'
+    const suffix = ',"status":"ok"}'
+    expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    // Every possible split must preserve the same end boundary, including splits
+    // inside an escaped quote and immediately after the final closing delimiter.
+    for (let split = 0; split <= credential.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + credential.slice(0, split))!
+      expect(state).toBeDefined()
+      const remainder = credential.slice(split) + suffix
+      const boundary = consumeCredentialAssignment(remainder, state)
+      expect(remainder.slice(boundary)).toBe(suffix)
+    }
+    expect(redactCredentialText('{"payload":' + credential + suffix)).toBe('{"payload":' + credential + suffix)
+  })
+
   it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: BASIC"])("redacts quoted %s values", (scheme) => {
     for (const quote of ['"', "'"]) {
       const prefix = `${scheme} ${quote}`
