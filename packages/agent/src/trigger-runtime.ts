@@ -440,16 +440,17 @@ export async function resolveAgentTriggerInvocation<
   }
   let validatedInput = input
   if (trigger.input && "~standard" in Object(trigger.input)) {
-    try {
-      validatedInput = await parseStandardSchema(trigger.input, input, `Agent trigger "${trigger.id}" input`)
-    } catch (error) {
-      if (trigger.webhooks?.length && context.request) {
+    if (trigger.webhooks?.length && context.request) {
+      const result = await trigger.input["~standard"].validate(input)
+      if (result.issues?.length || !("value" in result)) {
         return {
           response: Response.json({ accepted: false, reason: "invalid_payload" }, { status: 400 }),
           trigger,
         }
       }
-      throw error
+      validatedInput = result.value
+    } else {
+      validatedInput = await parseStandardSchema(trigger.input, input, `Agent trigger "${trigger.id}" input`)
     }
   }
   return resolveAgentTriggerInvocationResult(await trigger.invoke(validatedInput), trigger)

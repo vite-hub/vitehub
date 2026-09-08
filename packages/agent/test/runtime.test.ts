@@ -3125,6 +3125,44 @@ describe("agent message protocol", () => {
     expect(validation).not.toHaveBeenCalled()
   })
 
+  it.each([false, true])("propagates webhook validator exceptions (async: %s)", async (asyncValidation) => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const failure = new Error("broken validator")
+    const invoke = vi.fn(() => ({ input: { prompt: "unused" } }))
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          messages: false,
+          triggers: {
+            webhook: defineChannelTrigger({
+              input: {
+                "~standard": {
+                  version: 1,
+                  vendor: "test",
+                  validate() {
+                    if (asyncValidation) return Promise.reject(failure)
+                    throw failure
+                  },
+                },
+              },
+              invoke,
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
+            }),
+          },
+        }),
+      },
+      driver: { run: context => context.prompt },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(resolveAgentTriggerInvocation(agent, {
+      ...runtime,
+      request: new Request("https://example.test/webhook", { headers: { "x-webhook-secret": "secret" }, method: "POST" }),
+    }, "portal.webhook", { payload: { text: "hello" } })).rejects.toBe(failure)
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
   it("adds only the active Channel Capabilities", async () => {
     const { defineAgent, defineCapability, runAgent, runAgentTrigger } = await import("../src/index.ts")
     const { openapi } = await import("../src/capabilities.ts")
