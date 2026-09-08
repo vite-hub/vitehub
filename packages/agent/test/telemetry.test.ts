@@ -703,6 +703,45 @@ describe("Agent telemetry", () => {
       .toBe(configuration(inputs).fingerprint)
   })
 
+  it.each([false, true])("classifies steered message telemetry by role (live: %s)", async (live) => {
+    const inputs = vi.fn()
+    const outputs = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ id: "inputs", telemetry: { content: { inputs: true }, exporter: inputs, live } }),
+        defineCapability({ id: "outputs", telemetry: { content: { outputs: true }, exporter: outputs, live } }),
+      ],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({
+            attributes: { "message.content": "private steering input", "message.role": "user" },
+            name: "agent.input.message",
+            type: "run",
+          })
+          await context.traceLog?.append({
+            attributes: { "message.content": "public assistant response", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+          return "ok"
+        },
+      },
+    })
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-steered-content" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    expect(JSON.stringify(inputs.mock.calls)).toContain("private steering input")
+    expect(JSON.stringify(inputs.mock.calls)).not.toContain("public assistant response")
+    expect(JSON.stringify(outputs.mock.calls)).toContain("public assistant response")
+    expect(JSON.stringify(outputs.mock.calls)).not.toContain("private steering input")
+  })
+
   it("keeps directly appended Trace Events in content-enabled exports", async () => {
     const tasks: Promise<unknown>[] = []
     const telemetry = vi.fn()

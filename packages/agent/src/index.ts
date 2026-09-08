@@ -2920,6 +2920,10 @@ function withAgentTelemetryContentAttributes(
 ): Record<string, unknown> {
   const { "content.omitted": _omitted, ...safeAttributes } = safe || {}
   const allowedEntries = Object.entries(full || {}).flatMap(([key, value]) => {
+    if (key === "message.content") {
+      const contentClass = agentTelemetryMessageContentClass({ role: full?.["message.role"] })
+      return contentClass !== undefined && policy[contentClass] === true ? [[key, value] as const] : []
+    }
     const selected = agentTelemetryAttributeForContent(key, value, policy)
     return selected ? [[key, selected.value] as const] : []
   })
