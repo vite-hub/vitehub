@@ -195,6 +195,12 @@ function modelsDevModelCandidates(provider: string, model: string): string[] {
   return [...new Set(candidates)]
 }
 
+function modelsDevProviderCandidates(provider: string): string[] {
+  if (provider === "codex") return [provider, "openai"]
+  if (provider === "claude-code") return [provider, "anthropic"]
+  return [provider]
+}
+
 function priceForUsage(price: StaticModelPrice, usage: AgentUsage): StaticModelPrice {
   const tier = price.tiers
     ?.filter(item => usage.inputTokens !== undefined && usage.inputTokens >= item.size)
@@ -258,11 +264,15 @@ export function modelsDevPricing(options: ModelsDevPricingOptions = {}): AgentUs
           ? modelId.slice(0, modelId.indexOf("/"))
           : ""
     if (!providerId) return
+    if ((providerId === "codex" || providerId === "claude-code") && usage.inputTokenDetails?.cacheReadTokens === undefined) return
     const prices = await loadCatalog()
-    const providerPrices = prices[providerId]
-    if (!providerPrices) return
-    const price = modelsDevModelCandidates(providerId, modelId)
-      .map(candidate => providerPrices[candidate])
+    const price = modelsDevProviderCandidates(providerId)
+      .flatMap(candidateProvider => {
+        const providerPrices = prices[candidateProvider]
+        return providerPrices
+          ? modelsDevModelCandidates(candidateProvider, modelId).map(candidate => providerPrices[candidate])
+          : []
+      })
       .find((item): item is StaticModelPrice => Boolean(item))
     if (!price) return
     const amount = pricedTokens(usage, priceForUsage(price, usage))

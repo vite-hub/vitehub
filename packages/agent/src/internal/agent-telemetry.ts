@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./runtime-type.ts"
+import { redactCredentialText } from "./credential-redaction.ts"
 import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {
   AgentInspectionValue,
@@ -31,7 +32,8 @@ function safeMetadataValue(
   seen = new WeakSet<object>(),
 ): AgentInspectionValue | undefined {
   if (secretMetadataKey(key)) return "[redacted]"
-  if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "string")) return value
+  if (hasRuntimeType(value, "string")) return redactCredentialText(value)
+  if (value === null || hasRuntimeType(value, "boolean")) return value
   if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
   if (!value || !hasRuntimeType(value, "object") || depth >= 8 || seen.has(value)) return
 
@@ -94,11 +96,32 @@ async function withConfigurationFingerprint(
   }
 }
 
+function redactConfigurationValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
+  if (hasRuntimeType(value, "string")) return redactCredentialText(value)
+  if (!value || !hasRuntimeType(value, "object")) return value
+  const existing = seen.get(value)
+  if (existing) return existing
+  if (Array.isArray(value)) {
+    const result: unknown[] = []
+    seen.set(value, result)
+    for (const child of value) result.push(redactConfigurationValue(child, seen))
+    return result
+  }
+  const result: Record<string, unknown> = {}
+  seen.set(value, result)
+  for (const [key, child] of Object.entries(value)) result[key] = redactConfigurationValue(child, seen)
+  return result
+}
+
+function redactTelemetryConfiguration(configuration: AgentTelemetryConfiguration): AgentTelemetryConfiguration {
+  return redactConfigurationValue(configuration) as AgentTelemetryConfiguration
+}
+
 export async function setAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   value: AgentTelemetryConfiguration,
 ): Promise<void> {
-  configurationByContext.set(context, { value: await withConfigurationFingerprint(value) })
+  configurationByContext.set(context, { value: await withConfigurationFingerprint(redactTelemetryConfiguration(value)) })
 }
 
 export async function updateAgentTelemetryConfiguration(
@@ -133,7 +156,7 @@ export async function updateAgentTelemetryConfiguration(
         }
       : {}),
   }
-  configurationByContext.set(context, { value: await withConfigurationFingerprint(next) })
+  configurationByContext.set(context, { value: await withConfigurationFingerprint(redactTelemetryConfiguration(next)) })
   await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
 }
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
+import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
+import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
 describe("structured credential redaction", () => {
   it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: BASIC"])("redacts quoted %s values", (scheme) => {
@@ -162,6 +164,35 @@ it.each([
   expect(redactCredentialText(text)).toBe(text)
   expect(pendingCredentialAssignment(text)).toBeUndefined()
   expect(pendingCredentialQuote(text)).toBeUndefined()
+})
+
+it("redacts a project token embedded in provider tool metadata", () => {
+  const input = 'You are currently in project "Default project" (id: 145757, token: project-token-value).'
+  expect(redactCredentialText(input)).toBe('You are currently in project "Default project" (id: 145757, token: [REDACTED]).')
+  expect(safeAgentTelemetryMetadata({
+    tools: [{ inputSchema: { properties: { command: { description: input } } } }],
+  })).toEqual({
+    tools: [{
+      inputSchema: {
+        properties: {
+          command: { description: 'You are currently in project "Default project" (id: 145757, token: [REDACTED]).' },
+        },
+      },
+    }],
+  })
+})
+
+it("redacts recognized PostHog tokens throughout persisted agent configuration", async () => {
+  const context = createAgentInvocationContextStore()
+  const token = "phc_fake_project_token_123456789"
+  await setAgentTelemetryConfiguration(context, {
+    capabilities: [],
+    driver: { kind: "provider" },
+    tools: [{ inputSchema: { properties: { command: { description: `Active project token: ${token}` } } }, name: "exec" }],
+  } as never)
+  const serialized = JSON.stringify(getAgentTelemetryConfiguration(context)?.value)
+  expect(serialized).not.toContain(token)
+  expect(serialized).toContain("[REDACTED]")
 })
 
 it.each(["token", "key", "Token", "Key"])("does not start redaction for ambiguous structured %s fields", (key) => {

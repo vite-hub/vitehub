@@ -10911,6 +10911,42 @@ describe("agent message protocol", () => {
     expect(traceLog.entries().find(event => event.name === "agent.usage.recorded")?.attributes?.["usage.reasoningTokens"]).toBe(expected)
   })
 
+  it("persists canonical usage partitions and cost through invocation finish", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const usageRecord = {
+      cost: { display: "~$0.01", estimated: true, source: "models.dev" as const, usd: "0.01" },
+      model: "gpt-6-astra",
+      provider: "codex",
+      usage: {
+        inputTokenDetails: { cacheReadTokens: 2 },
+        inputTokens: 10,
+        outputTokens: 3,
+        totalTokens: 13,
+      },
+    }
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { type: "usage", usageRecord }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {})
+    // SAFETY: This test fixture intentionally constructs the exact asserted stream contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(traceLog.entries().find(event => event.name === "agent.usage.recorded")?.attributes).toMatchObject({
+      "usage.cachedInputTokens": 2,
+      "usage.costUsd": "0.01",
+      "usage.inputTokens": 10,
+      "usage.model": "gpt-6-astra",
+      "usage.outputTokens": 3,
+      "usage.provider": "codex",
+      "usage.totalTokens": 13,
+    })
+    expect(traceLog.entries().find(event => event.name === "agent.invocation.finish")?.attributes?.["usage.record"]).toMatchObject(usageRecord)
+  })
+
   it("normalizes valid capability CLI input errors in native UI message streams", async () => {
     const { createUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")

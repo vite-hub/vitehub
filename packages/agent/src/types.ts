@@ -371,7 +371,7 @@ export interface AgentTelemetryConfiguration {
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
-    sources?: string[]
+    sources?: Array<string | { id: string; repository?: string }>
   }
 }
 

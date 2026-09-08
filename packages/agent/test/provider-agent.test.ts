@@ -2063,9 +2063,11 @@ cli_auth_credentials_store = "keyring"
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
 
-    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    const events = await collect(await createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
     expect(events.find(item => item.type === "usage")).toMatchObject({
       usageRecord: {
+        model: "gpt-6-astra",
+        provider: "codex",
         raw: usage,
         usage: {
           details: { cachedInputTokens: 0, reasoningOutputTokens: 3 },
@@ -2120,19 +2122,147 @@ cli_auth_credentials_store = "keyring"
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
 
-    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    const events = await collect(await createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
     expect(events.find(item => item.type === "usage")).toEqual({
       type: "usage",
       usageRecord: {
+        calls: [{
+          model: "gpt-6-astra",
+          provider: "codex",
+          raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
+          usage: {
+            details: { cachedInputTokens: 2, reasoningOutputTokens: 3 },
+            inputTokenDetails: { cacheReadTokens: 2 },
+            inputTokens: 7,
+            outputTokens: 5,
+            totalTokens: 12,
+          },
+        }],
+        model: "gpt-6-astra",
+        provider: "codex",
         raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
         usage: {
           details: { cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1 },
+          inputTokenDetails: { cacheReadTokens: 2 },
           inputTokens: 7,
           outputTokens: 5,
-          totalTokens: 100,
+          totalTokens: 12,
         },
       },
     })
+  })
+
+  it("does not report a resumed thread cumulative total as invocation usage", async () => {
+    const threadId = "thread-resumed-cumulative-usage"
+    const adapter = createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" })
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 12 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { turnResumeCursor: "cursor-1" })
+    await collect(await adapter.stream!(context(threadId) as never))
+
+    const raw = { totalProcessedTokens: 100 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: raw }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const events = await collect(await adapter.stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: {
+        model: "gpt-6-astra",
+        provider: "codex",
+        raw,
+        usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: undefined },
+      },
+    })
+  })
+
+  it("uses the final current-turn usage update for an invocation", async () => {
+    const threadId = "thread-final-usage-update"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord).toMatchObject({
+      calls: [
+        { usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 } },
+        { usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 } },
+      ],
+      model: "gpt-6-astra",
+      provider: "codex",
+      raw: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 },
+      usage: { inputTokens: 9, outputTokens: 3, totalTokens: 12 },
+    })
+  })
+
+  it("ignores duplicate usage updates and counts a reset from its latest response", async () => {
+    const threadId = "thread-usage-reset"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 2, totalProcessedTokens: 5 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord).toMatchObject({
+      raw: { inputTokens: 3, outputTokens: 2, totalProcessedTokens: 5 },
+      usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
+    })
+  })
+
+  it("keeps accumulated usage unknown when a distinct response lacks its partition", async () => {
+    const threadId = "thread-partial-usage-update"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { cachedInputTokens: 1, inputTokens: 4, outputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord).toMatchObject({
+      calls: [
+        { usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 } },
+        { raw: { totalProcessedTokens: 47 } },
+      ],
+      raw: { totalProcessedTokens: 47 },
+      usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: undefined },
+    })
+  })
+
+  it("keeps optional token partitions unknown when any counted response omits them", async () => {
+    const threadId = "thread-optional-usage-partitions"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { cachedInputTokens: 1, inputTokens: 4, outputTokens: 1, reasoningOutputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 9, outputTokens: 3, totalTokens: 12 })
+    expect(result.usageRecord?.usage?.details).not.toHaveProperty("cachedInputTokens")
+    expect(result.usageRecord?.usage?.details).not.toHaveProperty("reasoningOutputTokens")
+    expect(result.usageRecord?.usage).not.toHaveProperty("inputTokenDetails")
+  })
+
+  it("keeps reasoning summaries separate from following commentary", async () => {
+    const threadId = "thread-commentary-boundary"
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "**Reading related facts**", streamKind: "reasoning_summary_text" }, { itemId: "reasoning-1", turnId: "turn-1" }),
+      event("item.started", threadId, { data: { item: { phase: "commentary" } }, itemType: "assistant_message" }, { itemId: "message-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "I’m also applying the evidence skill.", streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
+    expect(events.filter(event => event.type === "text-delta")).toEqual([
+      { id: "reasoning_summary_text:reasoning-1:0", phase: "commentary", text: "**Reading related facts**", type: "text-delta" },
+      { id: "assistant_text:message-1:0", phase: "commentary", text: "I’m also applying the evidence skill.", type: "text-delta" },
+    ])
   })
 
   it("keeps assistant item phases separate and forgets completed items", async () => {
@@ -2152,11 +2282,11 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
     expect(events.filter(value => value.type === "text-delta")).toEqual([
-      { phase: "commentary", text: "Checking.", type: "text-delta" },
-      { phase: "final", text: "Found it.", type: "text-delta" },
-      { phase: "commentary", text: "One more check.", type: "text-delta" },
-      { phase: "final", text: "Reused item.", type: "text-delta" },
-      { phase: "final", text: "No item.", type: "text-delta" },
+      { id: "assistant_text:comment:0", phase: "commentary", text: "Checking.", type: "text-delta" },
+      { id: "assistant_text:answer:0", phase: "final", text: "Found it.", type: "text-delta" },
+      { id: "assistant_text:comment:0", phase: "commentary", text: "One more check.", type: "text-delta" },
+      { id: "assistant_text:comment:0", phase: "final", text: "Reused item.", type: "text-delta" },
+      { id: "assistant_text:provider:0", phase: "final", text: "No item.", type: "text-delta" },
     ])
   })
 
@@ -3437,7 +3567,8 @@ cli_auth_credentials_store = "keyring"
       cwd: new URL("..", import.meta.url),
       encoding: "utf8",
       env: { ...process.env, HEARTBEAT_FILE: heartbeatFile },
-      timeout: 3_000,
+      // Includes a cold TypeScript module load before the heartbeat starts.
+      timeout: 15_000,
     })
 
     await rm(heartbeatFile, { force: true })

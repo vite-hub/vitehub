@@ -163,8 +163,17 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
     const reasoningTokens = event.usageRecord.usage?.outputTokenDetails?.reasoningTokens
       ?? event.usageRecord.usage?.details?.reasoningOutputTokens
     return {
+      "usage.cachedInputTokens": event.usageRecord.usage?.inputTokenDetails?.cacheReadTokens
+        ?? event.usageRecord.usage?.details?.cachedInputTokens,
+      "usage.costEstimated": event.usageRecord.cost?.estimated,
+      "usage.costSource": event.usageRecord.cost?.source,
+      "usage.costUsd": event.usageRecord.cost?.usd,
       "usage.hasCost": event.usageRecord.cost !== undefined,
       "usage.hasRaw": event.usageRecord.raw !== undefined,
+      "usage.inputTokens": event.usageRecord.usage?.inputTokens,
+      "usage.model": event.usageRecord.model,
+      "usage.outputTokens": event.usageRecord.usage?.outputTokens,
+      "usage.provider": event.usageRecord.provider,
       "usage.reasoningTokens": reasoningTokens,
       "usage.totalTokens": event.usageRecord.usage?.totalTokens,
     }

@@ -1577,6 +1577,25 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
   })
 
+  it("preserves multi-response usage and nested cache evidence in the journal", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("response-usage-evidence"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const usage = {
+      model: "gpt-6-astra",
+      cost: { usd: "0.4", estimated: true, source: "models.dev" },
+      calls: Array.from({ length: 40 }, () => ({
+        usage: { inputTokens: 100, outputTokens: 10, totalTokens: 110, inputTokenDetails: { cacheReadTokens: 80 }, details: { reasoningOutputTokens: 2 } },
+        cost: { usd: "0.01", estimated: true, source: "models.dev" },
+      })),
+    }
+    await journal.context.traceLog?.append({ attributes: { "usage.record": usage }, name: "agent.invocation.finish", type: "run" })
+    await journal.finish("completed")
+    const observation = (await invocations.getByRunId("response-usage-evidence"))?.observations.find(entry => entry.name === "agent.invocation.finish")
+    expect(observation?.attributes?.["usage.record"]).toEqual(usage)
+    expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
+  })
+
   it("reserves the observation attribute limit for the truncation marker", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-attribute-count"))

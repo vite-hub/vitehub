@@ -26,6 +26,9 @@ const MAX_OBSERVATIONS = 256
 const DEFAULT_OBSERVATION_BYTES = 16 * 1024 * 1024
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
+const MAX_USAGE_RECORD_DEPTH = 16
+const MAX_USAGE_RECORD_ITEMS = 65_536
+const MAX_USAGE_RECORD_CALLS = 4_096
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_AGENT_CONFIGURATION_DEPTH = 64
 const MAX_OBSERVATION_VALUE_ITEMS = 256
@@ -704,6 +707,20 @@ function boundedObservationAttributeValue(
     budget.items = contentBudget.items
     budget.truncated ||= contentBudget.truncated
     return content
+  }
+  if (key === "usage.record") {
+    // Per-response accounting nests model calls, usage partitions, and pricing evidence.
+    // Keep it intact without raising limits for arbitrary tool payloads.
+    const usageBudget: ObservationBudget = {
+      items: MAX_USAGE_RECORD_ITEMS,
+      collectionItems: MAX_USAGE_RECORD_CALLS,
+      maxDepth: MAX_USAGE_RECORD_DEPTH,
+      stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+      truncated: false,
+    }
+    const usage = boundedObservationValue(value, usageBudget, 0, maxStringLength, builtIns)
+    budget.truncated ||= usageBudget.truncated
+    return usage
   }
   if (key !== "vitehub.agent.configuration") return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
   const configurationBudget: ObservationBudget = {

@@ -223,6 +223,7 @@ import type {
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 
 export { agentInvocationId } from "./invocations.ts"
 
@@ -2913,6 +2914,18 @@ function agentTelemetryConfigurationForContent(
   }
 }
 
+function agentTelemetryWorkspaceSources(sources: WorkspaceDefinition["sources"]): Array<{ id: string; repository?: string }> {
+  return normalizeWorkspaceSourcesMetadata(sources).map(({ key, source }) => {
+    const fingerprint = hasRuntimeType(source, "object") && hasRuntimeType(source.fingerprint, "object")
+      ? source.fingerprint
+      : undefined
+    const repository = fingerprint && hasRuntimeType(fingerprint.repo, "string") && /^[\w.-]+\/[\w.-]+$/.test(fingerprint.repo)
+      ? fingerprint.repo
+      : undefined
+    return { id: key, ...(repository ? { repository } : {}) }
+  })
+}
+
 function withAgentTelemetryContentAttributes(
   safe: Record<string, unknown> | undefined,
   full: Record<string, unknown> | undefined,
@@ -3743,7 +3756,9 @@ async function createAgentInvocationContext<
             workspace: {
               mode: workspaceMode,
               ...(activeWorkspaceDefinition.name ? { name: activeWorkspaceDefinition.name } : {}),
-              ...(activeWorkspaceDefinition.sources ? { sources: Object.keys(activeWorkspaceDefinition.sources).sort() } : {}),
+              ...(activeWorkspaceDefinition.sources
+                ? { sources: agentTelemetryWorkspaceSources(activeWorkspaceDefinition.sources).sort((left, right) => left.id.localeCompare(right.id)) }
+                : {}),
             },
           }
         : {}),

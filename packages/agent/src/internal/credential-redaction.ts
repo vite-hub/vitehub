@@ -113,6 +113,8 @@ function redactAuthorizationHeaders(value: string): string {
 
 export function redactCredentialText(value: string, precedingText = ""): string {
   return redactAuthorizationHeaders(value)
+    .replace(/\bph[cx]_[A-Za-z0-9_-]+\b/g, "[REDACTED]")
+    .replace(/(\bproject\b[^\r\n]{0,160}\btoken\s*:\s*)([^\s"',;&{}<>()]+)/gi, "$1[REDACTED]")
     .replace(/\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?)/gi, (match, scheme: string, quoted: string, offset: number, source: string) => {
       if (!isCredentialScheme(scheme, precedingText + source.slice(0, offset))) return match
       const quote = quoted[0]!

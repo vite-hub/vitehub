@@ -64,6 +64,7 @@ import type {
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolSet,
+  AgentUsageRecord,
 } from "./types.ts"
 import type { AttachmentPart, Message, StreamEvent } from "./messages.ts"
 import type {
@@ -1782,28 +1783,102 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
   return responded
 }
 
-function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
+interface ProviderInvocationUsageAccumulator {
+  cachedInputTokens: number
+  cachedInputTokensComplete: boolean
+  calls: AgentUsageRecord[]
+  inputTokens: number
+  lastSignature?: string
+  outputTokens: number
+  partitionComplete: boolean
+  previousTotalProcessedTokens?: number
+  reasoningOutputTokens: number
+  reasoningOutputTokensComplete: boolean
+  observedPartition: boolean
+}
+
+function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>, options: {
+  accumulator: ProviderInvocationUsageAccumulator
+  model?: string
+  provider: "claude-code" | "codex"
+  resumed: boolean
+}): StreamEvent {
   const usage = event.payload.usage
   const usedTokens = usage.usedTokens ?? usage.lastUsedTokens
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
   const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
-  const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? partitionTotal
+  const signature = JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
+  const cumulative = usage.totalProcessedTokens
+  const changed = cumulative !== undefined
+    ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
+    : signature !== options.accumulator.lastSignature
+  const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed
+  if (options.provider === "codex" && changed && partitionTotal === undefined) {
+    options.accumulator.partitionComplete = false
+    options.accumulator.calls.push({
+      ...(options.model ? { model: options.model } : {}),
+      provider: options.provider,
+      raw: usage,
+    })
+  }
+  if (countPartition) {
+    options.accumulator.inputTokens += inputTokens!
+    options.accumulator.outputTokens += outputTokens!
+    if (usage.cachedInputTokens === undefined) options.accumulator.cachedInputTokensComplete = false
+    else options.accumulator.cachedInputTokens += usage.cachedInputTokens
+    if (usage.reasoningOutputTokens === undefined) options.accumulator.reasoningOutputTokensComplete = false
+    else options.accumulator.reasoningOutputTokens += usage.reasoningOutputTokens
+    options.accumulator.calls.push({
+      ...(options.model ? { model: options.model } : {}),
+      provider: options.provider,
+      raw: usage,
+      usage: {
+        details: {
+          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+        },
+        ...(usage.cachedInputTokens === undefined ? {} : { inputTokenDetails: { cacheReadTokens: usage.cachedInputTokens } }),
+        inputTokens,
+        outputTokens,
+        totalTokens: partitionTotal,
+      },
+    })
+    options.accumulator.observedPartition = true
+  }
+  options.accumulator.previousTotalProcessedTokens = cumulative
+  options.accumulator.lastSignature = signature
+  const accumulatedPartition = options.provider === "codex" && options.accumulator.observedPartition && options.accumulator.partitionComplete
+  const totalTokens = accumulatedPartition
+    ? options.accumulator.inputTokens + options.accumulator.outputTokens
+    : options.provider === "codex" && options.accumulator.observedPartition
+      ? undefined
+      : partitionTotal ?? usedTokens ?? (options.resumed ? undefined : cumulative)
   // Codex reports thread-wide totalProcessedTokens alongside latest-response partitions.
-  const includePartition = usage.totalProcessedTokens === undefined || partitionTotal !== undefined
+  const includePartition = options.provider === "codex" ? accumulatedPartition : partitionTotal !== undefined
+  const normalizedInputTokens = options.provider === "codex" ? options.accumulator.inputTokens : inputTokens
+  const normalizedOutputTokens = options.provider === "codex" ? options.accumulator.outputTokens : outputTokens
+  const cachedInputTokens = options.provider === "codex" ? options.accumulator.cachedInputTokens : usage.cachedInputTokens
+  const cachedInputTokensComplete = options.provider !== "codex" || options.accumulator.cachedInputTokensComplete
+  const reasoningOutputTokens = options.provider === "codex" ? options.accumulator.reasoningOutputTokens : usage.reasoningOutputTokens
+  const reasoningOutputTokensComplete = options.provider !== "codex" || options.accumulator.reasoningOutputTokensComplete
   return {
     type: "usage",
     usageRecord: {
+      ...(options.provider === "codex" && options.accumulator.calls.length ? { calls: [...options.accumulator.calls] } : {}),
+      ...(options.model ? { model: options.model } : {}),
+      provider: options.provider,
       ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
       raw: usage,
       usage: {
         details: {
-          ...(!includePartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(!includePartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(!includePartition || !cachedInputTokensComplete || cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+          ...(!includePartition || !reasoningOutputTokensComplete || reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens }),
           ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
-        inputTokens: includePartition ? inputTokens : undefined,
-        outputTokens: includePartition ? outputTokens : undefined,
+        ...(includePartition && cachedInputTokensComplete && cachedInputTokens !== undefined ? { inputTokenDetails: { cacheReadTokens: cachedInputTokens } } : {}),
+        inputTokens: includePartition ? normalizedInputTokens : undefined,
+        outputTokens: includePartition ? normalizedOutputTokens : undefined,
         totalTokens,
       },
     },
@@ -1894,12 +1969,27 @@ function providerMessagePhase(event: Extract<ProviderRuntimeEvent, { type: "item
   if (phase === "final" || phase === "final_answer") return "final"
 }
 
-function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefined, messagePhases: ReadonlyMap<string, "commentary" | "final">): StreamEvent[] {
+function providerTextDeltaId(event: Extract<ProviderRuntimeEvent, { type: "content.delta" }>): string {
+  const payload = record(event.payload)
+  const segment = hasRuntimeType(payload?.summaryIndex, "number")
+    ? payload.summaryIndex
+    : hasRuntimeType(payload?.contentIndex, "number")
+      ? payload.contentIndex
+      : 0
+  return [event.payload.streamKind, event.itemId ?? event.turnId ?? "provider", segment].join(":")
+}
+
+function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefined, messagePhases: ReadonlyMap<string, "commentary" | "final">, options: {
+  accumulator: ProviderInvocationUsageAccumulator
+  model?: string
+  provider: "claude-code" | "codex"
+  resumed: boolean
+}): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
-      if (event.payload.streamKind === "assistant_text") return [{ phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
+      if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
-      return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
+      return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
       const details = providerToolDetails(event)
       return isProviderToolItem(event.itemId, event.payload.itemType)
@@ -1927,7 +2017,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
     case "user-input.resolved":
       return event.requestId ? [{ data: { answers: event.payload.answers, requestId: event.requestId, status: "resolved" }, type: "data-agent-input" }] : [providerDataEvent(event)]
     case "thread.token-usage.updated":
-      return [usageEvent(event)]
+      return [usageEvent(event, options)]
     case "runtime.error":
       return [{ error: event.payload.message, type: "error" }]
     case "runtime.warning":
@@ -2432,6 +2522,17 @@ async function* runProvider<
       rejectAbort?.(effectiveSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
     }
     const messagePhases = new Map<string, "commentary" | "final">()
+    const usageAccumulator: ProviderInvocationUsageAccumulator = {
+      cachedInputTokens: 0,
+      cachedInputTokensComplete: true,
+      calls: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      partitionComplete: true,
+      reasoningOutputTokens: 0,
+      reasoningOutputTokensComplete: true,
+      observedPartition: false,
+    }
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
     for (;;) {
@@ -2463,7 +2564,12 @@ async function* runProvider<
         const phase = providerMessagePhase(current.value)
         if (phase) messagePhases.set(current.value.itemId, phase)
       }
-      const normalized = providerEvent(current.value, context.tools, messagePhases)
+      const normalized = providerEvent(current.value, context.tools, messagePhases, {
+        accumulator: usageAccumulator,
+        model: options.model,
+        provider: options.provider,
+        resumed,
+      })
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") {
