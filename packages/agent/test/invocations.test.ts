@@ -222,7 +222,7 @@ describe("Agent Invocations", () => {
     await runAgent(agent, runtime("yaml-scalar"), {})
     const observations = (await invocations.getByRunId("yaml-scalar"))!.observations
     const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
-    expect(content).toBe(`config:\n  ${key}:[REDACTED]\n  status: ok\n`)
+    expect(content).toBe(`config:\n  ${key}: [REDACTED]\n  status: ok\n`)
   })
 
   it.each([2, 100, 400])("rejects configuration updates when the marker cannot fit a %i-byte budget", (maxBytes) => {

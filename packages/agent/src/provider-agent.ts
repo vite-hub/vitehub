@@ -2332,11 +2332,20 @@ async function* runProvider<
     // Deliver instructions through AGENTS.md, keeping documents out of argv and
     // preserving explicit caller developer_instructions configuration.
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
+    const auxiliaryLaunchArgs = auxiliary && options.provider === "codex"
+      ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
+      : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
+      auxiliaryLaunchArgs,
       generatedLaunchArgs,
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
+    // The runtime prefers environment arguments over settings, so auxiliary
+    // overrides must carry the inherited settings and managed credential flags.
+    if (auxiliaryLaunchArgs !== undefined && launchArgs !== undefined) {
+      providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
+    }
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
       binaryPath: providerLauncher || providerExecutable,
