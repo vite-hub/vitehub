@@ -308,13 +308,14 @@ it("keeps a closed marker-like credential attached to its assignment", () => {
 
 it.each([
   ["Authorization: ", "ghp_sensitive", ";status=ok"],
+  ["Authorization: ", "ghp_sensitive status=private", "\nstatus=ok"],
   ["Authorization: ", "x".repeat(300), "\nstatus=ok"],
   ["Proxy-Authorization: ", "raw-token+/=", "\nstatus=ok"],
   ['{"authorization":"', "sensitive-value", '", "status":"ok"}'],
   ["Authorization: token ", "ghp_sensitive", ";status=ok"],
   ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
   ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
-  ['{"authorization":"Custom-Auth ', "sensitive-value", '", "status":"ok"}'],
+  ['{"authorization":"', "Custom-Auth sensitive-value", '", "status":"ok"}'],
 ])("redacts explicit %s headers across every credential boundary", (prefix, credential, suffix) => {
   expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
   for (let split = 0; split <= credential.length; split++) {

@@ -79,7 +79,9 @@ export function consumeAuthorization(value: string, state: AuthorizationState): 
 }
 
 function* authorizationValues(value: string) {
-  const headers = /\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*(["']?)[\t ]*(?:([!#$%&'*+.^_`|~A-Za-z0-9-]+)[\t ]+)?/gi
+  // Only established scheme names may remain visible. An arbitrary first token
+  // can itself be a schemeless credential, even when more header text follows.
+  const headers = /\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*(["']?)[\t ]*(?:(Bearer|Basic|Digest|Token|ApiKey|Negotiate|AWS4-HMAC-SHA256)[\t ]+)?/gi
   for (const match of value.matchAll(headers)) {
     if (/^(Bearer|Basic)$/i.test(match[2]!)) continue
     const start = match.index + match[0].length

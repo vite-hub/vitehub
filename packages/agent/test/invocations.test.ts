@@ -68,15 +68,21 @@ describe("Agent Invocations", () => {
 
   it.each([
     ["Authorization: ", "ghp_sensitive", ";status=ok"],
+    ["Authorization: ", "ghp_sensitive status=private", "\nstatus=ok"],
     ["Authorization: ", "x".repeat(300), "\nstatus=ok"],
     ["Proxy-Authorization: ", "raw-token+/=", "\nstatus=ok"],
     ['{"authorization":"', "sensitive-value", '", "status":"ok"}'],
     ["Authorization: token ", "ghp_sensitive", ";status=ok"],
     ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
     ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
-    ['{"authorization":"Custom-Auth ', "sensitive-value", '", "status":"ok"}'],
+    ['{"authorization":"', "Custom-Auth sensitive-value", '", "status":"ok"}'],
   ])("redacts bounded custom authorization headers: %s", async (prefix, credential, suffix) => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({
+      content: "content",
+      // Every character also emits a tool event. Keep the complete test trace.
+      observations: { maxCount: 1024 },
+      store: createMemoryAgentInvocationStore(),
+    })
     const padding = ".".repeat(512)
     const agent = defineAgent({
       driver: { async run(context) {
