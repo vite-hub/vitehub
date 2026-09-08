@@ -57,7 +57,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?(?:\s*(?:\?=|\+=|:=|[:=])[\t ]*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?(?:\s*(?:\?=|\+=|:=|[:=])[\t ]*|(?:(?<=--["']?[A-Z][A-Z0-9_-]*["']?)|(?<=\bPASSWORD))\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
@@ -142,6 +142,10 @@ export interface CredentialAssignmentState {
   yaml?: { header: boolean, modifiers: boolean, plain?: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
 }
 
+// Retain ordinary separators without letting whitespace-only stream deltas
+// grow the redaction state without bound.
+const maxYamlSeparatorLength = 1024
+
 function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
   const line = source.slice(0, offset).split("\n").at(-1) ?? ""
   const yamlIndent = /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
@@ -192,14 +196,18 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     else if (!state.started && state.yamlIndent !== undefined && !/["'{[]/.test(character)) {
       state.yaml = { header: false, modifiers: false, plain: true, line: false, spaces: 0, whitespace: "" }
     }
-    if (!state.started && (character === "{" || character === "[")) state.structureClosers = [character === "{" ? "}" : "]"]
+    if (!state.started && (character === "{" || character === "[")) {
+      state.structureClosers = [character === "{" ? "}" : "]"]
+      state.started = true
+      continue
+    }
     state.started = true
     if (state.yaml) {
       const yaml = state.yaml
       // Plain YAML scalars include spaces and shell punctuation. Only a
       // separated comment or a dedented line ends the credential value.
       if (yaml.plain && character === "#" && (yaml.line || yaml.whitespace)) {
-        if (yaml.line) yaml.whitespace += " ".repeat(yaml.spaces)
+        if (yaml.line) yaml.whitespace += " ".repeat(Math.min(yaml.spaces, maxYamlSeparatorLength - yaml.whitespace.length))
         return index
       }
       if (yaml.header) {
@@ -222,7 +230,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
         else {
           const indent = yaml.spaces
           if (indent < (yaml.indent ?? state.yamlIndent! + 1)) {
-            yaml.whitespace += " ".repeat(indent)
+            yaml.whitespace += " ".repeat(Math.min(indent, maxYamlSeparatorLength - yaml.whitespace.length))
             return index
           }
           if (!yaml.plain) yaml.indent ??= indent
@@ -231,7 +239,8 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
         }
       }
       else if (yaml.plain) {
-        yaml.whitespace = /[\t \r]/.test(character) ? yaml.whitespace + character : ""
+        if (!/[\t \r]/.test(character)) yaml.whitespace = ""
+        else if (yaml.whitespace.length < maxYamlSeparatorLength) yaml.whitespace += character
       }
       continue
     }

@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
 describe("plain YAML credential scalars", () => {
+  it.each(["", "\n"])("bounds retained separators after a credential and %j", (lineBreak) => {
+    const state = pendingCredentialAssignmentState("password: sensitive" + lineBreak)!
+    for (let chunk = 0; chunk < 128; chunk++) {
+      expect(consumeCredentialAssignment(" ".repeat(1024), state)).toBe(1024)
+      expect(state.yaml!.whitespace.length).toBeLessThanOrEqual(1024)
+    }
+    expect(consumeCredentialAssignment("# public comment\nstatus: ok", state)).toBe(0)
+    expect(state.yaml!.whitespace.length).toBeLessThanOrEqual(1024)
+    expect(state.yaml!.whitespace.startsWith(lineBreak)).toBe(true)
+  })
+
   it.each([
     ["password: ", "correct horse battery", "\nstatus: ok"],
     ["api_token: ", "sensitive value", " # public comment\nstatus: ok"],
@@ -151,6 +162,14 @@ it.each(["API_TOKEN ?= sensitive", "PASSWORD += secret", "PASSWORD := value"]) (
 
 it("redacts whitespace-delimited netrc passwords", () => {
   expect(redactCredentialText("machine example.com login alice password sensitive-value")).toBe("machine example.com login alice password [REDACTED]")
+  const context = "machine example.com login alice "
+  for (let split = 0; split <= "sensitive-value".length; split++) {
+    const state = pendingCredentialAssignmentState("password " + "sensitive-value".slice(0, split), context)!
+    expect(state).toBeDefined()
+    const rest = "sensitive-value".slice(split) + "\nmachine next.example"
+    expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe("\nmachine next.example")
+  }
+  expect(redactCredentialText("Choose a password with several words")).toBe("Choose a password with several words")
 })
 
 it.each([
