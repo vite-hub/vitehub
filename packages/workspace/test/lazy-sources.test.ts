@@ -57,7 +57,7 @@ describe("lazy sources", () => {
     await expect(store.stat("second/file.md")).resolves.toBeUndefined()
   })
 
-  it.each([false, true])("preserves startup source precedence after listing with an earlier read=%s", async (readFirst) => {
+  it.each([false, true].flatMap(readFirst => ["list", "glob"].flatMap(operation => ["memory", "local"].map(storeType => ({ readFirst, operation, storeType })))))("preserves startup source precedence after $operation with an earlier read=$readFirst on $storeType", async ({ readFirst, operation, storeType }) => {
     const definition = {
       name: "startup-list-precedence",
       sources: {
@@ -66,11 +66,14 @@ describe("lazy sources", () => {
         root: custom({ materialize: "startup", mount: "", files: [{ path: "docs/shared.md", content: "root" }] }),
       },
     }
-    const view = createWorkspaceSourceView(definition, createMemoryWorkspaceStore())
+    const store = storeType === "local" ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
     if (readFirst) await expect(view.readFile("docs/shared.md")).resolves.toBe("first")
-    await view.list("docs", { recursive: true })
+    if (operation === "glob") await view.glob("docs/**/*.md")
+    else await view.list("docs", { recursive: true })
     await expect(view.readFile("docs/shared.md")).resolves.toBe("first")
-    await view.list("", { recursive: true })
+    if (operation === "glob") await view.glob("**/*.md")
+    else await view.list("", { recursive: true })
     await expect(view.readFile("docs/shared.md")).resolves.toBe("first")
   })
 

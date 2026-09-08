@@ -670,7 +670,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     async glob(pattern, options) {
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
       await ensurePreparedSources()
-      await ensureMaterializedSources(sources.filter(source => !usesLiveProvider(source)))
+      await ensureMaterializedSources(sources.filter(source => source.materialize !== "startup" && !usesLiveProvider(source)))
+      await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => source.materialize === "startup" && !usesLiveProvider(source)))
 
       const result = new Map<string, WorkspaceEntry>()
       for (const entry of await store.glob(patterns, options)) {
