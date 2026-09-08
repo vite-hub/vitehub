@@ -35,7 +35,8 @@ import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
-  if (!isRuntimeRecord(input)) return false
+  if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
+  if (!("~standard" in input)) return false
   const standard = input["~standard"]
   return isRuntimeRecord(standard) && hasRuntimeType(standard.validate, "function")
 }

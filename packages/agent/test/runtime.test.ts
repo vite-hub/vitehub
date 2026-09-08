@@ -3083,17 +3083,19 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("channel:portal:hello")
   })
 
-  it("validates and transforms Standard Schema trigger input before invoke", async () => {
+  it.each([false, true])("validates and transforms Standard Schema trigger input before invoke (callable: %s)", async (callable) => {
     const { defineAgent, resolveAgentTriggerInvocation, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
     const validation = vi.fn((value: string) => value.length > 0)
+    const schema = v.object({ payload: v.object({ text: v.pipe(v.string(), v.trim(), v.check(validation, "private validation detail")) }) })
+    const inputSchema = callable ? Object.assign(() => {}, { "~standard": schema["~standard"] }) : schema
     const agent = defineAgent({
       channels: {
         portal: defineChannel("portal", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({
-              input: v.object({ payload: v.object({ text: v.pipe(v.string(), v.trim(), v.check(validation, "private validation detail")) }) }),
+              input: inputSchema,
               invoke: (_context, input) => ({ input: { prompt: input.payload.text } }),
               webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
             }),
