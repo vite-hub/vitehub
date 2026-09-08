@@ -57,6 +57,29 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each([
+    "",
+    "{",
+    JSON.stringify({ path: "other.txt", metadata: { source: "docs" } }),
+    JSON.stringify({ path: "file.txt", metadata: { source: 123 } }),
+    JSON.stringify({ path: "file.txt", metadata: null }),
+    JSON.stringify({ path: "file.txt", metadata: [] }),
+  ])("rejects corrupt ownership metadata across reads: %j", async (content) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("file.txt", { path: "file.txt", content: "protected", metadata: { source: "docs" } })
+    await expect(store.readFile("file.txt")).resolves.toMatchObject({ metadata: { source: "docs" } })
+    await writeFile(`${metadataRoot(root)}/file.txt/metadata.json`, content)
+
+    for (const reader of [store, createLocalWorkspaceStore(root)]) {
+      await expect(reader.readFile("file.txt")).rejects.toThrow("Invalid Workspace metadata for file.txt")
+      await expect(reader.stat("file.txt")).rejects.toThrow("Invalid Workspace metadata for file.txt")
+      await expect(reader.list("", { recursive: true })).rejects.toThrow("Invalid Workspace metadata for file.txt")
+      await expect(reader.snapshot()).rejects.toThrow("Invalid Workspace metadata for file.txt")
+    }
+    await expect(readFile(`${root}/file.txt`, "utf8")).resolves.toBe("protected")
+  })
+
   it("persists file attributes when only the configured root is writable", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
@@ -1014,8 +1037,8 @@ describe("local workspace store", () => {
 
   it.each([
     { path: "file.txt", mediaType: 42, metadata: { owner: "browser" }, expected: { mediaType: undefined, metadata: { owner: "browser" } } },
-    { path: "file.txt", mediaType: "text/plain", metadata: [], expected: { mediaType: "text/plain", metadata: undefined } },
-    { path: "other.txt", mediaType: "text/plain", metadata: { owner: "browser" }, expected: { mediaType: undefined, metadata: undefined } },
+    { path: "file.txt", mediaType: "text/plain", metadata: [], expected: undefined },
+    { path: "other.txt", mediaType: "text/plain", metadata: { owner: "browser" }, expected: undefined },
   ])("validates persisted attributes at the file boundary: %j", async ({ expected, ...attributes }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(root)
@@ -1026,6 +1049,12 @@ describe("local workspace store", () => {
     })
     await writeFile(`${metadataRoot(root)}/file.txt/metadata.json`, JSON.stringify(attributes))
     const restarted = createLocalWorkspaceStore(root)
+    if (!expected) {
+      await expect(restarted.readFile("file.txt")).rejects.toThrow("Invalid Workspace metadata for file.txt")
+      await expect(restarted.stat("file.txt")).rejects.toThrow("Invalid Workspace metadata for file.txt")
+      await expect(restarted.list("", { recursive: true })).rejects.toThrow("Invalid Workspace metadata for file.txt")
+      return
+    }
     await expect(restarted.readFile("file.txt")).resolves.toMatchObject(expected)
     await expect(restarted.stat("file.txt")).resolves.toMatchObject(expected)
     await expect(restarted.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([

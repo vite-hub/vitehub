@@ -358,19 +358,19 @@ class LocalWorkspaceStore implements WorkspaceStore {
     finally {
       await file.close()
     }
-    if (!content) return
     let value: unknown
     try { value = JSON.parse(content) }
     catch { throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`) }
     const parsed = safeParse(object({
       path: literal(path),
       mediaType: fallback(optional(string()), undefined),
-      metadata: fallback(optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
+      metadata: optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
         const source = value.source
         return source === undefined || safeParse(string(), source).success
-      }))), undefined),
+      }))),
     }), value)
-    if (!parsed.success) return
+    // Invalid ownership must not turn a Source file into an ordinary writable file.
+    if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
     const { path: _path, ...result } = parsed.output
     // Keep scans larger than the cache from evicting every reusable entry.
     if (this.#files.has(path) || this.#files.size < 1024) {
