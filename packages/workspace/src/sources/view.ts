@@ -8,6 +8,7 @@ import {
   hasCurrentSourceSnapshot,
   hasFreshSourceSnapshot,
   materializesCompleteSource,
+  materializedFileMatches,
   materializeWorkspaceSources,
   readCurrentSourceSnapshot,
   readResolvedSourceFile,
@@ -352,14 +353,16 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensureStartupPointPath(source: (typeof sources)[number], path: string) {
     const initial = await ensureMaterialized(source.key)
     if (initial?.sources.some(item => item.status === "error")) return false
-    if (await store.stat(path)) return true
-
+    const entry = await store.stat(path)
     const snapshot = await readCurrentSourceSnapshot(store, source)
+    const item = snapshot?.items?.[path]
+    if (entry && (entry.type !== "file" || !item || await materializedFileMatches(await store.readFile(path), item))) return true
+
     const indexed = Object.keys(snapshot?.items || {}).some(item => item === path || item.startsWith(`${path}/`))
     if (!indexed) return false
 
-    // A missing persisted path needs a real recovery, bypassing completion and
-    // refresh:false reuse. Unknown paths must not refresh a complete snapshot.
+    // Missing or overwritten persisted files need recovery, bypassing completion
+    // and refresh:false reuse. Unknown paths must not refresh a complete snapshot.
     const recovery = await materializeSerialized({ sources: [source.key] })
     if (recovery.sources.some(item => item.status === "error")) return false
     return Boolean(await store.stat(path))

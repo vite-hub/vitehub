@@ -185,7 +185,7 @@ function fileAttributesEqual(
     && (previous.metadata === undefined || isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata)))
 }
 
-async function materializedFileMatches(file: Awaited<ReturnType<WorkspaceStore["readFile"]>>, item: LazyMaterializedMetadata) {
+export async function materializedFileMatches(file: Awaited<ReturnType<WorkspaceStore["readFile"]>>, item: LazyMaterializedMetadata) {
   if (!file) return false
   if (item.materializedContentDigest && await sha256(file.content) !== item.materializedContentDigest) return false
   return !item.materializedAttributes || file.mediaType === item.materializedMediaType

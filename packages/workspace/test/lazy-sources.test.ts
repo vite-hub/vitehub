@@ -35,6 +35,31 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["memory", "local"])("restores the selected startup Source before point reads on %s", async (storeType) => {
+    for (const operation of ["readFile", "stat", "exists"] as const) {
+      for (const content of ["second", "first"]) {
+        const store = storeType === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+        const definition = {
+          name: "startup-point-precedence",
+          sources: {
+            first: custom({ materialize: "startup", mount: "docs", cache: { maxAge: 3600 }, files: [{ path: "shared.md", content: "first", mediaType: "text/markdown" }] }),
+            second: custom({ materialize: "startup", mount: "docs", cache: { maxAge: 3600 }, files: [{ path: "shared.md", content, mediaType: "text/plain" }] }),
+          },
+        }
+        const view = createWorkspaceSourceView(definition, store)
+        await view.materializeSources()
+        await view.materializeSources({ sources: ["second"], path: "docs/shared.md" })
+        await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ metadata: { source: "second" } })
+
+        const result = await view[operation]("docs/shared.md")
+        expect(result).toEqual(operation === "readFile" ? "first" : operation === "exists" ? true : expect.objectContaining({ type: "file" }))
+        const restored = await store.readFile("docs/shared.md")
+        expect(Buffer.from(restored!.content).toString()).toBe("first")
+        expect(restored).toMatchObject({ mediaType: "text/markdown", metadata: { source: "first" } })
+      }
+    }
+  })
+
   it.each(["memory", "local"])("restores cached startup precedence after a scoped lower-priority write on %s", async (storeType) => {
     const store = storeType === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
     const definition = {
