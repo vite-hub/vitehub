@@ -14,7 +14,7 @@ export function sameInlineInvoker(left: unknown, right: unknown, pairs = new Map
     if (prototype === Date.prototype) {
       if (!Object.is(Date.prototype.getTime.call(left), Date.prototype.getTime.call(right))) return false
     } else if (prototype === Map.prototype || prototype === Set.prototype) {
-      const entries = (value: object) => prototype === Map.prototype
+      const entries = (value: unknown) => prototype === Map.prototype
         ? [...Map.prototype.entries.call(value)]
         : [...Set.prototype.entries.call(value)]
       const a = entries(left)
@@ -29,9 +29,10 @@ export function sameInlineInvoker(left: unknown, right: unknown, pairs = new Map
       const get = Object.getOwnPropertyDescriptor(URL.prototype, "href")!.get!
       if (get.call(left) !== get.call(right)) return false
     } else if (prototype === ArrayBuffer.prototype || (ArrayBuffer.isView(left) && ArrayBuffer.isView(right))) {
-      const bytes = (value: object) => {
+      const bytes = (value: unknown) => {
         if (prototype === ArrayBuffer.prototype) {
           const length = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")!.get!.call(value)
+          // SAFETY: The intrinsic byteLength getter above rejects values without ArrayBuffer internal slots.
           return new Uint8Array(value as ArrayBuffer, 0, length)
         }
         const viewPrototype = prototype === DataView.prototype ? DataView.prototype : Object.getPrototypeOf(Uint8Array.prototype)
