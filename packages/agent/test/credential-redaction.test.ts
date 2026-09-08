@@ -333,3 +333,33 @@ it("retains an incomplete custom authorization scheme", () => {
   expect(pendingCredentialTextSuffix("prefix Authorization: Custom-Au")).toBe("Authorization: Custom-Au")
   expect(redactCredentialText("Use token examples and Digest prose")).toBe("Use token examples and Digest prose")
 })
+
+
+it.each(["|", ">-", "|+", "|2", ">2-", "|-2", "| # 9 is a comment"])("redacts YAML block scalar %s through its dedent", (indicator) => {
+  const prefix = "config:\n  private_key: "
+  const scalar = `${indicator}\n    -----BEGIN PRIVATE KEY-----\n    sensitive-value\n\n    -----END PRIVATE KEY-----`
+  const suffix = "\n  status: ok\nnext: retained"
+  expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+  for (let split = 0; split <= scalar.length; split++) {
+    const first = prefix + scalar.slice(0, split)
+    const state = pendingCredentialAssignmentState(first)
+    expect(state, `split ${split}`).toBeDefined()
+    const rest = scalar.slice(split) + suffix
+    const boundary = consumeCredentialAssignment(rest, state!)
+    expect(state!.yaml!.whitespace + rest.slice(boundary), `split ${split}`).toBe(suffix)
+  }
+})
+
+it("retains YAML scalar redaction state across individual characters", () => {
+  const state = pendingCredentialAssignmentState("api_token: ")!
+  for (const character of ">-\n  sensitive-value\n\n  more-secret\n") {
+    expect(consumeCredentialAssignment(character, state)).toBe(1)
+  }
+  expect(consumeCredentialAssignment("status: ok", state)).toBe(0)
+  expect(state.yaml?.whitespace).toBe("\n")
+})
+
+it("uses preceding indentation for a retained YAML key", () => {
+  expect(redactCredentialText("api_token: |\n    secret\n  status: ok", "  "))
+    .toBe("api_token: [REDACTED]\n  status: ok")
+})
