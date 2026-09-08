@@ -2386,8 +2386,8 @@ async function* runProvider<
     }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
-      ...capabilityEnvironment,
       ...providerEnvironmentOverrides,
+      ...capabilityEnvironment,
       ...(capabilityEnvironment?.PATH
         ? { PATH: `${capabilityEnvironment.PATH}${delimiter}${providerEnvironmentOverrides?.PATH || process.env.PATH || ""}` }
         : {}),

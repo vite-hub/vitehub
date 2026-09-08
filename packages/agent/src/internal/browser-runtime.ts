@@ -11,7 +11,7 @@ const agentBrowserVersion = "0.35.2"
 const puppeteerBrowsersVersion = "2.10.10"
 const chromiumBundleVersion = "149.0.0"
 const chromeForTestingVersion = "149.0.7827.155"
-const browserRuntimeEnvironmentContextKey = "vitehub.browser.runtime.environment"
+const browserRuntimeEnvironments = new WeakMap<AgentInvocationContextStore, Readonly<Record<string, string>>>()
 const preparations = new Map<string, Promise<PreparedBrowserRuntime>>()
 
 export interface PreparedBrowserRuntime {
@@ -255,14 +255,11 @@ export function resetBrowserRuntimePreparationForTest(): void {
 }
 
 export function provideBrowserRuntimeEnvironment(context: AgentInvocationContextStore, environment: Readonly<Record<string, string>>): void {
-  context.set(browserRuntimeEnvironmentContextKey, environment, { overwrite: true })
+  browserRuntimeEnvironments.set(context, environment)
 }
 
 export function browserRuntimeEnvironment(context: AgentInvocationContextStore): Readonly<Record<string, string>> | undefined {
-  const value = context.get(browserRuntimeEnvironmentContextKey)
-  if (!isRuntimeRecord(value) || Object.values(value).some(item => !hasRuntimeType(item, "string"))) return
-  // SAFETY: Every own value was parsed as a string at the invocation context boundary.
-  return value as Readonly<Record<string, string>>
+  return browserRuntimeEnvironments.get(context)
 }
 
 export async function closeBrowserRuntimeSession(environment: Readonly<Record<string, string>>): Promise<void> {

@@ -31,6 +31,17 @@ afterEach(async () => {
 })
 
 describe("browser runtime", () => {
+  it("does not accept input context as a managed browser environment", () => {
+    const context = createAgentInvocationContextStore({
+      "vitehub.browser.runtime.environment": { NODE_OPTIONS: "--require=untrusted.cjs", PATH: "/untrusted/bin" },
+    })
+    expect(browserRuntimeEnvironment(context)).toBeUndefined()
+    const environment = Object.freeze({ PATH: "/managed/bin" })
+    provideBrowserRuntimeEnvironment(context, environment)
+    context.set("vitehub.browser.runtime.environment", { PATH: "/replacement/bin" }, { overwrite: true })
+    expect(browserRuntimeEnvironment(context)).toBe(environment)
+  })
+
   it("scopes prepared environment to one invocation", () => {
     const one = createAgentInvocationContextStore(), two = createAgentInvocationContextStore()
     const env = Object.freeze({ PATH: "/managed/bin" })

@@ -137,11 +137,12 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
   }
   const skillPath = normalizeSkillPath(options.skillPath || ".agents/skills/agent-browser/SKILL.md")
   const sourceKey = options.sourceKey || "skill.browser"
+  const runtimeMode = options.runtime ?? (options.command === undefined ? "managed" : "external")
   let skillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
 
   return Object.assign(defineCapability({
     id: "browser",
-    metadata: { command, skillPath, sourceKey },
+    metadata: { command, runtime: runtimeMode, skillPath, sourceKey },
     output(context) {
       if (context.driver?.kind === "provider") {
         context.output.final(result => attachBrowserScreenshots(result, context), { order: "last" })
@@ -150,8 +151,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
     async prepare(context) {
       if (context.driver?.kind !== "provider") throw agentDiagnostics.AGENT_R0026({ message: "[vitehub] browser() requires a Provider Agent Driver." })
-      const managed = options.runtime === "managed" || (options.runtime === undefined && options.command === undefined)
-      if (!managed) return
+      if (runtimeMode !== "managed") return
       const runtime = await prepareBrowserRuntime()
       provideBrowserRuntimeEnvironment(context.context, Object.freeze({
         ...runtime.environment,

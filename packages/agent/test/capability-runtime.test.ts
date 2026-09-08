@@ -843,6 +843,13 @@ describe("agent capability runtime", () => {
     expect(content).not.toContain("Blob")
   })
 
+  it("exposes the effective browser runtime in inspection metadata", async () => {
+    const { browser } = await import("../src/capabilities.ts")
+    expect(browser().metadata).toMatchObject({ runtime: "managed" })
+    expect(browser({ runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
+    expect(browser({ command: "custom-browser" }).metadata).toMatchObject({ runtime: "external" })
+  })
+
   it("rejects a custom command for the managed browser runtime", async () => {
     const { browser } = await import("../src/capabilities.ts")
     expect(() => browser({ command: "custom-browser", runtime: "managed" })).toThrow('runtime: "external"')
