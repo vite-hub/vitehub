@@ -16615,6 +16615,55 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["agent", "channel"] as const)("isolates repeated message IDs on one backend with %s lock scope", async (lockScope) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-shared-backend-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    adapter.channelIdFromThreadId.mockReturnValue("shared-channel")
+    const runIds: string[] = []
+    const invocationIds: string[] = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope, state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          runIds.push(runId)
+          invocationIds.push(await agentInvocationId(runId, context.agentIdentity?.name))
+          return "Independent reply"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    try {
+      await state.connect()
+      for (const chatId of [456, 457]) {
+        // Simulate a later delivery after the provider message dedupe window expires.
+        await state.delete("dedupe:telegram:91119")
+        const response = await handler(chatWebhookRequest(91_119, chatId), "telegram", { agentIdentity: { name: "calories" } })
+        expect(response.status).toBe(200)
+      }
+      expect(runIds).toHaveLength(2)
+      expect(new Set(runIds).size).toBe(2)
+      expect(new Set(invocationIds).size).toBe(2)
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("preserves inline invocation identity when a failed delivery is reconstructed", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationId } = await import("../src/invocations.ts")

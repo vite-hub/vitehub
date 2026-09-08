@@ -4807,8 +4807,9 @@ async function handleChatSdkMessage(
     )
     // Provider message IDs can repeat across chats and Agent instances, while
     // inline input handlers share one process-wide invocation registry. Keep the
-    // owner namespace stable so delivery retries retain their journal identity.
-    if (inlineKey && input.run) input.run = { ...input.run, runId: JSON.stringify([inlineKey, input.run.runId]) }
+    // owner and thread namespaces stable so delivery retries retain their journal
+    // identity even when several threads share the steering lock scope.
+    if (inlineKey && input.run) input.run = { ...input.run, runId: JSON.stringify([inlineKey, thread.id, input.run.runId]) }
     if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
       input.timeout = options.timeout
     }
