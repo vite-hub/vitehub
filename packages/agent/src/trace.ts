@@ -485,10 +485,27 @@ function isAgentDataStreamEvent(event: StreamEvent): event is AgentDataStreamEve
   return event.type === "data-agent-event"
 }
 
+function createStreamTraceTiming<TRuntimeConfig extends AgentRuntimeConfig>(context: AgentTraceContext<TRuntimeConfig>) {
+  let tracingMs = 0
+  return {
+    track: createToolDurationTracker(() => Date.now() - tracingMs),
+    async trace(event: StreamEvent) {
+      const startedAt = Date.now()
+      try {
+        await traceAgentStreamEvent(context, event)
+      }
+      finally {
+        // Callers await tracing before observing the next provider event.
+        tracingMs += Math.max(0, Date.now() - startedAt)
+      }
+    },
+  }
+}
+
 export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
 ) {
-  const trackToolDuration = createToolDurationTracker()
+  const timing = createStreamTraceTiming(context)
   let pendingText: Extract<StreamEvent, { type: "text-delta" }> | undefined
   let pendingCommandOutput: AgentDataStreamEvent | undefined
   const flush = async () => {
@@ -496,12 +513,13 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
     pendingText = undefined
     pendingCommandOutput = undefined
     for (const event of events) {
-      if (event) await traceAgentStreamEvent(context, event)
+      if (event) await timing.trace(event)
     }
   }
   return {
     flush,
     async write(event: StreamEvent) {
+      const tracedEvent = timing.track(event)
       const data = event.type === "data-agent-event" ? record(event.data) : undefined
       const value = record(data?.value)
       if (isAgentDataStreamEvent(event) && data?.kind === "content.delta" && value?.streamKind === "command_output" && hasRuntimeType(value.delta, "string")) {
@@ -523,7 +541,7 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
       }
       if (event.type !== "text-delta" || !hasRuntimeType(event.text, "string")) {
         await flush()
-        await traceAgentStreamEvent(context, trackToolDuration(event))
+        await timing.trace(tracedEvent)
         return
       }
       if (pendingText
@@ -559,9 +577,10 @@ export function traceAgentStreamEvents<TRuntimeConfig extends AgentRuntimeConfig
   context: AgentTraceContext<TRuntimeConfig>,
 ): AsyncIterable<StreamEvent> {
   return (async function* () {
-    const trackToolDuration = createToolDurationTracker()
+    const timing = createStreamTraceTiming(context)
     for await (const event of events) {
-      await traceAgentStreamEvent(context, trackToolDuration(event as StreamEvent))
+      // SAFETY: Provider stream events follow the stream event contract.
+      await timing.trace(timing.track(event as StreamEvent))
       // SAFETY: Trace normalization establishes the asserted telemetry event contract.
       yield event as StreamEvent
     }
