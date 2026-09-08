@@ -289,6 +289,30 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
+  it("reports mount stat errors per Source and continues materializing later Sources", async () => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const definition = {
+      name: "startup-mount-stat-error",
+      sources: {
+        blocked: custom({ materialize: "startup" as const, mount: "parent/docs", files: [] }),
+        healthy: custom({ materialize: "startup" as const, mount: "healthy", files: [{ path: "ok.md", content: "ready" }] }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["blocked"] })
+    await rm(join(root, "parent"), { recursive: true })
+    await writeFile(join(root, "parent"), "user replacement")
+
+    const result = await createWorkspaceSourceView({ ...definition }, store).materializeSources()
+
+    expect(result.sources).toEqual([
+      expect.objectContaining({ source: "blocked", status: "error", error: expect.stringContaining("ENOTDIR") }),
+      expect.objectContaining({ source: "healthy", status: "ready" }),
+    ])
+    expect(await readFile(join(root, "healthy/ok.md"), "utf8")).toBe("ready")
+    expect(await readFile(join(root, "parent"), "utf8")).toBe("user replacement")
+  })
+
   it.each(["stat", "exists"] as const)("refreshes root startup Sources before the first %s", async (operation) => {
     for (const reuseStartupSnapshots of [false, true]) {
       for (const removed of [false, true]) {

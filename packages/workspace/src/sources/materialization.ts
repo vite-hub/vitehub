@@ -647,7 +647,6 @@ async function materializeWorkspaceSourcesInternal(
 
     let ownsMount = Boolean(source.mountPath)
       && existing?.mountPath === source.mountPath && existing.ownsMount === true
-      && Boolean(await store.stat(source.mountPath))
     const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let revision = existing?.revision
@@ -679,6 +678,7 @@ async function materializeWorkspaceSourcesInternal(
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
     try {
+      if (ownsMount) ownsMount = Boolean(await store.stat(source.mountPath))
       const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
       throwIfAborted(options.abortSignal)
       await prepareWorkspaceSource(source.source, ctx)
