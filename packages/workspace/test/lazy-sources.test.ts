@@ -128,6 +128,39 @@ describe("lazy sources", () => {
     await expect(store.getMeta?.("source:second:snapshot")).resolves.toMatchObject({ status: "ready" })
   })
 
+  it.each(["search", "list"].flatMap(operation => [false, true].flatMap(local => [false, true].map(readyLowerSource => ({ operation, local, readyLowerSource })))))("rematerializes incomplete inspection snapshots during $operation with local=$local and readyLowerSource=$readyLowerSource", async ({ operation, local, readyLowerSource }) => {
+    const rootDir = await mkdtemp(join(tmpdir(), "workspace-inspection-incomplete-"))
+    tempDirs.push(rootDir)
+    const store = local ? createLocalWorkspaceStore(rootDir) : createMemoryWorkspaceStore()
+    const getItem = vi.fn(async (key: string) => ({ key, content: "higher needle" }))
+    const definition = {
+      name: "inspection-incomplete",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", getKeys: async () => ["shared.md"], getItem }),
+        second: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "lower needle" }] }),
+      },
+    }
+    const initial = createWorkspaceSourceView(definition, store)
+    if (readyLowerSource) await initial.list("docs", { recursive: true })
+    else await initial.readFile("docs/shared.md")
+    await store.rm("docs/shared.md")
+    getItem.mockClear()
+
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots: true })
+    if (operation === "search") {
+      await expect(view.search({ pattern: "needle" })).resolves.toEqual([
+        expect.objectContaining({ path: "docs/shared.md", text: "higher needle" }),
+      ])
+    }
+    else {
+      await expect(view.list("docs", { recursive: true })).resolves.toEqual([
+        expect.objectContaining({ path: "docs/shared.md" }),
+      ])
+    }
+    expect(getItem).toHaveBeenCalled()
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("higher needle")
+  })
+
   it("refreshes nested startup files before the first directory listing", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["stale.md"]

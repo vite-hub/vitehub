@@ -354,6 +354,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function materializeStartupSourcesInPrecedenceOrder(items: typeof sources) {
     const preserved = new Map<string, WorkspaceFile[]>()
+    const incomplete = new Set<string>()
     // Capture reusable files before any overlapping lower-priority Source writes.
     if (options.reuseStartupSnapshots) {
       for (const source of items) {
@@ -362,8 +363,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         const files: WorkspaceFile[] = []
         for (const path of Object.keys(snapshot.items || {})) {
           const file = await store.readFile(path)
-          if (file) files.push(file)
+          if (!file) {
+            incomplete.add(source.key)
+            break
+          }
+          files.push(file)
         }
+        if (incomplete.has(source.key)) continue
         preserved.set(source.key, files)
         reusedStartupSources.add(source.key)
       }
@@ -373,7 +379,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       await ensurePrepared(source.key)
       const generation = generationBySource.get(source.key)
       try {
-        if (!preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
+        if (incomplete.has(source.key) || !preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
           await materializeSerialized({ sources: [source.key] })
         }
         else {
