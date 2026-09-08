@@ -3761,6 +3761,8 @@ cli_auth_credentials_store = "keyring"
     expect(instructions.match(/"repository":/g)).toHaveLength(1)
     expect(instructions).toMatch(/^native Codex workspace instructions\n\nMounted source provenance/)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain("developer_instructions")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain("Mounted source provenance")
   })
 
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {
