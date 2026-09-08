@@ -10,6 +10,73 @@ import { hasCurrentSourceSnapshot, hasFreshSourceSnapshot, materializeWorkspaceS
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { workspaceStoreTarget } from "../src/storage/target.ts"
+import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
+import { useWorkspace } from "../src/core/use.ts"
+import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
+import { readWorkspaceSourceMaterializationStatus } from "../src/source-metadata.ts"
+
+it.each([
+  { overlay: false, legacy: false },
+  { overlay: true, legacy: false },
+  { overlay: false, legacy: true },
+  { overlay: true, legacy: true },
+])("preserves local snapshot identity with overlay $overlay and legacy $legacy", async ({ overlay, legacy }) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-metadata-facade-"))
+  const getItem = vi.fn(async (key: string) => ({ key, content: "original" }))
+  const definition = {
+    name: `metadata-facade-${crypto.randomUUID()}`,
+    store: { provider: "local" as const, root },
+    sources: {
+      docs: {
+        cache: { maxAge: 3600 },
+        mount: { path: "" },
+        materialize: "startup" as const,
+        async getKeys() { return ["file.txt"] },
+        getItem,
+      },
+    },
+  }
+  registerWorkspace(definition.name, { store: definition.store, sources: definition.sources })
+  try {
+    const store = createLocalWorkspaceStore(root)
+    await materializeWorkspaceSources(definition, store)
+    const source = normalizeWorkspaceSources(definition.sources)[0]!
+    if (legacy) {
+      // Reproduce a restart from the pre-sidecar snapshot format.
+      const snapshotKey = sourceSnapshotMetaKey(source.key)
+      const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
+      const configHash = await sha256({
+        cache: source.cache, key: source.key, materialize: source.materialize,
+        mountPath: source.mountPath, source: source.source.fingerprint,
+      })
+      await store.setMeta!(snapshotKey, { ...snapshot, configHash })
+      await rm(join(root, ".vitehub", "file-metadata"), { recursive: true, force: true })
+    }
+    const facade = useWorkspace(definition.name)
+    const workspace = overlay ? (await createWorkspaceSourceResolutionFacade(facade, definition, {
+      overlay,
+      invocation: {
+        context: {
+          entries: () => new Map<string, unknown>().entries(),
+          get: () => undefined,
+          has: () => false,
+          toJSON: () => ({}),
+        },
+      },
+    })).workspace : facade
+    const status = await readWorkspaceSourceMaterializationStatus(workspace, source)
+    if (legacy) expect(status).toBeUndefined()
+    else expect(status).toMatchObject({ status: "ready" })
+    await workspace.fs.materializeSources!()
+    if (legacy) expect(getItem.mock.calls.length).toBeGreaterThan(1)
+    else expect(getItem).toHaveBeenCalledTimes(1)
+    await expect(workspace.fs.stat("file.txt")).resolves.toMatchObject({ metadata: { source: "docs" } })
+  }
+  finally {
+    resetWorkspaceRegistry()
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 it.each(["cloudflare-artifacts", "vercel-blob", "github"])("preserves legacy %s snapshots when the upstream source is unavailable", async (provider) => {
   const store = createMemoryWorkspaceStore()

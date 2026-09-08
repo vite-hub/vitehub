@@ -299,6 +299,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     !isLazySourcePath(resolvedDefinition, path)
     || selectedScopeCanSee(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
   )
+  forwardWorkspaceStoreTarget(workspace, overlayStore)
   const sourceView = createWorkspaceSourceView(sourceViewDefinition, overlayStore, { reuseStartupSnapshots: true })
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   const canUseBase = (path: string) => !overlayStore.isTombstoned(normalizeWorkspacePath(path))
@@ -570,6 +571,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     tools,
   }
   forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => overlayStore }, readonlyWorkspace)
+  forwardWorkspaceStoreTarget(workspace, readonlyWorkspace)
   const starter = workspaceSessionStarter(workspace)
   if (starter) {
     readonlyWorkspace.startSession = async options => await starter.startSession(options)

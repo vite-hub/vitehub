@@ -16,7 +16,7 @@ import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./pat
 import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
-import { workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
+import { forwardWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
 import { forwardWorkspaceMetadataTarget, workspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
 
@@ -549,9 +549,9 @@ function createReadonlyFs<Name extends WorkspaceName>(
     ;(readonlyFs as ReadonlyWorkspaceFs<Name> & WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget] = async () => {
       const metadata = await ignoreMissingWorkspace(async () => await resolveMetadata.call(workspace))
       if (!metadata && !assets) return
-      return {
+      const target = {
         getMeta: metadata?.getMeta?.bind(metadata),
-        list: async (path, options) => {
+        list: async (path: string, options?: ListOptions) => {
           // SAFETY: The read-only facade's path belongs to this named Workspace's asset path contract.
           const assetPath = path as WorkspaceAssetPath<Name>
           return mergeEntries(
@@ -560,6 +560,8 @@ function createReadonlyFs<Name extends WorkspaceName>(
           )
         },
       }
+      if (metadata) forwardWorkspaceStoreTarget(metadata, target)
+      return target
     }
   }
   return readonlyFs
@@ -666,5 +668,6 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     tools,
   }
   forwardWorkspaceMetadataTarget(fs, facade)
+  forwardWorkspaceStoreTarget(workspace, facade)
   return facade
 }
