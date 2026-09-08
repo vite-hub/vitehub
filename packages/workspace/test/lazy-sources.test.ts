@@ -429,6 +429,44 @@ describe("lazy sources", () => {
     expect(retainedKeys).toHaveBeenCalledTimes(2)
   })
 
+  it.each([false, true])("retains active startup ownership across concurrent removal with abortable sync %s", async (abortableSync) => {
+    const store = createMemoryWorkspaceStore()
+    let signalStarted!: () => void
+    const started = new Promise<void>((resolve) => { signalStarted = resolve })
+    let release!: () => void
+    const resumed = new Promise<void>((resolve) => { release = resolve })
+    const initial = {
+      name: "active-startup-removal",
+      sources: {
+        removed: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return ["late.md"] },
+          async getItem(key) {
+            signalStarted()
+            await resumed
+            return { key, content: "late write" }
+          },
+        }),
+      },
+    }
+    const materialization = createWorkspaceSourceView(initial, store).materializeSources()
+    await started
+    const next = { name: initial.name, sources: {} }
+    try {
+      await syncWorkspaceDefinition(next, store, abortableSync ? new AbortController().signal : undefined)
+    }
+    finally {
+      release()
+    }
+    await materialization
+    await expect(store.readFile("late.md")).resolves.toMatchObject({ content: "late write" })
+
+    await syncWorkspaceDefinition(next, store)
+    await expect(store.stat("late.md")).resolves.toBeUndefined()
+    await expect(store.getMeta!("workspace:startup-sources")).resolves.toEqual([])
+  })
+
   it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
     const store = createMemoryWorkspaceStore()
     const source = (key: string) => custom({

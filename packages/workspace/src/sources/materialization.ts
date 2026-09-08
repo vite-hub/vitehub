@@ -58,6 +58,7 @@ interface MaterializedStartupSource {
 
 const startupSourcesMetaKey = "workspace:startup-sources"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
+const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Set<ResolvedWorkspaceSource>>()
 
 export interface MaterializationControl {
   isCurrent(): boolean
@@ -332,7 +333,7 @@ export async function reconcileRemovedStartupSources(
   const previous = startupReconciliationByStore.get(materializationStore)
   const current = (async () => {
     await previous
-    await reconcileRemovedStartupSourcesInternal(store, currentSources, control)
+    await reconcileRemovedStartupSourcesInternal(store, currentSources, control, activeStartupSourcesByStore.get(materializationStore))
   })()
   const tail = current.catch(() => {})
   startupReconciliationByStore.set(materializationStore, tail)
@@ -348,12 +349,15 @@ async function reconcileRemovedStartupSourcesInternal(
   store: WorkspaceStore,
   currentSources: ResolvedWorkspaceSource[],
   control: MaterializationControl,
+  activeSources: Set<ResolvedWorkspaceSource> = new Set(),
 ) {
   if (!store.getMeta || !store.setMeta) return
   const value = await store.getMeta(startupSourcesMetaKey)
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
-  for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath)) {
+  const activeOwners = [...activeSources]
+  const isActive = (source: MaterializedStartupSource) => activeOwners.some(active => active.key === source.key && active.mountPath === source.mountPath)
+  for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath && !isActive(source))) {
     const snapshot = await readSourceSnapshotMetadata(store, source.key)
     const invalidatedSnapshot = snapshot && snapshot.mountPath === undefined && snapshot.items === undefined
     if (snapshot?.mountPath !== source.mountPath && !invalidatedSnapshot) continue
@@ -391,7 +395,10 @@ async function reconcileRemovedStartupSourcesInternal(
     await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(source.key), {}))
   }
   // Register before materialization can persist files, including failed or interrupted attempts.
-  await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, currentSources.map(({ key, mountPath }) => ({ key, mountPath }))))
+  // A newer definition must retain owners that can still write or checkpoint files.
+  const trackedSources = [...currentSources, ...activeOwners, ...previousSources.filter(isActive)]
+  const uniqueSources = trackedSources.filter((source, index) => trackedSources.findIndex(candidate => candidate.key === source.key && candidate.mountPath === source.mountPath) === index)
+  await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))))
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
@@ -503,6 +510,26 @@ export async function materializeWorkspaceSources(
     async mutate(operation) { return await operation() },
     async checkpoint(operation) { return await operation() },
   },
+): Promise<WorkspaceMaterializeSourcesResult> {
+  const activeSources = activeStartupSourcesByStore.get(store) ?? new Set<ResolvedWorkspaceSource>()
+  const selectedSources = normalizeWorkspaceSources(definition.sources)
+    .filter(source => source.materialize === "startup" && shouldMaterializeSource(source, options))
+  for (const source of selectedSources) activeSources.add(source)
+  activeStartupSourcesByStore.set(store, activeSources)
+  try {
+    return await materializeWorkspaceSourcesInternal(definition, store, options, control)
+  }
+  finally {
+    for (const source of selectedSources) activeSources.delete(source)
+    if (!activeSources.size) activeStartupSourcesByStore.delete(store)
+  }
+}
+
+async function materializeWorkspaceSourcesInternal(
+  definition: WorkspaceDefinition,
+  store: WorkspaceStore,
+  options: WorkspaceMaterializeSourcesOptions,
+  control: MaterializationControl,
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const assertCurrent = () => {
     if (!control.isCurrent()) throw options.abortSignal?.reason ?? workspaceError("[vitehub] Workspace source materialization was superseded.")
