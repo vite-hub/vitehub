@@ -40,7 +40,7 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
 }
 
 function isCredentialScheme(scheme: string, prefix: string): boolean {
-  return scheme === "Bearer" || scheme === "Basic"
+  return /^(?:Bearer|Basic)$/i.test(scheme)
     || /(?:^|[\r\n])[\t "']*$/.test(prefix)
     || /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
 }
