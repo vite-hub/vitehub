@@ -14,6 +14,19 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it.each(["ticketing", "constructor", "<custom-channel>"])("renders %s with a neutral Channel mark and its own label", (origin) => {
+    const wrapper = mount({ render: () => channelIcon(origin) });
+    const custom = mount({ render: () => channelIcon("application-channel") });
+    const webChat = mount({ render: () => channelIcon("web-chat") });
+    expect(wrapper.attributes("aria-label")).toBe(origin);
+    expect(wrapper.attributes("title")).toBe(origin);
+    expect(wrapper.get("svg path").attributes("d")).toBeTruthy();
+    expect(wrapper.get("svg").html()).toBe(custom.get("svg").html());
+    expect(wrapper.get("svg").html()).not.toBe(webChat.get("svg").html());
+    expect(wrapper.find("custom-channel").exists()).toBe(false);
+    expect(webChat.attributes("aria-label")).toBe("Web chat");
+  });
+
   it.each(["github-pull-request", "github-pull-request-comment"])("renders %s with the GitHub mark and label", (origin) => {
     const wrapper = mount({ render: () => channelIcon(origin) });
     const github = mount({ render: () => channelIcon("github") });
