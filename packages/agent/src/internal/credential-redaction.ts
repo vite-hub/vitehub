@@ -24,7 +24,7 @@ export function credentialTextMayContinue(value: string): boolean {
   const trailingWord = /\b([A-Za-z][A-Za-z0-9_]*)$/.exec(tail)?.[1]
   if (!trailingWord) return false
   const normalized = trailingWord.toUpperCase()
-  const finalSegment = normalized.split("_").at(-1) ?? ""
+  const finalSegment = trailingWord.split(/_|(?<=[a-z0-9])(?=[A-Z])/).at(-1)?.toUpperCase() ?? ""
   return ["BEARER", "BASIC"].some(marker => marker.startsWith(normalized))
     || ["KEY", "SECRET", "TOKEN", "PASSWORD"].some(marker => marker.startsWith(finalSegment))
 }

@@ -46,3 +46,12 @@ describe("credential key boundaries", () => {
     expect(pendingCredentialQuote(`${key}="sensitive words`)).toBe('"')
   })
 })
+
+it.each(["apiToken", "apiTOKEN", "clientSecret", "dbPassword", "accessKey", "oauth2Token"])("retains split credential suffixes in %s", (key) => {
+  const markerStart = key.search(/[A-Z]/)
+  for (let split = markerStart + 1; split <= key.length; split++) {
+    const prefix = key.slice(0, split)
+    expect(credentialTextMayContinue(`${".".repeat(512)}${prefix}`)).toBe(true)
+    expect(redactCredentialText(`${prefix}${key.slice(split)}=sensitive;status=ok`)).toBe(`${key}=[REDACTED];status=ok`)
+  }
+})
