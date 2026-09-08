@@ -24,10 +24,13 @@ export function agentTelemetryWorkspaceSources(
     let source = sources[id]
     while (hasRuntimeType(source, "object") && source !== null && "source" in source) source = source.source
     if (!hasRuntimeType(source, "object") || source === null) return id
+    // Custom Sources own their fields; only plain shorthand infers GitHub from repo.
+    const customSource = "getKeys" in source && hasRuntimeType(source.getKeys, "function")
+      && "getItem" in source && hasRuntimeType(source.getItem, "function")
     // GitHub sources expose the repository in their credential-free fingerprint.
     let metadata = "name" in source && source.name === "github" && "fingerprint" in source
       ? source.fingerprint
-      : source
+      : customSource ? undefined : source
     while (metadata && hasRuntimeType(metadata, "object") && "sourceResolution" in metadata && "source" in metadata) {
       metadata = metadata.source
     }

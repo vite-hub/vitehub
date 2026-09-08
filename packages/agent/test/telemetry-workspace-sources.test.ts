@@ -3,6 +3,20 @@ import { resolveWorkspaceSources } from "@vite-hub/workspace/runtime"
 import { expect, it } from "vitest"
 import { agentTelemetryWorkspaceSources } from "../src/internal/agent-telemetry.ts"
 
+it("does not infer GitHub provenance from custom Source repository fields", () => {
+  const custom = {
+    name: "custom",
+    repo: "owner/not-github",
+    fingerprint: { repo: "owner/not-github" },
+    async getKeys() { return [] },
+    async getItem() { throw new Error("unused") },
+  }
+  expect(agentTelemetryWorkspaceSources({
+    bound: { source: custom, mount: "docs" },
+    custom,
+  })).toEqual(["bound", "custom"])
+})
+
 it("retains GitHub repositories from Workspace sources without exporting credentials or paths", () => {
   const sources = agentTelemetryWorkspaceSources({
     "docs:api": github({ repo: "owner/docs", auth: "private-token", root: "private-path" }),
