@@ -3363,7 +3363,7 @@ cli_auth_credentials_store = "keyring"
     }) as never)).rejects.toThrow()
   })
 
-  it("reports native Claude Workspace instructions to invocation inspection", async () => {
+  it.each(["", "docs#v1", "docs?draft", "docs 100%/nested"])("reports native Claude Workspace instructions with source root %j to invocation inspection", async (sourceRoot) => {
     const threadId = "thread-native-claude-instructions"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     let root = ""
@@ -3394,7 +3394,7 @@ cli_auth_credentials_store = "keyring"
     }
     const runContext = context(threadId, {
       workspace,
-      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
+      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }) } },
       workspaceMode: "write",
     })
     await setAgentTelemetryConfiguration(runContext.context, {
@@ -3409,6 +3409,9 @@ cli_auth_credentials_store = "keyring"
     expect(instructions).toMatch(/^native workspace instructions\n\nMounted source provenance/)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
     expect(instructions).toContain("<repository>/blob/<revision.id>/<root>/<relative-path>#L<line>")
+    expect(instructions).toContain(`"root": ${JSON.stringify(sourceRoot)}`)
+    expect(instructions).toContain("Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding.")
+    expect(instructions).toContain("root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor.")
     expect(instructions).toContain("Never cite /workspace paths")
     expect(instructions).toContain("If the mounted path cannot be mapped exactly to one provenance entry, cite no link.")
   })
