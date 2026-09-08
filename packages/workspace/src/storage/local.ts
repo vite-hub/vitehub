@@ -82,25 +82,52 @@ async function applyMetadataPermissions(path: string, mode: number, gid: number)
   }
 }
 
+async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle, operation: () => Promise<T>): Promise<T> {
+  let renewal = Promise.resolve()
+  const timer = setInterval(() => {
+    renewal = renewal.then(async () => {
+      const now = new Date()
+      await file.utimes(now, now)
+    })
+    // Observe failures immediately; propagate them when the operation finishes.
+    void renewal.catch(() => {})
+  }, 30_000)
+  timer.unref()
+  try {
+    return await operation()
+  }
+  finally {
+    clearInterval(timer)
+    try { await renewal }
+    finally { await file.close() }
+  }
+}
+
 async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
   const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
   const { dirname } = await import("node:path")
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
   await mkdir(dirname(lock), { recursive: true })
+  let lease: import("node:fs/promises").FileHandle | undefined
   const deadline = Date.now() + timeoutMs
   while (true) {
     try {
       await mkdir(lock)
       const ownerFile = await open(ownerPath, "wx")
-      await ownerFile.writeFile(owner)
-      await ownerFile.close()
+      try { await ownerFile.writeFile(owner) }
+      catch (error) {
+        await ownerFile.close()
+        throw error
+      }
+      lease = ownerFile
       break
     }
     catch (error) {
       if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
-      const info = await stat(lock).catch(() => undefined)
-      // ponytail: local locks expire after five minutes; use a provider lease if writes can legitimately run longer.
+      // The owner file is renewed while the operation holds the gate. A directory
+      // without an owner can still be reclaimed after an interrupted acquisition.
+      const info = await stat(ownerPath).catch(() => stat(lock).catch(() => undefined))
       if (info && Date.now() - info.mtimeMs > 300_000) {
         const stale = `${lock}.stale-${randomUUID()}`
         const reclaimed = await rename(lock, stale).then(() => true, (renameError: NodeJS.ErrnoException) => {
@@ -114,7 +141,7 @@ async function withFilesystemLock<T>(lock: string, description: string, operatio
     }
   }
   try {
-    return await operation()
+    return await withLeaseHeartbeat(lease!, operation)
   }
   finally {
     const activeOwner = await readFile(ownerPath, "utf8").catch(() => undefined)
@@ -125,13 +152,12 @@ async function withFilesystemLock<T>(lock: string, description: string, operatio
 async function withFilesystemReadLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
   const { mkdir, open, rm, rmdir } = await import("node:fs/promises")
   const reader = `${lock}.readers/${randomUUID()}`
-  await withFilesystemLock(`${lock}.gate`, description, async () => {
+  const lease = await withFilesystemLock(`${lock}.gate`, description, async () => {
     await mkdir(`${lock}.readers`, { recursive: true })
-    const ownerFile = await open(reader, "wx")
-    await ownerFile.close()
+    return await open(reader, "wx")
   })
   try {
-    return await operation()
+    return await withLeaseHeartbeat(lease, operation)
   }
   finally {
     await rm(reader, { force: true })

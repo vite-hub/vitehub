@@ -488,6 +488,76 @@ describe("local workspace store", () => {
     })
   })
 
+  it.each(["reader", "writer"])("renews a live %s lease beyond five minutes", async (kind) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = "file.txt"
+    await store.writeFile(path, { path, content: "before", metadata: { source: "original" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    if (kind === "reader") {
+      vi.mocked(readFile).mockImplementation(async (...args) => {
+        const content = await actual.readFile(...args)
+        if (String(args[0]) === join(root, path)) {
+          entered()
+          await blocked
+        }
+        return content
+      })
+    }
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] })
+    const active = kind === "reader"
+      ? store.readFile(path)
+      : store.writeFileStream!(path, {
+          path,
+          metadata: { source: "replacement" },
+          content: (async function* () {
+            entered()
+            await blocked
+            yield new TextEncoder().encode("after")
+          })(),
+        })
+    let contender: Promise<unknown> | undefined
+    try {
+      await started
+      // Advance lease time while keeping filesystem I/O and contention waits real.
+      await vi.advanceTimersByTimeAsync(360_000)
+      const key = createHash("sha256").update(path).digest("hex")
+      const lock = `${root}/.vitehub/locks/${key}`
+      const marker = kind === "reader"
+        ? `${lock}.readers/${(await readdir(`${lock}.readers`))[0]}`
+        : `${lock}.gate/owner`
+      await vi.waitFor(async () => {
+        expect(Date.now() - (await stat(marker)).mtimeMs).toBeLessThan(30_000)
+      })
+      let completed = false
+      contender = (kind === "reader"
+        ? createLocalWorkspaceStore(root).writeFile(path, { path, content: "after", metadata: { source: "replacement" } })
+        : createLocalWorkspaceStore(root).readFile(path))
+        .then((result) => { completed = true; return result })
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(completed).toBe(false)
+      release()
+      const result = await active
+      const next = await contender
+      expect(kind === "reader" ? result : next).toMatchObject({
+        content: new TextEncoder().encode(kind === "reader" ? "before" : "after"),
+        metadata: { source: kind === "reader" ? "original" : "replacement" },
+      })
+      await expect(readdir(`${root}/.vitehub/locks`)).resolves.toEqual([])
+      expect(vi.getTimerCount()).toBe(0)
+    }
+    finally {
+      release()
+      await Promise.allSettled([active, contender])
+      vi.useRealTimers()
+      vi.mocked(readFile).mockImplementation(actual.readFile)
+    }
+  })
+
   it("completes a read while a writer holds the cleanup gate", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
