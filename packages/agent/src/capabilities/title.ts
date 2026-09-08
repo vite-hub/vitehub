@@ -206,7 +206,8 @@ function titleTraceLog(traceLog: TraceEventLog | undefined): TraceEventLog | und
         attributes: { ...event.attributes, [auxiliaryTraceKindAttribute]: "title" },
       }
       const entry = await local.append(tagged)
-      if (event.name !== "agent.stream.error"
+      if (event.name !== "run.error"
+        && event.name !== "agent.stream.error"
         && event.name !== "agent.invocation.error"
         && event.name !== "agent.invocation.cancelled") {
         await traceLog.append(tagged)

@@ -17,7 +17,7 @@ function journal() {
 const runtime = (runId: string) => ({ memo: vi.fn(), run: { runId }, runtime: "unknown" as const, waitUntil: vi.fn() })
 
 describe("title journal ownership", () => {
-  it.each(["agent.stream.error", "agent.invocation.cancelled"])("preserves title trace order around %s", async (failure) => {
+  it.each(["run.error", "agent.invocation.error", "agent.stream.error", "agent.invocation.cancelled"])("preserves title trace order around %s", async (failure) => {
     const invocations = journal()
     let checked = false
     await runAgent(defineAgent({
