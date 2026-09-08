@@ -532,6 +532,46 @@ describe("Agent Invocation Vue composables", () => {
     scope.stop();
   });
 
+  it.each(["summaries", "details", "combined"])("reconciles triggering-person changes using %s", async (mode) => {
+    const invocation = (id: string, triggeredBy: unknown = "Alice") => ({
+      ...record(id),
+      annotations: { triggeredBy },
+    });
+    let refreshed = false;
+    const retained = ["changed", "matching", "removed", "invalid", "case-changed"];
+    const updates = [
+      invocation("changed", "Bob"),
+      invocation("matching", " Alice "),
+      { ...record("removed"), annotations: {} },
+      invocation("invalid", 42),
+      invocation("case-changed", "alice"),
+    ];
+    const request = vi.fn(async (path: string) => {
+      const url = new URL(path, "https://example.test");
+      const id = url.pathname.split("/").pop();
+      if (id !== "invocations") return { invocation: (id === "first" ? invocation("first") : updates.find(item => item.id === id)), observations: [] };
+      if (url.searchParams.has("cursor")) return { invocations: retained.map(id => invocation(id)) };
+      return { cursor: "page-2", invocations: [invocation(refreshed ? "new" : "first")] };
+    });
+    const requestSummaries = vi.fn(async () => ({ invocations: [invocation("first"), ...updates] }));
+    const scope = effectScope();
+    const resource = scope.run(() => useAgentInvocations({
+      immediate: false,
+      query: { triggeredBy: " Alice ", ...(mode === "combined" ? { status: "running", search: "trace" } : {}) },
+      request,
+      ...(mode !== "details" ? { requestSummaries } : {}),
+    }))!;
+    await resource.refresh();
+    await resource.loadMore();
+    refreshed = true;
+    await resource.refresh();
+
+    expect(resource.invocations.value.map(item => item.id)).toEqual(["new", "first", "matching"]);
+    expect(resource.cursor.value).toBeUndefined();
+    expect(requestSummaries).toHaveBeenCalledTimes(mode === "summaries" ? 1 : 0);
+    scope.stop();
+  });
+
   it("refreshes retained summaries without a filter", async () => {
     const { calls, request } = controlledRequester();
     const scope = effectScope();

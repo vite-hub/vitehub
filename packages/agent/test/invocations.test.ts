@@ -666,7 +666,7 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it("filters invocation stores by the exact capability that was used", async () => {
+  it.each([" ", "\t", "\n", "\u00a0", "\u000b\u000c\r\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"])("filters invocation stores by the exact capability that was used with whitespace %j", async (whitespace) => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-capability-filter-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
@@ -676,6 +676,7 @@ describe("Agent Invocations", () => {
         for (const [recordIndex, capabilityId] of ["papercuts", "usage", undefined].entries()) {
           await store.create({
             agentName: "chat",
+            annotations: recordIndex < 2 ? { triggeredBy: recordIndex === 0 ? `${whitespace}Ferdinand${whitespace}` : "Maxi" } : undefined,
             createdAt: timestamp,
             id: `${storeIndex}-${recordIndex}`,
             observations: capabilityId
@@ -698,6 +699,40 @@ describe("Agent Invocations", () => {
         })
         await expect(defineAgentInvocations({ store }).listCapabilityIds("chat"))
           .resolves.toEqual(["papercuts", "usage"])
+        await expect(Promise.resolve(store.list({ agentName: "chat", capabilityId: "papercuts", triggeredBy: "Ferdinand" }))).resolves.toMatchObject({
+          invocations: [{ id: `${storeIndex}-0` }],
+        })
+        await expect(Promise.resolve(store.list({ triggeredBy: "ferdinand" }))).resolves.toEqual({ invocations: [] })
+        await expect(defineAgentInvocations({ store }).listTriggeredBy("chat"))
+          .resolves.toEqual(["Ferdinand", "Maxi"])
+      }
+    }
+    finally {
+      client.close()
+      await rm(directory, { force: true, recursive: true })
+    }
+  })
+
+  it.each([123, true, false, null])("ignores non-string triggering-person annotations %j across stores", async (triggeredBy) => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-person-filter-"))
+    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
+    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
+    const timestamp = new Date().toISOString()
+    const filter = triggeredBy === true ? "1" : triggeredBy === false ? "0" : String(triggeredBy)
+    try {
+      for (const store of stores) {
+        for (const [id, value] of [["scalar", triggeredBy], ["text", filter]] as const) {
+          await store.create({
+            annotations: { triggeredBy: value },
+            createdAt: timestamp,
+            id,
+            observations: [],
+            status: "completed",
+            traceId: id,
+            updatedAt: timestamp,
+          })
+        }
+        expect((await store.list({ triggeredBy: filter })).invocations.map(item => item.id)).toEqual(["text"])
       }
     }
     finally {
@@ -887,6 +922,30 @@ describe("Agent Invocations", () => {
     await expect(defineAgentInvocations({ store: { ...fallback, list } }).listAgentNames())
       .resolves.toEqual(["alpha", "beta"])
     expect(list).toHaveBeenCalledTimes(2)
+  })
+
+  it("lists triggering people from summaries across every fallback page", async () => {
+    const memory = createMemoryAgentInvocationStore()
+    const timestamp = new Date().toISOString()
+    for (let index = 0; index < 101; index++) {
+      await memory.create({
+        annotations: index === 100 ? { triggeredBy: " Ferdinand " } : index === 0 ? { triggeredBy: "Maxi" } : undefined,
+        createdAt: timestamp,
+        id: `triggered-by-fallback-${index}`,
+        observations: [],
+        status: "completed",
+        traceId: `triggered-by-fallback-${index}-trace`,
+        updatedAt: timestamp,
+      })
+    }
+    const { listTriggeredBy: _listTriggeredBy, ...fallback } = memory
+    const list = vi.fn(fallback.list)
+    const get = vi.fn(() => { throw new Error("observation body read") })
+
+    await expect(defineAgentInvocations({ store: { ...fallback, get, list } }).listTriggeredBy())
+      .resolves.toEqual(["Ferdinand", "Maxi"])
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(get).not.toHaveBeenCalled()
   })
 
   it("does not let a stalled store block Agent execution", async () => {

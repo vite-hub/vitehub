@@ -214,21 +214,33 @@ describe("D1 Agent Invocation store", () => {
     expect((await store().get("one"))?.status).toBe("pending")
   })
 
-  it("pages summaries and filters Agent, Capability, status and literal search", async () => {
+  it.each([" ", "\t", "\n", "\u00a0", "\u000b\u000c\r\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"])("pages summaries and filters Agent, Capability, status and literal search with whitespace %j", async (whitespace) => {
     const journal = store()
-    await journal.create(invocation("one", { agentName: "alpha", annotations: { label: "100%_done" }, observations: [observation(1)] }))
-    await journal.create(invocation("two", { agentName: "beta", capabilityIds: ["files"] }))
+    await journal.create(invocation("one", { agentName: "alpha", annotations: { label: "100%_done", triggeredBy: `${whitespace}Ferdinand${whitespace}` }, observations: [observation(1)] }))
+    await journal.create(invocation("two", { agentName: "beta", annotations: { triggeredBy: "Maxi" }, capabilityIds: ["files"] }))
     await journal.create(invocation("three", { agentName: "alpha" }))
     const first = await journal.list({ limit: 2 })
     expect(first.invocations.map(item => item.id)).toEqual(["three", "two"])
     expect(first.invocations.every(item => !("observations" in item))).toBe(true)
     expect((await journal.list({ cursor: first.cursor, limit: 2 })).invocations.map(item => item.id)).toEqual(["one"])
     expect((await journal.list({ agentName: "alpha", capabilityId: "search", status: "pending", search: "100%_done" })).invocations.map(item => item.id)).toEqual(["one"])
+    expect((await journal.list({ agentName: "alpha", capabilityId: "search", triggeredBy: "Ferdinand" })).invocations.map(item => item.id)).toEqual(["one"])
+    expect((await journal.list({ triggeredBy: "ferdinand" })).invocations).toEqual([])
     expect(await journal.listAgentNames?.()).toEqual(["alpha", "beta"])
     expect(await journal.listCapabilityIds?.()).toEqual(["files", "search"])
     expect(await journal.listCapabilityIds?.("alpha")).toEqual(["search"])
+    expect(await journal.listTriggeredBy?.()).toEqual([`${whitespace}Ferdinand${whitespace}`, "Maxi"].sort())
+    expect(await journal.listTriggeredBy?.("alpha")).toEqual([`${whitespace}Ferdinand${whitespace}`])
     expect(await journal.getSummary("one")).not.toHaveProperty("observations")
     expect(await journal.list({ status: [] })).toEqual({ invocations: [] })
+  })
+
+  it.each([123, true, false, null])("ignores non-string triggering-person annotations %j", async (triggeredBy) => {
+    const journal = store()
+    const filter = triggeredBy === true ? "1" : triggeredBy === false ? "0" : String(triggeredBy)
+    await journal.create(invocation("scalar", { annotations: { triggeredBy } }))
+    await journal.create(invocation("text", { annotations: { triggeredBy: filter } }))
+    expect((await journal.list({ triggeredBy: filter })).invocations.map(item => item.id)).toEqual(["text"])
   })
 
   it("prunes terminal records and their claims while retaining active records", async () => {

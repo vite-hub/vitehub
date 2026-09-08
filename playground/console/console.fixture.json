@@ -2,6 +2,153 @@
   "version": 1,
   "invocations": [
     {
+      "id": "ainv_history_math",
+      "traceId": "trace_history_math",
+      "agentName": "product-reviewer",
+      "title": "Explain the order multiple",
+      "status": "completed",
+      "origin": "msteams",
+      "threadId": "teams-fixture",
+      "createdAt": "2026-09-07T12:00:00.000Z",
+      "startedAt": "2026-09-07T12:00:00.000Z",
+      "updatedAt": "2026-09-07T12:00:08.000Z",
+      "completedAt": "2026-09-07T12:00:08.000Z",
+      "annotations": {
+        "triggeredBy": "Ferdinand"
+      },
+      "observations": [
+        {
+          "name": "agent.invocation.started",
+          "attributes": {
+            "input.messages": [
+              {"id": "history-0", "role": "user", "parts": [{"type": "text", "text": "Earlier message 1"}]},
+              {"id": "history-1", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 2"}]},
+              {"id": "history-2", "role": "user", "parts": [{"type": "text", "text": "Earlier message 3"}]},
+              {"id": "history-3", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 4"}]},
+              {"id": "history-4", "role": "user", "parts": [{"type": "text", "text": "Earlier message 5"}]},
+              {"id": "history-5", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 6"}]},
+              {"id": "history-6", "role": "user", "parts": [{"type": "text", "text": "Earlier message 7"}]},
+              {"id": "history-7", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 8"}]},
+              {"id": "history-8", "role": "user", "parts": [{"type": "text", "text": "Earlier message 9"}]},
+              {"id": "history-9", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 10"}]},
+              {"id": "history-10", "role": "user", "parts": [{"type": "text", "text": "Earlier message 11"}]},
+              {"id": "history-11", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 12"}]},
+              {"id": "history-12", "role": "user", "parts": [{"type": "text", "text": "Earlier message 13"}]},
+              {"id": "history-13", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 14"}]},
+              {"id": "history-14", "role": "user", "parts": [{"type": "text", "text": "Earlier message 15"}]},
+              {"id": "history-15", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 16"}]},
+              {"id": "history-16", "role": "user", "parts": [{"type": "text", "text": "Earlier message 17"}]},
+              {"id": "history-17", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 18"}]},
+              {"id": "history-18", "role": "user", "parts": [{"type": "text", "text": "Earlier message 19"}]},
+              {"id": "history-19", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 20"}]},
+              {"id": "history-20", "role": "user", "parts": [{"type": "text", "text": "Earlier message 21"}]},
+              {"id": "history-21", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 22"}]},
+              {"id": "history-22", "role": "user", "parts": [{"type": "text", "text": "Earlier message 23"}]},
+              {"id": "history-23", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 24"}]},
+              {"id": "history-24", "role": "user", "parts": [{"type": "text", "text": "Earlier message 25"}]},
+              {"id": "history-25", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 26"}]},
+              {"id": "history-26", "role": "user", "parts": [{"type": "text", "text": "Earlier message 27"}]},
+              {"id": "history-27", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 28"}]},
+              {"id": "history-28", "role": "user", "parts": [{"type": "text", "text": "Earlier message 29"}]},
+              {"id": "history-29", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 30"}]},
+              {"id": "history-30", "role": "user", "parts": [{"type": "text", "text": "Earlier message 31"}]},
+              {"id": "history-31", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 32"}]},
+              {"id": "history-32", "role": "user", "parts": [{"type": "text", "text": "Earlier message 33"}]},
+              {"id": "history-33", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 34"}]},
+              {"id": "history-34", "role": "user", "parts": [{"type": "text", "text": "Earlier message 35"}]},
+              {"id": "history-35", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 36"}]},
+              {"id": "history-36", "role": "user", "parts": [{"type": "text", "text": "Earlier message 37"}]},
+              {"id": "history-37", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 38"}]},
+              {"id": "history-38", "role": "user", "parts": [{"type": "text", "text": "Earlier message 39"}]},
+              {"id": "history-39", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 40"}]},
+              {"id": "history-40", "role": "user", "parts": [{"type": "text", "text": "Earlier message 41"}]},
+              {"id": "history-41", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 42"}]},
+              {"id": "history-42", "role": "user", "parts": [{"type": "text", "text": "Earlier message 43"}]},
+              {"id": "history-43", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 44"}]},
+              {"id": "history-44", "role": "user", "parts": [{"type": "text", "text": "Earlier message 45"}]},
+              {"id": "history-45", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 46"}]},
+              {"id": "history-46", "role": "user", "parts": [{"type": "text", "text": "Earlier message 47"}]},
+              {"id": "history-47", "role": "assistant", "parts": [{"type": "text", "text": "Earlier message 48"}]},
+              {"id": "history-48", "role": "user", "parts": [{"type": "text", "text": "Earlier message 49"}]}
+            ]
+          },
+          "sequence": 1,
+          "timestamp": "2026-09-07T12:00:00.000Z",
+          "type": "run",
+          "trace": {
+            "id": "trace_history_math"
+          }
+        },
+        {
+          "name": "vitehub.capability.used",
+          "attributes": {
+            "capability.id": "eve.pkg-_agithub-tools_seve-extension"
+          },
+          "sequence": 6,
+          "timestamp": "2026-09-07T12:00:00.000Z",
+          "type": "run",
+          "trace": {
+            "id": "trace_history_math"
+          }
+        },
+        {
+          "name": "agent.message.recorded",
+          "attributes": {
+            "message.id": "trigger",
+            "message.role": "user",
+            "message.content": "How does the order multiple affect the suggested quantity?"
+          },
+          "sequence": 2,
+          "timestamp": "2026-09-07T12:00:00.000Z",
+          "type": "run",
+          "trace": {
+            "id": "trace_history_math"
+          }
+        },
+        {
+          "name": "agent.tool.finish",
+          "attributes": {
+            "tool.id": "search",
+            "tool.name": "Search order calculation"
+          },
+          "sequence": 3,
+          "timestamp": "2026-09-07T12:00:00.000Z",
+          "type": "run",
+          "trace": {
+            "id": "trace_history_math"
+          }
+        },
+        {
+          "name": "agent.message.recorded",
+          "attributes": {
+            "message.id": "final",
+            "message.role": "assistant",
+            "message.content": "The suggested quantity is rounded to the next full pack. For a pack size of 12:\n\n\\[\nq = 12 \\times \\lceil 25 / 12 \\rceil = 36\n\\]\n\nThe requested $q$ is **36 units**. A price of $12 and a cost of $25 remain currency."
+          },
+          "sequence": 4,
+          "timestamp": "2026-09-07T12:00:00.000Z",
+          "type": "run",
+          "trace": {
+            "id": "trace_history_math"
+          }
+        },
+        {
+          "name": "agent.channel.delivery",
+          "attributes": {
+            "channel.delivery.provider": "msteams",
+            "channel.effect.content": "The suggested quantity is rounded to the next full pack. For a pack size of 12:\n\n\\[\nq = 12 \\times \\lceil 25 / 12 \\rceil = 36\n\\]\n\nThe requested $q$ is **36 units**. A price of $12 and a cost of $25 remain currency.",
+            "channel.effect.kind": "reply"
+          },
+          "sequence": 5,
+          "timestamp": "2026-09-07T12:00:00.000Z",
+          "type": "run",
+          "trace": {
+            "id": "trace_history_math"
+          }
+        }
+      ]
+    },
+    {
       "id": "ainv_image_previews",
       "traceId": "trace_image_previews",
       "agentName": "image-reviewer",

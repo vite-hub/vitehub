@@ -27,7 +27,7 @@ import {
 } from "./delivery-effects.ts"
 import { createExecutionContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
-import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { agentResultKind, agentStreamErrorSymbol, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -3743,7 +3743,7 @@ async function createAgentInvocationContext<
             workspace: {
               mode: workspaceMode,
               ...(activeWorkspaceDefinition.name ? { name: activeWorkspaceDefinition.name } : {}),
-              ...(activeWorkspaceDefinition.sources ? { sources: Object.keys(activeWorkspaceDefinition.sources).sort() } : {}),
+              ...(activeWorkspaceDefinition.sources ? { sources: agentTelemetryWorkspaceSources(activeWorkspaceDefinition.sources) } : {}),
             },
           }
         : {}),
