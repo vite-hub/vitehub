@@ -20,12 +20,13 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
+import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
-import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
@@ -924,6 +925,7 @@ function providerMetadataContext<
     fs: context.workspace?.fs,
     invoker: context.invoker,
     workspace: context.workspace,
+    ...providerCallbackMetadata(context),
   } as AgentAdapterMetadataContext<TRuntimeConfig>
 }
 
@@ -1996,7 +1998,13 @@ async function* runProvider<
   const effectiveSignal = context.input.abortSignal && timeoutSignal
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
     : context.input.abortSignal || timeoutSignal
-  context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+  if (effectiveSignal !== context.input.abortSignal) {
+    const originalContext = context
+    context = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+    if (isAuxiliaryAgentAdapterContext(originalContext)) markAuxiliaryMessageChannelInstructionContext(context)
+    const metadata = providerCallbackMetadata(originalContext)
+    if (metadata) withProviderCallbackMetadata(context, metadata)
+  }
   effectiveSignal?.throwIfAborted()
   if (options.provider === "codex") {
     await waitForProviderOperation(runCodexCredentialHomeScavenger(), effectiveSignal)
@@ -2188,15 +2196,17 @@ async function* runProvider<
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
     }
-    const inspectedTools = inspectAgentTools(context.tools)
-    await updateAgentTelemetryConfiguration(context.context, {
-      driver: {
-        ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
-        provider: options.provider,
-      },
-      ...(instructions ? { instructions: [instructions] } : {}),
-      ...(inspectedTools ? { tools: inspectedTools } : {}),
-    })
+    if (!auxiliary) {
+      const inspectedTools = inspectAgentTools(context.tools)
+      await updateAgentTelemetryConfiguration(context.context, {
+        driver: {
+          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          provider: options.provider,
+        },
+        ...(instructions ? { instructions: [instructions] } : {}),
+        ...(inspectedTools ? { tools: inspectedTools } : {}),
+      })
+    }
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)

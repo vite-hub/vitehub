@@ -2461,10 +2461,10 @@ cli_auth_credentials_store = "keyring"
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
   })
 
-  it("does not replace primary telemetry configuration during an auxiliary provider run", async () => {
+  it.each([undefined, 30_000])("does not replace primary telemetry configuration during an auxiliary provider run (timeout: %s)", async (timeout) => {
     const threadId = "thread-auxiliary-configuration"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const runContext = context(threadId)
+    const runContext = context(threadId, { input: { prompt: "hello", timeout } })
     await setAgentTelemetryConfiguration(runContext.context, {
       capabilities: [{ id: "support" }],
       driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "codex" }, provider: "codex" },
