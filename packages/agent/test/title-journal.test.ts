@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { deriveTraceRuns } from "@vite-hub/runtime"
 import { title } from "../src/capabilities/title.ts"
 import { defineAgent, runAgent, streamAgent } from "../src/index.ts"
 import { createMessage } from "../src/messages.ts"
@@ -16,6 +17,30 @@ function journal() {
 const runtime = (runId: string) => ({ memo: vi.fn(), run: { runId }, runtime: "unknown" as const, waitUntil: vi.fn() })
 
 describe("title journal ownership", () => {
+  it.each(["agent.stream.error", "agent.invocation.cancelled"])("preserves title trace order around %s", async (failure) => {
+    const invocations = journal()
+    let checked = false
+    await runAgent(defineAgent({
+      capabilities: [title({ driver: { async run(context) {
+        const names = ["agent.invocation.start", "agent.model.request", failure]
+        for (const name of names) {
+          await context.traceLog?.append({ name, type: "run", attributes: { "agent.run.id": "title-sequence" } })
+        }
+        const entries = context.traceLog!.entries().filter(entry => entry.attributes?.["agent.run.id"] === "title-sequence")
+        expect(entries.map(entry => entry.name)).toEqual(names)
+        const sequences = entries.map(entry => entry.sequence)
+        expect(new Set(sequences).size).toBe(entries.length)
+        expect(sequences).toEqual([...sequences].sort((a, b) => a - b))
+        expect(deriveTraceRuns(entries)[0]?.events.map(entry => entry.name)).toEqual(names)
+        checked = true
+        return "Ordered title"
+      } } })],
+      driver: { run: () => "Done." }, invocations,
+    }), runtime("title-sequence-primary"), { prompt: "Explain trace ordering" })
+    expect(checked).toBe(true)
+    expect((await invocations.getByRunId("title-sequence-primary"))?.observations.some(entry => entry.name === failure)).toBe(false)
+  })
+
   it.each(["text", "stream", "failure"] as const)("records prompt-only titles for %s invocations without finish hooks", async (mode) => {
     const invocations = journal()
     const execute = vi.fn(() => "Safety stock")
