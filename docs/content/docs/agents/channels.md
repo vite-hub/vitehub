@@ -242,19 +242,9 @@ The command is a dry run by default. Apply a reviewed plan with `--apply` and th
 
 ## Control admission and delivery
 
-Set `messages.filter` to ignore unsupported adapter messages before an invocation starts:
+Adapter-backed Channels accept messages without a mention only in a direct conversation with the Agent. Group conversations, channels, and shared chats between people require an explicit Agent mention on every message. A previous mention or thread subscription does not grant permission to answer later unmentioned messages. The same rule applies to queued messages and steering an active invocation.
 
-```ts
-teams({
-  adapter,
-  messages: {
-    filter: ({ deliveryKind }) =>
-      deliveryKind === 'direct' || deliveryKind === 'mention',
-  },
-})
-```
-
-`deliveryKind` is `direct`, `mention`, or `subscribed`. Returning `false` posts no fallback error because the Agent never started.
+Use `messages.filter` to add application-specific restrictions before an invocation starts. Returning `false` posts no loading message or fallback error because the Agent never started. Accepted deliveries have `deliveryKind: 'direct'` or `deliveryKind: 'mention'`.
 
 Set `messages.meta` to a Standard Schema when application-owned Channel metadata must be validated before Capabilities, hooks, or the Driver run. The schema may normalize or add defaults, but its output must be an object. Set `metaRevision` to a stable value and change it whenever the schema contract changes so durable Agent Workflows can reuse parsed metadata across processes. Without a revision, durable execution validates the metadata again. Put both settings on shared Agent message settings or on one Channel to override them for that Channel.
 
