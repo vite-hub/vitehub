@@ -25,9 +25,12 @@ export function agentTelemetryWorkspaceSources(
     while (hasRuntimeType(source, "object") && source !== null && "source" in source) source = source.source
     if (!hasRuntimeType(source, "object") || source === null) return id
     // GitHub sources expose the repository in their credential-free fingerprint.
-    const metadata = "name" in source && source.name === "github" && "fingerprint" in source
+    let metadata = "name" in source && source.name === "github" && "fingerprint" in source
       ? source.fingerprint
       : source
+    while (metadata && hasRuntimeType(metadata, "object") && "sourceResolution" in metadata && "source" in metadata) {
+      metadata = metadata.source
+    }
     const repository = metadata && hasRuntimeType(metadata, "object") && "repo" in metadata
       ? metadata.repo
       : undefined
