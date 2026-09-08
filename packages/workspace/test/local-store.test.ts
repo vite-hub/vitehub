@@ -450,6 +450,50 @@ describe("local workspace store", () => {
     })
   })
 
+  it.each([false, true])("reads one content and ownership version during publication, streamed=%s", async (streamed) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const reader = createLocalWorkspaceStore(root)
+    await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { source: "original" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let publish!: () => void
+    let resume!: () => void
+    const published = new Promise<void>((resolve) => { publish = resolve })
+    const release = new Promise<void>((resolve) => { resume = resolve })
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      await actual.rename(from, to)
+      if (String(to) === join(root, "file.txt")) {
+        publish()
+        await release
+      }
+    })
+    const file = { path: "file.txt", metadata: { source: "replacement" } }
+    const writing = streamed
+      ? store.writeFileStream!("file.txt", { ...file, content: new Blob(["after"]).stream() })
+      : store.writeFile("file.txt", { ...file, content: "after" })
+    try {
+      await published
+      let completed = 0
+      const reads = Promise.all([reader.readFile("file.txt"), reader.stat("file.txt"), reader.list(), reader.snapshot()]
+        .map(async result => { const value = await result; completed++; return value }))
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(completed).toBe(0)
+      resume()
+      await writing
+      const [content, info, entries, snapshot] = await reads
+      expect(content).toMatchObject({ content: new TextEncoder().encode("after"), metadata: file.metadata })
+      const digest = createHash("sha256").update("after").digest("hex")
+      expect(info).toMatchObject({ size: 5, digest, metadata: file.metadata })
+      expect(entries).toEqual([expect.objectContaining({ size: 5, metadata: file.metadata })])
+      expect(snapshot).toMatchObject({ entries: { "file.txt": { digest, metadata: file.metadata } } })
+    }
+    finally {
+      resume()
+      await writing
+      vi.mocked(rename).mockImplementation(actual.rename)
+    }
+  })
+
   it("keeps the live file readable while preparing an atomic replacement", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
@@ -459,13 +503,8 @@ describe("local workspace store", () => {
     vi.mocked(rename).mockImplementation(async (from, to) => {
       if (String(from).endsWith(".tmp") && String(to) === join(root, "file.txt")) {
         observed = true
-        await expect(store.readFile("file.txt")).resolves.toMatchObject({
-          content: new TextEncoder().encode("before"),
-        })
-        await expect(store.stat("file.txt")).resolves.toMatchObject({ type: "file" })
-        await expect(store.list()).resolves.toEqual([
-          expect.objectContaining({ path: "file.txt", type: "file" }),
-        ])
+        // Raw filesystem readers still see the old inode until publication.
+        await expect(actual.readFile(join(root, "file.txt"), "utf8")).resolves.toBe("before")
       }
       await actual.rename(from, to)
     })
@@ -593,7 +632,7 @@ describe("local workspace store", () => {
     await expect(store.snapshot()).resolves.toMatchObject({
       entries: { "assets/blob.bin": expect.objectContaining({ digest }) },
     })
-    expect(readFile).not.toHaveBeenCalled()
+    expect(vi.mocked(readFile).mock.calls.filter(([path]) => !String(path).includes(".vitehub-locks/"))).toEqual([])
   })
 
   it("does not traverse excluded directories", async () => {

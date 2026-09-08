@@ -160,7 +160,7 @@ async function withFilesystemWriteLock<T>(lock: string, description: string, ope
   })
 }
 
-async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>): Promise<T> {
+async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>, readOnly = false): Promise<T> {
   const normalized = normalizeWorkspacePath(path)
   const parts = normalized.split("/").filter(Boolean)
   const paths = parts.map((_, index) => parts.slice(0, index + 1).join("/"))
@@ -171,7 +171,7 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
     const key = createHash("sha256").update(lockedPath).digest("hex")
     const lockPath = `${root}.vitehub-locks/${key}`
     const next = () => lock(index + 1)
-    return index === paths.length - 1
+    return !readOnly && index === paths.length - 1
       ? await withFilesystemWriteLock(lockPath, `path: ${lockedPath}.`, next)
       : await withFilesystemReadLock(lockPath, `path: ${lockedPath}.`, next)
   }
@@ -184,7 +184,6 @@ async function walk(
   current = root,
   excluded: readonly string[] = [],
   recursive = true,
-  includeDigest = false,
 ): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
   const { relative } = await import("node:path")
@@ -207,7 +206,7 @@ async function walk(
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      if (recursive) entries.push(...await walk(root, absolute, excluded, true, includeDigest))
+      if (recursive) entries.push(...await walk(root, absolute, excluded, true))
       continue
     }
     if (dirent.isFile()) {
@@ -217,7 +216,6 @@ async function walk(
         size: info.size,
         mtime: info.mtimeMs,
       }
-      if (includeDigest) entry.digest = await fileDigest(absolute)
       entries.push(entry)
     }
   }
@@ -375,6 +373,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
+    return await withWorkspacePathLock(this.root, path, () => this.#readFile(path), true)
+  }
+
+  async #readFile(path: string): Promise<WorkspaceFile | undefined> {
     const { readFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const bytes = await readFile(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -399,7 +401,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
     await withWorkspacePathLock(this.root, path, async () => {
       const normalized = normalizeWorkspacePath(path)
-      const current = await this.stat(normalized)
+      const current = await this.#stat(normalized)
       assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? current.digest : undefined)
       await this.#writeFile(normalized, file)
     })
@@ -415,7 +417,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const normalized = normalizeWorkspacePath(path)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
-    const existing = await this.stat(normalized)
+    const existing = await this.#stat(normalized)
     if (existing?.type === "directory") throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
     if (existing?.type === "file" && existing.digest === digest) {
       await this.#writeFileMetadata(normalized, {
@@ -490,7 +492,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         createWriteStream(temp),
       )
       const digest = hash.digest("hex")
-      const existing = await this.stat(normalized)
+      const existing = await this.#stat(normalized)
       if (existing?.type === "directory") throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
       if (existing?.type === "file" && existing.digest === digest) {
         await rm(temp, { force: true })
@@ -545,7 +547,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #list(prefix: string, options: ListOptions, includeDigest: boolean): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
-    const all = await walk(this.root, current, options.exclude, options.recursive === true, includeDigest)
+    const all = await walk(this.root, current, options.exclude, options.recursive === true)
     const filtered = all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")
@@ -555,14 +557,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       })
     const entries: WorkspaceEntry[] = []
     for (let index = 0; index < filtered.length; index += 64) {
-      entries.push(...await Promise.all(filtered.slice(index, index + 64).map(async (entry) => {
-        const fileMetadata = entry.type === "file" ? await this.#readFileMetadata(entry.path) : undefined
-        return {
-          ...entry,
-          mediaType: fileMetadata?.mediaType ?? entry.mediaType,
-          metadata: fileMetadata?.metadata ?? entry.metadata,
-        }
-      })))
+      const batch = await Promise.all(filtered.slice(index, index + 64).map(entry =>
+        withWorkspacePathLock(this.root, entry.path, () => this.#stat(entry.path, includeDigest), true)))
+      entries.push(...batch.filter((entry): entry is WorkspaceStat => entry !== undefined))
     }
     return entries.sort((a, b) => a.path.localeCompare(b.path))
   }
@@ -574,6 +571,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async stat(path: string): Promise<WorkspaceStat | undefined> {
+    return await withWorkspacePathLock(this.root, path, () => this.#stat(path), true)
+  }
+
+  async #stat(path: string, includeDigest = true): Promise<WorkspaceStat | undefined> {
     const { stat } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, normalized)
@@ -590,8 +591,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
       mtime: info.mtimeMs,
       mediaType: metadata?.mediaType,
       metadata: metadata?.metadata,
-      digest: info.isFile() ? await fileDigest(absolute) : undefined,
     }
+    if (includeDigest && info.isFile()) entry.digest = await fileDigest(absolute)
     return entry
   }
 
