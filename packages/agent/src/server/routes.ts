@@ -1070,11 +1070,18 @@ async function steerQueuedWebhookDelivery(
   input: AgentRunInput,
   waitUntil: AgentWaitUntil | undefined,
   fallback: (reserved?: boolean) => Promise<Response>,
-): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean> } | undefined> {
+): Promise<{ queued: boolean; response: Response; settlement?: Promise<boolean>; invalidState?: boolean } | undefined> {
   if (!delivery.concurrencyKey) return
   const claimKey = webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId)
-  const duplicateResponse = (claim: unknown) =>
-    claim === "queued"
+  const duplicateResponse = (claim: unknown) => {
+    if (claim === "invalid-state") {
+      return {
+        queued: false,
+        invalidState: true,
+        response: Response.json({ accepted: false, duplicate: true, ok: false, outcome: "invalid-state" }),
+      }
+    }
+    return claim === "queued"
       ? {
           queued: true,
           response: Response.json({ accepted: false, duplicate: true, ok: true, queued: false }),
@@ -1083,6 +1090,7 @@ async function steerQueuedWebhookDelivery(
           queued: claim === "steering",
           response: Response.json({ accepted: false, duplicate: true, ok: true, steered: true }),
         }
+  }
   const existingClaim = await state.get(claimKey)
   if (existingClaim) {
     return duplicateResponse(existingClaim)
@@ -1148,10 +1156,25 @@ async function steerQueuedWebhookDelivery(
           void controller.cancel(agentDiagnostics.AGENT_R0775({ message: "[vitehub] Webhook steering lost its durable delivery lease." })).catch(() => {})
         })
         let accepted = false
+        let invalidState = false
         try {
           const result = await controller.sendInput(input, { mode: "steer" })
           accepted = result.outcome === "accepted"
+          invalidState = result.outcome === "invalid-state"
         } catch {}
+        if (invalidState) {
+          try {
+            await state.set(claimKey, "invalid-state")
+            await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
+          } finally {
+            stopDeliveryHeartbeat()
+          }
+          return {
+            queued: false,
+            invalidState: true,
+            response: Response.json({ accepted: false, ok: false, outcome: "invalid-state" }),
+          }
+        }
         if (steeringLeaseLost || sendLockLost) {
           stopDeliveryHeartbeat()
           await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
@@ -7149,7 +7172,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                   )
                 } else
                   await recordChannelDeliveryEvidence(channelDelivery, {
-                    type: outcome.queued ? "queued" : outcome.response.ok ? "completed" : "rejected",
+                    type: outcome.invalidState ? "failed" : outcome.queued ? "queued" : outcome.response.ok ? "completed" : "rejected",
                     runId: invocation.run?.runId,
                   })
                 if (outcome.queued || outcome.settlement) detachAgentChannelDelivery(channelDelivery)

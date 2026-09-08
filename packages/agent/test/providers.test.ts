@@ -8949,6 +8949,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
+    const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
     const rehydrate = vi.fn((deliveryId: string) => ({
       input: { prompt: `fresh ${deliveryId}` },
       run: { runId: deliveryId },
@@ -8973,6 +8974,7 @@ describe("server helpers", () => {
       releaseSteer = resolve
     })
     let rejectSteer = false
+    let ambiguousSteer = false
     let failFlush = false
     let completedRuns = 0
     const run = vi.fn(async (context: { run?: { runId?: string }; waitUntil: (task: Promise<unknown>) => void }) => {
@@ -8984,6 +8986,7 @@ describe("server helpers", () => {
       const closeControl = registerAgentInvocationInputHandler(controlId, {
         async sendInput(input, options) {
           expect(options).toEqual({ mode: "steer" })
+          if (ambiguousSteer) return "invalid-state"
           if (rejectSteer) throw new Error("closed")
           steeredInputs.push(input)
           await steerAccepted
@@ -9106,6 +9109,19 @@ describe("server helpers", () => {
         steered: true,
       })
       expect(steeredInputs).toHaveLength(1)
+
+      ambiguousSteer = true
+      const retriesBeforeAmbiguous = retryDelivery.mock.calls.length
+      const ambiguous = await handler(request("delivery-ambiguous"), "github", options)
+      await expect(ambiguous.json()).resolves.toEqual({ accepted: false, ok: false, outcome: "invalid-state" })
+      expect(completeDelivery).toHaveBeenCalledWith("webhook:review:github:github:", "delivery-ambiguous", expect.any(String))
+      await expect(completeDelivery.mock.results.at(-1)?.value).resolves.toBe(true)
+      ambiguousSteer = false
+      const ambiguousReplay = await handler(request("delivery-ambiguous"), "github", options)
+      await expect(ambiguousReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: false, outcome: "invalid-state" })
+      expect(retryDelivery).toHaveBeenCalledTimes(retriesBeforeAmbiguous)
+      expect(steeredInputs).toHaveLength(1)
+      expect(run).toHaveBeenCalledOnce()
 
       rejectSteer = true
       const rejected = await handler(request("delivery-3"), "github", options)
