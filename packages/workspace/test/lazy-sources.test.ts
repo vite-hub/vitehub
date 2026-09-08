@@ -2140,6 +2140,65 @@ describe("lazy sources", () => {
     expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
   })
 
+  it.each(["memory", "local"].flatMap(kind => [false, true].map(retry => ({ kind, retry }))))("retains cleanup evidence through failed startup configuration refreshes on $kind with retry=$retry", async ({ kind, retry }) => {
+    const root = await createRoot()
+    const store = kind === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "failed-startup-config-change",
+      sources: {
+        generated: {
+          ...custom({
+            materialize: "startup",
+            mount: "",
+            files: [
+              { path: "old.md", content: "old" },
+              { path: "edited.md", content: "generated" },
+            ],
+          }),
+          fingerprint: { version: 1 },
+        },
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.writeFile("edited.md", { path: "edited.md", content: "user edit" })
+    let fail = true
+    const changed = {
+      ...definition,
+      sources: {
+        generated: {
+          ...custom({
+            materialize: "startup",
+            mount: "",
+            async getKeys() { return ["current.md", "last.md"] },
+            async getItem(key) {
+              if (fail && key === "last.md") throw new Error("Source unavailable")
+              return { key, content: "new" }
+            },
+          }),
+          fingerprint: { version: 2 },
+        },
+      },
+    }
+    await expect(createWorkspaceSourceView(changed, store).materializeSources()).resolves.toMatchObject({
+      sources: [{ status: "error" }],
+    })
+    const reopened = kind === "local" ? createLocalWorkspaceStore(root) : store
+    if (retry) {
+      fail = false
+      await expect(createWorkspaceSourceView(changed, reopened).materializeSources()).resolves.toMatchObject({
+        sources: [{ status: "ready", files: 2, bytes: 6 }],
+      })
+    }
+    else {
+      await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+    }
+    await expect(reopened.stat("old.md")).resolves.toBeUndefined()
+    expect(Boolean(await reopened.stat("current.md"))).toBe(retry)
+    const edited = await reopened.readFile("edited.md")
+    expect(edited).toBeDefined()
+    expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
+  })
+
   it("does not reuse scoped startup evidence as a complete snapshot", async () => {
     const store = createMemoryWorkspaceStore()
     const definition = {

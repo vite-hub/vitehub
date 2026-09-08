@@ -647,7 +647,7 @@ async function materializeWorkspaceSourcesInternal(
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let revision = existing?.revision
     const retainPriorItems = existing?.configHash === configHash
-      || !completeSource && source.materialize === "startup" && existing?.mountPath === source.mountPath
+      || source.materialize === "startup" && existing?.mountPath === source.mountPath
     const itemMetadata: Record<string, LazyMaterializedMetadata> = retainPriorItems
       ? { ...existing?.items }
       : {}
@@ -863,7 +863,6 @@ async function materializeWorkspaceSourcesInternal(
     }
     catch (error) {
       const checkpointItemsMetadata = checkpointItems(itemMetadata)
-      const resumesExistingSnapshot = existing?.configHash === configHash
       const failed: SourceSnapshotMetadata = {
         configHash,
         source: source.key,
@@ -874,8 +873,8 @@ async function materializeWorkspaceSourcesInternal(
         status: "error",
         revision,
         error: error instanceof Error ? error.message : String(error),
-        files: resumesExistingSnapshot && checkpointItemsMetadata ? Object.keys(checkpointItemsMetadata).length : sourceFiles,
-        bytes: resumesExistingSnapshot ? Math.max(0, (existing?.bytes || 0) + persistedBytesDelta) : sourceBytes,
+        files: retainPriorItems && checkpointItemsMetadata ? Object.keys(checkpointItemsMetadata).length : sourceFiles,
+        bytes: retainPriorItems ? Math.max(0, (existing?.bytes || 0) + persistedBytesDelta) : sourceBytes,
         items: checkpointItemsMetadata,
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
