@@ -1410,7 +1410,8 @@ function journalTraceLog(
   const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
-      const safeEntryPromise = Promise.resolve(createTraceEventLog({ content }).append(event))
+      const auxiliaryTitle = event.attributes?.["vitehub.auxiliary.kind"] === "title"
+      const safeEntryPromise = Promise.resolve(createTraceEventLog({ content: auxiliaryTitle ? "metadata" : content }).append(event))
       void safeEntryPromise.catch(() => {})
       const metadataContentValues = captureMetadataContentValues(event, metadataContent)
       let entry: TraceEventLogEntry
@@ -1423,7 +1424,7 @@ function journalTraceLog(
       try {
         const safeEntry = await safeEntryPromise
         safeEntry.timestamp = entry.timestamp
-        if (content === "metadata") restoreMetadataContentValues(safeEntry, metadataContentValues)
+        if (content === "metadata" && !auxiliaryTitle) restoreMetadataContentValues(safeEntry, metadataContentValues)
         const resultText = safeEntry.attributes?.["result.text"]
         if (safeEntry.name === "agent.invocation.finish" && hasRuntimeType(resultText, "string")) {
           safeEntry.attributes = { ...safeEntry.attributes, "result.text": redactCredentialText(resultText) }
@@ -1722,7 +1723,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }
       }
       const observe = (observation: TraceEventLogEntry) => {
-        if (observation.attributes?.["vitehub.auxiliary.kind"] === "title") return
+        if (observation.attributes?.["vitehub.auxiliary.kind"] === "title"
+          && (observation.name === "agent.message.delta" || observation.name === "vitehub.agent.configured")) return
         const capabilityId = observationCapabilityId(observation)
         if (capabilityId && observedCapabilityIds.size < MAX_CAPABILITY_IDS) observedCapabilityIds.add(capabilityId)
         if (finished) {

@@ -3117,6 +3117,40 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(record?.observations)).not.toContain("Private title")
   })
 
+  it.each(["content", "metadata"] as const)("retains title usage and diagnostics with %s capture", async (content) => {
+    const invocations = defineAgentInvocations({
+      content,
+      metadataContent: ["message.content"],
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const event of [
+          { name: "agent.message.delta", attributes: { "message.content": "Private title" } },
+          { name: "vitehub.agent.configured", attributes: { "vitehub.agent.configuration": "Private configuration" } },
+          { name: "agent.usage", attributes: { "usage.total_tokens": 12, "message.content": "Private usage content" } },
+          { name: "agent.provider.error", attributes: { "error.type": "ProviderTimeout", "message.content": "Private diagnostic content" } },
+        ]) {
+          await context.traceLog?.append({
+            ...event,
+            attributes: { ...event.attributes, "vitehub.auxiliary.kind": "title" },
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("title-diagnostics"), {})
+    const observations = (await invocations.getByRunId("title-diagnostics"))?.observations ?? []
+    const titleEvents = observations.filter(entry => entry.attributes?.["vitehub.auxiliary.kind"] === "title")
+    expect(titleEvents.map(entry => entry.name)).toEqual(["agent.usage", "agent.provider.error"])
+    expect(titleEvents[0]?.attributes?.["usage.total_tokens"]).toBe(12)
+    expect(titleEvents[1]?.attributes?.["error.type"]).toBe("ProviderTimeout")
+    expect(JSON.stringify(observations)).not.toContain("Private")
+  })
+
   it("preserves privacy filtering when coalesced message content crosses the former chunk boundary", async () => {
     const first = `${"x".repeat(8)}Authorization: Bear`
     const secret = `sensitive-${"x".repeat(700)}`
