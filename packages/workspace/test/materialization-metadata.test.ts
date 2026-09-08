@@ -6,8 +6,49 @@ import { expect, it, vi } from "vitest"
 
 import { sha256 } from "../src/core/path.ts"
 import { normalizeWorkspaceSources } from "../src/sources/config.ts"
-import { materializeWorkspaceSources, sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
+import { hasCurrentSourceSnapshot, hasFreshSourceSnapshot, materializeWorkspaceSources, readCurrentSourceSnapshot, sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { workspaceStoreTarget } from "../src/storage/target.ts"
+
+it.each(["cloudflare-artifacts", "vercel-blob", "github"])("preserves legacy %s snapshots when the upstream source is unavailable", async (provider) => {
+  const store = createMemoryWorkspaceStore()
+  Object.assign(store, { [workspaceStoreTarget]: () => ({ provider }) })
+  const getItem = vi.fn(async (key: string) => ({ key, content: "original" }))
+  const getKeys = vi.fn(async () => ["file.txt"])
+  const definition = {
+    name: "hosted-metadata",
+    sources: {
+      docs: {
+        cache: { maxAge: 3600 },
+        mount: { path: "" },
+        materialize: "startup" as const,
+        getKeys,
+        getItem,
+      },
+    },
+  }
+  await materializeWorkspaceSources(definition, store)
+  const source = normalizeWorkspaceSources(definition.sources)[0]!
+  const configHash = await sha256({
+    cache: source.cache, key: source.key, materialize: source.materialize,
+    mountPath: source.mountPath, source: source.source.fingerprint,
+  })
+  const snapshotKey = sourceSnapshotMetaKey(source.key)
+  const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
+  await store.setMeta!(snapshotKey, { ...snapshot, configHash })
+  getKeys.mockRejectedValue(new Error("Source unavailable"))
+  getItem.mockRejectedValue(new Error("Source unavailable"))
+
+  await expect(hasCurrentSourceSnapshot(store, source)).resolves.toBe(true)
+  await expect(hasFreshSourceSnapshot(store, source)).resolves.toBe(true)
+  await expect(readCurrentSourceSnapshot(store, source)).resolves.toMatchObject({ configHash })
+  const result = await materializeWorkspaceSources(definition, store)
+  expect(result.sources[0]?.status).toBe("ready")
+  expect(getKeys).toHaveBeenCalledTimes(1)
+  expect(getItem).toHaveBeenCalledTimes(1)
+  await expect(store.readFile("file.txt")).resolves.toMatchObject({ metadata: { source: "docs" } })
+})
 
 it.each([3600, 0])("restores legacy materialization ownership with cache maxAge %i", async (maxAge) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-metadata-migration-"))

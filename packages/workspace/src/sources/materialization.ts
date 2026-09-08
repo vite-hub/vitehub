@@ -7,6 +7,7 @@ import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
+import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -63,8 +64,6 @@ type SourceConfiguration = Pick<ResolvedWorkspaceSource, "cache" | "key" | "mate
 
 function sourceConfigFingerprint(source: SourceConfiguration) {
   return {
-    // Replay legacy snapshots once so local files acquire persisted ownership.
-    fileMetadataVersion: 1,
     cache: source.cache,
     key: source.key,
     materialize: source.materialize,
@@ -73,8 +72,13 @@ function sourceConfigFingerprint(source: SourceConfiguration) {
   }
 }
 
-async function sourceConfigHash(source: SourceConfiguration) {
-  return await sha256(sourceConfigFingerprint(source))
+async function sourceConfigHash(source: SourceConfiguration, store: Pick<WorkspaceStore, "getMeta">) {
+  const target = await resolveWorkspaceStoreTarget(store)
+  return await sha256({
+    // Only local files need legacy snapshots replayed to persist ownership.
+    ...(target?.provider === "local" ? { fileMetadataVersion: 1 } : {}),
+    ...sourceConfigFingerprint(source),
+  })
 }
 
 function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: ResolvedWorkspaceSource, configHash: string) {
@@ -92,18 +96,18 @@ async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">
 }
 
 export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   const meta = await readSourceSnapshotMetadata(store, source.key)
   return meta?.status === "ready" && meta.configHash === configHash
 }
 
 export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   return isSnapshotFresh(await readSourceSnapshotMetadata(store, source.key), source, configHash)
 }
 
 export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, source: SourceConfiguration) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   const snapshot = await readSourceSnapshotMetadata(store, source.key)
   return snapshot?.configHash === configHash ? snapshot : undefined
 }
@@ -418,7 +422,7 @@ export async function materializeWorkspaceSources(
     let configHash: string
     let existing: SourceSnapshotMetadata | undefined
     try {
-      configHash = await sourceConfigHash(source)
+      configHash = await sourceConfigHash(source, store)
       existing = await readSourceSnapshotMetadata(store, source.key)
     }
     catch (error) {

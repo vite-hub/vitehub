@@ -8,6 +8,7 @@ import { check, fallback, literal, object, optional, pipe, record, safeParse, st
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
+import { workspaceStoreTarget } from "./target.ts"
 
 import type {
   DiffOptions,
@@ -309,6 +310,10 @@ async function fileDigest(path: string): Promise<string> {
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
+  [workspaceStoreTarget]() {
+    return { provider: "local" }
+  }
+
   #baseline: WorkspaceSnapshot | undefined
   #files = new Map<string, { version: string, value: Pick<WorkspaceFile, "mediaType" | "metadata"> }>()
   #fileMetadataRoot: string
