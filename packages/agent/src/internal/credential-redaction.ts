@@ -6,7 +6,8 @@ const uppercaseCredentialKeys = [
 ]
 
 function isCredentialKey(key: string): boolean {
-  return uppercaseCredentialKeys.includes(key.toUpperCase())
+  return /^_*auth$/i.test(key)
+    || uppercaseCredentialKeys.includes(key.replace(/^_+/, "").toUpperCase())
     || /(?:^|[_-])(?:key|secret|token|password)$/i.test(key)
     || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
 }
@@ -55,10 +56,11 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
     ?? pendingAuthorizationHeader(value)
-    ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
+    ?? /(?<![A-Za-z0-9_-])_+$/.exec(tail)?.[0]
+    ?? /(?:--)?["']?\b_*[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?(?:\s*(?:\?=|\+=|:=|[:=])[\t ]*|(?:(?<=--["']?[A-Z][A-Z0-9_-]*["']?)|(?<=\bPASSWORD))\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?(_*(?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|AUTH))["']?(?:\s*(?:\?=|\+=|:=|[:=])[\t ]*|(?:(?<=--["']?[A-Z][A-Z0-9_-]*["']?)|(?<=\bPASSWORD))\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
@@ -308,6 +310,7 @@ export function pendingCredentialAssignment(value: string, precedingText = ""): 
 
 export function credentialTextMayContinue(value: string, precedingText = ""): boolean {
   if (pendingAuthorizationState(value)) return true
+  if (/(?<![A-Za-z0-9_-])_+$/.test(value)) return true
   if (/\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.test(value)) return true
   if (/(?<![A-Za-z0-9_-])--?$/.test(value)) return true
   if (pendingAuthorizationHeader(value)) return true
@@ -315,14 +318,14 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
   if (pendingCredentialScheme(value, precedingText)) return true
   if (pendingCredentialAssignment(value, precedingText)) return true
   const tail = value.slice(-128)
-  const trailingWord = /\b([A-Za-z][A-Za-z0-9_-]*)["']?\s*$/.exec(tail)?.[1]
+  const trailingWord = /\b(_*[A-Za-z][A-Za-z0-9_-]*)["']?\s*$/.exec(tail)?.[1]
   if (!trailingWord) return false
-  const normalized = trailingWord.toUpperCase()
+  const normalized = trailingWord.replace(/^_+/, "").toUpperCase()
   const finalSegment = trailingWord.split(/[_-]|(?<=[a-z0-9])(?=[A-Z])/).at(-1)?.toUpperCase() ?? ""
   return isCredentialKey(trailingWord)
     || uppercaseCredentialKeys.some(key => key.startsWith(normalized))
     || ["BEARER", "BASIC"].some(marker => marker.startsWith(normalized))
-    || ["KEY", "SECRET", "TOKEN", "PASSWORD"].some(marker => marker.startsWith(finalSegment))
+    || ["KEY", "SECRET", "TOKEN", "PASSWORD", "AUTH"].some(marker => marker.startsWith(finalSegment))
 }
 
 export function pendingCredentialQuote(value: string, precedingText = ""): string | undefined {

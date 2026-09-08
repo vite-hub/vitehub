@@ -554,3 +554,26 @@ it.each([
 ])("preserves empty YAML credential values: %s", (text) => {
   expect(redactCredentialText(text)).toBe(text)
 })
+
+
+it.each(["_authToken", "_password", "_auth", "auth", "__APIKEY"])("redacts npm credential key %s across chunk boundaries", (key) => {
+  const prefix = `//registry.npmjs.org/:${key}=`
+  const secret = "c2VjcmV0=="
+  expect(redactCredentialText(`${prefix}${secret};status=ok`)).toBe(`${prefix}[REDACTED];status=ok`)
+  for (let split = 1; split <= key.length; split++) {
+    const partial = key.slice(0, split)
+    expect(credentialTextMayContinue(partial)).toBe(true)
+    expect(pendingCredentialTextSuffix(partial)).toBe(partial)
+    expect(redactCredentialText(`${partial}${key.slice(split)}=${secret}`)).toBe(`${key}=[REDACTED]`)
+  }
+  for (let split = 0; split <= secret.length; split++) {
+    const state = pendingCredentialAssignmentState(prefix + secret.slice(0, split))!
+    expect(state).toBeDefined()
+    const rest = secret.slice(split) + ";status=ok"
+    expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+  }
+})
+
+it.each(["auth is configured", "authorization is required", "oauth=enabled", "author=alice"])("preserves non-credential auth text: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+})
