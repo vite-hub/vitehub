@@ -751,7 +751,8 @@ describe("lazy sources", () => {
     if (userFile) await expect(store.readFile("docs/generated/user.md")).resolves.toMatchObject({ content: "keep" })
     if (preexisting || userFile) await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
     else await expect(store.stat("docs/generated")).resolves.toBeUndefined()
-    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    if (preexisting || userFile || moved) await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat("docs")).resolves.toBeUndefined()
     if (moved) await expect(store.stat("docs/moved")).resolves.toMatchObject({ type: "directory" })
   })
 
@@ -810,7 +811,7 @@ describe("lazy sources", () => {
 
     await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
     await expect(store.stat("docs/generated")).resolves.toBeUndefined()
-    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    await expect(store.stat("docs")).resolves.toBeUndefined()
   })
 
   it.each([
@@ -2742,6 +2743,50 @@ describe("lazy sources", () => {
     }, store)
 
     await expect(view.readFile("AGENTS.md")).resolves.toBe("# Source\n")
+  })
+
+  it.each([
+    { local: false, preexisting: false },
+    { local: true, preexisting: false },
+    { local: false, preexisting: true },
+    { local: true, preexisting: true },
+  ])("cleans created mount ancestors with local=$local and preexisting parent=$preexisting", async ({ local, preexisting }) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    if (preexisting) await store.mkdir("docs")
+    const definition = {
+      name: "nested-mount-removal",
+      sources: {
+        generated: custom({ materialize: "startup", mount: "docs/nested/generated", files: [{ path: "file.md", content: "generated" }] }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await expect(store.stat("docs/nested/generated/file.md")).resolves.toMatchObject({ type: "file" })
+
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
+
+    await expect(store.stat("docs/nested")).resolves.toBeUndefined()
+    if (preexisting) await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat("docs")).resolves.toBeUndefined()
+  })
+
+  it("cleans mount ancestors created before recursive mkdir fails", async () => {
+    const store = createMemoryWorkspaceStore()
+    const mkdir = store.mkdir.bind(store)
+    const failure = vi.spyOn(store, "mkdir").mockImplementationOnce(async () => {
+      await mkdir("docs/nested", { recursive: true })
+      throw new Error("mount creation failed")
+    })
+    const definition = {
+      name: "failed-nested-mount",
+      sources: { generated: custom({ materialize: "startup", mount: "docs/nested/generated", files: [] }) },
+    }
+    const result = await createWorkspaceSourceView(definition, store).materializeSources()
+    expect(result.sources[0]?.status).toBe("error")
+    await expect(store.stat("docs/nested")).resolves.toMatchObject({ type: "directory" })
+    failure.mockRestore()
+
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
+    await expect(store.stat("docs")).resolves.toBeUndefined()
   })
 
   it("keeps user-owned ancestors when clearing a nested source mount", async () => {

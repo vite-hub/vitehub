@@ -657,7 +657,7 @@ async function materializeWorkspaceSourcesInternal(
 
     let ownsMount = Boolean(source.mountPath)
       && existing?.mountPath === source.mountPath && existing.ownsMount === true
-    const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
+    const ownedAncestors = [...(existing?.mountPath === source.mountPath ? existing.ownedAncestors || [] : [])]
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let revision = existing?.revision
     const retainPriorItems = existing?.configHash === configHash
@@ -696,8 +696,20 @@ async function materializeWorkspaceSourcesInternal(
       if (source.mountPath) {
         await control.mutate(async () => {
           const mountExists = Boolean(await store.stat(source.mountPath))
-          await store.mkdir(source.mountPath, { recursive: true })
-          ownsMount = ownsMount || !mountExists
+          const missingAncestors: string[] = []
+          for (const directory of parentDirectoryPaths(source.mountPath)) {
+            if (!await store.stat(directory)) missingAncestors.push(directory)
+          }
+          try {
+            await store.mkdir(source.mountPath, { recursive: true })
+          }
+          finally {
+            // Recursive mkdir can create parents even when creating the mount fails.
+            for (const directory of missingAncestors) {
+              if ((await store.stat(directory))?.type === "directory" && !ownedAncestors.includes(directory)) ownedAncestors.push(directory)
+            }
+            ownsMount = ownsMount || !mountExists && (await store.stat(source.mountPath))?.type === "directory"
+          }
         })
       }
 
@@ -838,6 +850,7 @@ async function materializeWorkspaceSourcesInternal(
         await control.mutate(() => writeSourceSnapshotMetadata(store, {
           ...existing,
           ownsMount,
+          ownedAncestors,
           ownedDirectories: [...ownedDirectories],
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
           files: scopedItems ? Object.keys(scopedItems).length : 0,
@@ -897,7 +910,7 @@ async function materializeWorkspaceSourcesInternal(
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? { ...existing, ownedDirectories: [...ownedDirectories], items: checkpointItemsMetadata }
+            ? { ...existing, ownsMount, ownedAncestors, ownedDirectories: [...ownedDirectories], items: checkpointItemsMetadata }
             : source.materialize === "startup" ? { ...failed, status: "updating" as const, error: undefined } : undefined
         : failed
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))
