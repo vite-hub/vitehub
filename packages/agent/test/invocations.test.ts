@@ -102,9 +102,9 @@ describe("Agent Invocations", () => {
     expect(content).toBe(padding + prefix + "[REDACTED]" + suffix)
   })
 
-  it.each(["|", ">-", "|2-"])("redacts YAML scalar %s across forced message flushes", async (indicator) => {
+  it.each(["api_token", "password", "secret"].flatMap(key => ["|", ">-", "|2-", "&credential |", "!!str >-", "&credential !!str |2-", "!<tag:yaml.org,2002:str> &credential >"].map(indicator => ({ key, indicator }))))("redacts YAML $key scalar $indicator across forced message flushes", async ({ key, indicator }) => {
     const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
-    const text = `config:\n  api_token: ${indicator}\n    sensitive-value\n    more-secret\n  status: ok\n`
+    const text = `config:\n  ${key}: ${indicator}\n    sensitive-value\n    more-secret\n  status: ok\n`
     const agent = defineAgent({
       driver: { async run(context) {
         for (const character of text) {
@@ -119,7 +119,7 @@ describe("Agent Invocations", () => {
     await runAgent(agent, runtime("yaml-scalar"), {})
     const observations = (await invocations.getByRunId("yaml-scalar"))!.observations
     const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
-    expect(content).toBe("config:\n  api_token:[REDACTED]\n  status: ok\n")
+    expect(content).toBe(`config:\n  ${key}:[REDACTED]\n  status: ok\n`)
   })
 
   it.each([2, 100, 400])("rejects configuration updates when the marker cannot fit a %i-byte budget", (maxBytes) => {

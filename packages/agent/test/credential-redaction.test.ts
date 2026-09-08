@@ -366,8 +366,8 @@ it("retains an incomplete custom authorization scheme", () => {
 })
 
 
-it.each(["|", ">-", "|+", "|2", ">2-", "|-2", "| # 9 is a comment"])("redacts YAML block scalar %s through its dedent", (indicator) => {
-  const prefix = "config:\n  private_key: "
+it.each(["private_key", "password", "secret"].flatMap(key => ["|", ">-", "|+", "|2", ">2-", "|-2", "| # 9 is a comment", "&credential |", "!!str >-", "&credential !!str |2-", "!<tag:yaml.org,2002:str> &credential >"].map(indicator => ({ key, indicator }))))("redacts YAML $key block scalar $indicator through its dedent", ({ key, indicator }) => {
+  const prefix = `config:\n  ${key}: `
   const scalar = `${indicator}\n    -----BEGIN PRIVATE KEY-----\n    sensitive-value\n\n    -----END PRIVATE KEY-----`
   const suffix = "\n  status: ok\nnext: retained"
   expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
@@ -393,4 +393,20 @@ it("retains YAML scalar redaction state across individual characters", () => {
 it("uses preceding indentation for a retained YAML key", () => {
   expect(redactCredentialText("api_token: |\n    secret\n  status: ok", "  "))
     .toBe("api_token: [REDACTED]\n  status: ok")
+})
+
+
+it.each(["password", "secret"])("redacts bare YAML %s fields with retained line context", (key) => {
+  for (const preceding of ["", "  ", "config:\n  ", "  - "]) {
+    const value = `${key}: "correct horse"\nstatus: ok`
+    expect(redactCredentialText(preceding + value)).toBe(`${preceding}${key}: "[REDACTED]"\nstatus: ok`)
+    expect(redactCredentialText(value, preceding)).toBe(`${key}: "[REDACTED]"\nstatus: ok`)
+    expect(pendingCredentialQuote(`${key}: "correct`, preceding)).toBe('"')
+    expect(credentialTextMayContinue(`${key}: correct`, preceding)).toBe(true)
+    expect(pendingCredentialAssignmentState(`${key}: |`, preceding)?.yaml).toBeDefined()
+  }
+  const prose = `Field label. ${key}: "ordinary words"`
+  expect(redactCredentialText(prose)).toBe(prose)
+  expect(pendingCredentialQuote(`${key}: "ordinary`, "Field label. ")).toBeUndefined()
+  expect(credentialTextMayContinue(`${key}: ordinary`, "Field label. ")).toBe(false)
 })
