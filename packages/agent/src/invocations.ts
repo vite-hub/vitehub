@@ -2,9 +2,10 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
+import { consumeCredentialAssignment, credentialTextMayContinue, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
+import type { CredentialAssignmentState } from "./internal/credential-redaction.ts"
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
@@ -1268,7 +1269,7 @@ function journalTraceLog(
   let activeMessageDeltaKey: string | undefined
   const precedingMessageText = new Map<string, string>()
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
-  const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
+  const redactingCredentialDeltas = new Map<string, { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1298,16 +1299,22 @@ function journalTraceLog(
         if (!interveningEvent && content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content, precedingText)
         const scheme = pendingCredentialScheme(content, precedingText)
-        const assignment = pendingCredentialAssignment(content)
-        if (quote) {
+        const assignment = pendingCredentialAssignmentState(content)
+        if (assignment) {
+          redactingCredentialDeltas.set(key, { kind: "shell", state: assignment })
+          // Complete only the persisted placeholder; the scanner retains the raw state.
+          if (!assignment.started) content += "[REDACTED]"
+          else if (assignment.quote) content += `${assignment.escaped ? "\\" : ""}${assignment.quote}`
+        }
+        else if (quote) {
           redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
         }
-        else if (scheme || assignment) {
+        else if (scheme) {
           redactingCredentialDeltas.set(key, {
-            kind: scheme ?? assignment!,
+            kind: scheme,
             escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1,
           })
-          if (scheme === "scheme" || assignment === "assignment") {
+          if (scheme === "scheme") {
             content += "[REDACTED]"
           }
         }
@@ -1379,54 +1386,59 @@ function journalTraceLog(
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
-      if (redaction.kind === "assignment" || redaction.kind === "scheme") {
-        content = content.trimStart()
-        if (!content) return
-      }
-      if ((redaction.kind === "assignment" || redaction.kind === "scheme") && (content[0] === '"' || content[0] === "'")) {
-        redaction = { kind: "quoted", quote: content[0], escaped: false, omitClosingQuote: true }
-        redactingCredentialDeltas.set(key, redaction)
-        content = content.slice(1)
-      }
-      else if (redaction.kind === "assignment" && content) {
-        redaction = { kind: "unquoted" }
-        redactingCredentialDeltas.set(key, redaction)
-      }
-      let boundary: number
-      if (redaction.kind === "quoted") {
-        boundary = -1
-        for (let index = 0; index < content.length; index++) {
-          const character = content[index]
-          if (redaction.escaped) redaction.escaped = false
-          else if (character === "\\") redaction.escaped = true
-          else if (character === redaction.quote) {
-            boundary = index + (redaction.omitClosingQuote ? 1 : 0)
-            break
-          }
-        }
+      if (redaction.kind === "shell") {
+        const boundary = consumeCredentialAssignment(content, redaction.state)
+        if (boundary === content.length) return
+        redactingCredentialDeltas.delete(key)
+        content = content.slice(boundary)
+        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
       }
       else {
         if (redaction.kind === "scheme") {
           content = content.trimStart()
           if (!content) return
-          redaction = { kind: "unquoted" }
-          redactingCredentialDeltas.set(key, redaction)
         }
-        boundary = -1
-        for (let index = 0; index < content.length; index++) {
-          const character = content[index]!
-          if (redaction.escaped) redaction.escaped = false
-          else if (character === "\\") redaction.escaped = true
-          else if (/[\s"',;&{}<>]/.test(character)) {
-            boundary = index
-            break
+        if (redaction.kind === "scheme" && (content[0] === '"' || content[0] === "'")) {
+          redaction = { kind: "quoted", quote: content[0], escaped: false, omitClosingQuote: true }
+          redactingCredentialDeltas.set(key, redaction)
+          content = content.slice(1)
+        }
+        let boundary: number
+        if (redaction.kind === "quoted") {
+          boundary = -1
+          for (let index = 0; index < content.length; index++) {
+            const character = content[index]
+            if (redaction.escaped) redaction.escaped = false
+            else if (character === "\\") redaction.escaped = true
+            else if (character === redaction.quote) {
+              boundary = index + (redaction.omitClosingQuote ? 1 : 0)
+              break
+            }
           }
         }
+        else {
+          if (redaction.kind === "scheme") {
+            content = content.trimStart()
+            if (!content) return
+            redaction = { kind: "unquoted" }
+            redactingCredentialDeltas.set(key, redaction)
+          }
+          boundary = -1
+          for (let index = 0; index < content.length; index++) {
+            const character = content[index]!
+            if (redaction.escaped) redaction.escaped = false
+            else if (character === "\\") redaction.escaped = true
+            else if (/[\s"',;&{}<>]/.test(character)) {
+              boundary = index
+              break
+            }
+          }
+        }
+        if (boundary < 0) return
+        redactingCredentialDeltas.delete(key)
+        content = content.slice(boundary)
+        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
       }
-      if (boundary < 0) return
-      redactingCredentialDeltas.delete(key)
-      content = content.slice(boundary)
-      entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
     }
     const pending = pendingMessageDeltas.get(key)
     const rawPreviousContent = pending?.entry.attributes?.["message.content"]

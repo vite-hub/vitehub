@@ -64,21 +64,54 @@ export function redactCredentialText(value: string, precedingText = ""): string 
       const closed = quoted.length > 1 && quoted.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(quoted)
       return `${scheme} ${quote}[REDACTED]${closed ? quote : ""}`
     })
-    .replace(new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*"?|'(?:\\\\[\\s\\S]|[^'\\\\])*'?)`, "gi"), (match, prefix: string, key: string, quoted: string) => {
-      if (!isCredentialAssignment(key, prefix)) return match
-      const quote = quoted[0]!
-      const closed = quoted.length > 1 && quoted.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(quoted)
-      return `${prefix}${quote}[REDACTED]${closed ? quote : ""}`
-    })
     .replace(new RegExp(String.raw`\b(Bearer|Basic)\s+${unquotedCredentialValue}+`, "gi"), (match, scheme: string, offset: number, source: string) =>
       isCredentialScheme(scheme, precedingText + source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
-    .replace(new RegExp(`${credentialAssignmentPrefix}(${unquotedCredentialValue}+)`, "gi"), (match, prefix: string, key: string) => isCredentialAssignment(key, prefix) ? `${prefix}[REDACTED]` : match)
+    .replace(new RegExp(`${credentialAssignmentPrefix}(${shellCredentialValue}+)`, "gi"), (match, prefix: string, key: string, content: string) => {
+      if (!isCredentialAssignment(key, prefix)) return match
+      const quote = /^["']/.exec(content)?.[0] ?? ""
+      const state: CredentialAssignmentState = { escaped: false, started: false }
+      consumeCredentialAssignment(content, state)
+      return `${prefix}${quote}[REDACTED]${quote && !state.quote ? quote : ""}`
+    })
+}
+
+export interface CredentialAssignmentState {
+  escaped: boolean
+  started: boolean
+  quote?: string
+}
+
+// Shell assignments concatenate adjacent quoted and unquoted segments.
+const shellCredentialValue = String.raw`(?:"(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?|${unquotedCredentialValue})`
+
+export function consumeCredentialAssignment(value: string, state: CredentialAssignmentState): number {
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]!
+    if (!state.started && /\s/.test(character)) continue
+    state.started = true
+    if (state.escaped) state.escaped = false
+    else if (character === "\\") state.escaped = true
+    else if (state.quote) {
+      if (character === state.quote) delete state.quote
+    }
+    else if (character === '"' || character === "'") state.quote = character
+    else if (/[\s,;&{}<>]/.test(character)) return index
+  }
+  return value.length
+}
+
+export function pendingCredentialAssignmentState(value: string): CredentialAssignmentState | undefined {
+  for (const match of value.matchAll(new RegExp(credentialAssignmentPrefix, "gi"))) {
+    if (!isCredentialAssignment(match[2]!, match[1]!)) continue
+    const content = value.slice(match.index + match[0].length)
+    const state: CredentialAssignmentState = { escaped: false, started: false }
+    if (consumeCredentialAssignment(content, state) === content.length) return state
+  }
 }
 
 export function pendingCredentialAssignment(value: string): "assignment" | "unquoted" | undefined {
-  const assignment = new RegExp(`${credentialAssignmentPrefix}(${unquotedCredentialValue}*)$`, "i").exec(value)
-  if (!assignment || !isCredentialAssignment(assignment[2]!, assignment[1]!)) return
-  return assignment[3] ? "unquoted" : "assignment"
+  const state = pendingCredentialAssignmentState(value)
+  return state ? state.started ? "unquoted" : "assignment" : undefined
 }
 
 export function credentialTextMayContinue(value: string, precedingText = ""): boolean {

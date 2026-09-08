@@ -3380,6 +3380,62 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}apiToken=[REDACTED];status=ok`)
   })
 
+  it("does not detach a closed marker-like credential from its assignment", async () => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { "message.content": `${prefix}PASSWORD="secret"`, "message.id": "answer" },
+          name: "agent.message.delta",
+          type: "run",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("closed-credential"), {})
+    const observations = (await invocations.getByRunId("closed-credential"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${prefix}PASSWORD="[REDACTED]"`)
+  })
+
+  it.each([false, true])("redacts adjacent shell segments across bounded chunks (quoted start: %s)", async (quotedStart) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const start = quotedStart ? '"' : ""
+        const chunks = [`PASSWORD=${start}${"private".repeat(100)}`, '"', "secret words", '"', "tail", ";status=ok"]
+        if (quotedStart) chunks.splice(1, 0, '"')
+        for (const value of chunks) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("shell-segments"), {})
+    const observations = (await invocations.getByRunId("shell-segments"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(quotedStart ? 'PASSWORD="[REDACTED]";status=ok' : "PASSWORD=[REDACTED];status=ok")
+  })
+
   it.each(["PASSWORD=", "Bearer ", "Authorization: basic "].flatMap(prefix => ['"', "'"].map(quote => [prefix, quote])))
   ("redacts quoted credentials across bounded chunks with %s%s", async (credentialPrefix, quote) => {
     const invocations = defineAgentInvocations({

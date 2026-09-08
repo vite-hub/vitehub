@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
+import { consumeCredentialAssignment, credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
 describe("structured credential redaction", () => {
   it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: BASIC"])("redacts quoted %s values", (scheme) => {
@@ -279,4 +279,26 @@ it("keeps preceding prose context across scheme detection boundaries", () => {
   expect(redactCredentialText("bearer of good news", "The ")).toBe("bearer of good news")
   expect(pendingCredentialScheme("bearer of", "The ")).toBeUndefined()
   expect(redactCredentialText("bearer sensitive-value", "launcher failed\n")).toBe("bearer [REDACTED]")
+})
+
+it.each([
+  ['PASSWORD=abc"def ghi"jkl;status=ok', 'PASSWORD=[REDACTED];status=ok'],
+  ["SECRET=abc'def ghi'jkl;status=ok", "SECRET=[REDACTED];status=ok"],
+  ['PASSWORD="abc"def"ghi jkl"mno;status=ok', 'PASSWORD="[REDACTED]";status=ok'],
+  [String.raw`PASSWORD=abc\"def"ghi jkl"mno;status=ok`, 'PASSWORD=[REDACTED];status=ok'],
+])("redacts every adjacent shell segment in %s", (input, expected) => {
+  expect(redactCredentialText(input)).toBe(expected)
+  const end = input.indexOf(";status=ok")
+  for (let split = input.indexOf("=") + 1; split <= end; split++) {
+    const state = pendingCredentialAssignmentState(input.slice(0, split))!
+    expect(state).toBeDefined()
+    const rest = input.slice(split)
+    expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+  }
+})
+
+it("keeps a closed marker-like credential attached to its assignment", () => {
+  const text = `${".".repeat(512)}PASSWORD="secret"`
+  expect(pendingCredentialAssignmentState(text)).toEqual({ escaped: false, started: true })
+  expect(redactCredentialText(text)).toBe(`${".".repeat(512)}PASSWORD="[REDACTED]"`)
 })
