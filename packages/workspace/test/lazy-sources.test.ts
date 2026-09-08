@@ -164,6 +164,30 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/shared.md")).resolves.toBe("higher needle")
   })
 
+  it.each(["search", "list", "glob"].flatMap(operation => [false, true].map(local => ({ operation, local }))))("rejects failed incomplete snapshot recovery during $operation with local=$local", async ({ operation, local }) => {
+    const rootDir = await mkdtemp(join(tmpdir(), "workspace-inspection-recovery-failure-"))
+    tempDirs.push(rootDir)
+    const store = local ? createLocalWorkspaceStore(rootDir) : createMemoryWorkspaceStore()
+    const getItem = vi.fn(async (key: string) => ({ key, content: "higher needle" }))
+    const definition = {
+      name: "inspection-recovery-failure",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", getKeys: async () => ["shared.md"], getItem }),
+        second: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "lower needle" }] }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).readFile("docs/shared.md")
+    await store.rm("docs/shared.md")
+    getItem.mockRejectedValue(new Error("provider unavailable"))
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots: true })
+    const result = operation === "search"
+      ? view.search({ pattern: "needle" })
+      : operation === "glob" ? view.glob("**/*.md") : view.list("docs", { recursive: true })
+    await expect(result).rejects.toThrow("Workspace Source recovery failed: first")
+    await expect(store.getMeta?.("source:second:snapshot")).resolves.toMatchObject({ status: "ready" })
+    await expect(store.getMeta?.("source:first:snapshot")).resolves.toMatchObject({ status: "error" })
+  })
+
   it("refreshes nested startup files before the first directory listing", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["stale.md"]

@@ -380,7 +380,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const generation = generationBySource.get(source.key)
       try {
         if (incomplete.has(source.key) || !preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
-          await materializeSerialized({ sources: [source.key] })
+          const result = await materializeSerialized({ sources: [source.key] })
+          if (result.sources.some(item => item.status === "error")) {
+            throw workspaceError(`[vitehub] Workspace Source recovery failed: ${source.key}.`)
+          }
         }
         else {
           await ensureMaterialized(source.key)
