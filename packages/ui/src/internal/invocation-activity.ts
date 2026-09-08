@@ -349,7 +349,9 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   let latestFinalSequence = -Infinity;
   for (const observations of groups.values()) {
     const sequence = Math.max(...observations.map(item => item.sequence));
-    if (sequence > latestFinalSequence && observations.every(item => item.attributes?.["message.phase"] !== "commentary")) latestFinalSequence = sequence;
+    if (sequence > latestFinalSequence && observations.every(item => item.name.startsWith("agent.message")
+      && item.attributes?.["message.phase"] !== "commentary"
+      && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant"))) latestFinalSequence = sequence;
   }
   for (const observations of groups.values()) {
     if (Math.max(...observations.map(item => item.sequence)) !== latestFinalSequence) continue;
