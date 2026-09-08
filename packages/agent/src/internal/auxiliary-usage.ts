@@ -22,5 +22,5 @@ export function invocationUsageWithAuxiliaryCalls(context: AgentInvocationContex
       usage[key] = values.reduce((total, value) => total + value, 0)
     }
   }
-  return { calls, usage, ...(primary?.run ? { run: primary.run } : {}) }
+  return { calls, usage, ...(primary?.cost ? { cost: primary.cost } : {}), ...(primary?.run ? { run: primary.run } : {}) }
 }

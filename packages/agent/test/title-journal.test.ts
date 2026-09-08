@@ -18,12 +18,15 @@ function journal() {
 const runtime = (runId: string) => ({ memo: vi.fn(), run: { runId }, runtime: "unknown" as const, waitUntil: vi.fn() })
 
 describe("title journal ownership", () => {
-  it.each(["text", "stream"] as const)("prices auxiliary title calls before finish consumers and terminal usage for %s output", async (mode) => {
+  it.each([
+    { mode: "text", priced: true }, { mode: "stream", priced: true },
+    { mode: "text", priced: false }, { mode: "stream", priced: false },
+  ])("prices auxiliary title calls before finish consumers for $mode output with title pricing $priced", async ({ mode, priced }) => {
     const invocations = journal()
     const finish = vi.fn()
-    const pricing = vi.fn(() => ({ usd: "0.01", estimated: true, source: "custom" as const }))
+    const pricing = vi.fn(() => priced ? { usd: "0.01", estimated: true, source: "custom" as const } : undefined)
     const titleUsage = { model: "title-model", usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } }
-    const primaryUsage = { model: "answer-model", usage: { inputTokens: 10, outputTokens: 7, totalTokens: 17 } }
+    const primaryUsage = { model: "answer-model", usage: { inputTokens: 10, outputTokens: 7, totalTokens: 17 }, ...(!priced ? { cost: { display: "~$0.01", usd: "0.01", estimated: true, source: "custom" as const } } : {}) }
     const agent = defineAgent({
       capabilities: [title({ driver: { run: () => mode === "text"
         ? { text: "Usage accounting", usageRecord: titleUsage }
@@ -51,8 +54,8 @@ describe("title journal ownership", () => {
       for await (const _event of stream as AsyncIterable<unknown>) {}
     }
     const invocation = (await invocations.getByRunId(runId))!
-    expect(pricing).toHaveBeenCalledTimes(2)
-    expect(pricing).toHaveBeenCalledWith(expect.objectContaining({ model: "answer-model" }))
+    expect(pricing).toHaveBeenCalledTimes(priced ? 2 : 1)
+    if (priced) expect(pricing).toHaveBeenCalledWith(expect.objectContaining({ model: "answer-model" }))
     expect(pricing).toHaveBeenCalledWith(expect.objectContaining({ model: "title-model" }))
     expect(finish).toHaveBeenCalledOnce()
     const finishEvent = finish.mock.calls[0]![0]
@@ -60,14 +63,14 @@ describe("title journal ownership", () => {
     expect(finishEvent.invocation.usage).toMatchObject({
       calls: [primaryUsage, titleUsage],
       usage: { inputTokens: 13, outputTokens: 9, totalTokens: 22 },
-      cost: { usd: "0.02", source: "custom" },
+      cost: { usd: priced ? "0.02" : "0.01", source: "custom" },
     })
     const terminal = invocation.observations.filter(entry => entry.name === "agent.invocation.finish")
     expect(terminal).toHaveLength(1)
     expect(terminal[0]?.attributes?.["usage.record"]).toMatchObject({
       calls: [primaryUsage, titleUsage],
       usage: { inputTokens: 13, outputTokens: 9, totalTokens: 22 },
-      cost: { usd: "0.02", source: "custom" },
+      cost: { usd: priced ? "0.02" : "0.01", source: "custom" },
     })
   })
 

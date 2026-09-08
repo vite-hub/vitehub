@@ -86,7 +86,8 @@ export async function enrichAgentUsageCost(
 ): Promise<AgentUsageRecord> {
   const calls = record.calls ? await Promise.all(record.calls.map(call => enrichAgentUsageCost(call, pricing, run))) : undefined
   let cost = record.cost
-  if (!cost && calls?.length && calls.every(call => call.cost)) {
+  // Auxiliary aggregation can retain the primary cost until all calls are priced.
+  if (calls?.length && calls.every(call => call.cost)) {
     cost = aggregateAgentUsageCosts(calls.map(call => call.cost!))
   }
   if (!cost && !calls?.length && record.usage) {

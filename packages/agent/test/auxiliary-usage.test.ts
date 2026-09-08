@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
+import { enrichAgentUsageCost } from "../src/internal/usage-pricing.ts"
 import { invocationUsageWithAuxiliaryCalls, recordAuxiliaryUsage } from "../src/internal/auxiliary-usage.ts"
 
 describe("auxiliary invocation usage", () => {
@@ -13,6 +14,19 @@ describe("auxiliary invocation usage", () => {
       usage: { inputTokens: 13, totalTokens: 22 },
     })
     expect(primary.usage).toEqual({ inputTokens: 10, totalTokens: 17 })
+  })
+
+  it.each([false, true])("preserves primary cost when auxiliary pricing is available: %s", async (priced) => {
+    const context = createAgentInvocationContextStore()
+    const primary = { usage: { totalTokens: 17 }, cost: { display: "$0.02", usd: "0.02", estimated: false, source: "provider" as const } }
+    const title = { usage: { totalTokens: 5 } }
+    recordAuxiliaryUsage(context, title)
+    const aggregate = invocationUsageWithAuxiliaryCalls(context, primary)!
+    expect(aggregate.cost).toEqual(primary.cost)
+    const enriched = await enrichAgentUsageCost(aggregate, () => priced ? { usd: "0.01", estimated: false, source: "provider" } : undefined)
+    expect(enriched.cost?.usd).toBe(priced ? "0.03" : "0.02")
+    expect(enriched.calls?.[1]?.cost?.usd).toBe(priced ? "0.01" : undefined)
+    expect(primary.cost.usd).toBe("0.02")
   })
 
   it("does not present auxiliary usage as a complete total when primary usage is missing", () => {
