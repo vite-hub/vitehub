@@ -385,7 +385,8 @@ async function reconcileRemovedStartupSourcesInternal(
     }
     await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(source.key), {}))
   }
-  if (!currentSources.length) await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, []))
+  // Register before materialization can persist files, including failed or interrupted attempts.
+  await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, currentSources.map(({ key, mountPath }) => ({ key, mountPath }))))
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
@@ -507,7 +508,7 @@ export async function materializeWorkspaceSources(
   const startupSources = configuredSources.filter(source => source.materialize === "startup")
   const rootMaterialization = !normalizeWorkspacePath(options.path || "")
   const selectedStartupSource = sources.some(source => source.materialize === "startup")
-  const reconcileStartupSources = rootMaterialization && (!options.sources?.length || selectedStartupSource)
+  const reconcileStartupSources = selectedStartupSource || rootMaterialization && !options.sources?.length
   if (reconcileStartupSources) {
     await reconcileRemovedStartupSources(store, startupSources, control)
   }
@@ -790,13 +791,6 @@ export async function materializeWorkspaceSources(
         status: "failed",
       })
       if (options.abortSignal?.aborted) throw error
-    }
-  }
-
-  if (reconcileStartupSources && store.setMeta) {
-    const ready = await Promise.all(startupSources.map(async source => await hasCurrentSourceSnapshot(store, source)))
-    if (ready.every(Boolean)) {
-      await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, startupSources.map(({ key, mountPath }) => ({ key, mountPath }))))
     }
   }
 

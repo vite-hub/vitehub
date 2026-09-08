@@ -306,6 +306,32 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
   })
 
+  it.each([undefined, "docs/generated"])("reconciles failed startup sources after materializing path %s", async (path) => {
+    const store = createMemoryWorkspaceStore()
+    const initial = {
+      name: "failed-startup-source",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return ["partial.md", "unavailable.md"] },
+          async getItem(key) {
+            if (key === "unavailable.md") throw new Error("Source unavailable")
+            return { key, content: "partial" }
+          },
+        }),
+      },
+    }
+    await expect(createWorkspaceSourceView(initial, store).materializeSources({ path })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+    await expect(store.readFile("docs/generated/partial.md")).resolves.toMatchObject({ content: "partial" })
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs/generated/partial.md")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+  })
+
   it.each([
     { preexisting: false, moved: false, userFile: false },
     { preexisting: true, moved: false, userFile: false },
