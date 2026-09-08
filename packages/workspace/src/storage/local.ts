@@ -296,7 +296,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         return source === undefined || safeParse(string(), source).success
       }))),
     }), value)
-    if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
+    if (!parsed.success) return
     const { path: _path, ...result } = parsed.output
     // Keep scans larger than the cache from evicting every reusable entry.
     if (this.#files.has(path) || this.#files.size < 1024) {
