@@ -349,7 +349,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   for (const observations of groups.values()) {
     if (observations.some(item => item.attributes?.["vitehub.observation.truncated"] === true)) continue;
     if (!observations.every(item => item.name.startsWith("agent.message")
-      && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant"))) continue;
+      && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
+      && item.attributes?.["message.phase"] !== "commentary")) continue;
     const text = observations.map(item => stringAttribute(item.attributes ?? {}, "message.content") ?? "").join("");
     if (!text) continue;
     completeAssistantTexts.add(text);
