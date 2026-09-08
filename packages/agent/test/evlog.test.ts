@@ -168,3 +168,12 @@ it("builds Console links and owns its host lifecycle from the shared configurati
   await hooks.get("close")!()
   expect(telemetry.status().closed).toBe(true)
 })
+
+it("exports only failed HTTP logs by default", async () => {
+  const { telemetry, exporter } = setup()
+  telemetry.drain({ event: { level: "info", method: "GET", path: "/health", status: 200, timestamp: new Date().toISOString() } } as never)
+  telemetry.drain({ event: { level: "error", method: "POST", path: "/rpc", status: 500, timestamp: new Date().toISOString() } } as never)
+  await telemetry.flush()
+  expect(exporter.logs).toHaveBeenCalledTimes(1)
+  expect(exporter.logs.mock.calls[0]?.[0]).toEqual([expect.objectContaining({ path: "/rpc", status: 500 })])
+})

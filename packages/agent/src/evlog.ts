@@ -29,6 +29,8 @@ export interface AgentEvlogOptions {
   deliveryTimeoutMs?: number
   trustedErrorCodes?: readonly string[]
   level?: "minimal" | "standard" | "full"
+  /** HTTP request logs sent through the exporter. Defaults to failures only. */
+  logs?: "all" | "failures" | false
   sessionUrl?: (invocation: { agentName: string, id: string }) => string
   /** Build Console links for all events and reports from one origin. */
   console?: { origin: string | ((agent: string) => string), base?: string }
@@ -88,6 +90,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   } : undefined)
   const exporter = options.exporter
   const level = options.level ?? "standard"
+  const exportedLogs = options.logs ?? "failures"
   const metadata = { ...options.metadata, service: options.service, environment: options.environment }
   const pending = new Set<Promise<unknown>>()
   const counts = { accepted: 0, failed: 0, dropped: 0 }
@@ -178,7 +181,6 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const capability: AgentCapabilityDefinition = defineCapability({
     id: "evlog",
     instructionCoverage: false,
-    async input(context) { event("agent_run_started", await invocationMetadata(context)) },
     finish(result: AgentFinishEvent) {
       summaries.set(result.runtime, { usage: result.invocation.usage, error: result.error, cancelled: result.input.abortSignal?.aborted === true, toolSteps: result.toolResults.length })
     },
@@ -236,6 +238,11 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
     plugin: host => agentEvlogPlugin(telemetry, reporter ? [reporter] : [])(host),
     drain(context: DrainContext) {
       if (closing || !exporter) return
+      if (exportedLogs === false) return
+      if (exportedLogs === "failures"
+        && context.event.level !== "warn"
+        && context.event.level !== "error"
+        && !(hasRuntimeType(context.event.status, "number") && context.event.status >= 400)) return
       const safe = sanitizeAgentLog(filterAgentObservability(level, { ...context.event, ...metadata }), { allowContent: level === "full" })
       if (safe.error) safe.error = { message: "Request failed; inspect the correlated exception." }
       logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service: options.service, environment: options.environment })
