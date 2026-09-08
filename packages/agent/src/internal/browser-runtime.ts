@@ -2,6 +2,7 @@ import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "no
 import { homedir, tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { spawn } from "node:child_process"
+import { lock } from "proper-lockfile"
 
 import type { AgentInvocationContextStore } from "../types.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
@@ -134,6 +135,29 @@ async function smokeChrome(executablePath: string, env: NodeJS.ProcessEnv, prefe
 }
 
 async function provision(root: string, npmCommand = "npm", platform: NodeJS.Platform = process.platform): Promise<PreparedBrowserRuntime> {
+  await mkdir(dirname(root), { recursive: true })
+  let lockError: Error | undefined
+  const assertLock = () => {
+    if (lockError) throw lockError
+  }
+  const release = await lock(root, {
+    realpath: false,
+    retries: { retries: 120, minTimeout: 250, maxTimeout: 1_000 },
+    stale: 60_000,
+    update: 10_000,
+    onCompromised(error) { lockError = error },
+  })
+  try {
+    const prepared = await provisionLocked(root, npmCommand, platform, assertLock)
+    assertLock()
+    return prepared
+  }
+  finally {
+    if (!lockError) await release()
+  }
+}
+
+async function provisionLocked(root: string, npmCommand: string, platform: NodeJS.Platform, assertLock: () => void): Promise<PreparedBrowserRuntime> {
   if (platform !== "linux" && platform !== "darwin") throw new Error("[vitehub] Managed browser() supports Linux and macOS. Use runtime: external for a prepared browser runtime.")
   if (platform === "linux" && process.arch !== "x64") throw new Error("[vitehub] Managed browser() currently requires Linux x64. Use runtime: external for other architectures.")
   const packageRoot = join(root, "package")
@@ -221,8 +245,10 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
     const chrome = stagingChrome.slice(staging.length + 1)
     await writeFile(join(staging, "ready.json"), JSON.stringify({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion }))
     await mkdir(dirname(root), { recursive: true })
+    assertLock()
     if (invalidCache) await rm(root, { force: true, recursive: true })
     try {
+      assertLock()
       await rename(staging, root)
     }
     catch (error) {

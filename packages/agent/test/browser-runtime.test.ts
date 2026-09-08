@@ -1,6 +1,8 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { browserRuntimeEnvironment, prepareBrowserRuntime, provideBrowserRuntimeEnvironment, resetBrowserRuntimePreparationForTest } from "../src/internal/browser-runtime.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
@@ -108,6 +110,21 @@ describe("browser runtime", () => {
     await expect(pending).rejects.toBe(reason)
     await expect(shared).resolves.toHaveProperty("command")
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
+  })
+
+  it("serializes invalid cache repair across Node processes", async () => {
+    const value = await fixture()
+    const ready = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    await chmod(ready.command, 0o600)
+    const script = `import { prepareBrowserRuntime } from ${JSON.stringify(new URL("../src/internal/browser-runtime.ts", import.meta.url).href)};
+      const runtime = await prepareBrowserRuntime(JSON.parse(process.argv[1]));
+      console.log(runtime.command);`
+    const run = () => promisify(execFile)(process.execPath, ["--input-type=module", "-e", script,
+      JSON.stringify({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })])
+    const [one, two] = await Promise.all([run(), run()])
+    expect(one.stdout.trim()).toBe(ready.command)
+    expect(two.stdout.trim()).toBe(ready.command)
+    expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(2)
   })
 
   it("retries failed installs and repairs a missing browser", async () => {
