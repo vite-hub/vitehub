@@ -41,12 +41,13 @@ function pendingAuthorizationHeader(value: string): string | undefined {
 
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
-  return pendingAuthorizationHeader(value)
+  return /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
+    ?? pendingAuthorizationHeader(value)
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[A-Za-z]*$/i.exec(tail)?.[0]
     ?? /["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])(["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?\s*[:=]\s*)`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?\s*[:=]\s*)`
 
 export function redactCredentialText(value: string): string {
   return value
@@ -68,6 +69,7 @@ export function pendingCredentialAssignment(value: string): "assignment" | "unqu
 }
 
 export function credentialTextMayContinue(value: string): boolean {
+  if (/(?<![A-Za-z0-9_-])--?$/.test(value)) return true
   if (pendingAuthorizationHeader(value)) return true
   if (pendingCredentialQuote(value)) return true
   if (pendingCredentialScheme(value)) return true

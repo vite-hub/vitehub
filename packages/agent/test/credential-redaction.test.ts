@@ -169,3 +169,21 @@ it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY"]
     expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
   }
 })
+
+it.each(["api-key", "x-access-token", "password", "API_TOKEN"])("redacts CLI credential flag --%s", (key) => {
+  expect(redactCredentialText(`--${key}=sensitive;status=ok`)).toBe(`--${key}=[REDACTED];status=ok`)
+  expect(redactCredentialText(`command --${key}="sensitive words" --verbose`)).toBe(`command --${key}="[REDACTED]" --verbose`)
+  expect(pendingCredentialAssignment(`--${key}=`)).toBe("assignment")
+  expect(pendingCredentialAssignment(`--${key}=sensitive`)).toBe("unquoted")
+  expect(pendingCredentialQuote(`--${key}="sensitive`)).toBe('"')
+})
+
+it.each(["--monkey=banana", "--hockey=game", "--turnkey=ready"])("preserves unrelated CLI assignments: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+  expect(pendingCredentialAssignment(text)).toBeUndefined()
+})
+
+it.each(["-", "--"])("retains an incomplete CLI flag prefix %s", (prefix) => {
+  expect(credentialTextMayContinue(`${".".repeat(512)}${prefix}`)).toBe(true)
+  expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
+})
