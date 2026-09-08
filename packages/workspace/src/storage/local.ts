@@ -57,7 +57,15 @@ async function applyMetadataPermissions(path: string, mode: number, gid: number)
       mode &= 0o700
     }
   }
-  if ((info.mode & 0o777) !== mode) await chmod(path, mode)
+  if ((info.mode & 0o777) !== mode) {
+    try { await chmod(path, mode) }
+    catch (error) {
+      if (!["EPERM", "EACCES"].includes(Reflect.get(Object(error), "code"))) throw error
+      // Existing shared sidecars need not be owned by this writer. Keep their
+      // permissions only when they already grant no more access than requested.
+      if ((info.mode & 0o777 & ~mode) !== 0) throw error
+    }
+  }
 }
 
 async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {

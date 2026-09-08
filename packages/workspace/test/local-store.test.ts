@@ -13,6 +13,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
   return {
     ...actual,
+    chmod: vi.fn(actual.chmod),
     chown: vi.fn(actual.chown),
     lstat: vi.fn(actual.lstat),
     stat: async (...args: Parameters<typeof actual.stat>) => {
@@ -267,6 +268,40 @@ describe("local workspace store", () => {
     }
     finally {
       const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      vi.mocked(chown).mockImplementation(actual.chown)
+    }
+  })
+
+  it.skipIf(process.platform === "win32").each(["EPERM", "EACCES"])("uses safely restricted shared sidecars when mode repair fails with %s", async (code) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await chmod(root, 0o770)
+    const path = "nested/file.txt"
+    await store.writeFile(path, { path, content: "before", metadata: { source: "before" } })
+    const directories = [metadataRoot(root), `${metadataRoot(root)}/nested`, `${metadataRoot(root)}/${path}`]
+    for (const directory of directories) await chmod(directory, 0o370)
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const failure = Object.assign(new Error("permission repair denied"), { code })
+    vi.mocked(chown).mockRejectedValue(failure)
+    vi.mocked(chmod).mockImplementation(async (target, mode) => {
+      if (directories.includes(String(target))) throw failure
+      return actual.chmod(target, mode)
+    })
+    try {
+      await store.writeFile(path, { path, content: "after", metadata: { source: "after" } })
+      await store.writeFileStream!(path, { path, content: new Blob(["streamed"]).stream(), metadata: { source: "streamed" } })
+      await expect(createLocalWorkspaceStore(root).readFile(path)).resolves.toMatchObject({ metadata: { source: "streamed" } })
+      for (const directory of directories) expect((await stat(directory)).mode & 0o777).toBe(0o370)
+      await store.writeFile(path, { path, content: "cleared" })
+      await expect(store.readFile(path)).resolves.toMatchObject({ metadata: undefined })
+      await store.rm(path)
+      await expect(store.stat(path)).resolves.toBeUndefined()
+      // A denied restriction must still fail if existing permissions expose data.
+      await actual.chmod(directories[0]!, 0o775)
+      await expect(store.writeFile(path, { path, content: "unsafe", metadata: { source: "private" } })).rejects.toThrow(failure)
+    }
+    finally {
+      vi.mocked(chmod).mockImplementation(actual.chmod)
       vi.mocked(chown).mockImplementation(actual.chown)
     }
   })
