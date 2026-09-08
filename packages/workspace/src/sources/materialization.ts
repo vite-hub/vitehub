@@ -702,10 +702,16 @@ async function materializeWorkspaceSourcesInternal(
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     for (const directory of ownedDirectories) {
       const indexedDescendants = Object.keys(existing?.items || {}).filter(path => pathContains(directory, path))
-      const descendants = await Promise.all(indexedDescendants.map(path => store.stat(path).catch(() => undefined)))
-      // If the generated files disappeared, the directory may have been recreated
-      // by a user. Refreshing its files does not restore our directory ownership.
-      if (!descendants.some(entry => entry?.type === "file")) ownedDirectories.delete(directory)
+      const descendants = await Promise.all(indexedDescendants.map(async (path) => {
+        const file = await store.readFile(path).catch(() => undefined)
+        if (!file) return false
+        if (file.metadata?.source !== undefined) return file.metadata.source === source.key
+        const digest = existing?.items?.[path]?.materializedContentDigest
+        return Boolean(digest && await sha256(file.content) === digest)
+      }))
+      // A reused pathname alone cannot establish generated ownership. Local
+      // Stores can recover missing metadata only from the recorded content.
+      if (!descendants.some(Boolean)) ownedDirectories.delete(directory)
     }
     let revision = existing?.revision
     const retainPriorItems = existing?.configHash === configHash

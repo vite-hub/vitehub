@@ -3044,16 +3044,23 @@ describe("lazy sources", () => {
     if (recreated === "docs") await expect(store.stat("docs/nested")).resolves.toBeUndefined()
   })
 
-  it.each([false, true].flatMap(local => [false, true].map(recreated => ({ local, recreated }))))("revalidates retained child directories with local=$local and recreated=$recreated", async ({ local, recreated }) => {
+  it.each([false, true].flatMap(local => ["unchanged", "empty", "edited", "claimed"].map(replacement => ({ local, replacement }))))("revalidates retained child directories with local=$local and replacement=$replacement", async ({ local, replacement }) => {
     const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
     const definition = {
       name: "recreated-child-directory",
       sources: { generated: custom({ materialize: "startup", mount: "docs", files: [{ path: "child/file.md", content: "generated" }] }) },
     }
     await createWorkspaceSourceView(definition, store).materializeSources()
-    if (recreated) {
+    if (replacement !== "unchanged") {
       await store.rm("docs/child", { recursive: true })
       await store.mkdir("docs/child")
+      if (replacement !== "empty") {
+        await store.writeFile("docs/child/file.md", {
+          path: "docs/child/file.md",
+          content: replacement === "edited" ? "user replacement" : "generated",
+          ...(replacement === "claimed" ? { metadata: { source: "other" } } : {}),
+        })
+      }
     }
 
     await createWorkspaceSourceView(definition, store).materializeSources()
@@ -3061,7 +3068,7 @@ describe("lazy sources", () => {
     await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
 
     await expect(store.stat("docs/child/file.md")).resolves.toBeUndefined()
-    if (recreated) await expect(store.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
+    if (replacement !== "unchanged") await expect(store.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
     else await expect(store.stat("docs/child")).resolves.toBeUndefined()
   })
 
