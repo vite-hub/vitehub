@@ -177,13 +177,67 @@ async function fileDigest(path: string): Promise<string> {
 
 class LocalWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
-  #files = new Map<string, Pick<WorkspaceFile, "mediaType" | "metadata">>()
+  #files = new Map<string, Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined>()
+  #fileMetadataRoot: string
   #meta = new Map<string, unknown>()
   #metaLoaded = false
   #metaPath: string
 
   constructor(public root: string) {
+    this.#fileMetadataRoot = `${root}.vitehub-file-metadata`
     this.#metaPath = `${root}.meta.json`
+  }
+
+  #cacheFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined) {
+    this.#files.delete(path)
+    this.#files.set(path, value)
+    if (this.#files.size > 1024) this.#files.delete(this.#files.keys().next().value!)
+  }
+
+  async #readFileMetadata(path: string) {
+    if (this.#files.has(path)) return this.#files.get(path)
+    const { readFile } = await import("node:fs/promises")
+    const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
+    const content = await readFile(metadataPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!content) {
+      this.#cacheFileMetadata(path, undefined)
+      return
+    }
+    const value: unknown = JSON.parse(content)
+    if (!value || Object(value) !== value || Array.isArray(value) || Reflect.get(value, "path") !== path) return
+    const result = {
+      ...(typeof Reflect.get(value, "mediaType") === "string" ? { mediaType: Reflect.get(value, "mediaType") as string } : {}),
+      ...(Reflect.get(value, "metadata") && Object(Reflect.get(value, "metadata")) === Reflect.get(value, "metadata") && !Array.isArray(Reflect.get(value, "metadata"))
+        ? { metadata: Reflect.get(value, "metadata") as Record<string, unknown> }
+        : {}),
+    }
+    this.#cacheFileMetadata(path, result)
+    return result
+  }
+
+  async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {
+    const { dirname } = await import("node:path")
+    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
+    const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
+    if (value.mediaType === undefined && value.metadata === undefined) {
+      await rm(metadataPath, { force: true })
+      this.#cacheFileMetadata(path, undefined)
+      return
+    }
+    const temp = `${metadataPath}.${randomUUID()}.tmp`
+    await mkdir(dirname(metadataPath), { recursive: true })
+    try {
+      await writeFile(temp, JSON.stringify({ path, ...value }))
+      await rename(temp, metadataPath)
+    }
+    catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw error
+    }
+    this.#cacheFileMetadata(path, value)
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
@@ -195,7 +249,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
     if (!bytes) return undefined
     const normalized = normalizeWorkspacePath(path)
-    const metadata = this.#files.get(normalized)
+    const metadata = await this.#readFileMetadata(normalized)
     return {
       path: normalized,
       content: new Uint8Array(bytes),
@@ -228,7 +282,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const digest = await sha256(bytes)
     const existing = await this.stat(normalized)
     if (existing?.type === "file" && existing.digest === digest) {
-      this.#files.set(normalized, {
+      await this.#writeFileMetadata(normalized, {
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
@@ -246,7 +300,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
-    this.#files.set(normalized, {
+    await this.#writeFileMetadata(normalized, {
       mediaType: file.mediaType,
       metadata: file.metadata,
     })
@@ -287,7 +341,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       const existing = await this.stat(normalized)
       if (existing?.type === "file" && existing.digest === digest) {
         await rm(temp, { force: true })
-        this.#files.set(normalized, {
+        await this.#writeFileMetadata(normalized, {
           mediaType: file.mediaType,
           metadata: file.metadata,
         })
@@ -301,7 +355,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
 
       await rename(temp, absolute)
-      this.#files.set(normalized, {
+      await this.#writeFileMetadata(normalized, {
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
@@ -328,19 +382,25 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
     const all = await walk(this.root, current, options.exclude, options.recursive === true, includeDigest)
-    return all
+    const filtered = all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")
         if (entry.path === normalizedPrefix) return false
         if (!entry.path.startsWith(`${normalizedPrefix}/`)) return false
         return options.recursive || !entry.path.slice(normalizedPrefix.length + 1).includes("/")
       })
-      .map(entry => ({
-        ...entry,
-        mediaType: entry.type === "file" ? this.#files.get(entry.path)?.mediaType : entry.mediaType,
-        metadata: entry.type === "file" ? this.#files.get(entry.path)?.metadata : entry.metadata,
-      }))
-      .sort((a, b) => a.path.localeCompare(b.path))
+    const entries: WorkspaceEntry[] = []
+    for (let index = 0; index < filtered.length; index += 64) {
+      entries.push(...await Promise.all(filtered.slice(index, index + 64).map(async (entry) => {
+        const fileMetadata = entry.type === "file" ? await this.#readFileMetadata(entry.path) : undefined
+        return {
+          ...entry,
+          mediaType: fileMetadata?.mediaType ?? entry.mediaType,
+          metadata: fileMetadata?.metadata ?? entry.metadata,
+        }
+      })))
+    }
+    return entries.sort((a, b) => a.path.localeCompare(b.path))
   }
 
   async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
@@ -358,13 +418,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!info) return undefined
+    const metadata = info.isFile() ? await this.#readFileMetadata(normalized) : undefined
     const entry: WorkspaceStat = {
       path: normalized,
       type: info.isDirectory() ? "directory" : "file",
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
-      mediaType: info.isFile() ? this.#files.get(normalized)?.mediaType : undefined,
-      metadata: info.isFile() ? this.#files.get(normalized)?.metadata : undefined,
+      mediaType: metadata?.mediaType,
+      metadata: metadata?.metadata,
       digest: info.isFile() ? await fileDigest(absolute) : undefined,
     }
     return entry
@@ -392,6 +453,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
     for (const key of this.#files.keys()) {
       if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
     }
+    const { rm: removeMetadata } = await import("node:fs/promises")
+    await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {

@@ -31,6 +31,7 @@ afterEach(async () => {
     path,
     `${path}.vitehub-lock`,
     `${path}.vitehub-locks`,
+    `${path}.vitehub-file-metadata`,
     `${path}.meta.json`,
   ]).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -131,11 +132,64 @@ describe("local workspace store", () => {
       metadata: { source: "airtable" },
     })
 
-    expect(writeFile).not.toHaveBeenCalled()
+    expect(vi.mocked(writeFile).mock.calls.every(call => String(call[0]).includes(".vitehub-file-metadata"))).toBe(true)
     await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
       mediaType: "application/octet-stream",
       metadata: { source: "airtable" },
     })
+  })
+
+  it("persists file metadata across Store instances without exposing sidecars", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    await first.writeFile(".agents/skills/browser/SKILL.md", {
+      path: ".agents/skills/browser/SKILL.md",
+      content: "# Browser\n",
+      mediaType: "text/markdown",
+      metadata: { capabilityWorkspaceContribution: { capabilityId: "browser", digest: "owned" } },
+    })
+
+    const restarted = createLocalWorkspaceStore(root)
+    await expect(restarted.readFile(".agents/skills/browser/SKILL.md")).resolves.toMatchObject({
+      mediaType: "text/markdown",
+      metadata: { capabilityWorkspaceContribution: { capabilityId: "browser", digest: "owned" } },
+    })
+    await expect(restarted.stat(".agents/skills/browser/SKILL.md")).resolves.toMatchObject({
+      mediaType: "text/markdown",
+      metadata: { capabilityWorkspaceContribution: { capabilityId: "browser", digest: "owned" } },
+    })
+    await expect(restarted.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        path: ".agents/skills/browser/SKILL.md",
+        mediaType: "text/markdown",
+        metadata: { capabilityWorkspaceContribution: { capabilityId: "browser", digest: "owned" } },
+      }),
+    ]))
+    await expect(restarted.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: expect.stringContaining("vitehub-file-metadata") }),
+    ]))
+
+    await restarted.rm(".agents/skills/browser", { recursive: true })
+    const afterRemoval = createLocalWorkspaceStore(root)
+    await expect(afterRemoval.readFile(".agents/skills/browser/SKILL.md")).resolves.toBeUndefined()
+  })
+
+  it("keeps metadata paths distinct for suffix-related Workspace paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const first = createLocalWorkspaceStore(root)
+    await first.writeFile("a", { path: "a", content: "first", metadata: { owner: "a" } })
+    await first.writeFile("a.json/b", { path: "a.json/b", content: "second", metadata: { owner: "b" } })
+
+    const restarted = createLocalWorkspaceStore(root)
+    await expect(restarted.readFile("a")).resolves.toMatchObject({ metadata: { owner: "a" } })
+    await expect(restarted.readFile("a.json/b")).resolves.toMatchObject({ metadata: { owner: "b" } })
+
+    await restarted.rm("a")
+    const afterRemoval = createLocalWorkspaceStore(root)
+    await expect(afterRemoval.readFile("a")).resolves.toBeUndefined()
+    await expect(afterRemoval.readFile("a.json/b")).resolves.toMatchObject({ metadata: { owner: "b" } })
   })
 
   it("does not serialize unconditional writes behind the Workspace root lock", async () => {
@@ -308,7 +362,7 @@ describe("local workspace store", () => {
       metadata: { source: "stream" },
     })).resolves.toMatchObject({ digest, path: "assets/blob.bin", size: content.byteLength })
 
-    expect(writeFile).not.toHaveBeenCalled()
+    expect(vi.mocked(writeFile).mock.calls.every(call => String(call[0]).includes(".vitehub-file-metadata"))).toBe(true)
     await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
       content,
       mediaType: "application/octet-stream",
