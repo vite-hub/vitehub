@@ -2,7 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { credentialTextMayContinue, redactCredentialText } from "./internal/credential-redaction.ts"
+import { credentialTextMayContinue, pendingCredentialQuote, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
@@ -1263,7 +1263,7 @@ function journalTraceLog(
   const messageDeltaChunkEvents = 32
   const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
-  const redactingCredentialDeltas = new Map<string, boolean>()
+  const redactingCredentialDeltas = new Map<string, boolean | { quote: string, escaped: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1290,7 +1290,11 @@ function journalTraceLog(
       let content = rawContent
       if (!final && credentialTextMayContinue(content)) {
         if (content.length < maxPendingCredentialCharacters) return
-        if (/\b(?:Bearer|Basic)\s+[^\s"',;&{}<>]*$/i.test(content)
+        const quote = pendingCredentialQuote(content)
+        if (quote) {
+          redactingCredentialDeltas.set(key, { quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
+        }
+        else if (/\b(?:Bearer|Basic)\s+[^\s"',;&{}<>]*$/i.test(content)
           || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;&{}<>]*$/i.test(content)) {
           redactingCredentialDeltas.set(key, /\b(?:Bearer|Basic)\s*$/i.test(content))
           if (/\b(?:Bearer|Basic)\s+$/i.test(content)
@@ -1335,12 +1339,28 @@ function journalTraceLog(
     const rawContent = entry.attributes?.["message.content"]
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
-      if (redactingCredentialDeltas.get(key)) {
-        content = content.trimStart()
-        if (!content) return
-        redactingCredentialDeltas.set(key, false)
+      const redaction = redactingCredentialDeltas.get(key)
+      let boundary: number
+      if (typeof redaction === "object") {
+        boundary = -1
+        for (let index = 0; index < content.length; index++) {
+          const character = content[index]
+          if (redaction.escaped) redaction.escaped = false
+          else if (character === "\\") redaction.escaped = true
+          else if (character === redaction.quote) {
+            boundary = index
+            break
+          }
+        }
       }
-      const boundary = content.search(/[\s"',;&{}<>]/)
+      else {
+        if (redaction) {
+          content = content.trimStart()
+          if (!content) return
+          redactingCredentialDeltas.set(key, false)
+        }
+        boundary = content.search(/[\s"',;&{}<>]/)
+      }
       if (boundary < 0) return
       redactingCredentialDeltas.delete(key)
       content = content.slice(boundary)

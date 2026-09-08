@@ -3,6 +3,9 @@ import { credentialTextMayContinue, redactCredentialText } from "../src/internal
 
 describe("structured credential redaction", () => {
   it.each([
+    ['PASSWORD="correct horse battery staple";status=ok', 'PASSWORD="[REDACTED]";status=ok'],
+    ["SECRET='correct horse & battery, staple';status=ok", "SECRET='[REDACTED]';status=ok"],
+    ['PASSWORD="unfinished secret words', 'PASSWORD="[REDACTED]'],
     ["Bearer sensitive-value&status=ok", "Bearer [REDACTED]&status=ok"],
     ["Basic sensitive-value&status=ok", "Basic [REDACTED]&status=ok"],
     ["API_TOKEN=sensitive-value&status=ok", "API_TOKEN=[REDACTED]&status=ok"],
@@ -17,7 +20,7 @@ describe("structured credential redaction", () => {
     ["Bearer sensitive-value<status>ok</status>", "Bearer [REDACTED]<status>ok</status>"],
   ])("preserves the non-secret suffix of %s", (input, expected) => {
     expect(redactCredentialText(input)).toBe(expected)
-    expect(credentialTextMayContinue(input)).toBe(false)
+    expect(credentialTextMayContinue(input)).toBe(input.includes("unfinished"))
   })
 
   it.each(["Bearer sensitive", "Basic sensitive", "API_TOKEN=sensitive", "password=sensitive", "apiToken=sensitive", "secret=", "apiToken=", 'API_TOKEN="sensitive'])(
