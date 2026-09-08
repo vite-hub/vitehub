@@ -135,6 +135,33 @@ describe("Agent Invocations", () => {
   })
 
   it.each([
+    ["\nstatus: ok", "\nstatus: ok"],
+    [" # optional\nstatus: ok", " # optional\nstatus: ok"],
+    [" sensitive-value\nstatus: ok", " [REDACTED]\nstatus: ok"],
+    [' "sensitive-value"\nstatus: ok', ' "[REDACTED]"\nstatus: ok'],
+  ])("emits empty YAML prefixes before tool events: %s", async (suffix, expected) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "yaml-order", "message.content": "password:" } })
+        await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "yaml-order", "message.content": suffix } })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("yaml-order"), {})
+    const observations = (await invocations.getByRunId("yaml-order"))!.observations
+    const events = observations.filter(entry => entry.name === "agent.message.delta" || entry.name === "tool.call")
+    expect(events.slice(0, 2).map(entry => [entry.name, entry.attributes?.["message.content"]]))
+      .toEqual([["agent.message.delta", "password:"], ["tool.call", undefined]])
+    expect(events.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join(""))
+      .toBe("password:" + expected)
+    expect(JSON.stringify(observations)).not.toContain("sensitive-value")
+  })
+
+  it.each([
     ["password: ", "correct horse battery", "\nstatus: ok"],
     ["api_token: ", "sensitive value", " # public comment\nstatus: ok"],
     ["config:\n  password: ", "correct horse\n    battery\n\n   staple", "\n  status: ok"],

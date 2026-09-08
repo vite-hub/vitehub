@@ -1325,11 +1325,9 @@ function journalTraceLog(
           redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
         }
         else if (assignment) {
-          // Wait for scalar content before replacing a possibly empty YAML value.
-          if (!assignment.started && assignment.yamlIndent !== undefined) return
           redactingCredentialDeltas.set(key, { kind: "shell", state: assignment })
           // Complete only the persisted placeholder; the scanner retains the raw state.
-          if (!assignment.started && !assignment.yamlFlow) content += "[REDACTED]"
+          if (!assignment.started && !assignment.yamlFlow && assignment.yamlIndent === undefined) content += "[REDACTED]"
           else if (assignment.quote) content += `${assignment.escaped ? "\\" : ""}${assignment.quote}`
         }
         else if (quote) {
@@ -1418,16 +1416,19 @@ function journalTraceLog(
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
       if (redaction.kind === "shell" || redaction.kind === "authorization") {
-        // Flow mappings can flush before their value starts. Persist separators
+        // YAML mappings can flush before their value starts. Persist separators
         // immediately and emit the placeholder only when scalar content arrives.
-        const flowPrefix = redaction.kind === "shell" && redaction.state.yamlFlow && !redaction.state.started
-          ? content.match(/^\s*/)?.[0] ?? ""
+        const yamlPrefix = redaction.kind === "shell" && (redaction.state.yamlFlow || redaction.state.yamlIndent !== undefined) && !redaction.state.started
+          ? redaction.state.yamlProperty ? "" : content.match(redaction.state.yamlFlow ? /^\s*/ : /^[\t ]*/)?.[0] ?? ""
           : undefined
+        const yamlQuote = yamlPrefix !== undefined && redaction.kind === "shell" && redaction.state.yamlIndent !== undefined
+          ? /^["']/.exec(content.slice(yamlPrefix.length))?.[0] ?? ""
+          : ""
         const boundary = redaction.kind === "authorization"
           ? consumeAuthorization(content, redaction.state)
           : consumeCredentialAssignment(content, redaction.state)
-        if (flowPrefix !== undefined) {
-          const prefix = flowPrefix + (redaction.kind === "shell" && redaction.state.started ? "[REDACTED]" : "")
+        if (yamlPrefix !== undefined) {
+          const prefix = yamlPrefix + (redaction.kind === "shell" && redaction.state.started ? `${yamlQuote}[REDACTED]${yamlQuote}` : "")
           if (prefix) emit({ ...entry, attributes: { ...entry.attributes, "message.content": prefix } })
         }
         if (boundary === content.length) return
