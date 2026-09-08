@@ -340,11 +340,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
     const { dirname } = await import("node:path")
-    const { mkdir, rename, rm } = await import("node:fs/promises")
+    const { copyFile, mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
+    const backup = `${tempRoot}/${randomUUID()}.bak`
     const hash = createHash("sha256")
     let size = 0
 
@@ -367,6 +368,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       )
       const digest = hash.digest("hex")
       const existing = await this.stat(normalized)
+      if (existing?.type === "directory") throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
       if (existing?.type === "file" && existing.digest === digest) {
         await rm(temp, { force: true })
         await this.#writeFileMetadata(normalized, {
@@ -382,11 +384,20 @@ class LocalWorkspaceStore implements WorkspaceStore {
         }
       }
 
-      await rename(temp, absolute)
-      await this.#writeFileMetadata(normalized, {
-        mediaType: file.mediaType,
-        metadata: file.metadata,
+      const hadExisting = existing?.type === "file"
+      if (hadExisting) await copyFile(absolute, backup)
+      await rename(temp, absolute).catch(async (error) => {
+        await rm(backup, { force: true }).catch(() => undefined)
+        throw error
       })
+      try {
+        await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
+      } catch (error) {
+        if (hadExisting) await rename(backup, absolute)
+        else await rm(absolute, { force: true })
+        throw error
+      }
+      await rm(backup, { force: true })
       return {
         path: normalized,
         type: "file",

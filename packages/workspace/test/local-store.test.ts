@@ -43,6 +43,66 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each([false, true])("restores streamed content after sidecar failure with existing file: %s", async (hasExisting) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    if (hasExisting) {
+      await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { source: "original" } })
+    }
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const failure = new Error("sidecar publication failed")
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (String(to).endsWith("/metadata.json")) throw failure
+      await actual.rename(from, to)
+    })
+    try {
+      await expect(store.writeFileStream!("file.txt", {
+        path: "file.txt",
+        content: new Blob(["after"]).stream(),
+        metadata: { source: "replacement" },
+      })).rejects.toThrow(failure)
+      const restarted = createLocalWorkspaceStore(root)
+      if (hasExisting) {
+        await expect(restarted.readFile("file.txt")).resolves.toMatchObject({
+          content: new TextEncoder().encode("before"),
+          metadata: { source: "original" },
+        })
+      }
+      else await expect(restarted.readFile("file.txt")).resolves.toBeUndefined()
+      expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
+    }
+    finally {
+      vi.mocked(rename).mockImplementation(actual.rename)
+    }
+  })
+
+  it("preserves the original inode when a streamed content rename fails", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const absolute = join(root, "file.txt")
+    await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { source: "original" } })
+    const original = await stat(absolute)
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const failure = new Error("content rename failed")
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (String(to) === absolute) throw failure
+      await actual.rename(from, to)
+    })
+    try {
+      await expect(store.writeFileStream!("file.txt", {
+        path: "file.txt", content: new Blob(["after"]).stream(), metadata: { source: "replacement" },
+      })).rejects.toThrow(failure)
+      expect((await stat(absolute)).ino).toBe(original.ino)
+      await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({
+        content: new TextEncoder().encode("before"), metadata: { source: "original" },
+      })
+      expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
+    }
+    finally {
+      vi.mocked(rename).mockImplementation(actual.rename)
+    }
+  })
+
   it("rejects file replacement of a directory without removing its children", async () => {
     const store = await createStore()
     await store.writeFile("directory/child.txt", { path: "directory/child.txt", content: "preserved" })
