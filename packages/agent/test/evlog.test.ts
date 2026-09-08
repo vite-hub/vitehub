@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { initLogger } from "evlog"
-import { createAgentEvlog, filterAgentObservability, sanitizeAgentLog, type AgentEvlogExporter } from "../src/evlog.ts"
+import { agentEvlogPlugin, createAgentEvlog, filterAgentObservability, sanitizeAgentLog, type AgentEvlogExporter } from "../src/evlog.ts"
 import { defineAgent, runAgent } from "../src/index.ts"
 
 const background: Promise<unknown>[] = []
@@ -190,4 +190,49 @@ it.each(["failures", "all", false] as const)("preserves application logs with HT
   const records = exporter.logs.mock.calls[0]![0]
   expect(records.filter(record => record.event).map(record => record.event)).toEqual(["job.finished", "job.progress", "outbound.finished"])
   expect(records.filter(record => !record.event).map(record => record.status)).toEqual(logs === "all" ? [200, 500] : logs === "failures" ? [500] : [])
+})
+
+it.each(["minimal", "standard", "full"] as const)("logs HTTP 4xx failures with request metadata at %s level", async (level) => {
+  const { telemetry, exporter } = setup({}, { level, logs: false })
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  const req = Object.assign(new Request("https://example.test/missing?token=secret"), { context: { requestId: "req-1" } })
+  hooks.get("error")!(Object.assign(new Error("Not found"), { statusCode: 404 }), { event: { req } })
+  await telemetry.flush()
+  expect(exporter.exception).not.toHaveBeenCalled()
+  expect(exporter.capture).toHaveBeenCalledWith("http.request.failed", expect.objectContaining({ level: "warn", status_code: 404, request_id: "req-1", method: "GET", path: "/missing", operation: "http.request" }), expect.anything())
+})
+
+it("keeps non-request 4xx failures as exceptions", async () => {
+  const { telemetry, exporter } = setup()
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  hooks.get("error")!(Object.assign(new Error("Upstream rejected background task"), { statusCode: 403 }), {})
+  await telemetry.flush()
+  expect(exporter.exception).toHaveBeenCalledTimes(1)
+  expect(exporter.capture).not.toHaveBeenCalled()
+})
+
+it.each([500, 503])( "keeps HTTP %s failures as exceptions", async (statusCode) => {
+  const { telemetry, exporter } = setup()
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  const req = Object.assign(new Request("https://example.test/fail"), { context: { requestId: "req-5xx" } })
+  hooks.get("error")!(Object.assign(new Error("Server error"), { statusCode }), { event: { req } })
+  await telemetry.flush()
+  expect(exporter.exception).toHaveBeenCalledTimes(1)
+})
+
+it.each(["statusCode", "status"])("keeps errors with a throwing %s getter on the exception path", async (property) => {
+  const { telemetry, exporter } = setup()
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  const error = Object.defineProperty(new Error("Unknown failure"), property, {
+    get() { throw new Error("Cannot inspect status") },
+  })
+  const req = new Request("https://example.test/fail")
+  expect(() => hooks.get("error")!(error, { event: { req } })).not.toThrow()
+  await telemetry.flush()
+  expect(exporter.exception).toHaveBeenCalledTimes(1)
+  expect(exporter.capture).not.toHaveBeenCalled()
 })
