@@ -2126,7 +2126,7 @@ cli_auth_credentials_store = "keyring"
       usageRecord: {
         raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
         usage: {
-          details: { toolUses: 1 },
+          details: {},
           inputTokens: undefined,
           outputTokens: undefined,
           totalTokens: 100,
