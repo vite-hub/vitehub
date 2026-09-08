@@ -215,11 +215,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await file.close()
     }
     if (!content) return
+    let value: unknown
+    try { value = JSON.parse(content) } catch { return }
     const parsed = safeParse(object({
       path: literal(path),
       mediaType: fallback(optional(string()), undefined),
       metadata: fallback(optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()))), undefined),
-    }), JSON.parse(content))
+    }), value)
     if (!parsed.success) return
     const { path: _path, ...result } = parsed.output
     // Keep scans larger than the cache from evicting every reusable entry.
@@ -315,7 +317,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         if (hadExisting) await rename(backup, absolute).catch(() => undefined)
         throw error
       }
-      await rm(backup, { force: true })
+      await rm(backup, { force: true, recursive: true })
       return
     }
     catch (error) {
