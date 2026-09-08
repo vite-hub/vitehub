@@ -16322,7 +16322,7 @@ describe("server helpers", () => {
     }
   })
 
-  it.each(["transient", "expired", "lost"] as const)("handles %s inline Channel owner lease renewal", async (outcome) => {
+  it.each(["transient", "expired", "lost", "pending"] as const)("handles %s inline Channel owner lease renewal", async (outcome) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -16331,12 +16331,14 @@ describe("server helpers", () => {
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter()
     const released = deferred<void>()
+    const renewal = deferred<boolean>()
     let signal: AbortSignal | undefined
     let ownerRenewals = 0
     const originalExtendLock = state.extendLock.bind(state)
     vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
       if (lock.threadId.endsWith(":owner")) {
         ownerRenewals += 1
+        if (outcome === "pending") return await renewal.promise
         if (outcome === "lost") return false
         if (outcome === "expired" || ownerRenewals === 1) throw new Error("State temporarily unavailable")
       }
@@ -16369,7 +16371,15 @@ describe("server helpers", () => {
       await vi.advanceTimersByTimeAsync(15_000)
       expect(ownerRenewals).toBe(1)
       expect(signal?.aborted).toBe(outcome === "lost")
-      if (outcome !== "lost") {
+      if (outcome === "pending") {
+        await vi.advanceTimersByTimeAsync(15_000)
+        expect(signal?.aborted).toBe(true)
+        expect(ownerRenewals).toBe(1)
+        renewal.resolve(true)
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(signal?.aborted).toBe(true)
+        expect(ownerRenewals).toBe(1)
+      } else if (outcome !== "lost") {
         await vi.advanceTimersByTimeAsync(outcome === "expired" ? 15_000 : 250)
         expect(ownerRenewals).toBeGreaterThan(1)
         expect(signal?.aborted).toBe(outcome === "expired")
@@ -16380,6 +16390,7 @@ describe("server helpers", () => {
       await vi.advanceTimersByTimeAsync(30_000)
       expect(ownerRenewals).toBe(renewalsAtFinish)
     } finally {
+      renewal.resolve(true)
       released.resolve()
       await pending
       vi.useRealTimers()

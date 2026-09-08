@@ -1246,25 +1246,39 @@ function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: numbe
   let knownLeaseExpiresAt = lock.expiresAt
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined
+  const stop = () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
+    if (expiryTimer) clearTimeout(expiryTimer)
+  }
+  const loseOwnership = () => {
+    if (stopped) return
+    stop()
+    onLost()
+  }
+  const scheduleExpiry = () => {
+    if (expiryTimer) clearTimeout(expiryTimer)
+    expiryTimer = setTimeout(loseOwnership, Math.max(0, knownLeaseExpiresAt - Date.now()))
+  }
   const extend = async () => {
     if (stopped) return
     const extensionStartedAt = Date.now()
     try {
       const extended = await state.extendLock(lock, ttlMs)
       if (stopped) return
-      if (!extended) {
-        stopped = true
-        onLost()
+      if (!extended || Date.now() >= knownLeaseExpiresAt) {
+        loseOwnership()
         return
       }
       knownLeaseExpiresAt = extensionStartedAt + ttlMs
       lock.expiresAt = knownLeaseExpiresAt
+      scheduleExpiry()
     } catch {
       if (stopped) return
       const remainingMs = knownLeaseExpiresAt - Date.now()
       if (remainingMs <= 0) {
-        stopped = true
-        onLost()
+        loseOwnership()
         return
       }
       timer = setTimeout(extend, Math.min(retryMs, remainingMs))
@@ -1272,11 +1286,9 @@ function startWebhookLockHeartbeat(state: StateAdapter, lock: Lock, ttlMs: numbe
     }
     if (!stopped) timer = setTimeout(extend, Math.max(1, knownLeaseExpiresAt - Date.now() - intervalMs))
   }
+  scheduleExpiry()
   timer = setTimeout(extend, intervalMs)
-  return () => {
-    stopped = true
-    if (timer) clearTimeout(timer)
-  }
+  return stop
 }
 
 function startWebhookQueueHeartbeat(state: AgentWebhookQueueStateAdapter, delivery: AgentWebhookQueueLease, onLost: () => void): () => void {
