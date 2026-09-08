@@ -5462,7 +5462,7 @@ async function finishAgentInvocation<
     if (outcomeFailed) await traceFinishError(error, "outcome")
     if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     if (!throwingCloseError) await traceFinishError(finishError, "finish", finishFailureActivity)
-    const status = failed && context.input.abortSignal?.aborted ? "cancelled" : "failed"
+    const status = outcomeCancelled || (failed && context.input.abortSignal?.aborted) ? "cancelled" : "failed"
     if (status === "cancelled") {
       await traceAgentInvocationCancelled(toTraceContext(context))
     }

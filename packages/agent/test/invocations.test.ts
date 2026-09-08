@@ -4049,7 +4049,7 @@ describe("Agent Invocations", () => {
     expect(deltas[0]!.sequence).toBeLessThan(terminal!.sequence)
   })
 
-  it("preserves cancellation after journal finalization rejects", async () => {
+  it.each(["abort", "stream return"] as const)("preserves %s cancellation after journal finalization rejects", async (cancellation) => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const abort = new AbortController()
     const failure = new Error("stopped")
@@ -4065,16 +4065,28 @@ describe("Agent Invocations", () => {
     })
     try {
       const agent = defineAgent({
-        driver: { run() {
+        driver: cancellation === "abort" ? { run() {
           abort.abort(failure)
           throw failure
+        } } : { async *run() {
+          yield { id: "reply", text: "Partial", type: "text-delta" as const }
+          yield { id: "reply", text: " answer", type: "text-delta" as const }
         } },
         invocations,
         runtime: false,
       })
-      await expect(runAgent(agent, { ...runtime("cancelled-finish-error"), traceLog }, {
-        abortSignal: abort.signal,
-      })).rejects.toThrow()
+      const context = { ...runtime("cancelled-finish-error"), traceLog }
+      if (cancellation === "abort") {
+        await expect(runAgent(agent, context, { abortSignal: abort.signal })).rejects.toThrow()
+      }
+      else {
+        const stream = await streamAgent(agent, context, { abortSignal: abort.signal })
+        // SAFETY: this driver is an async generator, so streamAgent returns its async iterable.
+        const iterator = (stream as AsyncIterable<unknown>)[Symbol.asyncIterator]()
+        expect((await iterator.next()).done).toBe(false)
+        await expect(iterator.return!()).rejects.toThrow("journal finish failed")
+        expect(abort.signal.aborted).toBe(false)
+      }
 
       const terminals = traceLog.entries().filter(entry => [
         "agent.invocation.cancelled", "agent.invocation.error",
