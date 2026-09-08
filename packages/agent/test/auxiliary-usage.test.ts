@@ -29,6 +29,24 @@ describe("auxiliary invocation usage", () => {
     expect(primary.cost.usd).toBe("0.02")
   })
 
+  it("preserves authoritative compound costs inside an auxiliary aggregate", async () => {
+    const context = createAgentInvocationContextStore()
+    const cost = { display: "$0.02", usd: "0.02", estimated: false, source: "provider" as const }
+    const primary = { cost, calls: [{ cost: { ...cost, usd: "0.01" } }] }
+    const enrichedPrimary = await enrichAgentUsageCost(primary, () => undefined)
+    expect(enrichedPrimary.cost).toEqual(cost)
+    expect(enrichedPrimary.calls?.[0]?.cost?.usd).toBe("0.01")
+
+    recordAuxiliaryUsage(context, { usage: { totalTokens: 5 } })
+    const aggregate = invocationUsageWithAuxiliaryCalls(context, primary)!
+    const partial = await enrichAgentUsageCost(aggregate, () => undefined)
+    expect(partial.cost).toEqual(cost)
+    const complete = await enrichAgentUsageCost(partial, () => ({ ...cost, usd: "0.03" }))
+    expect(complete.cost?.usd).toBe("0.05")
+    expect(complete.calls?.[0]?.cost).toEqual(cost)
+    expect(primary.cost).toEqual(cost)
+  })
+
   it("does not present auxiliary usage as a complete total when primary usage is missing", () => {
     const context = createAgentInvocationContextStore()
     const title = { usage: { totalTokens: 5 } }

@@ -1,5 +1,8 @@
 import type { AgentInvocationContextStore, AgentUsageRecord } from "../types.ts"
 
+// Only these records carry a partial primary cost that may be recomputed.
+export const auxiliaryUsageAggregates = new WeakSet<AgentUsageRecord>()
+
 const auxiliaryUsage = new WeakMap<AgentInvocationContextStore, AgentUsageRecord[]>()
 
 export function recordAuxiliaryUsage(context: AgentInvocationContextStore, usage: AgentUsageRecord | undefined): void {
@@ -22,5 +25,7 @@ export function invocationUsageWithAuxiliaryCalls(context: AgentInvocationContex
       usage[key] = values.reduce((total, value) => total + value, 0)
     }
   }
-  return { calls, usage, ...(primary?.cost ? { cost: primary.cost } : {}), ...(primary?.run ? { run: primary.run } : {}) }
+  const aggregate = { calls, usage, ...(primary?.cost ? { cost: primary.cost } : {}), ...(primary?.run ? { run: primary.run } : {}) }
+  auxiliaryUsageAggregates.add(aggregate)
+  return aggregate
 }

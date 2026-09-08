@@ -1,3 +1,4 @@
+import { auxiliaryUsageAggregates } from "./auxiliary-usage.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type {
   AgentRunMetadata,
@@ -87,7 +88,7 @@ export async function enrichAgentUsageCost(
   const calls = record.calls ? await Promise.all(record.calls.map(call => enrichAgentUsageCost(call, pricing, run))) : undefined
   let cost = record.cost
   // Auxiliary aggregation can retain the primary cost until all calls are priced.
-  if (calls?.length && calls.every(call => call.cost)) {
+  if ((!cost || auxiliaryUsageAggregates.has(record)) && calls?.length && calls.every(call => call.cost)) {
     cost = aggregateAgentUsageCosts(calls.map(call => call.cost!))
   }
   if (!cost && !calls?.length && record.usage) {
@@ -101,11 +102,13 @@ export async function enrichAgentUsageCost(
     })
     cost = priced ? materializeAgentUsageCost(priced) : undefined
   }
-  return {
+  const enriched = {
     ...record,
     ...(calls ? { calls } : {}),
     ...(cost ? { cost: materializeAgentUsageCost(cost) } : {}),
   }
+  if (auxiliaryUsageAggregates.has(record)) auxiliaryUsageAggregates.add(enriched)
+  return enriched
 }
 
 function multiplyDecimal(value: string | undefined, count: number | undefined): { scale: bigint, units: bigint } | undefined {
