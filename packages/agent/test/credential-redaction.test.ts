@@ -131,3 +131,29 @@ it.each(["Authorization: ", "Proxy-Authorization: ", '"authorization":"'])("reta
     expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
   }
 })
+
+it.each([
+  '{"token":"identifier"}',
+  '{"key":"identifier"}',
+  "Parser error. Token: identifier",
+  "Parser error. Key: identifier",
+  "Field label. Password: identifier",
+  "Field label. Secret: identifier",
+])("preserves ambiguous colon fields: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+  expect(pendingCredentialAssignment(text)).toBeUndefined()
+  expect(pendingCredentialQuote(text)).toBeUndefined()
+})
+
+it.each(["token", "key", "Token", "Key"])("does not start redaction for ambiguous structured %s fields", (key) => {
+  expect(pendingCredentialAssignment(`"${key}":`)).toBeUndefined()
+  expect(pendingCredentialQuote(`"${key}":"identifier`)).toBeUndefined()
+  expect(redactCredentialText(`"${key}":"identifier`)).toBe(`"${key}":"identifier`)
+  expect(redactCredentialText(`${key}=sensitive`)).toBe(`${key}=[REDACTED]`)
+})
+
+it("recognizes a quoted credential key after its opening quote was flushed", () => {
+  expect(redactCredentialText('password":"sensitive words"}')).toBe('password":"[REDACTED]"}')
+  expect(pendingCredentialAssignment('password":')).toBe("assignment")
+  expect(pendingCredentialQuote('password":"sensitive')).toBe('"')
+})
