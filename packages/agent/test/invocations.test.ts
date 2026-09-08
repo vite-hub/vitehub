@@ -3219,7 +3219,7 @@ describe("Agent Invocations", () => {
     expect(text).toContain(" continued")
   })
 
-  it.each(["Bearer ", "Basic ", "API_TOKEN="])("marks redaction after a bounded separator-only prefix %s", async (prefix) => {
+  it.each(["Bearer ", "Basic ", "API_TOKEN=", "password=", "apiToken="])("marks redaction after a bounded separator-only prefix %s", async (prefix) => {
     const invocations = defineAgentInvocations({
       content: "content",
       observations: { maxStringLength: 128 },

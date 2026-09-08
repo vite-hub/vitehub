@@ -1291,10 +1291,10 @@ function journalTraceLog(
       if (!final && credentialTextMayContinue(content)) {
         if (content.length < maxPendingCredentialCharacters) return
         if (/\b(?:Bearer|Basic)\s+[^\s"',;{}<>]*$/i.test(content)
-          || /\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;{}<>]*$/.test(content)) {
+          || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;{}<>]*$/i.test(content)) {
           redactingCredentialDeltas.set(key, /\b(?:Bearer|Basic)\s*$/i.test(content))
           if (/\b(?:Bearer|Basic)\s+$/i.test(content)
-            || /\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)=["']?$/.test(content)) {
+            || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?$/i.test(content)) {
             content += "[REDACTED]"
           }
         }
