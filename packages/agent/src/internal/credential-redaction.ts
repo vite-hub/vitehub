@@ -171,10 +171,42 @@ export interface CredentialAssignmentState {
 const maxYamlSeparatorLength = 1024
 const maxCredentialStructureDepth = 128
 
+function yamlFlowContext(value: string): string | undefined {
+  const open: string[] = []
+  let quote = ""
+  let escaped = false
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]!
+    if (escaped) { escaped = false; continue }
+    if (character === "\\") { escaped = true; continue }
+    if (quote) {
+      if (character === quote) quote = ""
+      continue
+    }
+    if (character === '"' || character === "'") { quote = character; continue }
+    if (character === "{" || character === "[") {
+      const before = value.slice(0, index)
+      // An opener must start a YAML value, not occur in ordinary prose.
+      if (!open.length && !/(?:^|[\r\n]) *(?:- +)?(?:[^{}[\],:\r\n]+:[\t ]*)?$/.test(before)) continue
+      if (open.length >= maxCredentialStructureDepth) return
+      open.push(character)
+    }
+    else if (character === "}" || character === "]") {
+      if (open.at(-1) !== (character === "}" ? "{" : "[")) return
+      open.pop()
+    }
+  }
+  if (open.length) {
+    const suffix = quote ? quote + (escaped ? "\\" : "") : /[{[,]\s*$/.test(value) ? "" : /:\s*$/.test(value) ? "x:" : "x"
+    return open.join("") + suffix + (quote ? "" : /\s*$/.exec(value)?.[0] ?? "")
+  }
+}
+
 function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
   const line = source.slice(0, offset).split(/\r\n|[\r\n]/).at(-1) ?? ""
   // Flow separators remain significant when the next key starts on a new line.
-  const yamlFlow = /[{[,]\s*$/.test(source.slice(0, offset)) && prefix.trimEnd().endsWith(":")
+  const flowContext = yamlFlowContext(source.slice(0, offset))
+  const yamlFlow = flowContext !== undefined && /[{[,]\s*$/.test(flowContext) && prefix.trimEnd().endsWith(":")
   const yamlIndent = !yamlFlow && /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
   return { escaped: false, started: false, ...(yamlIndent === undefined ? {} : { yamlIndent }), ...(yamlFlow ? { yamlFlow } : {}) }
 }
@@ -426,7 +458,7 @@ export function credentialTextLineContext(value: string): string {
   }
   const lastLine = block.line
   if (/^ *- *$/.test(lastLine)) return lastLine
-  const flowBoundary = /[{[,][\t \r\n]*$/.exec(value)?.[0]
+  const flowBoundary = yamlFlowContext(value)
   if (flowBoundary) return flowBoundary
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
   if (authorizationHeader) return "Authorization: "

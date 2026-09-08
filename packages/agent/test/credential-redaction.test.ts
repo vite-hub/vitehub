@@ -20,6 +20,18 @@ it("preserves the suffix after a structured credential within the nesting limit"
   expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
 })
 
+it.each(["note,\n", "note {\n", "note [\n", "note: \"{\",\n", "config: {},\n"])("does not infer YAML flow from prose punctuation in %j", (prefix) => {
+  const assignment = "password: alpha,beta]gamma}delta"
+  expect(redactCredentialText(prefix + assignment)).toBe(prefix + "password: [REDACTED]")
+  const context = credentialTextLineContext(prefix)
+  expect(redactCredentialText(assignment, context)).toBe("password: [REDACTED]")
+  for (let split = 0; split <= "alpha,beta]gamma}delta".length; split++) {
+    const state = pendingCredentialAssignmentState("password: " + "alpha,beta]gamma}delta".slice(0, split), context)!
+    const rest = "alpha,beta]gamma}delta".slice(split)
+    expect(consumeCredentialAssignment(rest, state)).toBe(rest.length)
+  }
+})
+
 it.each([
   ["{password: ", "}"],
   ["config: {password: ", ", status: ok}"],
@@ -34,6 +46,9 @@ it.each([
   const context = credentialTextLineContext(prefix.slice(0, keyStart))
   const assignment = prefix.slice(keyStart)
   expect(redactCredentialText(assignment + "sensitive value" + suffix, context)).toBe(assignment + "[REDACTED]" + suffix)
+  let streamedContext = ""
+  for (const character of prefix.slice(0, keyStart)) streamedContext = credentialTextLineContext(streamedContext + character)
+  expect(redactCredentialText(assignment + "sensitive value" + suffix, streamedContext)).toBe(assignment + "[REDACTED]" + suffix)
   for (let split = 0; split <= "sensitive value".length; split++) {
     const state = pendingCredentialAssignmentState(assignment + "sensitive value".slice(0, split), context)!
     expect(state).toBeDefined()
