@@ -103,17 +103,19 @@ async function ensureLockDirectory(path: string) {
 
 async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle, operation: () => Promise<T>): Promise<T> {
   let renewal = Promise.resolve()
+  let rejectHeartbeat!: (error: unknown) => void
+  const heartbeatFailure = new Promise<never>((_, reject) => { rejectHeartbeat = reject })
+  heartbeatFailure.catch(() => {})
   const timer = setInterval(() => {
     renewal = renewal.then(async () => {
       const now = new Date()
       await file.utimes(now, now)
     })
-    // Observe failures immediately; propagate them when the operation finishes.
-    void renewal.catch(() => {})
+    renewal.catch(rejectHeartbeat)
   }, 30_000)
   timer.unref()
   try {
-    return await operation()
+    return await Promise.race([operation(), heartbeatFailure])
   }
   finally {
     clearInterval(timer)
