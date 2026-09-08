@@ -4,6 +4,7 @@ import {
   normalizeCapabilities,
 } from "./capability-runtime.ts"
 import { AgentHttpError } from "./http-error.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 
 import type {
   AgentCallbackContext,
@@ -29,8 +30,15 @@ import type {
 } from "./types.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import type { StreamEvent } from "./messages.ts"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+
+function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
+  if (!isRuntimeRecord(input)) return false
+  const standard = input["~standard"]
+  return isRuntimeRecord(standard) && hasRuntimeType(standard.validate, "function")
+}
 
 const agentTriggerContextKey = "agent.trigger"
 
@@ -439,13 +447,14 @@ export async function resolveAgentTriggerInvocation<
     })
   }
   let validatedInput = input
-  if (trigger.input && "~standard" in Object(trigger.input)) {
+  if (isTriggerInputSchema(trigger.input)) {
     if (trigger.webhooks?.length && context.request) {
       const result = await trigger.input["~standard"].validate(input)
       if (result.issues?.length || !("value" in result)) {
         return {
           response: Response.json({ accepted: false, reason: "invalid_payload" }, { status: 400 }),
-          trigger,
+          // SAFETY: A handled invalid payload never invokes the trigger, so its validated input type remains opaque to consumers.
+          trigger: trigger as never,
         }
       }
       validatedInput = result.value

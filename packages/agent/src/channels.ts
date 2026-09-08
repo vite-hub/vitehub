@@ -57,6 +57,7 @@ import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 import type { Adapter, FileUpload } from "chat"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import type { WorkspaceName } from "@vite-hub/workspace"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 const customTitleEffectChannels = new WeakSet<object>()
