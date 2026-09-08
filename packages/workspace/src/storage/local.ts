@@ -291,10 +291,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const parsed = safeParse(object({
       path: literal(path),
       mediaType: fallback(optional(string()), undefined),
-      metadata: fallback(optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
+      metadata: optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
         const source = value.source
         return source === undefined || typeof source === "string"
-      }))), undefined),
+      }))),
     }), value)
     if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
     const { path: _path, ...result } = parsed.output

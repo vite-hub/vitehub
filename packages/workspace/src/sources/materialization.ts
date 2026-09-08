@@ -617,10 +617,9 @@ export async function materializeWorkspaceSources(
         }))
       }
       else {
-        // Publish the new format hash after a successful scoped run while
-        // retaining metadata for files outside this scope. This lets later
-        // scoped calls reuse the migrated entries instead of replaying them.
-        const migratedItems = checkpointItems({ ...(existing?.items || {}), ...itemMetadata })
+        // Publish only visited entries. Legacy entries outside this scope
+        // still need to be materialized before they can be reused.
+        const migratedItems = checkpointItems(itemMetadata)
         await control.mutate(() => writeSourceSnapshotMetadata(store, {
           ...ready,
           status: "updating",
