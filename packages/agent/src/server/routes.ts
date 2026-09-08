@@ -4127,7 +4127,10 @@ async function chatTriggerMessages(
 
   if (historyThroughCurrent && current.id) {
     const currentIndex = messages.findIndex((item) => item.id === current.id)
-    messages = currentIndex >= 0 ? messages.slice(0, currentIndex + 1) : previousMessages ?? [current]
+    const previousIndex = previousMessages?.findIndex((item) => item.id === current.id) ?? -1
+    messages = currentIndex >= 0
+      ? messages.slice(0, currentIndex + 1)
+      : previousMessages && previousIndex >= 0 ? previousMessages.slice(0, previousIndex + 1) : [current]
   } else if (!current.id || !messages.some((item) => item.id === current.id)) {
     messages.push(current)
   }
@@ -4883,7 +4886,7 @@ async function handleChatSdkMessage(
     }, invoker)
 
     let messages = scopeCurrentChatUiMessage(
-      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
+      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent || options?.concurrency === "steer"),
       message.id,
       input.run?.runId || delivery.delivery.id,
     )

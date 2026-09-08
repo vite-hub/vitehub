@@ -17190,6 +17190,14 @@ describe("server helpers", () => {
       await state.connect()
       pending.push(handler(chatWebhookRequest(91_120, 456, "A"), "telegram"))
       await started.promise
+      const beforeWaiting = await adapter.fetchMessages("telegram:456")
+      const firstMessage = beforeWaiting.messages[0]!
+      adapter.fetchMessages.mockResolvedValue({
+        messages: [...beforeWaiting.messages, ...["B", "C"].map((text, index) => new Message({
+          attachments: [], author: firstMessage.author, formatted: { children: [], type: "root" },
+          id: String(91_121 + index), metadata: firstMessage.metadata, raw: {}, text, threadId: "telegram:456",
+        }))],
+      })
       pending.push(handler(chatWebhookRequest(91_121, 456, "B"), "telegram"))
       await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
       const initialHistory = await adapter.fetchMessages("telegram:456")
