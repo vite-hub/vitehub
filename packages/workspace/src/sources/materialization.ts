@@ -355,10 +355,15 @@ async function reconcileRemovedStartupSourcesInternal(
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
   for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath)) {
     const snapshot = await readSourceSnapshotMetadata(store, source.key)
-    if (snapshot?.mountPath !== source.mountPath) continue
+    const invalidatedSnapshot = snapshot && snapshot.mountPath === undefined && snapshot.items === undefined
+    if (snapshot?.mountPath !== source.mountPath && !invalidatedSnapshot) continue
+    // Build synchronization can clear the index while owned files remain outside its mount.
+    const previousPaths = invalidatedSnapshot
+      ? (await store.list(source.mountPath, { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)
+      : Object.keys(snapshot?.items || {})
     const staleDirectories = new Set<string>()
-    if (source.mountPath && snapshot.ownsMount) staleDirectories.add(source.mountPath)
-    for (const path of Object.keys(snapshot?.items || {})) {
+    if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
+    for (const path of previousPaths) {
       const file = await store.readFile(path)
       if (file?.metadata?.source !== source.key) continue
       for (const currentSource of currentSources) {
@@ -367,7 +372,7 @@ async function reconcileRemovedStartupSourcesInternal(
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
       for (const directory of parentDirectoryPaths(path)) {
-        if (sourceOwnsDirectory(source, directory) && (directory !== source.mountPath || snapshot.ownsMount !== false)) staleDirectories.add(directory)
+        if (sourceOwnsDirectory(source, directory) && (directory !== source.mountPath || (!invalidatedSnapshot && snapshot?.ownsMount !== false))) staleDirectories.add(directory)
       }
       await control.mutate(() => store.rm(path, { force: true }))
     }

@@ -2463,6 +2463,43 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledTimes(2)
   })
 
+  it.each([false, true])("reconciles removed root startup sources after build invalidation with retained startup=%s", async (retainStartup) => {
+    const definition = {
+      name: "removed-invalidated-startup",
+      sources: {
+        docs: custom({ materialize: "build", mount: "docs", files: [{ path: "index.md", content: "docs" }] }),
+        generated: custom({
+          materialize: "startup",
+          mount: "",
+          files: [
+            { path: "docs/generated.md", content: "generated" },
+            { path: "generated/stale.md", content: "stale" },
+            { path: "replaced.md", content: "original" },
+          ],
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["generated"] })
+    await store.writeFile("replaced.md", { path: "replaced.md", content: "user replacement" })
+    await store.writeFile("user.md", { path: "user.md", content: "user" })
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toEqual({})
+    await expect(store.stat("generated/stale.md")).resolves.toBeDefined()
+
+    await syncWorkspaceDefinition({
+      name: definition.name,
+      sources: retainStartup
+        ? { retained: custom({ materialize: "startup", mount: "retained", files: [{ path: "index.md", content: "retained" }] }) }
+        : {},
+    }, store)
+
+    await expect(store.stat("generated/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("generated")).resolves.toBeUndefined()
+    await expect(store.readFile("replaced.md")).resolves.toMatchObject({ content: "user replacement" })
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user" })
+  })
+
   it("removes stale root startup files after build cleanup clears their snapshot", async () => {
     let keys = ["docs/generated.md", "stale.md", "AGENTS.md"]
     const definition = {
