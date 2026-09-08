@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { credentialTextMayContinue, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
+import { credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
 describe("structured credential redaction", () => {
   it.each([
@@ -96,4 +96,26 @@ it.each(["basic", "BASIC", "bAsIc"])("redacts contextual %s authorization across
       expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
     }
   }
+})
+
+it.each([
+  ['{"password":"sensitive-value","status":"ok"}', '{"password":"[REDACTED]","status":"ok"}'],
+  ["api_token: sensitive-value;status=ok", "api_token: [REDACTED];status=ok"],
+  ['password = "correct horse";status=ok', 'password = "[REDACTED]";status=ok'],
+  ["API_TOKEN = sensitive-value", "API_TOKEN = [REDACTED]"],
+  ["'secret' : 'private & words';status=ok", "'secret' : '[REDACTED]';status=ok"],
+  ["monkey : banana", "monkey : banana"],
+  ["command=PASSWORD=sensitive", "command=PASSWORD=[REDACTED]"],
+])("redacts structured and spaced assignments: %s", (text, expected) => {
+  expect(redactCredentialText(text)).toBe(expected)
+})
+
+it.each(['"password" : ', "password = ", "API_TOKEN\t=\t", "api_token: "])("retains structured assignment state: %s", (prefix) => {
+  expect(pendingCredentialAssignment(prefix)).toBe("assignment")
+  expect(pendingCredentialAssignment(`${prefix}sensitive`)).toBe("unquoted")
+  expect(pendingCredentialQuote(`${prefix}"secret words`)).toBe('"')
+  expect(credentialTextMayContinue(prefix)).toBe(true)
+  const key = prefix.replace(/[:=]\s*$/, "")
+  expect(credentialTextMayContinue(key)).toBe(true)
+  expect(pendingCredentialTextSuffix(`${".".repeat(512)}${key}`)).toBe(key)
 })

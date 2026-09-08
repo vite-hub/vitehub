@@ -3214,6 +3214,36 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it.each([
+    { head: '{"password":', tail: ' "sensitive-value","status":"ok"}', expected: '{"password":[REDACTED],"status":"ok"}' },
+    { head: "password ", tail: '= "correct horse";status=ok', expected: 'password = "[REDACTED]";status=ok' },
+  ])("redacts structured credentials after a bounded $head chunk", async ({ head, tail, expected }) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [prefix + head, tail]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("structured-credential"), {})
+    const observations = (await invocations.getByRunId("structured-credential"))?.observations ?? []
+    expect(observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")).toBe(prefix + expected)
+  })
+
   it("redacts a camel-case credential split at a bounded journal flush", async () => {
     const invocations = defineAgentInvocations({
       content: "content",

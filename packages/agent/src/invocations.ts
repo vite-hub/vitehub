@@ -2,7 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { credentialTextMayContinue, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
+import { credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
@@ -1292,18 +1292,15 @@ function journalTraceLog(
         if (content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content)
         const scheme = pendingCredentialScheme(content)
+        const assignment = pendingCredentialAssignment(content)
         if (quote) {
           redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
         }
-        else if (scheme
-          || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;&{}<>]*$/i.test(content)) {
+        else if (scheme || assignment) {
           redactingCredentialDeltas.set(key, {
-            kind: scheme === "scheme"
-              ? "scheme"
-              : content.endsWith("=") ? "assignment" : "unquoted",
+            kind: scheme ?? assignment!,
           })
-          if (scheme === "scheme"
-            || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?$/i.test(content)) {
+          if (scheme === "scheme" || assignment === "assignment") {
             content += "[REDACTED]"
           }
         }
@@ -1345,6 +1342,10 @@ function journalTraceLog(
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
+      if (redaction.kind === "assignment") {
+        content = content.trimStart()
+        if (!content) return
+      }
       if (redaction.kind === "assignment" && (content[0] === '"' || content[0] === "'")) {
         redaction = { kind: "quoted", quote: content[0], escaped: false, omitClosingQuote: true }
         redactingCredentialDeltas.set(key, redaction)
