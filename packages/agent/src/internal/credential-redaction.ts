@@ -46,6 +46,7 @@ function isCredentialScheme(scheme: string, prefix: string): boolean {
   // header or an equivalent structured boundary.
   if (scheme === "Bearer" || scheme === "Basic") return true
   return /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
+    || /(?:^|[\r\n])\s*$/.test(prefix)
 }
 
 export function pendingCredentialScheme(value: string, precedingText = ""): "scheme" | "unquoted" | undefined {
