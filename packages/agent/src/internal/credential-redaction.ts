@@ -22,9 +22,9 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   if (!prefix.trimEnd().endsWith(":")) return true
   // Generic token/key fields also describe parser tokens and object identifiers.
   if (/^(?:key|token)$/i.test(key)) return false
-  // Quoted fields and line-start YAML keys establish assignments; inline prose labels do not.
+  // Quoted fields and YAML mapping boundaries establish assignments; inline prose labels do not.
   if (/^(?:password|secret)$/i.test(key)) {
-    return /["']\s*:\s*$/.test(prefix) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText) || /(?:[{},])\s*["']?$/.test(prefix)
+    return /["']\s*:\s*$/.test(prefix) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText) || /[{,]\s*$/.test(precedingText)
   }
   return true
 }
@@ -327,6 +327,8 @@ export function pendingCredentialQuote(value: string, precedingText = ""): strin
 // Preserve assignment context between bounded journal chunks without retaining values.
 export function credentialTextLineContext(value: string): string {
   const lastLine = value.split(/[\r\n]/).at(-1) ?? ""
+  const flowBoundary = /[{,][\t ]*$/.exec(lastLine)?.[0]
+  if (flowBoundary) return flowBoundary
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
   return authorizationHeader ? "Authorization: " : /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
 }

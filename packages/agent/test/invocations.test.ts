@@ -47,6 +47,30 @@ function inspectableToolCapability() {
 
 describe("Agent Invocations", () => {
   it.each([
+    ["{password: ", "}"],
+    ["config: {password: ", ", status: ok}"],
+    ["{status: ok, secret: ", "}"],
+  ])("redacts YAML flow mapping values across forced flushes: %s", async (prefix, suffix) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of prefix + "sensitive-value" + suffix) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "flow-yaml", "message.content": character } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("flow-yaml"), {})
+    const observations = (await invocations.getByRunId("flow-yaml"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(prefix + "[REDACTED]" + suffix)
+    expect(JSON.stringify(observations)).not.toContain("sensitive-value")
+  })
+
+  it.each([
     "password:\nstatus: ok",
     "password: \nstatus: ok",
     "password: # optional\nstatus: ok",

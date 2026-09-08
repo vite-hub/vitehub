@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
+it.each([
+  ["{password: ", "}"],
+  ["config: {password: ", ", status: ok}"],
+  ["{status: ok, secret: ", "}"],
+])("redacts YAML flow mapping values after %s", (prefix, suffix) => {
+  expect(redactCredentialText(prefix + "sensitive-value" + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+  const keyStart = prefix.search(/(?:password|secret):/)
+  const context = credentialTextLineContext(prefix.slice(0, keyStart))
+  const assignment = prefix.slice(keyStart)
+  expect(redactCredentialText(assignment + "sensitive-value" + suffix, context)).toBe(assignment + "[REDACTED]" + suffix)
+  for (let split = 0; split <= "sensitive-value".length; split++) {
+    const state = pendingCredentialAssignmentState(assignment + "sensitive-value".slice(0, split), context)!
+    expect(state).toBeDefined()
+    const rest = "sensitive-value".slice(split) + suffix
+    expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(suffix)
+  }
+})
+
 describe("plain YAML credential scalars", () => {
   it.each(["", "\n"])("bounds retained separators after a credential and %j", (lineBreak) => {
     const state = pendingCredentialAssignmentState("password: sensitive" + lineBreak)!
