@@ -114,6 +114,7 @@ function redactConfigurationValue(value: unknown, seen = new WeakMap<object, unk
 }
 
 function redactTelemetryConfiguration(configuration: AgentTelemetryConfiguration): AgentTelemetryConfiguration {
+  // SAFETY: Redaction recursively preserves configuration keys and value shapes while replacing strings with strings.
   return redactConfigurationValue(configuration) as AgentTelemetryConfiguration
 }
 
