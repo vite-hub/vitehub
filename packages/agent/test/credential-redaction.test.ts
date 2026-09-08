@@ -82,6 +82,15 @@ it.each(["\r", "\n", "\r\n"])("preserves YAML siblings after %j line breaks", (l
 })
 
 describe("plain YAML credential scalars", () => {
+  it.each([
+    [" \t".repeat(2048), "# public comment\nstatus: ok"],
+    [" \t".repeat(2048) + "\n", "status: ok"],
+    ["\n" + " ".repeat(4096), "# public comment\nstatus: ok"],
+  ])("preserves complete direct-redaction separators, case %#", (separator, suffix) => {
+    expect(redactCredentialText("password: sensitive" + separator + suffix))
+      .toBe("password: [REDACTED]" + separator + suffix)
+  })
+
   it.each(["", "\n"])("bounds retained separators after a credential and %j", (lineBreak) => {
     const state = pendingCredentialAssignmentState("password: sensitive" + lineBreak)!
     for (let chunk = 0; chunk < 128; chunk++) {

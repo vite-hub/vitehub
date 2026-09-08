@@ -192,7 +192,13 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
     if (!length) continue
     const quote = /^["']/.exec(content)?.[0] ?? ""
     result += value.slice(offset, start) + quote + "[REDACTED]" + (quote && !state.quote ? quote : "")
-    if (state.yaml && length < content.length) result += state.yaml.whitespace
+    // Direct redaction still owns the complete input. Recover the separator
+    // from it rather than the bounded buffer used by streaming continuations.
+    if (state.yaml && length < content.length) {
+      let separatorStart = length
+      while (separatorStart > 0 && /[\t \r\n]/.test(content[separatorStart - 1]!)) separatorStart--
+      result += content.slice(separatorStart, length)
+    }
     offset = start + length
   }
   return result + value.slice(offset)
