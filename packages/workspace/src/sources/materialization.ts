@@ -617,9 +617,16 @@ export async function materializeWorkspaceSources(
         }))
       }
       else {
-        // Retain migrated items for later scoped calls without marking the
-        // unvisited portion of the source as a fresh, complete snapshot.
-        await control.mutate(() => writeSourceSnapshotMetadata(store, { ...ready, status: "updating" }))
+        // Publish the new format hash after a successful scoped run while
+        // retaining metadata for files outside this scope. This lets later
+        // scoped calls reuse the migrated entries instead of replaying them.
+        const migratedItems = checkpointItems({ ...(existing?.items || {}), ...itemMetadata })
+        await control.mutate(() => writeSourceSnapshotMetadata(store, {
+          ...ready,
+          status: "updating",
+          items: migratedItems,
+          files: migratedItems ? Object.keys(migratedItems).length : 0,
+        }))
       }
       const durationMs = Date.now() - sourceStarted
       const resultSource: WorkspaceSourceMaterializationStatus = {
