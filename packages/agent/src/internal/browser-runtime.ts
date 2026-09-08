@@ -5,6 +5,7 @@ import { spawn } from "node:child_process"
 
 import type { AgentInvocationContextStore } from "../types.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 const agentBrowserVersion = "0.35.2"
 const puppeteerBrowsersVersion = "2.10.10"
@@ -214,7 +215,7 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
       await rename(staging, root)
     }
     catch (error) {
-      const code = (error as NodeJS.ErrnoException).code
+      const code = isRuntimeRecord(error) && hasRuntimeType(error.code, "string") ? error.code : undefined
       if (code !== "EEXIST" && code !== "ENOTEMPTY") throw error
       await rm(staging, { force: true, recursive: true })
       const prepared = await readyRuntime(JSON.parse(await readFile(marker, "utf8")))
@@ -256,7 +257,8 @@ export function provideBrowserRuntimeEnvironment(context: AgentInvocationContext
 
 export function browserRuntimeEnvironment(context: AgentInvocationContextStore): Readonly<Record<string, string>> | undefined {
   const value = context.get(browserRuntimeEnvironmentContextKey)
-  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  if (!isRuntimeRecord(value) || Object.values(value).some(item => !hasRuntimeType(item, "string"))) return
+  // SAFETY: Every own value was parsed as a string at the invocation context boundary.
   return value as Readonly<Record<string, string>>
 }
 

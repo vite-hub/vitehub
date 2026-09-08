@@ -637,10 +637,13 @@ async function workspaceSourcePathExists(
     }
     if (await workspacePathExists(workspace, path)) {
       const owner = retainedPaths.get(path)
+      // SAFETY: Capability contribution paths are normalized workspace paths before conflict inspection.
       const metadata = owner ? (await workspace.fs.stat(path as never)).metadata?.capabilityWorkspaceContribution : undefined
       if (owner && isRuntimeRecord(metadata) && metadata.capabilityId === owner && metadata.path === path) continue
       if (owner && metadata === undefined && desiredWorkspace) {
+        // SAFETY: Capability contribution paths are normalized workspace paths before conflict inspection.
         const current = await workspace.fs.readFile(path as never, { encoding: "binary" })
+        // SAFETY: Capability contribution paths are normalized workspace paths before conflict inspection.
         const desired = await desiredWorkspace.fs.readFile(path as never, { encoding: "binary" })
         if (await capabilityContributionDigest(current) === await capabilityContributionDigest(desired)) continue
       }
@@ -823,7 +826,7 @@ function withInvocationReadableSources(sources: Record<string, WorkspaceSourceIn
 }
 
 async function capabilityContributionDigest(content: string | Uint8Array): Promise<string> {
-  const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content
+  const bytes = hasRuntimeType(content, "string") ? new TextEncoder().encode(content) : content
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
@@ -908,12 +911,13 @@ async function applyCapabilityWorkspaceContributions<
     sourceResolution.workspace,
   )
   const persistencePaths = context.workspacePersistencePaths || []
+  // SAFETY: Persistence runs only for the writable workspace returned by capability source resolution.
   const retainedWorkspace = baseWorkspace as ReadonlyWorkspaceFacade<Name> & {
     fs: ReadonlyWorkspaceFacade<Name>["fs"] & {
       writeFile(path: string, content: string | Uint8Array, options?: { mediaType?: string, metadata?: Record<string, unknown> }): Promise<string>
     }
   }
-  if (persistencePaths.length && typeof retainedWorkspace.fs.writeFile === "function") {
+  if (persistencePaths.length && hasRuntimeType(retainedWorkspace.fs.writeFile, "function")) {
     await Promise.all(persistencePaths.map(({ path }) => sourceResolution.workspace.fs.materializeSources?.({ path })))
     const pending: Array<{ capabilityId: string, path: string }> = []
     const desired = new Map<string, { content: string | Uint8Array, digest: string }>()
@@ -922,11 +926,14 @@ async function applyCapabilityWorkspaceContributions<
       const content = await sourceResolution.workspace.fs.readFile(item.path, { encoding: "binary" })
       const digest = await capabilityContributionDigest(content)
       desired.set(item.path, { content, digest })
+      // SAFETY: Capability persistence paths come from normalized materialization paths.
       if (!await baseWorkspace.fs.exists(item.path as never)) {
         pending.push(item)
         continue
       }
+      // SAFETY: Capability persistence paths come from normalized materialization paths.
       const current = await baseWorkspace.fs.readFile(item.path as never, { encoding: "binary" })
+      // SAFETY: Capability persistence paths come from normalized materialization paths.
       const metadata = (await baseWorkspace.fs.stat(item.path as never)).metadata?.capabilityWorkspaceContribution
       if (metadata === undefined && await capabilityContributionDigest(current) === digest) {
         pending.push(item)
@@ -934,7 +941,7 @@ async function applyCapabilityWorkspaceContributions<
       }
       if (isRuntimeRecord(metadata)
         && metadata.capabilityId === item.capabilityId
-        && typeof metadata.digest === "string"
+        && hasRuntimeType(metadata.digest, "string")
         && await capabilityContributionDigest(current) === metadata.digest
         && metadata.digest !== digest) pending.push(item)
     }
@@ -1023,6 +1030,7 @@ export async function resolveAgentCapabilities<
     : []
   const workspacePersistencePaths = driverKind === "provider"
     ? capabilities.flatMap(capability =>
+        // SAFETY: Capability registration establishes the internal materialization-path contribution contract.
         ((capability as InternalAgentCapabilityDefinition)[workspaceMaterializationPathsSymbol] || [])
           .filter(path => /^\.agents\/skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/.test(path))
           .map(path => ({ capabilityId: capability.id, path })),
