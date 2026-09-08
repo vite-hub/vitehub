@@ -542,10 +542,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function materializeRootStartupSources() {
-    for (const source of sources.filter(source => !source.mountPath && source.materialize === "startup")) {
-      await ensurePrepared(source.key)
-      await ensureMaterialized(source.key)
-    }
+    await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => !source.mountPath && source.materialize === "startup"))
   }
 
   async function materializeRootSourceForPath(path: string) {
