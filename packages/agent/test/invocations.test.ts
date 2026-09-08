@@ -3244,6 +3244,29 @@ describe("Agent Invocations", () => {
       .map(entry => entry.attributes?.["message.content"]).join("")).toBe(prefix + expected)
   })
 
+  it.each(["Authorization:", "Authorization: ", "Proxy-Authorization: "])("retains a bounded %s header before its scheme", async (header) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxStringLength: 128 }, store: createMemoryAgentInvocationStore() })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [prefix + header, " basic c2VjcmV0;status=ok"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-authorization-header"), {})
+    const observations = (await invocations.getByRunId("split-authorization-header"))?.observations ?? []
+    expect(observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")).toBe(`${prefix}${header} basic [REDACTED];status=ok`)
+  })
+
   it("redacts a camel-case credential split at a bounded journal flush", async () => {
     const invocations = defineAgentInvocations({
       content: "content",

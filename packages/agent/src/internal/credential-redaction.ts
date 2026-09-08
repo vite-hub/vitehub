@@ -21,9 +21,17 @@ export function pendingCredentialScheme(value: string): "scheme" | "unquoted" | 
   return match[2] ? "unquoted" : "scheme"
 }
 
+function pendingAuthorizationHeader(value: string): string | undefined {
+  const match = /["']?\b([A-Za-z-]+)["']?\s*:?\s*["']?$/.exec(value.slice(-128))
+  if (!match) return
+  const name = match[1]!.toUpperCase()
+  return ["AUTHORIZATION", "PROXY-AUTHORIZATION"].some(header => header.startsWith(name)) ? match[0] : undefined
+}
+
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
-  return /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[A-Za-z]*$/i.exec(tail)?.[0]
+  return pendingAuthorizationHeader(value)
+    ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[A-Za-z]*$/i.exec(tail)?.[0]
     ?? /["']?\b[A-Za-z][A-Za-z0-9_]*["']?\s*$/.exec(tail)?.[0]
 }
 
@@ -49,6 +57,7 @@ export function pendingCredentialAssignment(value: string): "assignment" | "unqu
 }
 
 export function credentialTextMayContinue(value: string): boolean {
+  if (pendingAuthorizationHeader(value)) return true
   if (pendingCredentialQuote(value)) return true
   if (pendingCredentialScheme(value)) return true
   if (pendingCredentialAssignment(value)) return true

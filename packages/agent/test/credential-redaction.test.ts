@@ -119,3 +119,12 @@ it.each(['"password" : ', "password = ", "API_TOKEN\t=\t", "api_token: "])("reta
   expect(credentialTextMayContinue(key)).toBe(true)
   expect(pendingCredentialTextSuffix(`${".".repeat(512)}${key}`)).toBe(key)
 })
+
+it.each(["Authorization: ", "Proxy-Authorization: ", '"authorization":"'])("retains every incomplete header prefix in %s", (header) => {
+  for (let split = 1; split <= header.length; split++) {
+    const prefix = header.slice(0, split)
+    if (prefix === '"') continue
+    expect(credentialTextMayContinue(`${".".repeat(512)}${prefix}`)).toBe(true)
+    expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
+  }
+})
