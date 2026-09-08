@@ -44,6 +44,35 @@ function metadataRoot(root: string) {
   return `${root}/.vitehub/file-metadata`
 }
 
+describe("reserved Source metadata validation", () => {
+  it.each(["bytes", "conditional", "stream"] as const)("rejects invalid Source metadata before %s publication", async (kind) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const original = { path: "file.txt", content: "original", metadata: { source: "docs" } }
+    await store.writeFile(original.path, original)
+    const before = await store.stat(original.path)
+    for (const source of [123, null, false, {}, []]) {
+      for (const [path, content] of [["file.txt", "replacement"], ["file.txt", "original"], ["new.txt", "new"]]) {
+        const file = { path: path!, content: content!, metadata: { source } }
+        const consumed = vi.fn()
+        const writing = kind === "stream"
+          ? store.writeFileStream!(file.path, { ...file, content: (async function* () {
+            consumed()
+            yield new TextEncoder().encode(file.content)
+          })() })
+          : kind === "conditional"
+            ? store.writeFileConditional!(file.path, file, file.path === original.path ? before!.digest! : null)
+            : store.writeFile(file.path, file)
+        await expect(writing).rejects.toThrow("metadata.source must be a string")
+        expect(consumed).not.toHaveBeenCalled()
+        await expect(readFile(`${root}/file.txt`, "utf8")).resolves.toBe("original")
+        await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({ metadata: original.metadata })
+        await expect(store.stat("new.txt")).resolves.toBeUndefined()
+      }
+    }
+  })
+})
+
 afterEach(async () => {
   permissionsFixture.root = ""
   vi.clearAllMocks()

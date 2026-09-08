@@ -26,6 +26,16 @@ import type {
   WorkspaceStore,
 } from "../core/types.ts"
 
+const fileMetadataSchema = optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
+  return value.source === undefined || typeof value.source === "string"
+})))
+
+function assertFileMetadata(path: string, metadata: WorkspaceFile["metadata"]) {
+  if (!safeParse(fileMetadataSchema, metadata).success) {
+    throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. metadata.source must be a string when provided.`)
+  }
+}
+
 async function backupFile(path: string, backup: string): Promise<void> {
   const { chmod, chown, copyFile, link, rm, stat, utimes } = await import("node:fs/promises")
   try {
@@ -400,10 +410,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const parsed = safeParse(object({
       path: literal(path),
       mediaType: fallback(optional(string()), undefined),
-      metadata: optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
-        const source = value.source
-        return source === undefined || safeParse(string(), source).success
-      }))),
+      metadata: fileMetadataSchema,
     }), value)
     // Invalid ownership must not turn a Source file into an ordinary writable file.
     if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
@@ -517,6 +524,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    assertFileMetadata(path, file.metadata)
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
@@ -572,6 +580,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
+    assertFileMetadata(path, file.metadata)
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)

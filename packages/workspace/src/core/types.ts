@@ -256,6 +256,7 @@ export interface WorkspaceFile {
   path: string
   content: WorkspaceContent
   mediaType?: string
+  /** File attributes. `source` is reserved for a string Source name; local Stores reject other values before writing content. */
   metadata?: Record<string, unknown>
 }
 
@@ -263,6 +264,7 @@ export interface WorkspaceStreamFile {
   path: string
   content: WorkspaceContentStream
   mediaType?: string
+  /** File attributes. `source` is reserved for a string Source name; local Stores reject other values before writing content. */
   metadata?: Record<string, unknown>
 }
 
