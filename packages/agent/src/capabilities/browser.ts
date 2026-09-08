@@ -152,7 +152,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
     async prepare(context) {
       if (context.driver?.kind !== "provider") throw agentDiagnostics.AGENT_R0026({ message: "[vitehub] browser() requires a Provider Agent Driver." })
       if (runtimeMode !== "managed") return
-      const runtime = await prepareBrowserRuntime()
+      const runtime = await prepareBrowserRuntime({ abortSignal: context.abortSignal })
       provideBrowserRuntimeEnvironment(context.context, Object.freeze({
         ...runtime.environment,
         AGENT_BROWSER_SESSION: `vh-${crypto.randomUUID().slice(0, 12)}`,

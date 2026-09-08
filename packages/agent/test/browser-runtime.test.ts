@@ -1,7 +1,7 @@
-import { chmod, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { browserRuntimeEnvironment, prepareBrowserRuntime, provideBrowserRuntimeEnvironment, resetBrowserRuntimePreparationForTest } from "../src/internal/browser-runtime.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
@@ -13,12 +13,12 @@ async function fixture() {
   const npm = join(root, "npm-fixture")
   const count = join(root, "installs")
   await writeFile(npm, `#!/usr/bin/env node
-const fs=require('node:fs'),path=require('node:path'); const here=path.dirname(process.argv[1]); fs.appendFileSync(path.join(here,'installs'),'1\\n');
+const fs=require('node:fs'),path=require('node:path'); const here=path.dirname(process.argv[1]); fs.appendFileSync(path.join(here,'installs'),'1\\n'); if(fs.existsSync(path.join(here,'delay'))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,250);
 const fail=path.join(here,'fail-next'); if(fs.existsSync(fail)){fs.unlinkSync(fail);process.exit(7)}
 const prefix=process.argv[process.argv.indexOf('--prefix')+1],bin=path.join(prefix,'node_modules','.bin'); fs.mkdirSync(bin,{recursive:true});
 const browsers=path.join(bin,'browsers'); fs.writeFileSync(browsers,\`#!/usr/bin/env node
 const fs=require('node:fs'),path=require('node:path'),root=process.argv[process.argv.indexOf('--path')+1],dir=path.join(root,'chrome','mac_arm-149.0.7827.155','chrome-mac-arm64','Google Chrome for Testing.app','Contents','MacOS'); if(process.argv[3]!=='chrome@149.0.7827.155') process.exit(8); fs.mkdirSync(dir,{recursive:true}); const chrome=path.join(dir,'Google Chrome for Testing'); fs.writeFileSync(chrome,"#!/usr/bin/env node\\\\nprocess.stdout.write('<html></html>')\\\\n"); fs.chmodSync(chrome,0o755);\`); fs.chmodSync(browsers,0o755);
-const cli=path.join(bin,'agent-browser'); fs.writeFileSync(cli,"#!/usr/bin/env node\\nprocess.exit(0)\\n"); fs.chmodSync(cli,0o755);
+const cli=path.join(bin,'agent-browser'); fs.writeFileSync(cli,"#!/usr/bin/env node\\nprocess.stdout.write('agent-browser 0.35.2')\\n"); fs.chmodSync(cli,0o755);
 const skill=path.join(prefix,'node_modules','agent-browser','skills','agent-browser'); fs.mkdirSync(skill,{recursive:true}); fs.writeFileSync(path.join(skill,'SKILL.md'),'---\\nname: agent-browser\\nhidden: true\\n---\\nInstall: remove me\\nRun agent-browser skills get core.\\n');
 `)
   await chmod(npm, 0o755)
@@ -27,6 +27,7 @@ const skill=path.join(prefix,'node_modules','agent-browser','skills','agent-brow
 
 afterEach(async () => {
   resetBrowserRuntimePreparationForTest()
+  vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -74,6 +75,39 @@ describe("browser runtime", () => {
     await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(2)
     expect(JSON.parse(await readFile(markerPath, "utf8")).browserVersion).toBe("149.0.7827.155")
+  })
+
+  it("repairs a cached CLI that cannot execute", async () => {
+    const value = await fixture()
+    const ready = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    await chmod(ready.command, 0o600)
+    resetBrowserRuntimePreparationForTest()
+    await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(2)
+  })
+
+  it("rejects a pre-existing browser socket symlink", async () => {
+    const value = await fixture()
+    vi.stubEnv("TMPDIR", value.root)
+    const target = join(value.root, "untrusted")
+    await mkdir(target)
+    await symlink(target, join(value.root, `vh-ab-${process.getuid?.() ?? process.pid}`))
+    await expect(prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })).rejects.toThrow("private directory")
+  })
+
+  it("stops awaiting shared provisioning when one invocation is cancelled", async () => {
+    const value = await fixture()
+    await writeFile(join(value.root, "delay"), "1")
+    const abort = new AbortController()
+    const options = { cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" as const }
+    const pending = prepareBrowserRuntime({ ...options, abortSignal: abort.signal })
+    const shared = prepareBrowserRuntime(options)
+    await vi.waitFor(async () => expect(await readFile(value.count, "utf8")).toBe("1\n"))
+    const reason = new Error("cancel browser preparation")
+    abort.abort(reason)
+    await expect(pending).rejects.toBe(reason)
+    await expect(shared).resolves.toHaveProperty("command")
+    expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
   })
 
   it("retries failed installs and repairs a missing browser", async () => {

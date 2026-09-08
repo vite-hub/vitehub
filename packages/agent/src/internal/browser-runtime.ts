@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
+import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { spawn } from "node:child_process"
@@ -21,6 +21,7 @@ export interface PreparedBrowserRuntime {
 }
 
 export interface BrowserRuntimePreparationOptions {
+  abortSignal?: AbortSignal
   cacheRoot?: string
   npmCommand?: string
   platform?: NodeJS.Platform
@@ -140,12 +141,19 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
   const browserVersion = platform === "linux" ? chromiumBundleVersion : chromeForTestingVersion
   const socketRoot = join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}`)
+  await mkdir(socketRoot, { mode: 0o700, recursive: true })
+  const socketStat = await lstat(socketRoot)
+  if (!socketStat.isDirectory() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) {
+    throw new Error("[vitehub] Browser socket directory must be a private directory owned by the current user.")
+  }
   const skillPath = join(root, "core.SKILL.md")
   const marker = join(root, "ready.json")
   const readyRuntime = async (ready: { chrome?: string, noSandbox?: boolean, version?: string, browserVersion?: string, linuxBundle?: boolean }): Promise<PreparedBrowserRuntime | undefined> => {
     if (ready.version !== agentBrowserVersion || ready.browserVersion !== browserVersion || ready.linuxBundle !== (platform === "linux") || !ready.chrome) return
     const executablePath = join(root, ready.chrome)
     if (!(await stat(command).catch(() => undefined))?.isFile() || !(await stat(executablePath).catch(() => undefined))?.isFile()) return
+    const version = await run(command, ["--version"], { env: installerEnvironment(), timeoutMs: 15_000 })
+    if (version.trim() !== `agent-browser ${agentBrowserVersion}`) return
     const browserEnvironment: Record<string, string> = {}
     if (ready.linuxBundle) {
       browserEnvironment.LD_LIBRARY_PATH = join(root, "chromium", "al2023", "lib")
@@ -237,6 +245,8 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
 }
 
 export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions = {}): Promise<PreparedBrowserRuntime> {
+  const signal = options.abortSignal
+  if (signal?.aborted) return Promise.reject(signal.reason)
   const root = options.cacheRoot || defaultCacheRoot()
   const key = `${root}\0${options.npmCommand || "npm"}\0${options.platform || process.platform}`
   let preparation = preparations.get(key)
@@ -247,7 +257,12 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
     })
     preparations.set(key, preparation)
   }
-  return preparation
+  if (!signal) return preparation
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener("abort", onAbort, { once: true })
+    preparation.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort))
+  })
 }
 
 export function resetBrowserRuntimePreparationForTest(): void {
