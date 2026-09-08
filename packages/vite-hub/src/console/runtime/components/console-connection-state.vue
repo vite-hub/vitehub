@@ -14,7 +14,7 @@ defineEmits<{ retry: []; openSessions: [] }>();
     <UButton
       v-if="!compact"
       class="absolute left-3 top-3 md:hidden"
-      icon="i-lucide-panel-left"
+      icon="i-lucide-menu"
       color="neutral"
       variant="ghost"
       size="xs"

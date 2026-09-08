@@ -49,12 +49,12 @@ defineEmits<{
       </div>
       <span v-else class="text-sm font-medium">{{ title }}</span>
     </template>
-    <template #right>
+    <template #leading>
       <UTooltip text="Open sessions">
         <UButton
           data-slot="mobile-session-navigation"
           class="md:hidden"
-          icon="i-lucide-panel-left"
+          icon="i-lucide-menu"
           color="neutral"
           variant="ghost"
           size="xs"
@@ -62,6 +62,8 @@ defineEmits<{
           @click="$emit('openSessions')"
         />
       </UTooltip>
+    </template>
+    <template #right>
       <UTooltip v-if="externalUrl && externalTarget" :text="externalTarget.label">
         <UButton
           :to="externalUrl"
