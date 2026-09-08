@@ -1008,6 +1008,12 @@ function titleUiMessageStreamOverride(
 export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: TitleOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
+  if (hasRuntimeType(options.model, "string")) {
+    if (!options.model.trim()) {
+      throw agentDiagnostics.AGENT_R0474({ message: "[vitehub] title({ model }) must be a non-empty string." })
+    }
+    options = { ...options, model: options.model.trim() }
+  }
   if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 2_147_483_647)) {
     throw agentDiagnostics.AGENT_R0484({ message: "[vitehub] title({ timeoutMs }) must be an integer between 1 and 2147483647 milliseconds." })
   }

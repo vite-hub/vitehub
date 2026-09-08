@@ -33,6 +33,10 @@ import { title } from "../src/capabilities.ts";
 import { createMessage, defineAgent, runAgent } from "../src/index.ts";
 
 describe("title provider inheritance", () => {
+  it.each(["", " ", "\t\n"])("rejects empty title model overrides: %j", (model) => {
+    expect(() => title({ model })).toThrow("title({ model }) must be a non-empty string");
+  });
+
   it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2_147_483_648])(
     "rejects unsupported title timeout: %s",
     (timeoutMs) => {
@@ -86,6 +90,7 @@ describe("title provider inheritance", () => {
     { expectedModel: "gpt-main", titleOptions: {}, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { instructions: "Use a short subject title" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: "medium" },
+    { expectedModel: "gpt-cheap", titleOptions: { model: "  gpt-cheap  " }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: undefined },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap", reasoningEffort: "low" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "low" }, reasoningEffort: "medium" },
