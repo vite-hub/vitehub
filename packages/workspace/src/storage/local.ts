@@ -312,8 +312,11 @@ class LocalWorkspaceStore implements WorkspaceStore {
       // Keep the live file readable until the replacement rename commits.
       const hadExisting = existing?.type === "file"
       if (hadExisting) await copyFile(absolute, backup)
+      await rename(temp, absolute).catch(async (error) => {
+        await rm(backup, { force: true }).catch(() => undefined)
+        throw error
+      })
       try {
-        await rename(temp, absolute)
         await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
       } catch (error) {
         if (hadExisting) {

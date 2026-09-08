@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -77,6 +77,36 @@ describe("local workspace store", () => {
       await expect(store.readFile("file.txt")).resolves.toMatchObject({
         content: new TextEncoder().encode("after"),
       })
+    }
+    finally {
+      vi.mocked(rename).mockImplementation(actual.rename)
+    }
+  })
+
+  it("preserves the original file and cleans staging files when the content rename fails", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const absolute = join(root, "file.txt")
+    await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { owner: "original" } })
+    await utimes(absolute, new Date(0), new Date(0))
+    const before = await stat(absolute)
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const commitError = new Error("content rename failed")
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (String(from).endsWith(".tmp") && String(to) === absolute) throw commitError
+      await actual.rename(from, to)
+    })
+    try {
+      await expect(store.writeFile("file.txt", { path: "file.txt", content: "after", metadata: { owner: "replacement" } })).rejects.toBe(commitError)
+      const after = await stat(absolute)
+      expect(after.ino).toBe(before.ino)
+      expect(after.mtimeMs).toBe(before.mtimeMs)
+      expect(after.mode).toBe(before.mode)
+      await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({
+        content: new TextEncoder().encode("before"),
+        metadata: { owner: "original" },
+      })
+      await expect(readdir(join(root, ".vitehub/tmp"))).resolves.toEqual([])
     }
     finally {
       vi.mocked(rename).mockImplementation(actual.rename)
