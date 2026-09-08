@@ -29,6 +29,43 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
 }
 
 describe("Workspace runtime preparation", () => {
+  it("rejects preparation without startup sources while an unrelated lazy read is pending", async () => {
+    const blocked = Promise.withResolvers<void>()
+    const materializing = Promise.withResolvers<void>()
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    registerWorkspace(name, {
+      sources: {
+        lazy: custom({
+          getItem: async key => ({ content: "lazy", key }),
+          async getItems() {
+            materializing.resolve()
+            await blocked.promise
+            return [{ content: "lazy", key: "lazy.md" }]
+          },
+          getKeys: async () => ["lazy.md"],
+          materialize: "lazy",
+        }),
+      },
+      store: createMemoryWorkspaceStore(),
+    })
+    const reading = useWorkspace(name).fs.readFile("lazy/lazy.md", { encoding: "utf8" })
+    await materializing.promise
+    const preparation = createWorkspacePreparation({ workspace: name })
+    const preparing = preparation.start()
+    try {
+      await vi.waitFor(() => expect(preparation.getState()).toMatchObject({
+        status: "error",
+        error: expect.stringContaining("has no startup sources to prepare"),
+      }))
+    }
+    finally {
+      blocked.resolve()
+      await expect(reading).resolves.toBe("lazy")
+      await preparing
+      await preparation.stop()
+    }
+  })
+
   it("reconciles removed startup files before rejecting preparation without startup sources", async () => {
     const store = createMemoryWorkspaceStore()
     const name = registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }], store)

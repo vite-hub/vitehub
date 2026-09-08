@@ -228,7 +228,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const requestedPath = normalizeWorkspacePath(options.path || "")
     const selectedSources = allSources
       .filter(source => source.materialize === "lazy" || source.materialize === "startup" || source.materialize === "build" && Boolean(requestedPath))
-      .filter(source => (!options.sources?.length || options.sources.includes(source.key)) && sourceMountIntersectsPath(source, requestedPath))
+      .filter(source => (options.sources === undefined || options.sources.includes(source.key)) && sourceMountIntersectsPath(source, requestedPath))
     const predecessors = selectedSources.flatMap((source) => {
       const pending = pendingBySource.get(source.key)
       return pending ? [pending.tail] : []
