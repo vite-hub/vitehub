@@ -479,9 +479,11 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   if (inheritedDriver?.kind === "provider") {
     try {
       const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
-      const providerDriver = hasRuntimeType(options.model, "string")
-        ? { ...inheritedDriver, model: options.model, reasoningEffort: options.reasoningEffort ?? "low" }
-        : inheritedDriver
+      const providerDriver = {
+        ...inheritedDriver,
+        ...(hasRuntimeType(options.model, "string") ? { model: options.model } : {}),
+        ...(options.reasoningEffort !== undefined ? { reasoningEffort: options.reasoningEffort } : {}),
+      }
       return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, options, timedInput, prompt, providerDriver)), maxLength, fallback)
     }
     catch (error) {
