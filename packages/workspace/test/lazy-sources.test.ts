@@ -35,6 +35,35 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each([false, true])("refreshes legacy cached snapshots without content digests with attributes=%s", async (attributes) => {
+    const store = createMemoryWorkspaceStore()
+    const getItem = vi.fn(async (key: string) => ({ key, content: "generated" }))
+    const definition = {
+      name: "legacy-startup-cache",
+      sources: {
+        docs: custom({ materialize: "startup", cache: { maxAge: 3600 }, getKeys: async () => ["guide.md"], getItem }),
+      },
+    }
+    await materializeWorkspaceSources(definition, store)
+    const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSource("docs", definition.sources.docs))
+    const item = snapshot!.items!["docs/guide.md"]!
+    delete item.materializedContentDigest
+    if (!attributes) delete item.materializedAttributes
+    await store.setMeta?.("source:docs:snapshot", snapshot)
+    const file = await store.readFile("docs/guide.md")
+    await store.writeFile("docs/guide.md", { ...file!, content: "changed" })
+    getItem.mockClear()
+
+    await materializeWorkspaceSources(definition, store)
+
+    expect(getItem).toHaveBeenCalledOnce()
+    await expect(store.readFile("docs/guide.md")).resolves.toMatchObject({ content: "generated" })
+    const refreshed = await readCurrentSourceSnapshot(store, normalizeWorkspaceSource("docs", definition.sources.docs))
+    expect(refreshed!.items!["docs/guide.md"]!.materializedContentDigest).toBeTruthy()
+    await materializeWorkspaceSources(definition, store)
+    expect(getItem).toHaveBeenCalledOnce()
+  })
+
   it.each([false, true])("reuses fresh Local Store snapshots after reopening (changed content: %s)", async (changedContent) => {
     const root = await createRoot()
     const getKeys = vi.fn(async () => ["guide.md"])
