@@ -1924,11 +1924,14 @@ export const AgentInvocationInspector = defineComponent({
                 inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
                   ? "Unknown"
                   : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
-                inspectorRow("Cost", props.invocation.usage?.cost?.display ?? "Unknown"),
+                inspectorRow("Cost", usage?.cost?.display
+                  ? `${usage.cost.display}${usage.cost.estimated === true ? " (estimated)" : usage.cost.estimated === false ? " (reported)" : ""}`
+                  : "Unknown"),
                 ...([
                   ["Input", partition?.inputTokens],
                   ["Output", partition?.outputTokens],
                   ["Cached", partition?.cachedInputTokens],
+                  ["Cache writes", partition?.cacheWriteTokens],
                   ["Reasoning", partition?.reasoningTokens],
                 ] as const).flatMap(([label, value]) => value === undefined
                   ? []

@@ -106,7 +106,8 @@ export interface AgentInvocationView {
     inputTokens?: number;
     outputTokens?: number;
     cachedInputTokens?: number;
+    cacheWriteTokens?: number;
     reasoningTokens?: number;
-    cost?: { display?: string };
+    cost?: { display?: string; estimated?: boolean; source?: string };
   };
 }

@@ -8,7 +8,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 const configurationSchema = v.object({ workspace: v.object({ name: v.string() }) })
-const promotedSourceSchema = v.object({ source: v.pipe(v.string(), v.regex(/^[A-Za-z0-9._-]{1,100}$/)) })
+const sourceSchema = v.pipe(v.string(), v.regex(/^[A-Za-z0-9._-]{1,100}$/))
 const hostWorkspaceSchema = v.union([
   v.object({ paths: v.array(v.string()), repository: v.string(), revision: v.string() }),
   v.object({ content: v.string(), path: v.string(), provenance: v.optional(v.object({ source: v.string() })), revision: v.string(), size: v.number() }),
@@ -47,6 +47,7 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
   const revision = "current"
   if (path !== null) {
     if (!visiblePath(path)) throw failure(400, "Choose a visible file inside this Workspace.")
+    if (!await workspace.fs.exists(path)) throw failure(404, "This file is not in the mounted Workspace.")
     const stat = await workspace.fs.stat(path)
     if (!stat) throw failure(404, "This file is not in the mounted Workspace.")
     if (stat.type !== "file") throw failure(400, "Choose a file to preview.")
@@ -55,8 +56,8 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
     const size = new TextEncoder().encode(content).byteLength
     if (size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
     if (content.includes("\0")) throw failure(415, "Binary files cannot be previewed as text.")
-    const promoted = v.safeParse(promotedSourceSchema, stat.metadata?.promotedSourceSkill)
-    const source = promoted.success ? promoted.output.source : undefined
+    const parsedSource = v.safeParse(sourceSchema, stat.metadata?.source)
+    const source = parsedSource.success ? parsedSource.output : undefined
     const result: { content: string, path: string, provenance?: { source: string }, revision: string, size: number } = { content, path, revision, size }
     if (source) result.provenance = { source }
     return result

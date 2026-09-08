@@ -3535,13 +3535,32 @@ describe("Agent Invocation UI", () => {
       status: "completed",
       traceId: "trace",
       updatedAt: "2026-09-08T00:01:00.000Z",
-      usage: { totalTokens: 59222, inputTokens: 21267, outputTokens: 118, cachedInputTokens: 20352 },
+      usage: { totalTokens: 59222, inputTokens: 21267, outputTokens: 118, cachedInputTokens: 20352, cacheWriteTokens: 100 },
     } } });
     const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
     expect(summary).toContain("Tokens59,222");
     expect(summary).not.toContain("Input");
     expect(summary).not.toContain("Output");
     expect(summary).not.toContain("Cached");
+    expect(summary).not.toContain("Cache writes");
+  });
+
+  it.each([true, false])("preserves cache writes and the cost estimate qualifier (%s)", estimated => {
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation: {
+      createdAt: "2026-09-08T00:00:00.000Z",
+      id: "usage-details",
+      observations: [],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-09-08T00:01:00.000Z",
+      usage: {
+        totalTokens: 1200, inputTokens: 1100, outputTokens: 100, cacheWriteTokens: 1024,
+        cost: { display: "$0.01", estimated, source: estimated ? "pricing" : "provider" },
+      },
+    } } });
+    const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
+    expect(summary).toContain("Cache writes1,024");
+    expect(summary).toContain(`Cost$0.01 (${estimated ? "estimated" : "reported"})`);
   });
 
   it("groups recorded Agent Definition details as captured setup", () => {
@@ -3585,7 +3604,7 @@ describe("Agent Invocation UI", () => {
       traceId: "trace",
       updatedAt: "2026-08-24T00:00:01.000Z",
     };
-    invocation.usage = { totalTokens: 1200, inputTokens: 1100, outputTokens: 100, cachedInputTokens: 0 };
+    invocation.usage = { totalTokens: 1200, inputTokens: 1100, outputTokens: 100, cachedInputTokens: 0, cacheWriteTokens: 0 };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
     const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
@@ -3593,6 +3612,7 @@ describe("Agent Invocation UI", () => {
     expect(summary).toContain("Input1,100");
     expect(summary).toContain("Output100");
     expect(summary).toContain("Cached0");
+    expect(summary).toContain("Cache writes0");
     expect(summary).not.toContain("Reasoning");
     expect(summary).toContain("CostUnknown");
 
