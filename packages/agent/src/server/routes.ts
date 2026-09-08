@@ -1163,9 +1163,14 @@ async function steerQueuedWebhookDelivery(
           invalidState = result.outcome === "invalid-state"
         } catch {}
         if (invalidState) {
+          let completed = false
           try {
-            await state.set(claimKey, "invalid-state")
-            await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
+            completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
+            if (completed) await state.set(claimKey, "invalid-state")
+            else {
+              await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
+              await state.delete(claimKey)
+            }
           } finally {
             stopDeliveryHeartbeat()
           }
