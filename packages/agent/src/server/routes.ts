@@ -4856,7 +4856,14 @@ async function handleChatSdkMessage(
     }
 
     if (inlineKey) {
-      const inlineInvokerKey = JSON.stringify(invoker)
+      // Metadata may contain non-JSON values. If it cannot be compared safely,
+      // give this message its own identity so it waits instead of steering.
+      let inlineInvokerKey: string
+      try {
+        inlineInvokerKey = JSON.stringify(invoker)
+      } catch {
+        inlineInvokerKey = `unserializable:${randomToken()}`
+      }
       let waitedForActiveTurn = false
       while (!inlineTurn) {
         const active = inlineChatTurns.get(inlineKey)

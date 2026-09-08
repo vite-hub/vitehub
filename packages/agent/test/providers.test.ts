@@ -16429,6 +16429,41 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["bigint", "circular"])("accepts inline steering invoker metadata containing %s", async (kind) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-meta-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const nested: Record<string, unknown> = {}
+    nested.value = kind === "bigint" ? 1n : nested
+    const run = vi.fn(async () => "done")
+    const agent = defineAgent({
+      invoker: { resolve: () => ({ id: "user", meta: nested }) },
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    try {
+      await state.connect()
+      const response = await handler(chatWebhookRequest(91_119, 456, "hello"), "telegram")
+      expect(response.status).toBe(200)
+      expect(run).toHaveBeenCalledTimes(1)
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("limits refreshed inline steering history to each waiting message", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
