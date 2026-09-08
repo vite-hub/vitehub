@@ -49,13 +49,16 @@ describe("title provider inheritance", () => {
       doStream: vi.fn(),
     };
     const resolveModel = vi.fn(() => model);
+    const finish = vi.fn();
     const agent = defineAgent({
       capabilities: [title({ model: resolver ? resolveModel : model })],
       driver: { kind: "codex", model: "gpt-main" },
+      hooks: { "agent:finish": finish },
     });
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "Explain model routing" })],
     });
+    expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Requested model title" });
     expect(mocks.generateText).toHaveBeenCalledOnce();
     expect(mocks.generateText).toHaveBeenCalledWith(expect.objectContaining({
       model: expect.objectContaining({ modelId: "title-only" }),
