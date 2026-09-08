@@ -233,7 +233,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {
     const { dirname } = await import("node:path")
-    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
+    const { chmod, mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
     if (value.mediaType === undefined && value.metadata === undefined) {
       await rm(metadataPath, { force: true })
@@ -241,9 +241,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
       return
     }
     const temp = `${metadataPath}.${randomUUID()}.tmp`
-    await mkdir(dirname(metadataPath), { recursive: true })
+    await mkdir(this.#fileMetadataRoot, { recursive: true, mode: 0o700 })
+    // Also restrict trees created by earlier Store versions.
+    await chmod(this.#fileMetadataRoot, 0o700)
+    await mkdir(dirname(metadataPath), { recursive: true, mode: 0o700 })
     try {
-      await writeFile(temp, JSON.stringify({ path, ...value }))
+      await writeFile(temp, JSON.stringify({ path, ...value }), { mode: 0o600 })
       await rename(temp, metadataPath)
     }
     catch (error) {

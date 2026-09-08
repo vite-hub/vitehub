@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -43,6 +43,29 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.skipIf(process.platform === "win32").each([false, true])("keeps sidecars private with an existing metadata tree: %s", async (existing) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await chmod(root, 0o700)
+    const sidecars = metadataRoot(root)
+    if (existing) {
+      await mkdir(sidecars)
+      await chmod(sidecars, 0o755)
+    }
+    await store.writeFile("nested/file.txt", {
+      path: "nested/file.txt",
+      content: "private",
+      metadata: { source: "private-source" },
+    })
+    for (const path of [sidecars, `${sidecars}/nested`, `${sidecars}/nested/file.txt`]) {
+      expect((await stat(path)).mode & 0o777).toBe(0o700)
+    }
+    expect((await stat(`${sidecars}/nested/file.txt/metadata.json`)).mode & 0o777).toBe(0o600)
+    await expect(createLocalWorkspaceStore(root).readFile("nested/file.txt")).resolves.toMatchObject({
+      metadata: { source: "private-source" },
+    })
+  })
+
   it.each([false, true])("restores streamed content after sidecar failure with existing file: %s", async (hasExisting) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
