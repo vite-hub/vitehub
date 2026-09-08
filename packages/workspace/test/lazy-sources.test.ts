@@ -8,7 +8,7 @@ import type { WorkspaceStore } from "../src/index.ts"
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } from "../src/sources/view.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
-import { custom, defineWorkspace, github, glob } from "../src/index.ts"
+import { createWorkspace, custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
@@ -754,6 +754,44 @@ describe("lazy sources", () => {
     else {
       await expect(reopened.stat("docs")).resolves.toBeUndefined()
     }
+  })
+
+  it.each(["list", "glob", "search", "stat", "exists", "readFile"] as const)("reconciles the final removed startup Source before direct %s", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    const initial = createWorkspace({
+      name: "final-removed-startup-source",
+      store,
+      sources: {
+        instructions: {
+          content: "# Old instructions\n",
+          materialize: "startup",
+          mount: "",
+          workspacePath: "AGENTS.md",
+        },
+      },
+    })
+    await initial.list("", { recursive: true })
+    await expect(store.readFile("AGENTS.md")).resolves.toBeDefined()
+    await store.writeFile("user.md", { path: "user.md", content: "User file" })
+    const workspace = createWorkspace({ name: initial.name, store, sources: {} })
+
+    if (operation === "list") {
+      await expect(workspace.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([expect.objectContaining({ path: "AGENTS.md" })]))
+    }
+    else if (operation === "glob") {
+      await expect(workspace.glob("**/*.md")).resolves.not.toEqual(expect.arrayContaining([expect.objectContaining({ path: "AGENTS.md" })]))
+    }
+    else if (operation === "search") {
+      await expect(workspace.search({ pattern: "Old instructions" })).resolves.toEqual([])
+    }
+    else if (operation === "exists") {
+      await expect(workspace.exists("AGENTS.md")).resolves.toBe(false)
+    }
+    else {
+      await expect(workspace[operation]("AGENTS.md")).rejects.toThrow("does not exist")
+    }
+    await expect(store.readFile("AGENTS.md")).resolves.toBeUndefined()
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "User file" })
   })
 
   it("removes files owned by startup Sources removed from the definition", async () => {

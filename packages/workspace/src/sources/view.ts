@@ -373,6 +373,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function materializeStartupSourcesInPrecedenceOrder(items: typeof sources) {
+    if (!items.length) {
+      // Reconcile removed owners even when no current Source needs a refresh.
+      await materializeSerialized({ sources: [] })
+      return
+    }
     const preserved = new Map<string, WorkspaceFile[]>()
     const incomplete = new Set<string>()
     // Capture reusable files before any overlapping lower-priority Source writes.
@@ -568,7 +573,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function materializeRootSourceForPath(path: string) {
-    for (const source of sources.filter(source => !source.mountPath)) {
+    const rootSources = sources.filter(source => !source.mountPath)
+    if (!rootSources.length) await materializeStartupSourcesInPrecedenceOrder([])
+    for (const source of rootSources) {
       await ensurePrepared(source.key)
       await ensureMaterialized(source.key)
       const file = await store.readFile(path)
