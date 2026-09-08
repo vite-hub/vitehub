@@ -3926,6 +3926,35 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it("persists configured Console storage across instances and isolates another URL", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-configured-"))
+    const databaseUrl = pathToFileURL(join(projectRoot, "persistent", "history.sqlite")).href
+    const otherUrl = pathToFileURL(join(projectRoot, "persistent", "other.sqlite")).href
+    try {
+      const writer = installConsoleInvocations(projectRoot, undefined, undefined, databaseUrl)
+      expect(installConsoleInvocations(projectRoot, undefined, undefined, databaseUrl)).toBe(writer)
+      const agent = defineAgent({ driver: { run: () => "stored at configured path" }, runtime: false })
+      await runAgent(agent, runtime("configured-console-storage"), {})
+      const readers = [createConsoleInvocations(projectRoot, undefined, databaseUrl), createConsoleInvocations(projectRoot, undefined, databaseUrl)]
+      for (const reader of readers) {
+        await expect(reader.getByRunId("configured-console-storage")).resolves.toMatchObject({ status: "completed" })
+      }
+      const other = installConsoleInvocations(projectRoot, undefined, undefined, otherUrl)
+      expect(other).not.toBe(writer)
+      await expect(other.getByRunId("configured-console-storage")).resolves.toBeUndefined()
+      expect(existsSync(join(projectRoot, "persistent", "history.sqlite"))).toBe(true)
+      expect(existsSync(join(projectRoot, ".vitehub", "data", "console.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("allows a runtime URL to override the Console config", () => {
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "libsql://runtime.example.com")
+    expect(resolveConsoleDatabaseOptions(process.cwd(), "libsql://configured.example.com")).toEqual({ url: "libsql://runtime.example.com" })
+  })
+
   it("anchors the durable journal to the project root and shares it between runtime instances", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-project-"))
     const unrelatedCwd = await mkdtemp(join(tmpdir(), "vitehub-console-cwd-"))
