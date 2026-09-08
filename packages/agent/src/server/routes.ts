@@ -4725,6 +4725,28 @@ interface InlineChatTurn {
 
 const inlineChatTurns = new Map<string, InlineChatTurn>()
 
+function isLosslessInlineInvokerJson(value: unknown, ancestors = new Set<object>()): boolean {
+  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return true
+  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0)
+  if (!isRuntimeObject(value) || ancestors.has(value)) return false
+  const array = Array.isArray(value)
+  if (Object.getPrototypeOf(value) !== (array ? Array.prototype : Object.prototype)) return false
+  const keys = Reflect.ownKeys(value)
+  if (array && keys.length !== value.length + 1) return false
+  ancestors.add(value)
+  try {
+    return keys.every((key) => {
+      if (array && key === "length") return true
+      if (!isRuntimeString(key)) return false
+      if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) return false
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      return !!descriptor?.enumerable && "value" in descriptor && isLosslessInlineInvokerJson(descriptor.value, ancestors)
+    })
+  } finally {
+    ancestors.delete(value)
+  }
+}
+
 async function waitForInlineChatTurn(turn: InlineChatTurn, maximumInvocationDeadline?: number): Promise<void> {
   if (maximumInvocationDeadline === undefined) return await turn.done
   const remaining = maximumInvocationDeadline - Date.now()
@@ -4860,7 +4882,9 @@ async function handleChatSdkMessage(
       // give this message its own identity so it waits instead of steering.
       let inlineInvokerKey: string
       try {
-        inlineInvokerKey = JSON.stringify(invoker)
+        inlineInvokerKey = isLosslessInlineInvokerJson(invoker)
+          ? JSON.stringify(invoker)
+          : `unserializable:${randomToken()}`
       } catch {
         inlineInvokerKey = `unserializable:${randomToken()}`
       }

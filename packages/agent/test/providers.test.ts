@@ -16580,6 +16580,74 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["undefined", "function", "symbol", "toJSON"])("does not steer across lossy %s invoker metadata", async (kind) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-identity-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "accepted" as const)
+    let resolutions = 0
+    let runs = 0
+    const metadata = kind === "toJSON"
+      ? [{ value: 1, toJSON: () => ({}) }, { value: 2, toJSON: () => ({}) }]
+      : [{}, { value: kind === "function" ? () => {} : kind === "symbol" ? Symbol("other") : undefined }]
+    expect(JSON.stringify(metadata[0])).toBe(JSON.stringify(metadata[1]))
+    const agent = defineAgent({
+      invoker: { resolve: () => ({ id: "user", meta: metadata[resolutions++]! }) },
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs++
+          if (runs === 1) {
+            const runId = context.run?.runId
+            if (!runId) throw new Error("Expected an invocation run ID")
+            const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+            started.resolve()
+            try {
+              await release.promise
+            } finally {
+              unregister()
+            }
+          }
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_130, 456, "first"), "telegram"))
+      await started.promise
+      pending.push(handler(chatWebhookRequest(91_131, 456, "second"), "telegram"))
+      await vi.waitFor(() => expect(resolutions).toBe(2))
+      await new Promise(resolve => setTimeout(resolve, 75))
+      expect(runs).toBe(1)
+      expect(sendInput).not.toHaveBeenCalled()
+      release.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200])
+      expect(runs).toBe(2)
+      expect(sendInput).not.toHaveBeenCalled()
+    } finally {
+      release.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("limits refreshed inline steering history to each waiting message", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
