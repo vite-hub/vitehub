@@ -90,7 +90,7 @@ describe("title provider inheritance", () => {
     { expectedModel: "gpt-main", titleOptions: {}, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { instructions: "Use a short subject title" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: "medium" },
-    { expectedModel: "gpt-cheap", titleOptions: { model: "  gpt-cheap  " }, reasoningEffort: "medium" },
+    { expectedModel: "  gpt-cheap  ", titleOptions: { model: "  gpt-cheap  " }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: undefined },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap", reasoningEffort: "low" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "low" }, reasoningEffort: "medium" },
