@@ -1,3 +1,5 @@
+import { providerCallbackMetadata } from "./internal/provider-callback-metadata.ts"
+import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -72,6 +74,7 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
+import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
@@ -540,9 +543,7 @@ function redactProviderDiagnostic(
     .filter((item): item is string => hasRuntimeType(item, "string") && item.length > 0))]
     .sort((left, right) => right.length - left.length)
   for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
-  return redacted
-    .replace(/\b(Bearer|Basic)\s+[^\s]+/gi, "$1 [REDACTED]")
-    .replace(/\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\s]+)/g, "$1=[REDACTED]")
+  return redactCredentialText(redacted)
 }
 
 async function providerLaunchFailure(
@@ -915,15 +916,16 @@ function providerMetadataContext<
   CALL_OPTIONS,
 >(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  const inherited = providerCallbackMetadata(context)
   // SAFETY: The invocation context and normalized provider runtime establish every metadata field below.
   return {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
     actor: context.actor,
     context: context.context,
-    fs: context.workspace?.fs,
+    fs: context.workspace ? context.workspace.fs : inherited?.fs,
     invoker: context.invoker,
-    workspace: context.workspace,
+    workspace: context.workspace ?? inherited?.workspace,
   } as AgentAdapterMetadataContext<TRuntimeConfig>
 }
 
@@ -1076,19 +1078,6 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     try { await home?.release() }
     finally { if (root) await rm(root, { recursive: true, force: true }) }
   }
-}
-
-function codexLaunchArgs(options: ProviderAgentAdapterOptions): string | undefined {
-  const values = [
-    options.reasoningEffort && ["model_reasoning_effort", options.reasoningEffort],
-    options.reasoningSummary && ["model_reasoning_summary", options.reasoningSummary],
-  ].filter((value): value is [string, string] => Boolean(value))
-  return values.length
-    ? values.map(([key, value]) => {
-        const config = `${key}=${JSON.stringify(value)}`
-        return `-c "${config.replace(/["\\$`]/g, "\\$&")}"`
-      }).join(" ")
-    : undefined
 }
 
 async function waitForProviderOperation<T>(
@@ -1795,10 +1784,13 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
+  const usedTokens = usage.usedTokens ?? usage.lastUsedTokens
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
-  const omitPartition = usage.totalProcessedTokens !== undefined
-    && (inputTokens === undefined || outputTokens === undefined || inputTokens + outputTokens !== usage.totalProcessedTokens)
+  const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
+  const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? partitionTotal
+  // Codex reports thread-wide totalProcessedTokens alongside latest-response partitions.
+  const includePartition = usage.totalProcessedTokens === undefined || partitionTotal !== undefined
   return {
     type: "usage",
     usageRecord: {
@@ -1806,13 +1798,13 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       raw: usage,
       usage: {
         details: {
-          ...(omitPartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(omitPartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-          ...(omitPartition || usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+          ...(!includePartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(!includePartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
-        inputTokens: omitPartition ? undefined : inputTokens,
-        outputTokens: omitPartition ? undefined : outputTokens,
-        totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
+        inputTokens: includePartition ? inputTokens : undefined,
+        outputTokens: includePartition ? outputTokens : undefined,
+        totalTokens,
       },
     },
   }
@@ -2189,14 +2181,16 @@ async function* runProvider<
       materializeInstructions = true
     }
     const inspectedTools = inspectAgentTools(context.tools)
-    await updateAgentTelemetryConfiguration(context.context, {
-      driver: {
-        ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
-        provider: options.provider,
-      },
-      ...(instructions ? { instructions: [instructions] } : {}),
-      ...(inspectedTools ? { tools: inspectedTools } : {}),
-    })
+    if (!isAuxiliaryAgentAdapterContext(context)) {
+      await updateAgentTelemetryConfiguration(context.context, {
+        driver: {
+          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          provider: options.provider,
+        },
+        ...(instructions ? { instructions: [instructions] } : {}),
+        ...(inspectedTools ? { tools: inspectedTools } : {}),
+      })
+    }
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
@@ -2319,12 +2313,21 @@ async function* runProvider<
       providerLauncher = materializedLauncher.path
       providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
     }
+    const auxiliaryEnvironmentLaunchArgs = options.provider === "codex" && isAuxiliaryAgentAdapterContext(context)
+      ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
+      : undefined
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
+      auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
+    // The runtime chooses environment arguments over settings. Give auxiliary
+    // overrides the complete argument list, including managed credential storage.
+    if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
+      providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
+    }
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
       binaryPath: providerLauncher || providerExecutable,

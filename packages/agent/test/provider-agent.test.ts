@@ -1,3 +1,5 @@
+import type { AgentProviderCredentialContext } from "../src/types.ts"
+import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
@@ -150,6 +152,26 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
+  it("forwards parent Workspace metadata to auxiliary resolvers without mounting it", async () => {
+    const threadId = "title-parent-metadata"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const workspace = { fs: {}, startSession: vi.fn(), tools: {} }
+    const env = vi.fn((metadata: AgentProviderCredentialContext) => {
+      expect(metadata.workspace).toBe(workspace)
+      expect(metadata.fs).toBe(workspace.fs)
+      return { TITLE_METADATA: "available" }
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex", env })
+    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+    // SAFETY: The fixture provides the Workspace metadata used by the resolver.
+    withProviderCallbackMetadata(auxiliary, { workspace, fs: workspace.fs } as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(auxiliary as never)
+    expect(env).toHaveBeenCalled()
+    expect(workspace.startSession).not.toHaveBeenCalled()
+    expect(auxiliary).not.toHaveProperty("workspace")
+  })
+
   it("rejects provisioned Codex credentials on Windows before resolving them", async () => {
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
     const credentials = vi.fn(() => JSON.stringify({ OPENAI_API_KEY: "private" }))
@@ -897,6 +919,28 @@ describe("Provider Agent Driver", () => {
         launchArgs: '--enable responses_websockets_v2 -c "model_reasoning_effort=\\"high\\""',
       }),
     }))
+  })
+
+  it.each([false, true])("preserves auxiliary Codex environment and settings arguments (managed credentials: %s)", async (managed) => {
+    const threadId = "thread-auxiliary-launch-arguments"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const environmentArgs = '--sandbox read-only -c model_reasoning_effort="low"'
+    const settingsArgs = '--enable responses_websockets_v2 -c model_reasoning_effort="high"'
+    await createProviderAgentAdapter({
+      ...(managed ? { credentials: JSON.stringify({ OPENAI_API_KEY: "private" }) } : {}),
+      env: { T3CODE_CODEX_LAUNCH_ARGS: environmentArgs },
+      provider: "codex",
+      providerSettings: { launchArgs: settingsArgs },
+      // SAFETY: This fixture marks the provider invocation as an auxiliary title run.
+    }).generate(markAuxiliaryMessageChannelInstructionContext(context(threadId)) as never)
+    const runtimeOptions = createProviderRuntime.mock.lastCall![0]
+    const expected = [settingsArgs, environmentArgs,
+      ...(managed ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
+    ].join(" ")
+    // The pinned runtime selects this environment value before settings.launchArgs.
+    expect(runtimeOptions.environment?.T3CODE_CODEX_LAUNCH_ARGS).toBe(expected)
+    expect(runtimeOptions.settings?.launchArgs).toBe(expected)
+    if (managed) expect(runtimeOptions.settings?.homePath).toEqual(expect.any(String))
   })
 
   it("forces file credential storage after explicit Codex launch arguments", async () => {
@@ -2031,14 +2075,43 @@ cli_auth_credentials_store = "keyring"
     })
   })
 
-  it("keeps last-response usage raw when reporting a cumulative total", async () => {
+  it.each([
+    { inputTokens: 7 },
+    { lastOutputTokens: 5 },
+    {},
+  ])("keeps unavailable response fields unknown alongside a cumulative total: %j", async (partition) => {
+    const threadId = "thread-partial-cumulative-usage"
+    const usage = { ...partition, totalProcessedTokens: 100 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: {
+        raw: usage,
+        usage: {
+          details: {},
+          inputTokens: undefined,
+          outputTokens: undefined,
+          totalTokens: 100,
+        },
+      },
+    })
+  })
+
+  it.each([
+    { inputTokens: 7, outputTokens: 5 },
+    { lastInputTokens: 7, lastOutputTokens: 5 },
+  ])("preserves latest-response partitions independently of the cumulative total: %j", async (partition) => {
     const threadId = "thread-cumulative-usage"
     runtime(threadId, [
       event("thread.token-usage.updated", threadId, { usage: {
+        ...partition,
         cachedInputTokens: 2,
-        inputTokens: 7,
-        outputTokens: 5,
         reasoningOutputTokens: 3,
+        toolUses: 1,
         totalProcessedTokens: 100,
         usedTokens: 12,
       } }),
@@ -2046,10 +2119,16 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
-    expect(events.find(item => item.type === "usage")).toMatchObject({
+    expect(events.find(item => item.type === "usage")).toEqual({
+      type: "usage",
       usageRecord: {
-        raw: { cachedInputTokens: 2, inputTokens: 7, outputTokens: 5, reasoningOutputTokens: 3, totalProcessedTokens: 100, usedTokens: 12 },
-        usage: { details: {}, inputTokens: undefined, outputTokens: undefined, totalTokens: 100 },
+        raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
+        usage: {
+          details: { cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1 },
+          inputTokens: 7,
+          outputTokens: 5,
+          totalTokens: 100,
+        },
       },
     })
   })
@@ -2378,6 +2457,27 @@ cli_auth_credentials_store = "keyring"
       }],
     })
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
+  })
+
+  it("does not replace primary telemetry configuration during an auxiliary provider run", async () => {
+    const threadId = "thread-auxiliary-configuration"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId)
+    await setAgentTelemetryConfiguration(runContext.context, {
+      capabilities: [{ id: "support" }],
+      driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "codex" }, provider: "codex" },
+      runtime: { name: "vite" },
+      tools: [{ name: "support_search" }],
+    })
+    const primary = getAgentTelemetryConfiguration(runContext.context)?.value
+
+    await createProviderAgentAdapter({
+      instructions: "Generate a short title.",
+      model: "gpt-5.6-luna",
+      provider: "codex",
+    }).generate(markAuxiliaryMessageChannelInstructionContext(runContext) as never)
+
+    expect(getAgentTelemetryConfiguration(runContext.context)?.value).toEqual(primary)
   })
 
   it("persists provider-native activity through a complete Agent invocation", async () => {

@@ -1,6 +1,6 @@
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
-import { createTraceEventLog } from "@vite-hub/runtime"
+import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -1477,6 +1477,35 @@ describe("Agent Invocations", () => {
     expect(configured?.attributes?.["vitehub.agent.configurationTruncated"]).toBe(true)
   })
 
+  it("retains realistic Agent tool configuration without marking setup as truncated", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("tool-configuration"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const tools = Array.from({ length: 40 }, (_, index) => ({
+      description: `Inspect support resource ${index}`,
+      name: `support_resource_${index}`,
+      parameters: {
+        additionalProperties: false,
+        properties: { query: { type: "string" } },
+        required: ["query"],
+        type: "object",
+      },
+    }))
+    await journal.context.traceLog?.append({
+      attributes: { "vitehub.agent.configuration": { capabilities: [{ id: "support", tools }] } },
+      name: "vitehub.agent.configured",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const configured = (await invocations.getByRunId("tool-configuration"))?.observations
+      .find(entry => entry.name === "vitehub.agent.configured")
+    expect(configured?.attributes).not.toHaveProperty("vitehub.agent.configurationTruncated")
+    expect(configured?.attributes?.["vitehub.agent.configuration"]).toMatchObject({
+      capabilities: [{ tools }],
+    })
+  })
+
   it("preserves sanitized Agent configuration depth and indexes its resolved model", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const saturatedAnnotations = Object.fromEntries(
@@ -1533,6 +1562,27 @@ describe("Agent Invocations", () => {
     const observation = (await invocations.getByRunId("bounded-ordinary-observation"))?.observations
       .find(entry => entry.name === "tool.finish")
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+  })
+
+  it("omits nested optional metadata without reporting content truncation", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("optional-observation-metadata"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    await journal.context.traceLog?.append({
+      attributes: {
+        "usage.record": {
+          usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: 42 },
+        },
+      },
+      name: "agent.invocation.finish",
+      type: "run",
+    })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId("optional-observation-metadata"))?.observations
+      .find(entry => entry.name === "agent.invocation.finish")
+    expect(observation?.attributes?.["usage.record"]).toEqual({ usage: { totalTokens: 42 } })
+    expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
   })
 
   it("reserves the observation attribute limit for the truncation marker", async () => {
@@ -1741,7 +1791,6 @@ describe("Agent Invocations", () => {
     expect(observation?.payload).toEqual({
       value: {
         array: [null],
-        direct: null,
         files: [["README.md", null]],
         paths: [null],
       },
@@ -3021,6 +3070,60 @@ describe("Agent Invocations", () => {
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
+  it.each(["content", "metadata"] as const)("redacts terminal result credentials under the %s capture policy", async (content) => {
+    const answer = 'PASSWORD="sensitive words";status=ok'
+    const invocations = defineAgentInvocations({ content, store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { "message.content": answer, "message.id": "answer", "message.role": "assistant" },
+          name: "agent.message.delta",
+          type: "run",
+        })
+        return answer
+      } },
+      invocations,
+      runtime: false,
+    })
+    await expect(runAgent(agent, runtime("terminal-credential"), {})).resolves.toBe(answer)
+    const observations = (await invocations.getByRunId("terminal-credential"))?.observations ?? []
+    const finish = observations.find(entry => entry.name === "agent.invocation.finish")
+    expect(finish).toBeDefined()
+    expect(finish?.attributes?.["result.text"]).toBe(content === "content" ? 'PASSWORD="[REDACTED]";status=ok' : undefined)
+    expect(JSON.stringify(observations)).not.toContain("sensitive words")
+  })
+
+  it("bounds admitted message streams without losing credential boundary state", async () => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxCount: 8 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const delta = (id: string, text: string) => context.traceLog?.append({
+          name: "agent.message.delta",
+          type: "run",
+          attributes: { "message.id": id, "message.content": text },
+        })
+        await delta("answer", "Authorization: Bear")
+        for (let index = 0; index < 100; index++) await delta(`stream-${index}`, "short")
+        await context.traceLog?.append({ name: "checkpoint", type: "run" })
+        await delta("stream-99", "er dropped-secret")
+        await delta("answer", "er retained-secret;status=ok")
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("bounded-streams"), {})
+    const observations = (await invocations.getByRunId("bounded-streams"))?.observations || []
+    const serialized = JSON.stringify(observations)
+    expect(serialized).not.toContain("retained-secret")
+    expect(serialized).not.toContain("dropped-secret")
+    expect(observations.some(entry => entry.attributes?.["content.truncated"])).toBe(true)
+  })
+
   it("preserves the configured trace content policy and coalesces message deltas", async () => {
     const run = async (
       runId: string,
@@ -3033,7 +3136,7 @@ describe("Agent Invocations", () => {
           for (let index = 0; index < 300; index++) {
             await context.traceLog?.append({
               attributes: {
-                "message.content": String(index % 10).repeat(20),
+                "message.content": String(index % 10).repeat(2_000),
                 "message.id": "answer",
                 "message.role": "assistant",
               },
@@ -3067,9 +3170,492 @@ describe("Agent Invocations", () => {
     const full = await run("full-content", "content")
     const fullDeltas = full.filter(entry => entry.name === "agent.message.delta")
     expect(fullDeltas.map(entry => entry.attributes?.["message.content"]).join(""))
-      .toBe(Array.from({ length: 300 }, (_, index) => String(index % 10).repeat(20)).join(""))
-    expect(fullDeltas.every(entry => String(entry.attributes?.["message.content"]).length <= 512)).toBe(true)
+      .toBe(Array.from({ length: 300 }, (_, index) => String(index % 10).repeat(2_000)).join(""))
+    expect(fullDeltas).toHaveLength(10)
+    expect(fullDeltas.every(entry => String(entry.attributes?.["message.content"]).length <= 64 * 1024)).toBe(true)
     expect(fullDeltas.every(entry => !entry.attributes?.["content.omitted"])).toBe(true)
+  })
+
+  it.each([true, false])("keeps primary deltas when adjacent title deltas share their message identity (title first: %s)", async (titleFirst) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const title of [titleFirst, !titleFirst]) {
+          await context.traceLog?.append({
+            attributes: {
+              "message.content": title ? "Private title" : "Primary response",
+              "message.id": "answer",
+              "message.phase": "final",
+              "message.role": "assistant",
+              ...(title ? { "vitehub.auxiliary.kind": "title" } : {}),
+            },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await runAgent(agent, runtime("title-delta-isolation"), {})
+    const record = await invocations.getByRunId("title-delta-isolation")
+    const deltas = record?.observations.filter(entry => entry.name === "agent.message.delta")
+    expect(deltas).toHaveLength(1)
+    expect(deltas?.[0]?.attributes?.["message.content"]).toBe("Primary response")
+    expect(JSON.stringify(record?.observations)).not.toContain("Private title")
+  })
+
+  it.each(["content", "metadata"] as const)("retains title usage and diagnostics with %s capture", async (content) => {
+    const invocations = defineAgentInvocations({
+      content,
+      metadataContent: ["message.content"],
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const event of [
+          { name: "agent.message.delta", attributes: { "message.content": "Private title" } },
+          { name: "vitehub.agent.configured", attributes: { "vitehub.agent.configuration": "Private configuration" } },
+          { name: "agent.usage", attributes: { "usage.total_tokens": 12, "message.content": "Private usage content" } },
+          { name: "agent.provider.error", attributes: { "error.type": "ProviderTimeout", "message.content": "Private diagnostic content" } },
+        ]) {
+          await context.traceLog?.append({
+            ...event,
+            attributes: { ...event.attributes, "vitehub.auxiliary.kind": "title" },
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("title-diagnostics"), {})
+    const observations = (await invocations.getByRunId("title-diagnostics"))?.observations ?? []
+    const titleEvents = observations.filter(entry => entry.attributes?.["vitehub.auxiliary.kind"] === "title")
+    expect(titleEvents.map(entry => entry.name)).toEqual(["agent.usage", "agent.provider.error"])
+    expect(titleEvents[0]?.attributes?.["usage.total_tokens"]).toBe(12)
+    expect(titleEvents[1]?.attributes?.["error.type"]).toBe("ProviderTimeout")
+    expect(JSON.stringify(observations)).not.toContain("Private")
+  })
+
+  it("preserves privacy filtering when coalesced message content crosses the former chunk boundary", async () => {
+    const first = `${"x".repeat(8)}Authorization: Bear`
+    const secret = `sensitive-${"x".repeat(700)}`
+    const deltas = [first, `er ${secret.slice(0, 300)}`, secret.slice(300, 600), secret.slice(600), " complete"]
+    const run = async (runId: string, content: "content" | "metadata") => {
+      const invocations = defineAgentInvocations({
+        content,
+        observations: { maxStringLength: 10 },
+        store: createMemoryAgentInvocationStore(),
+      })
+      const agent = defineAgent({
+        driver: { async run(context) {
+          for (const value of deltas) {
+            await context.traceLog?.append({
+              attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+              name: "agent.message.delta",
+              type: "run",
+            })
+            if (value === first) {
+              await context.traceLog?.append({
+                attributes: { "usage.total_tokens": 12 },
+                name: "agent.usage",
+                type: "run",
+              })
+              await context.traceLog?.append({
+                attributes: {
+                  "message.content": "Private title",
+                  "message.id": "answer",
+                  "message.role": "assistant",
+                  "vitehub.auxiliary.kind": "title",
+                },
+                name: "agent.message.delta",
+                type: "run",
+              })
+            }
+          }
+          return "done"
+        } },
+        invocations,
+        runtime: false,
+      })
+      await runAgent(agent, { ...runtime(runId), traceLog: createTraceEventLog({ content: "content" }) }, {})
+      return (await invocations.getByRunId(runId))?.observations || []
+    }
+
+    const metadata = await run("private-coalesced-message", "metadata")
+    expect(JSON.stringify(metadata)).not.toContain(secret)
+    expect(metadata.find(entry => entry.name === "agent.message.delta")?.attributes?.["content.omitted"]).toBeDefined()
+
+    const content = await run("exported-coalesced-message", "content")
+    expect(content.filter(entry => entry.name === "agent.message.delta").length).toBeGreaterThan(1)
+    expect(content.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join(""))
+      .toContain("Authorization: Bearer [REDACTED]")
+    expect(JSON.stringify(content)).not.toContain(secret)
+    expect(JSON.stringify(content)).not.toContain("Private title")
+    expect(JSON.stringify(traceEventsToOpenTelemetrySpans(content, { content: "metadata" }))).not.toContain(secret)
+  })
+
+  it.each([true, false])("preserves chunk content and identity with content-first attributes %s", async (contentFirst) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const expected = "message text ".repeat(40)
+    const identity = {
+      "agent.run.id": "budget-order",
+      "message.id": "answer",
+      "message.phase": "final",
+      "message.role": "assistant",
+    }
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: contentFirst
+            ? { "message.content": expected, ...identity }
+            : { ...identity, "message.content": expected },
+          name: "agent.message.delta",
+          type: "run",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("budget-order"), {})
+    const observations = (await invocations.getByRunId("budget-order"))?.observations ?? []
+    const deltas = observations.filter(entry => entry.name === "agent.message.delta")
+    expect(deltas.length).toBeGreaterThan(1)
+    expect(deltas.map(entry => entry.attributes?.["message.content"]).join("")).toBe(expected)
+    for (const delta of deltas) {
+      expect(delta.attributes).toMatchObject(identity)
+      expect(delta.attributes?.["vitehub.observation.truncated"]).toBeUndefined()
+      expect(String(delta.attributes?.["message.content"]).length).toBeLessThanOrEqual(128)
+    }
+  })
+
+  it.each([
+    { head: '{"password":', tail: ' "sensitive-value","status":"ok"}', expected: '{"password":[REDACTED],"status":"ok"}' },
+    { head: "password ", tail: '= "correct horse";status=ok', expected: 'password = "[REDACTED]";status=ok' },
+  ])("redacts structured credentials after a bounded $head chunk", async ({ head, tail, expected }) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [prefix + head, tail]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("structured-credential"), {})
+    const observations = (await invocations.getByRunId("structured-credential"))?.observations ?? []
+    expect(observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")).toBe(prefix + expected)
+  })
+
+  it.each(["Authorization:", "Authorization: ", "Proxy-Authorization: "])("retains a bounded %s header before its scheme", async (header) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxStringLength: 128 }, store: createMemoryAgentInvocationStore() })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [prefix + header, " basic c2VjcmV0;status=ok"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-authorization-header"), {})
+    const observations = (await invocations.getByRunId("split-authorization-header"))?.observations ?? []
+    expect(observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")).toBe(`${prefix}${header} basic [REDACTED];status=ok`)
+  })
+
+  it("redacts a camel-case credential split at a bounded journal flush", async () => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${prefix}apiT`, "oken=sensitive-value;status=ok"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-camel-credential"), {})
+    const observations = (await invocations.getByRunId("split-camel-credential"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${prefix}apiToken=[REDACTED];status=ok`)
+  })
+
+  it.each(['"', "'"])("redacts quoted passwords across bounded chunks with %s", async (quote) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`PASSWORD=${quote}${"secret word ".repeat(50)}`, "more private words", `${quote};status=ok`]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("quoted-password"), {})
+    const observations = (await invocations.getByRunId("quoted-password"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`PASSWORD=${quote}[REDACTED]${quote};status=ok`)
+  })
+
+  it.each(['"', "'"])("redacts a quoted password when its opening %s arrives after a flush", async (quote) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${prefix}PASSWORD=`, quote, "secret", "\\", quote, "private", "\\", "\\", quote, ";status=ok"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-quoted-password"), {})
+    const observations = (await invocations.getByRunId("split-quoted-password"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${prefix}PASSWORD=[REDACTED];status=ok`)
+  })
+
+  it.each(["Bearer", "Basic", "Authorization: basic", "Authorization: BASIC"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 10 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${".".repeat(512)}${scheme}`, " ", " sensitive-value", " continued"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime(`scheme-boundary-${scheme}`), {})
+    const observations = (await invocations.getByRunId(`scheme-boundary-${scheme}`))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).not.toContain("sensitive-value")
+    expect(text).toContain(" continued")
+  })
+
+  it.each(["Bearer ", "Basic ", "API_TOKEN=", "password=", "apiToken="])("marks redaction after a bounded separator-only prefix %s", async (prefix) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${".".repeat(512)}${prefix}`, "sensitive", "-value", " continued"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("separator-boundary"), {})
+    const observations = (await invocations.getByRunId("separator-boundary"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${".".repeat(512)}${prefix}[REDACTED] continued`)
+    expect(JSON.stringify(observations)).not.toContain("sensitive")
+  })
+
+  it.each([
+    ["Bear", "er sensitive-value", "Bearer [REDACTED]"],
+    ["Bas", "ic sensitive-value", "Basic [REDACTED]"],
+    ["pass", "word", "password"],
+    ["sec", "tion", "section"],
+  ])("retains an unconfirmed bounded marker %s until its continuation arrives", async (prefix, continuation, expected) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${".".repeat(512)}${prefix}`, continuation, " complete"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+          await context.traceLog?.append({ name: "checkpoint", type: "run" })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("bounded-marker"), {})
+    const observations = (await invocations.getByRunId("bounded-marker"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${".".repeat(512)}${expected} complete`)
+    expect(JSON.stringify(observations)).not.toContain("sensitive-value")
+  })
+
+  it.each(["Bearer", "Basic"])("preserves structured suffixes after %s credentials across flush boundaries", async (scheme) => {
+    for (const padding of ["", ".".repeat(512)]) {
+      const invocations = defineAgentInvocations({
+        content: "content",
+        observations: { maxStringLength: 128 },
+        store: createMemoryAgentInvocationStore(),
+      })
+      const agent = defineAgent({
+        driver: { async run(context) {
+          for (const value of [padding + '{"authorization":"' + scheme + " sensitive", '-value","status":"ok"}']) {
+            await context.traceLog?.append({
+              attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+              name: "agent.message.delta",
+              type: "run",
+            })
+            await context.traceLog?.append({ name: "checkpoint", type: "run" })
+          }
+          return "done"
+        } },
+        invocations,
+        runtime: false,
+      })
+      await runAgent(agent, runtime("structured-credential"), {})
+      const observations = (await invocations.getByRunId("structured-credential"))?.observations ?? []
+      const text = observations.filter(entry => entry.name === "agent.message.delta")
+        .map(entry => entry.attributes?.["message.content"]).join("")
+      expect(text).toBe(padding + '{"authorization":"' + scheme + ' [REDACTED]","status":"ok"}')
+      expect(JSON.stringify(observations)).not.toContain("sensitive")
+    }
+  })
+
+  it.each(["Bearer ", "Basic ", "API_TOKEN="])("preserves ampersand suffixes after %s credentials across flush boundaries", async (marker) => {
+    for (const padding of ["", ".".repeat(512)]) {
+      const invocations = defineAgentInvocations({
+        content: "content",
+        observations: { maxStringLength: 128 },
+        store: createMemoryAgentInvocationStore(),
+      })
+      const agent = defineAgent({
+        driver: { async run(context) {
+          for (const value of [padding + marker + "sensitive", "-value&status=ok"]) {
+            await context.traceLog?.append({
+              attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+              name: "agent.message.delta",
+              type: "run",
+            })
+            await context.traceLog?.append({ name: "checkpoint", type: "run" })
+          }
+          return "done"
+        } },
+        invocations,
+        runtime: false,
+      })
+      await runAgent(agent, runtime("ampersand-credential"), {})
+      const observations = (await invocations.getByRunId("ampersand-credential"))?.observations ?? []
+      const text = observations.filter(entry => entry.name === "agent.message.delta")
+        .map(entry => entry.attributes?.["message.content"]).join("")
+      expect(text).toBe(padding + marker + "[REDACTED]&status=ok")
+      expect(JSON.stringify(observations)).not.toContain("sensitive")
+    }
+  })
+
+  it.each(["failed", "cancelled"] as const)("retains buffered response evidence when an invocation is %s", async (status) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const abort = new AbortController()
+    const failure = new Error("stopped")
+    const runId = `buffered-${status}`
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { "message.content": "Basic", "message.id": "answer", "message.role": "assistant" },
+          name: "agent.message.delta",
+          type: "run",
+        })
+        if (status === "cancelled") abort.abort(failure)
+        throw failure
+      } },
+      invocations,
+      runtime: false,
+    })
+
+    await expect(runAgent(agent, runtime(runId), { abortSignal: abort.signal })).rejects.toThrow("stopped")
+
+    const record = await invocations.getByRunId(runId)
+    expect(record?.status).toBe(status)
+    const observations = record?.observations ?? []
+    const deltas = observations.filter(entry => entry.name === "agent.message.delta")
+    expect(deltas).toHaveLength(1)
+    expect(deltas[0]?.attributes?.["message.content"]).toBe("Basic")
+    const terminal = observations.find(entry => entry.name === (status === "failed" ? "agent.invocation.error" : "agent.invocation.cancelled"))
+    expect(terminal).toBeDefined()
+    expect(deltas[0]!.sequence).toBeLessThan(terminal!.sequence)
   })
 
   it("persists bounded message chunks while an invocation is still running", async () => {
@@ -3079,7 +3665,7 @@ describe("Agent Invocations", () => {
       driver: { async run(context) {
         for (let index = 0; index < 32; index++) {
           await context.traceLog?.append({
-            attributes: { "message.content": ".", "message.id": "answer", "message.role": "assistant" },
+            attributes: { "message.content": "STATUS", "message.id": "answer", "message.role": "assistant" },
             name: "agent.message.delta",
             type: "run",
           })

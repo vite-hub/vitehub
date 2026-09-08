@@ -5235,6 +5235,7 @@ async function finishAgentInvocation<
   let text = runResult?.text
   let closeError: unknown
   let finishFailureActivity: TraceActivityContext | undefined
+  let cancellationTraced = false
   let throwingCloseError = false
   const tracedFailureStages = new Set<"finish" | "outcome" | "teardown">()
   const traceFinishError = async (
@@ -5432,8 +5433,10 @@ async function finishAgentInvocation<
     if (!failed) {
       await runFinishActivity(teardownActivity, async () => await commitWorkspaceChanges(context))
     }
-    if (outcomeCancelled) {
+    const status = outcomeCancelled || (failed && context.input.abortSignal?.aborted) ? "cancelled" : failed ? "failed" : "completed"
+    if (status === "cancelled") {
       await traceAgentInvocationCancelled(toTraceContext(context))
+      cancellationTraced = true
     }
     else if (!failed) {
       await traceAgentInvocationFinish(toTraceContext(context), {
@@ -5448,7 +5451,6 @@ async function finishAgentInvocation<
       if (outcomeFailed) await traceFinishError(error, "outcome")
       if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
-    const status = outcomeCancelled || (failed && context.input.abortSignal?.aborted) ? "cancelled" : failed ? "failed" : "completed"
     await context.activity?.update(status, error, text)
     await context.invocationJournal?.finish(status, error)
     if (closeError !== undefined) {
@@ -5461,6 +5463,9 @@ async function finishAgentInvocation<
     if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     if (!throwingCloseError) await traceFinishError(finishError, "finish", finishFailureActivity)
     const status = failed && context.input.abortSignal?.aborted ? "cancelled" : "failed"
+    if (status === "cancelled" && !cancellationTraced) {
+      await traceAgentInvocationCancelled(toTraceContext(context))
+    }
     await context.activity?.update(status, failed ? error : finishError)
     await context.invocationJournal?.finish(status, failed ? error : finishError)
     if (closeError !== undefined && !throwingCloseError) {

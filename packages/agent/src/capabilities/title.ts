@@ -1,3 +1,6 @@
+import { withProviderCallbackMetadata } from "../internal/provider-callback-metadata.ts"
+import { resolveRuntimeValue } from "@vite-hub/runtime"
+import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
 import { streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
@@ -28,6 +31,7 @@ import type {
   AgentDriver,
   AgentFinishEvent,
   AgentModelResolver,
+  AgentProviderCredentialContext,
   AgentRunInput,
   AgentRunContext,
   AgentRuntimeConfig,
@@ -38,6 +42,7 @@ import type {
   StreamEvent,
 } from "../messages.ts"
 import type { MessageChannelTitleDeliveryAttempt } from "../internal/channels.ts"
+import type { TraceEventLog } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
@@ -47,6 +52,7 @@ type StreamFallback<T> = (() => AsyncIterable<T> | undefined) & { cancel?: () =>
 const titleApplied = Symbol("vitehub.title.applied")
 const skippedTitleGeneration = Symbol("vitehub.title.skipped")
 const skippedTitleDelivery = Symbol("vitehub.title.delivery-skipped")
+const auxiliaryTraceKindAttribute = "vitehub.auxiliary.kind"
 type TitleApplied = { [titleApplied]?: true }
 
 function hasPropertyGetter(value: unknown, key: PropertyKey): boolean {
@@ -126,6 +132,7 @@ export interface TitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   instructions?: string
   maxLength?: number
   model?: AgentModelResolver<TRuntimeConfig>
+  reasoningEffort?: string
   template?: TitleTemplate
   timeoutMs?: number
   trigger?: string | string[]
@@ -181,12 +188,23 @@ function markTitleApplied<T>(value: T): T {
   return value
 }
 
-function firstUserMessage(messages: Message[], input: AgentRunInput): Message | undefined {
-  const message = messages.find(message => message.role === "user")
+function triggeringUserMessage(messages: Message[], input: AgentRunInput): Message | undefined {
+  const message = messages.findLast(message => message.role === "user")
   if (message) return message
   return hasRuntimeType(input.prompt, "string") && stripChatEntityMarkup(input.prompt)
     ? createMessage({ role: "user", text: input.prompt })
     : undefined
+}
+
+function titleTraceLog(traceLog: TraceEventLog | undefined): TraceEventLog | undefined {
+  if (!traceLog) return
+  return {
+    append: event => traceLog.append({
+      ...event,
+      attributes: { ...event.attributes, [auxiliaryTraceKindAttribute]: "title" },
+    }),
+    entries: () => traceLog.entries().filter(entry => entry.attributes?.[auxiliaryTraceKindAttribute] === "title"),
+  }
 }
 
 function cleanGeneratedTitle(value: unknown, maxLength: number, fallback: string): string {
@@ -315,7 +333,7 @@ function titleAdapterRunContext(
   if (!context.runtimeContext) {
     throw agentDiagnostics.AGENT_R0232({ message: "[vitehub] title({ driver }) requires an agent runtime context." })
   }
-  return markAuxiliaryMessageChannelInstructionContext({
+  return withProviderCallbackMetadata(markAuxiliaryMessageChannelInstructionContext({
     actor: context.actor,
     context: context.context,
     toolStepReporter: context.runtimeContext.toolStepReporter,
@@ -323,8 +341,8 @@ function titleAdapterRunContext(
     invoker: context.invoker,
     messages: [],
     prompt,
-    runtime: context.runtimeContext,
-  })
+    runtime: { ...context.runtimeContext, traceLog: titleTraceLog(context.runtimeContext.traceLog) },
+  }), context)
 }
 
 function titleRunContext(
@@ -344,6 +362,7 @@ function titleRunContext(
     invoker: context.invoker,
     messages: [],
     prompt,
+    traceLog: titleTraceLog(context.runtimeContext.traceLog),
   }
 }
 
@@ -361,10 +380,11 @@ async function generateTitleWithDriver(
   options: TitleOptions,
   input: TitleExecuteInput,
   prompt: string,
+  inheritedDriver?: ReturnType<typeof normalizeAgentDriver>,
 ): Promise<string | undefined> {
-  if (!options.driver) return
-  // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
-  const driver = normalizeAgentDriver({ driver: options.driver } as never)
+  if (!options.driver && !inheritedDriver) return
+  // SAFETY: The guard above requires an explicit driver when no normalized driver was inherited.
+  const driver = inheritedDriver ?? normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "run") {
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     return await titleResultText(await driver.run(titleRunContext(context, input, prompt) as never))
@@ -399,7 +419,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   if (!shouldRunForTrigger(options.trigger, templateInput.trigger)) return skippedTitleGeneration
 
   const parentSignal = input.input.abortSignal
-  const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 10_000)
+  const timeoutSignal = AbortSignal.timeout(options.timeoutMs ?? 20_000)
   const abortSignal = parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal
   const timedInput = { ...input, input: { ...input.input, abortSignal } }
   const timedTemplateInput = { ...templateInput, input: timedInput.input }
@@ -460,15 +480,31 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   // changes the model name on that inherited driver.
   // SAFETY: The invocation runtime supplies the normalized enclosing driver.
   const inheritedDriver = context.agentDriver as NormalizedAgentDriver | undefined
-  if (inheritedDriver?.kind === "provider") {
+  if (inheritedDriver?.kind === "provider" && (options.model === undefined || hasRuntimeType(options.model, "string"))) {
     try {
       const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
-      const providerDriver = hasRuntimeType(options.model, "string")
-        ? { ...inheritedDriver, model: options.model }
-        : inheritedDriver
-      const { createProviderAgentAdapter } = await import("../provider-agent.ts")
-      const result = await raceTimeout(Promise.resolve(createProviderAgentAdapter(providerDriver).generate(titleAdapterRunContext(context, timedInput, prompt))))
-      return cleanGeneratedTitle(await titleResultText(result), maxLength, fallback)
+      const providerDriver = {
+        ...inheritedDriver,
+        credentialProfile: undefined,
+        instructions: options.instructions,
+        ...(hasRuntimeType(options.model, "string") ? { model: options.model } : {}),
+        ...(options.reasoningEffort !== undefined ? { reasoningEffort: options.reasoningEffort } : {}),
+      }
+      if (inheritedDriver.provider === "codex" && options.reasoningEffort !== undefined && inheritedDriver.env !== undefined) {
+        // Codex applies later config arguments last. Keep inherited launch flags,
+        // but put the title settings in the same channel to avoid the conflict guard.
+        const launchArgs = codexLaunchArgs(providerDriver)
+        providerDriver.reasoningEffort = undefined
+        providerDriver.reasoningSummary = undefined
+        providerDriver.env = async (resolverContext: AgentProviderCredentialContext) => {
+          const environment = await resolveRuntimeValue(inheritedDriver.env!, resolverContext)
+          return {
+            ...environment,
+            T3CODE_CODEX_LAUNCH_ARGS: [environment.T3CODE_CODEX_LAUNCH_ARGS, launchArgs].filter(Boolean).join(" "),
+          }
+        }
+      }
+      return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, options, timedInput, prompt, providerDriver)), maxLength, fallback)
     }
     catch (error) {
       return recoverGeneration(error, true)
@@ -1012,7 +1048,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
       const titleInput = (source: TitleSource, text: string): TitleExecuteInput | undefined => {
         const messages = context.input.messages()
-        const message = firstUserMessage(messages, context.input.get())
+        const message = triggeringUserMessage(messages, context.input.get())
         if (!message || !stripChatEntityMarkup(text)) return
         return {
           input: context.input.get(),
@@ -1023,7 +1059,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         }
       }
       const preparedTitleInput = () => {
-        const message = firstUserMessage(context.input.messages(), context.input.get())
+        const message = triggeringUserMessage(context.input.messages(), context.input.get())
         return message ? titleInput("input", getMessageText(message)) : undefined
       }
       const getTitle = (responseText?: string): Promise<TitleResolutionValue> => {
@@ -1057,7 +1093,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
 
       const startTitle = async () => {
-        if (!firstUserMessage(context.input.messages(), context.input.get())) return
+        if (!triggeringUserMessage(context.input.messages(), context.input.get())) return
         if (!shouldRunForTrigger(options.trigger, agentTriggerId(context))) return
         if (!preparedTitleInput()) {
           context.context.set(responseTitleFallbackContextKey, true)
@@ -1132,7 +1168,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
       titleDeliveryEffect.active = finish =>
         Boolean(finish.channel)
-        && Boolean(firstUserMessage(context.input.messages(), context.input.get()))
+        && Boolean(triggeringUserMessage(context.input.messages(), context.input.get()))
         && finish.context.get(messageChannelTitleSupportContextKey) !== false
         && (Object.hasOwn(finish.event, "error")
           || finish.context.get(messageChannelTitleDeliveredContextKey) !== true)
@@ -1141,7 +1177,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       context.output.render((result) => {
         if (hasTitleApplied(result)) return result
         const messages = context.input.messages()
-        if (!firstUserMessage(messages, context.input.get())) return result
+        if (!triggeringUserMessage(messages, context.input.get())) return result
         const preparedInput = preparedTitleInput()
         const establishedTitle = createAgentChatData(messages.flatMap(message => message.parts)).get("title")
         const provisionalTitle = preparedInput

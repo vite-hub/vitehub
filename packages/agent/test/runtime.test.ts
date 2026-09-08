@@ -7864,11 +7864,11 @@ describe("agent message protocol", () => {
     }
 
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.objectContaining({ id: "user-1" }),
-      text: "First user request",
+      message: expect.objectContaining({ id: "user-2" }),
+      text: "Latest user request",
     }))
     expect(events).toContainEqual({
-      data: { title: "Title: First user request", type: "title" },
+      data: { title: "Title: Latest user request", type: "title" },
       type: "data",
     })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })

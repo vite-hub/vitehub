@@ -2,6 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
+import { credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
@@ -27,6 +28,8 @@ const MAX_OBSERVATION_COLLECTION_ITEMS = 32
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_AGENT_CONFIGURATION_DEPTH = 64
 const MAX_OBSERVATION_VALUE_ITEMS = 256
+const MAX_AGENT_CONFIGURATION_ITEMS = 32 * 1024
+const MAX_AGENT_CONFIGURATION_COLLECTION_ITEMS = 8 * 1024
 export const AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE = "vitehub.observation.truncated"
 const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
 const APPENDED_OBSERVATION_ATTRIBUTE = "vitehub.observation.appended"
@@ -398,9 +401,9 @@ function normalizedTimestamp(value: Date | string): string {
 }
 
 interface ObservationBudget {
+  collectionItems?: number
   items: number
   maxDepth?: number
-  collectionItems?: number
   stringLength: number
   truncated: boolean
 }
@@ -515,6 +518,7 @@ function boundedObservationValue(
   maxStringLength = MAX_METADATA_STRING_LENGTH,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
+  const collectionItems = budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS
   if (value && hasRuntimeType(value, "object")) {
     const builtIn = builtIns?.get(value)
     if (builtIn) {
@@ -557,7 +561,7 @@ function boundedObservationValue(
     return "[truncated]"
   }
   if (Array.isArray(value)) {
-    const length = Math.min(value.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const length = Math.min(value.length, collectionItems, budget.items)
     if (length < value.length) budget.truncated = true
     return Array.from({ length }, (_, index) => {
       if (!Object.hasOwn(value, index)) {
@@ -583,7 +587,7 @@ function boundedObservationValue(
   if (value instanceof Map) {
     budget.truncated = true
     const entries: [unknown, unknown][] = []
-    const limit = Math.min((budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const limit = Math.min(collectionItems, budget.items)
     for (const entry of value) {
       if (entries.length >= limit) break
       entries.push(entry)
@@ -597,7 +601,7 @@ function boundedObservationValue(
   if (value instanceof Set) {
     budget.truncated = true
     const entries: unknown[] = []
-    const limit = Math.min((budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const limit = Math.min(collectionItems, budget.items)
     for (const entry of value) {
       if (entries.length >= limit) break
       entries.push(entry)
@@ -607,12 +611,12 @@ function boundedObservationValue(
   }
   if (value instanceof ArrayBuffer) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const length = Math.min(value.byteLength, collectionItems, budget.items)
     return boundedObservationValue(Array.from(new Uint8Array(value, 0, length)), budget, depth + 1, maxStringLength, builtIns)
   }
   if (ArrayBuffer.isView(value)) {
     budget.truncated = true
-    const length = Math.min(value.byteLength, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    const length = Math.min(value.byteLength, collectionItems, budget.items)
     return {
       bytes: boundedObservationValue(
         Array.from(new Uint8Array(value.buffer, value.byteOffset, length)),
@@ -643,7 +647,7 @@ function boundedObservationValue(
     for (const [key, child] of Object.entries(value)) {
       if (key !== "cause" && key !== "errors") details.push([key, child])
     }
-    const length = Math.min(details.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS))
+    const length = Math.min(details.length, collectionItems)
     if (length < details.length) budget.truncated = true
     return Object.fromEntries(details.slice(0, length).map(([key, child]) => [
       boundedString(key),
@@ -661,8 +665,10 @@ function boundedObservationValue(
     return `[unsupported ${Object.prototype.toString.call(value).slice(8, -1)}]`
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
+  // Match JSON object semantics: optional undefined properties are absent data, not truncated data.
   const entries = Object.entries(value as Record<string, unknown>)
-  const length = Math.min(entries.length, (budget.collectionItems ?? MAX_OBSERVATION_COLLECTION_ITEMS), budget.items)
+    .filter(([, child]) => child !== undefined)
+  const length = Math.min(entries.length, collectionItems, budget.items)
   if (length < entries.length) budget.truncated = true
   return Object.fromEntries(entries
     .slice(0, length)
@@ -695,6 +701,14 @@ function boundedObservationAttributeValue(
   maxStringLength: number,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
+  if (key === "message.content") {
+    // Message chunks can fill the capture limit without consuming identity metadata space.
+    const contentBudget = { ...budget, stringLength: maxStringLength }
+    const content = boundedObservationValue(value, contentBudget, 0, maxStringLength, builtIns)
+    budget.items = contentBudget.items
+    budget.truncated ||= contentBudget.truncated
+    return content
+  }
   if (key !== "vitehub.agent.configuration") return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
   const configurationBudget: ObservationBudget = {
     items: 65_536,
@@ -713,8 +727,11 @@ function boundedObservation(
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
   limits = defaultObservationLimits,
 ): TraceEventLogEntry {
+  const agentConfiguration = observation.name === "vitehub.agent.configured"
   const budget: ObservationBudget = {
-    items: MAX_OBSERVATION_VALUE_ITEMS,
+    ...(agentConfiguration ? { collectionItems: MAX_AGENT_CONFIGURATION_COLLECTION_ITEMS } : {}),
+    items: agentConfiguration ? MAX_AGENT_CONFIGURATION_ITEMS : MAX_OBSERVATION_VALUE_ITEMS,
+    ...(agentConfiguration ? { maxDepth: MAX_AGENT_CONFIGURATION_DEPTH } : {}),
     stringLength: limits.maxStringLength,
     truncated: false,
   }
@@ -1258,12 +1275,17 @@ function journalTraceLog(
   nextSequence: () => number,
   content: TraceEventContentPolicy,
   metadataContent: ReadonlySet<string>,
+  maxMessageDeltaCharacters: number,
+  maxMessageDeltaKeys: number,
 ): TraceEventLog {
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const messageDeltaChunkCharacters = MAX_METADATA_STRING_LENGTH
+  const messageDeltaChunkCharacters = maxMessageDeltaCharacters
   const messageDeltaChunkEvents = 32
-  let pendingMessageDelta: TraceEventLogEntry | undefined
-  let pendingMessageDeltaEvents = 0
+  const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
+  const admittedMessageDeltaKeys = new Set<string>()
+  let messageDeltaKeysTruncated = false
+  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
+  const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment" } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1275,72 +1297,164 @@ function journalTraceLog(
       sequence,
     })
   }
-  const flushMessageDelta = () => {
-    if (!pendingMessageDelta) return
-    emit(pendingMessageDelta)
-    pendingMessageDelta = undefined
-    pendingMessageDeltaEvents = 0
-  }
-  const queueMessageDelta = (entry: TraceEventLogEntry) => {
-    const rawContent = entry.attributes?.["message.content"]
-    const content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
-    if (content && content.length > messageDeltaChunkCharacters) {
-      for (let offset = 0; offset < content.length; offset += messageDeltaChunkCharacters) {
-        queueMessageDelta({
-          ...entry,
+  const messageDeltaKey = (entry: TraceEventLogEntry) => JSON.stringify([
+    entry.attributes?.["message.id"],
+    entry.attributes?.["message.phase"],
+    entry.attributes?.["message.role"],
+    entry.attributes?.["vitehub.auxiliary.kind"],
+  ])
+  const flushMessageDelta = (key: string, final = true) => {
+    const pending = pendingMessageDeltas.get(key)
+    if (!pending) return
+    const rawContent = pending.entry.attributes?.["message.content"]
+    let retainedContent: string | undefined
+    if (hasRuntimeType(rawContent, "string")) {
+      let content = rawContent
+      if (!final && credentialTextMayContinue(content)) {
+        if (content.length < maxPendingCredentialCharacters) return
+        const quote = pendingCredentialQuote(content)
+        const scheme = pendingCredentialScheme(content)
+        const assignment = pendingCredentialAssignment(content)
+        if (quote) {
+          redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
+        }
+        else if (scheme || assignment) {
+          redactingCredentialDeltas.set(key, {
+            kind: scheme ?? assignment!,
+          })
+          if (scheme === "scheme" || assignment === "assignment") {
+            content += "[REDACTED]"
+          }
+        }
+        else {
+          // A possible marker is still ordinary text until its separator arrives.
+          retainedContent = pendingCredentialTextSuffix(content)
+          if (retainedContent) content = content.slice(0, -retainedContent.length)
+        }
+      }
+      const redacted = redactCredentialText(content)
+      for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
+        emit({
+          ...pending.entry,
           attributes: {
-            ...entry.attributes,
-            "message.content": content.slice(offset, offset + messageDeltaChunkCharacters),
+            ...pending.entry.attributes,
+            "message.content": redacted.slice(offset, offset + messageDeltaChunkCharacters),
           },
         })
       }
-      return
+    } else {
+      emit(pending.entry)
     }
-    const pending = pendingMessageDelta
-    const rawPreviousContent = pending?.attributes?.["message.content"]
+    pendingMessageDeltas.delete(key)
+    if (retainedContent) {
+      pendingMessageDeltas.set(key, {
+        entry: { ...pending.entry, attributes: { ...pending.entry.attributes, "message.content": retainedContent } },
+        events: 0,
+      })
+    }
+  }
+  const flushMessageDeltas = (final = true) => {
+    // Flushing may reinsert a retained suffix; visit each original key only once.
+    // oxlint-disable-next-line unicorn/no-useless-spread
+    for (const key of [...pendingMessageDeltas.keys()]) flushMessageDelta(key, final)
+  }
+  const queueMessageDelta = (entry: TraceEventLogEntry) => {
+    const key = messageDeltaKey(entry)
+    if (!admittedMessageDeltaKeys.has(key)) {
+      if (admittedMessageDeltaKeys.size >= maxMessageDeltaKeys) {
+        if (!messageDeltaKeysTruncated) {
+          messageDeltaKeysTruncated = true
+          const attributes = { ...entry.attributes }
+          delete attributes["message.content"]
+          emit({
+            ...entry,
+            attributes: {
+              ...attributes,
+              "content.omitted": ["message.content"],
+              "content.truncated": true,
+            },
+          })
+        }
+        return
+      }
+      // Keep admission stable for the invocation: accepting a previously dropped
+      // stream later could expose a credential continuation without its prefix.
+      admittedMessageDeltaKeys.add(key)
+    }
+    const rawContent = entry.attributes?.["message.content"]
+    let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
+    if (content !== undefined && redactingCredentialDeltas.has(key)) {
+      let redaction = redactingCredentialDeltas.get(key)!
+      if (redaction.kind === "assignment") {
+        content = content.trimStart()
+        if (!content) return
+      }
+      if (redaction.kind === "assignment" && (content[0] === '"' || content[0] === "'")) {
+        redaction = { kind: "quoted", quote: content[0], escaped: false, omitClosingQuote: true }
+        redactingCredentialDeltas.set(key, redaction)
+        content = content.slice(1)
+      }
+      else if (redaction.kind === "assignment" && content) {
+        redaction = { kind: "unquoted" }
+        redactingCredentialDeltas.set(key, redaction)
+      }
+      let boundary: number
+      if (redaction.kind === "quoted") {
+        boundary = -1
+        for (let index = 0; index < content.length; index++) {
+          const character = content[index]
+          if (redaction.escaped) redaction.escaped = false
+          else if (character === "\\") redaction.escaped = true
+          else if (character === redaction.quote) {
+            boundary = index + (redaction.omitClosingQuote ? 1 : 0)
+            break
+          }
+        }
+      }
+      else {
+        if (redaction.kind === "scheme") {
+          content = content.trimStart()
+          if (!content) return
+          redactingCredentialDeltas.set(key, { kind: "unquoted" })
+        }
+        boundary = content.search(/[\s"',;&{}<>]/)
+      }
+      if (boundary < 0) return
+      redactingCredentialDeltas.delete(key)
+      content = content.slice(boundary)
+      entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
+    }
+    const pending = pendingMessageDeltas.get(key)
+    const rawPreviousContent = pending?.entry.attributes?.["message.content"]
     const previousContent = Object.prototype.toString.call(rawPreviousContent) === "[object String]"
       ? String(rawPreviousContent)
       : undefined
-    const sameMessage = pending
-      && pending.attributes?.["message.id"] === entry.attributes?.["message.id"]
-      && pending.attributes?.["message.phase"] === entry.attributes?.["message.phase"]
-      && pending.attributes?.["message.role"] === entry.attributes?.["message.role"]
-    if (sameMessage && (previousContent === undefined) === (content === undefined)) {
-      if (previousContent !== undefined && content !== undefined
-        && previousContent.length + content.length > messageDeltaChunkCharacters) {
-        const available = messageDeltaChunkCharacters - previousContent.length
-        queueMessageDelta({
-          ...entry,
-          attributes: { ...entry.attributes, "message.content": content.slice(0, available) },
-        })
-        queueMessageDelta({
-          ...entry,
-          attributes: { ...entry.attributes, "message.content": content.slice(available) },
-        })
-        return
-      }
-      const attributes = { ...pending.attributes, ...entry.attributes }
+    if (pending && (previousContent === undefined) === (content === undefined)) {
+      const attributes = { ...pending.entry.attributes, ...entry.attributes }
       if (previousContent !== undefined && content !== undefined) {
         attributes["message.content"] = `${previousContent}${content}`
       }
-      pendingMessageDelta = { ...entry, attributes }
+      pending.entry = { ...entry, attributes }
     }
     else {
-      flushMessageDelta()
-      pendingMessageDelta = entry
+      flushMessageDelta(key)
+      pendingMessageDeltas.set(key, { entry, events: 0 })
     }
-    pendingMessageDeltaEvents++
-    const pendingContent = pendingMessageDelta.attributes?.["message.content"]
-    if (pendingMessageDeltaEvents >= messageDeltaChunkEvents
+    const current = pendingMessageDeltas.get(key)
+    if (!current) return
+    current.events++
+    const pendingContent = current.entry.attributes?.["message.content"]
+    if (current.events >= messageDeltaChunkEvents
       || String(pendingContent ?? "").length >= messageDeltaChunkCharacters) {
-      flushMessageDelta()
+      flushMessageDelta(key, false)
     }
   }
   // SAFETY: Invocation event normalization establishes the asserted invocation contract.
   const journal = {
     [agentInvocationJournalTraceLogSymbol]: true,
     async append(event: TraceEvent) {
-      const safeEntryPromise = Promise.resolve(createTraceEventLog({ content }).append(event))
+      const auxiliaryTitle = event.attributes?.["vitehub.auxiliary.kind"] === "title"
+      const safeEntryPromise = Promise.resolve(createTraceEventLog({ content: auxiliaryTitle ? "metadata" : content }).append(event))
       void safeEntryPromise.catch(() => {})
       const metadataContentValues = captureMetadataContentValues(event, metadataContent)
       let entry: TraceEventLogEntry
@@ -1353,12 +1467,18 @@ function journalTraceLog(
       try {
         const safeEntry = await safeEntryPromise
         safeEntry.timestamp = entry.timestamp
-        if (content === "metadata") restoreMetadataContentValues(safeEntry, metadataContentValues)
+        if (content === "metadata" && !auxiliaryTitle) restoreMetadataContentValues(safeEntry, metadataContentValues)
+        const resultText = safeEntry.attributes?.["result.text"]
+        if (safeEntry.name === "agent.invocation.finish" && hasRuntimeType(resultText, "string")) {
+          safeEntry.attributes = { ...safeEntry.attributes, "result.text": redactCredentialText(resultText) }
+        }
         if (safeEntry.name === "agent.message.delta") {
           queueMessageDelta(safeEntry)
         }
         else {
-          flushMessageDelta()
+          flushMessageDeltas(safeEntry.name === "agent.invocation.finish"
+            || safeEntry.name === "agent.invocation.error"
+            || safeEntry.name === "agent.invocation.cancelled")
           emit(safeEntry)
         }
       }
@@ -1366,7 +1486,7 @@ function journalTraceLog(
       return entry
     },
     entries() {
-      flushMessageDelta()
+      flushMessageDeltas(false)
       return traceLog.entries()
     },
   } as TraceEventLog
@@ -1646,6 +1766,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }
       }
       const observe = (observation: TraceEventLogEntry) => {
+        if (observation.attributes?.["vitehub.auxiliary.kind"] === "title"
+          && (observation.name === "agent.message.delta" || observation.name === "vitehub.agent.configured")) return
         const capabilityId = observationCapabilityId(observation)
         if (capabilityId && observedCapabilityIds.size < MAX_CAPABILITY_IDS) observedCapabilityIds.add(capabilityId)
         if (finished) {
@@ -1686,7 +1808,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount),
         },
         async finish(status, error) {
           if (finished || finishing) return
