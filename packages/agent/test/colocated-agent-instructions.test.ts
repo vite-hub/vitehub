@@ -116,7 +116,7 @@ describe("colocated Agent instructions", () => {
     }
   })
 
-  it("mounts colocated instructions and skills in the Vite Workspace loader", async () => {
+  it.each(["discovered", "explicit", "override"] as const)("mounts colocated instructions and skills in the Vite Workspace loader with %s sources", async (sourceConfiguration) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-colocated-workspace-"))
     const handler = join(root, "support", "agent.ts")
     try {
@@ -124,15 +124,34 @@ describe("colocated Agent instructions", () => {
       await writeFile(handler, "export default {}", "utf8")
       await writeFile(join(root, "support", "instructions.md"), "Support the local invocation.\n", "utf8")
       await writeFile(join(root, "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
-      const agent = defineAgent({ workspace: {}, driver: { model } })
+      const explicitInstructions = {
+        materialize: "build" as const,
+        mount: "",
+        path: "instructions.md",
+        workspacePath: "AGENTS.md",
+      }
+      const agent = defineAgent({
+        workspace: {
+          ...(sourceConfiguration !== "discovered" ? { sourceRootDir: join(root, "support") } : {}),
+          ...(sourceConfiguration === "override" ? { sources: { __vitehubAgentInstructions: explicitInstructions } } : {}),
+        },
+        driver: { model },
+      })
+      if (sourceConfiguration !== "discovered") {
+        expect(agent.sources?.__vitehubAgentInstructions).toMatchObject({
+          materialize: "build",
+          path: "instructions.md",
+        })
+      }
       const server = { ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
 
       const loaded = await createViteWorkspaceAgentLoader(server, { handler, name: "support", workspace: "support" } as DiscoveredAgentDefinition)()
       const sources = loaded.default.sources as Record<string, { content: string | Uint8Array, materialize: string, workspacePath: string }>
 
-      expect(sources.__vitehubAgentInstructions).toMatchObject({
+      expect(sources.__vitehubAgentInstructions).toEqual(sourceConfiguration === "override" ? explicitInstructions : {
         content: "Support the local invocation.\n",
         materialize: "startup",
+        mount: "",
         workspacePath: "AGENTS.md",
       })
       expect(new TextDecoder().decode(sources["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content as Uint8Array)).toBe("# Review\n")
