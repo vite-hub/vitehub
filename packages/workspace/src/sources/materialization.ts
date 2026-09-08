@@ -60,7 +60,14 @@ interface MaterializedStartupSource {
   mountPath: string
 }
 
+interface PromotedSourceSkillFile {
+  digest: string
+  source: string
+  sourcePath: string
+}
+
 const startupSourcesMetaKey = "workspace:startup-sources"
+const promotedSourceSkillsMetaKey = "workspace:promoted-source-skills"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Set<ResolvedWorkspaceSource>>()
 
@@ -136,6 +143,112 @@ export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, sourceKey
 
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: SourceSnapshotMetadata) {
   await store.setMeta?.(sourceSnapshotMetaKey(metadata.source), metadata)
+}
+
+const sourceSkillRoots = [".agents", ".claude", ".codex"] as const
+
+function sourceSkillPromotion(path: string): { destination: string, root: typeof sourceSkillRoots[number], skill: string } | undefined {
+  const root = sourceSkillRoots.find(candidate => path.includes(`/${candidate}/skills/`))
+  if (!root) return
+  const marker = `/${root}/skills/`
+  const relative = path.slice(path.indexOf(marker) + marker.length)
+  const [skill, ...rest] = relative.split("/")
+  if (!skill || !/^[a-z0-9][a-z0-9-]*$/.test(skill) || !rest.length) return
+  return { destination: `.agents/skills/${skill}/${rest.join("/")}`, root, skill }
+}
+
+function isPromotedSourceSkillFile(value: unknown): value is PromotedSourceSkillFile {
+  return hasRuntimeType(value, "object") && value !== null
+    && readStringMeta(value as Record<string, unknown>, "digest") !== undefined
+    && readStringMeta(value as Record<string, unknown>, "source") !== undefined
+    && readStringMeta(value as Record<string, unknown>, "sourcePath") !== undefined
+}
+
+async function reconcilePromotedSourceSkills(
+  store: WorkspaceStore,
+  sources: readonly ResolvedWorkspaceSource[],
+  control: MaterializationControl,
+) {
+  if (!store.getMeta || !store.setMeta) return
+  const previousValue = await store.getMeta(promotedSourceSkillsMetaKey)
+  const previous = hasRuntimeType(previousValue, "object") && previousValue !== null
+    ? Object.fromEntries(Object.entries(previousValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
+    : {}
+  const selectedSkills = new Map<string, { paths: string[], source: string }>()
+  const sortedSources = [...sources].sort((left, right) => left.key.localeCompare(right.key))
+  for (const source of sortedSources) {
+    const snapshot = await readSourceSnapshotMetadata(store, source.key)
+    if (snapshot?.status !== "ready") continue
+    const pathsBySkill = new Map<string, Map<typeof sourceSkillRoots[number], string[]>>()
+    for (const sourcePath of Object.keys(snapshot.items || {}).sort()) {
+      const promotion = sourceSkillPromotion(sourcePath)
+      if (!promotion) continue
+      const pathsByRoot = pathsBySkill.get(promotion.skill) || new Map()
+      const paths = pathsByRoot.get(promotion.root) || []
+      paths.push(sourcePath)
+      pathsByRoot.set(promotion.root, paths)
+      pathsBySkill.set(promotion.skill, pathsByRoot)
+    }
+    for (const [skill, pathsByRoot] of pathsBySkill) {
+      if (selectedSkills.has(skill)) continue
+      const paths = sourceSkillRoots.map(root => pathsByRoot.get(root)).find(candidate => candidate?.some(path => path.endsWith("/SKILL.md")))
+      if (paths) selectedSkills.set(skill, { paths, source: source.key })
+    }
+  }
+
+  const candidates = new Map<string, { source: string, sourcePath: string }>()
+  const retainedSkills = new Set<string>()
+  for (const [skill, selected] of selectedSkills) {
+    const rootSkillPath = `.agents/skills/${skill}/SKILL.md`
+    const existingRootSkill = await store.readFile(rootSkillPath)
+    const previousRootSkill = previous[rootSkillPath]
+    const ownsRootSkill = Boolean(previousRootSkill && existingRootSkill && await sha256(existingRootSkill.content) === previousRootSkill.digest)
+    if (existingRootSkill && !ownsRootSkill) {
+      retainedSkills.add(skill)
+      continue
+    }
+    for (const sourcePath of selected.paths) {
+      const promotion = sourceSkillPromotion(sourcePath)
+      if (!promotion || sourcePath === promotion.destination) continue
+      candidates.set(promotion.destination, { source: selected.source, sourcePath })
+    }
+  }
+  for (const [path, prior] of Object.entries(previous)) {
+    if (!path.endsWith("/SKILL.md")) continue
+    const promotion = sourceSkillPromotion(`source/${path}`)
+    if (!promotion) continue
+    const existing = await store.readFile(path)
+    if (existing && await sha256(existing.content) !== prior.digest) retainedSkills.add(promotion.skill)
+  }
+
+  const next: Record<string, PromotedSourceSkillFile> = Object.fromEntries(Object.entries(previous).filter(([path]) => {
+    const promotion = sourceSkillPromotion(`source/${path}`)
+    return promotion && retainedSkills.has(promotion.skill)
+  }))
+  for (const [destination, candidate] of candidates) {
+    const sourceFile = await store.readFile(candidate.sourcePath)
+    if (!sourceFile) continue
+    const existing = await store.readFile(destination)
+    const prior = previous[destination]
+    const ownsExisting = Boolean(prior && existing && await sha256(existing.content) === prior.digest)
+    if (existing && !ownsExisting) continue
+    const metadata = {
+      ...sourceFile.metadata,
+      promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
+    }
+    await control.mutate(async () => {
+      await store.mkdir(posix.dirname(destination), { recursive: true })
+      await store.writeFile(destination, { ...sourceFile, path: destination, metadata })
+    })
+    next[destination] = { ...candidate, digest: await sha256(sourceFile.content) }
+  }
+  for (const [destination, prior] of Object.entries(previous)) {
+    if (next[destination]) continue
+    const existing = await store.readFile(destination)
+    if (existing && await sha256(existing.content) === prior.digest) await control.mutate(() => store.rm(destination, { force: true }))
+    else if (existing) next[destination] = prior
+  }
+  await control.checkpoint(async () => await store.setMeta?.(promotedSourceSkillsMetaKey, next))
 }
 
 function materializedItemMeta(
@@ -910,6 +1023,10 @@ async function materializeWorkspaceSourcesInternal(
       })
       if (options.abortSignal?.aborted) throw error
     }
+  }
+
+  if (rootMaterialization && control.isCurrent()) {
+    await reconcilePromotedSourceSkills(store, configuredSources, control)
   }
 
   return {

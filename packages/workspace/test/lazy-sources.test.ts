@@ -34,6 +34,97 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it("promotes complete source skills while preserving their mounted files", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "source-skills",
+      sources: {
+        portal: custom({
+          materialize: "startup",
+          mount: "portal",
+          files: [
+            { path: ".agents/skills/perf-investigate/SKILL.md", content: "# Performance\n" },
+            { path: ".agents/skills/perf-investigate/checks.md", content: "# Checks\n" },
+            { path: ".agents/skills/k8s-environments/SKILL.md", content: "# Kubernetes\n" },
+            { path: ".claude/skills/legacy-review/SKILL.md", content: "# Legacy review\n" },
+            { path: ".claude/skills/legacy-review/reference.md", content: "# Legacy reference\n" },
+            { path: ".codex/skills/codex-review/SKILL.md", content: "# Codex review\n" },
+            { path: ".agents/skills/root-priority/SKILL.md", content: "# Canonical\n" },
+            { path: ".agents/skills/root-priority/canonical.md", content: "# Canonical companion\n" },
+            { path: ".claude/skills/root-priority/SKILL.md", content: "# Claude fallback\n" },
+            { path: ".claude/skills/root-priority/legacy.md", content: "# Legacy companion\n" },
+          ],
+        }),
+        zeta: custom({
+          materialize: "startup",
+          mount: "zeta",
+          files: [
+            { path: ".agents/skills/k8s-environments/SKILL.md", content: "# Conflicting Kubernetes\n" },
+            { path: ".agents/skills/k8s-environments/zeta.md", content: "# Zeta only\n" },
+          ],
+        }),
+      },
+    }, store)
+
+    await view.materializeSources()
+
+    await expect(view.readFile(".agents/skills/perf-investigate/SKILL.md")).resolves.toBe("# Performance\n")
+    await expect(view.readFile(".agents/skills/perf-investigate/checks.md")).resolves.toBe("# Checks\n")
+    await expect(view.readFile(".agents/skills/k8s-environments/SKILL.md")).resolves.toBe("# Kubernetes\n")
+    await expect(view.readFile(".agents/skills/legacy-review/SKILL.md")).resolves.toBe("# Legacy review\n")
+    await expect(view.readFile(".agents/skills/legacy-review/reference.md")).resolves.toBe("# Legacy reference\n")
+    await expect(view.readFile(".agents/skills/codex-review/SKILL.md")).resolves.toBe("# Codex review\n")
+    await expect(view.readFile(".agents/skills/root-priority/SKILL.md")).resolves.toBe("# Canonical\n")
+    await expect(view.readFile(".agents/skills/root-priority/canonical.md")).resolves.toBe("# Canonical companion\n")
+    await expect(view.exists(".agents/skills/root-priority/legacy.md")).resolves.toBe(false)
+    await expect(view.exists(".agents/skills/k8s-environments/zeta.md")).resolves.toBe(false)
+    await expect(view.readFile("portal/.agents/skills/perf-investigate/SKILL.md")).resolves.toBe("# Performance\n")
+    await expect(view.readFile("portal/.claude/skills/legacy-review/SKILL.md")).resolves.toBe("# Legacy review\n")
+    await expect(view.readFile("portal/.codex/skills/codex-review/SKILL.md")).resolves.toBe("# Codex review\n")
+    await expect(view.readFile("zeta/.agents/skills/k8s-environments/SKILL.md")).resolves.toBe("# Conflicting Kubernetes\n")
+    await expect(store.readFile(".agents/skills/perf-investigate/SKILL.md")).resolves.toMatchObject({
+      metadata: { promotedSourceSkill: { source: "portal", sourcePath: "portal/.agents/skills/perf-investigate/SKILL.md" } },
+    })
+  })
+
+  it("keeps explicit and edited root skills during source refresh", async () => {
+    const store = createMemoryWorkspaceStore()
+    let files = [
+      { path: ".agents/skills/shared/SKILL.md", content: "# Source shared\n" },
+      { path: ".agents/skills/shared/source.md", content: "# Source companion\n" },
+      { path: ".agents/skills/source-only/SKILL.md", content: "# Source only\n" },
+      { path: ".agents/skills/source-only/reference.md", content: "# Reference\n" },
+    ]
+    await store.mkdir(".agents/skills/shared", { recursive: true })
+    await store.writeFile(".agents/skills/shared/SKILL.md", { path: ".agents/skills/shared/SKILL.md", content: "# Explicit\n" })
+    const definition = {
+      name: "source-skill-collisions",
+      sources: {
+        portal: custom({
+          materialize: "startup" as const,
+          mount: "portal",
+          sync: { stale: "remove" as const },
+          async getKeys() { return files.map(file => file.path) },
+          async getItem(key: string) { return { key, ...files.find(file => file.path === key)! } },
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    await expect(view.readFile(".agents/skills/shared/SKILL.md")).resolves.toBe("# Explicit\n")
+    await expect(view.exists(".agents/skills/shared/source.md")).resolves.toBe(false)
+    await expect(view.readFile(".agents/skills/source-only/SKILL.md")).resolves.toBe("# Source only\n")
+    await expect(view.readFile(".agents/skills/source-only/reference.md")).resolves.toBe("# Reference\n")
+
+    await store.writeFile(".agents/skills/source-only/SKILL.md", { path: ".agents/skills/source-only/SKILL.md", content: "# Locally edited\n" })
+    files = []
+    await view.materializeSources()
+
+    await expect(view.readFile(".agents/skills/shared/SKILL.md")).resolves.toBe("# Explicit\n")
+    await expect(view.readFile(".agents/skills/source-only/SKILL.md")).resolves.toBe("# Locally edited\n")
+    await expect(view.readFile(".agents/skills/source-only/reference.md")).resolves.toBe("# Reference\n")
+  })
+
   it("refreshes nested startup files before the first directory listing", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["stale.md"]
