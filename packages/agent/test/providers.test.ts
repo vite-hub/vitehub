@@ -16615,6 +16615,59 @@ describe("server helpers", () => {
     }
   })
 
+  it("preserves inline invocation identity when a failed delivery is reconstructed", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-retry-"))
+    const url = `file:${join(stateDir, "state.sqlite")}`
+    const runIds: string[] = []
+    const invocationIds: string[] = []
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const state = createLibsqlAgentState({ url })
+        await state.connect()
+        // Simulate replay after the Chat SDK deduplication window expires.
+        if (attempt > 0) await state.delete("dedupe:telegram:91118")
+        const agent = defineAgent({
+          channels: {
+            telegram: testTelegram(telegram, {
+              // SAFETY: This fixture constructs the Chat adapter contract for the test.
+              adapter: () => createTestChatAdapter() as never,
+              messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+            }),
+          },
+          driver: {
+            async run(context) {
+              const runId = context.run?.runId
+              if (!runId) throw new Error("Expected an invocation run ID")
+              runIds.push(runId)
+              invocationIds.push(await agentInvocationId(runId, context.agentIdentity?.name))
+              if (attempt === 0) throw new Error("Retry this delivery")
+              return "Retried reply"
+            },
+          },
+        })
+        // SAFETY: This fixture constructs the Agent contract for the test.
+        const handler = createChannelWebhookRouteHandler(agent as never)
+        try {
+          const response = handler(chatWebhookRequest(91_118, 456, "hello"), "telegram", { agentIdentity: { name: "calories" } })
+          if (attempt === 0) await expect(response).rejects.toThrow("Retry this delivery")
+          else expect((await response).status).toBe(200)
+        } finally {
+          await state.disconnect()
+        }
+      }
+      expect(runIds).toHaveLength(2)
+      expect(new Set(runIds).size).toBe(1)
+      expect(new Set(invocationIds).size).toBe(1)
+    } finally {
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it.each(["bigint", "circular"])("accepts inline steering invoker metadata containing %s", async (kind) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
