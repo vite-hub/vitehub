@@ -131,6 +131,34 @@ describe("title journal ownership", () => {
     }))
   })
 
+  it.each(["run.finish", "agent.invocation.finish"])("keeps auxiliary %s out of the primary trace", async (name) => {
+    const main = deferred<string>()
+    const invocations = journal()
+    const run = runAgent(defineAgent({
+      capabilities: [title({ driver: { async run(context) {
+        await context.traceLog?.append({ name, type: "run" })
+        expect(context.traceLog?.entries().some(entry => entry.name === name)).toBe(true)
+        return "Separate title"
+      } } })],
+      driver: { run: () => main.promise },
+      invocations,
+    }), runtime("auxiliary-finish"), { prompt: "Explain title ownership" })
+    try {
+      await vi.waitFor(async () => {
+        expect((await invocations.getByRunId("auxiliary-finish"))?.title).toBe("Separate title")
+      })
+      const pending = (await invocations.getByRunId("auxiliary-finish"))!
+      expect(pending.status).toBe("running")
+      expect(pending.observations.some(entry => entry.name === name)).toBe(false)
+    }
+    finally {
+      main.resolve("Done.")
+      await run
+    }
+    const completed = (await invocations.getByRunId("auxiliary-finish"))!
+    expect(completed.observations.filter(entry => entry.name === "agent.invocation.finish")).toHaveLength(1)
+  })
+
   it("uses the first user message with multi-turn history and a prompt", async () => {
     const execute = vi.fn(() => "First topic")
     await runAgent(defineAgent({
