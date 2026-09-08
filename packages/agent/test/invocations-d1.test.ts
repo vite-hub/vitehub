@@ -214,9 +214,9 @@ describe("D1 Agent Invocation store", () => {
     expect((await store().get("one"))?.status).toBe("pending")
   })
 
-  it("pages summaries and filters Agent, Capability, status and literal search", async () => {
+  it.each([" ", "\t", "\n", "\u00a0", "\u000b\u000c\r\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"])("pages summaries and filters Agent, Capability, status and literal search with whitespace %j", async (whitespace) => {
     const journal = store()
-    await journal.create(invocation("one", { agentName: "alpha", annotations: { label: "100%_done", triggeredBy: " Ferdinand " }, observations: [observation(1)] }))
+    await journal.create(invocation("one", { agentName: "alpha", annotations: { label: "100%_done", triggeredBy: `${whitespace}Ferdinand${whitespace}` }, observations: [observation(1)] }))
     await journal.create(invocation("two", { agentName: "beta", annotations: { triggeredBy: "Maxi" }, capabilityIds: ["files"] }))
     await journal.create(invocation("three", { agentName: "alpha" }))
     const first = await journal.list({ limit: 2 })

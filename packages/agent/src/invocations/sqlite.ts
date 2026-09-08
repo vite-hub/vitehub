@@ -3,6 +3,7 @@ import { createClient } from "@libsql/client"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { applyAgentInvocationStoreUpdate } from "../invocations.ts"
 import { searchableAgentInvocationText } from "./search.ts"
+import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type {
   AgentInvocationListOptions,
@@ -591,8 +592,8 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
       }
       const triggeredBy = listOptions.triggeredBy?.trim()
       if (triggeredBy) {
-        filters.push("trim(json_extract(CASE WHEN json_valid(summary) THEN summary ELSE record END, '$.annotations.triggeredBy')) = ?")
-        args.push(triggeredBy)
+        filters.push("trim(json_extract(CASE WHEN json_valid(summary) THEN summary ELSE record END, '$.annotations.triggeredBy'), ?) = ?")
+        args.push(sqlTrimWhitespace, triggeredBy)
       }
       const search = searchValue(listOptions.search)
       if (search) {

@@ -1,6 +1,7 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { applyAgentInvocationStoreUpdate, byteBoundedObservations, isAppendedObservation, observationLimits } from "../invocations.ts"
 import { searchableAgentInvocationText } from "./search.ts"
+import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationStoreCreateInput, AgentInvocationSummary } from "../invocations.ts"
 
@@ -254,8 +255,8 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
         values.push(listOptions.capabilityId.trim(), listOptions.capabilityId.trim())
       }
       if (listOptions.triggeredBy?.trim()) {
-        filters.push("trim(json_extract(summary, '$.annotations.triggeredBy')) = ?")
-        values.push(listOptions.triggeredBy.trim())
+        filters.push("trim(json_extract(summary, '$.annotations.triggeredBy'), ?) = ?")
+        values.push(sqlTrimWhitespace, listOptions.triggeredBy.trim())
       }
       if (search) {
         filters.push("search LIKE ? ESCAPE '\\'")

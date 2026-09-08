@@ -564,7 +564,7 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it("filters invocation stores by the exact capability that was used", async () => {
+  it.each([" ", "\t", "\n", "\u00a0", "\u000b\u000c\r\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"])("filters invocation stores by the exact capability that was used with whitespace %j", async (whitespace) => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-capability-filter-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
@@ -574,7 +574,7 @@ describe("Agent Invocations", () => {
         for (const [recordIndex, capabilityId] of ["papercuts", "usage", undefined].entries()) {
           await store.create({
             agentName: "chat",
-            annotations: recordIndex < 2 ? { triggeredBy: recordIndex === 0 ? " Ferdinand " : "Maxi" } : undefined,
+            annotations: recordIndex < 2 ? { triggeredBy: recordIndex === 0 ? `${whitespace}Ferdinand${whitespace}` : "Maxi" } : undefined,
             createdAt: timestamp,
             id: `${storeIndex}-${recordIndex}`,
             observations: capabilityId
