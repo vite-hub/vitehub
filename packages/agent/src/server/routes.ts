@@ -4065,14 +4065,23 @@ async function chatTriggerMessages(
   if (!limit) return [current]
 
   const fetchedNewestFirst: UIMessageLike[] = []
+  let reachedCurrent = !historyThroughCurrent || !message.id
   try {
     for await (const item of thread.messages) {
+      if (!reachedCurrent) {
+        if (item.id !== message.id) continue
+        reachedCurrent = true
+      }
       fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
 
-  const durable = await durableChatThreadMessages(thread, limit)
+  let durable = await durableChatThreadMessages(thread, limit)
+  if (historyThroughCurrent && message.id) {
+    const currentIndex = durable.findIndex(item => item.id === message.id)
+    durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : []
+  }
   let messages = [
     ...(await Promise.all(durable.map((item) => (item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))))),
     ...fetchedNewestFirst.slice().reverse(),

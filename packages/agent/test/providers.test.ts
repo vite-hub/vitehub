@@ -17077,7 +17077,7 @@ describe("server helpers", () => {
           adapter: () => adapter as never,
           messages: {
             concurrency: "steer", delivery: "manual", durable: false, state,
-            triggerHistory: { maxMessages: 10, source: "thread" },
+            triggerHistory: { maxMessages: 2, source: "thread" },
           },
         }),
       },
@@ -17108,12 +17108,15 @@ describe("server helpers", () => {
       await started.promise
       pending.push(handler(chatWebhookRequest(91_121, 456, "B"), "telegram"))
       await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
-      pending.push(handler(chatWebhookRequest(91_122, 456, "C"), "telegram"))
-      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(2))
+      const laterMessages = ["C", "D", "E"]
+      for (const [index, text] of laterMessages.entries()) {
+        pending.push(handler(chatWebhookRequest(91_122 + index, 456, text), "telegram"))
+        await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(index + 2))
+      }
       release.resolve()
-      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200])
-      expect(histories.map(history => history.at(-1)).sort()).toEqual(["A", "B", "C"])
-      expect(histories.find(history => history.at(-1) === "B")).not.toContain("C")
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200, 200, 200])
+      expect(histories.map(history => history.at(-1)).sort()).toEqual(["A", "B", "C", "D", "E"])
+      expect(histories.find(history => history.at(-1) === "B")).toEqual(["A", "B"])
     } finally {
       release.resolve()
       await Promise.allSettled(pending)
