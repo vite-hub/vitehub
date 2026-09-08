@@ -156,7 +156,7 @@ export interface CredentialAssignmentState {
   structureClosers?: string[]
   structureOverflow?: boolean
   shellDollar?: boolean
-  shellProcess?: boolean
+  shellProcess?: "<" | ">"
   shellSubstitutions?: { closer: string, quote?: string }[]
   yamlIndent?: number
   yamlFlow?: boolean
@@ -286,6 +286,9 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     const substitution = state.shellSubstitutions?.at(-1)
     const dollar = state.shellDollar
     const process = state.shellProcess
+    // A marker held at the prior chunk boundary is a separator unless it
+    // opens a process substitution. Inside a substitution it is still secret.
+    if (shell && process && character !== "(" && !substitution) return index
     delete state.shellDollar
     delete state.shellProcess
     if (state.escaped) state.escaped = false
@@ -294,7 +297,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       (state.shellSubstitutions ??= []).push({ closer: character === "{" ? "}" : ")", quote: state.quote })
       delete state.quote
     }
-    else if (shell && !state.quote && (character === "<" || character === ">") && (value[index + 1] === "(" || index + 1 === value.length)) state.shellProcess = true
+    else if (shell && !state.quote && (character === "<" || character === ">") && (value[index + 1] === "(" || index + 1 === value.length)) state.shellProcess = character
     else if (shell && character === "$" && state.quote !== "'") state.shellDollar = true
     else if (shell && character === "`" && state.quote !== "'") {
       if (substitution?.closer === "`" && !state.quote) {

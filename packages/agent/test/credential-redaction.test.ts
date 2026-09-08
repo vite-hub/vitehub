@@ -702,3 +702,20 @@ describe("passphrase credentials", () => {
     expect(redactCredentialText(value)).toBe(value)
   })
 })
+
+
+it.each(["<", ">"])("preserves ordinary text after a split shell marker %s", (marker) => {
+  const state = pendingCredentialAssignmentState(`PASSWORD=private${marker}`)!
+  expect(consumeCredentialAssignment("", state)).toBe(0)
+  const rest = "public-file;status=ok"
+  expect(consumeCredentialAssignment(rest, state)).toBe(0)
+  expect(state.shellProcess).toBe(marker)
+  expect(redactCredentialText(`PASSWORD=private${marker}${rest}`)).toBe(`PASSWORD=[REDACTED]${marker}${rest}`)
+})
+
+it.each(["<", ">"])("keeps split redirects inside shell substitutions secret: %s", (marker) => {
+  const state = pendingCredentialAssignmentState(`PASSWORD=$(cat ${marker}`)!
+  const rest = "private-file);status=ok"
+  expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+  expect(state.shellProcess).toBeUndefined()
+})

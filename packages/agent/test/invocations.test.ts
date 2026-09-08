@@ -3807,6 +3807,31 @@ describe("Agent Invocations", () => {
     expect(text).toBe(quotedStart ? 'PASSWORD="[REDACTED]";status=ok' : "PASSWORD=[REDACTED];status=ok")
   })
 
+  it.each(["<", ">"].flatMap(marker => [false, true].map(substitution => ({ marker, substitution }))))
+  ("preserves split process markers in bounded journals: %j", async ({ marker, substitution }) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxStringLength: 128 }, store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const chunks = [`PASSWORD=${"private".repeat(100)}${marker}`, "", substitution ? "(cat private-file);status=ok" : "public-file;status=ok"]
+        for (const value of chunks) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-process-marker"), {})
+    const observations = (await invocations.getByRunId("split-process-marker"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`PASSWORD=[REDACTED]${substitution ? "" : `${marker}public-file`};status=ok`)
+  })
+
   it.each([["$(", ")"], ["`", "`"]])("redacts shell substitutions across bounded chunks: %s", async (open, close) => {
     const invocations = defineAgentInvocations({
       content: "content",

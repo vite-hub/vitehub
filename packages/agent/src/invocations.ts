@@ -1433,7 +1433,7 @@ function journalTraceLog(
         }
         if (boundary === content.length) return
         redactingCredentialDeltas.delete(key)
-        content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? "" : "") + content.slice(boundary)
+        content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? redaction.state.shellProcess ?? "" : "") + content.slice(boundary)
         entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
       }
       else {
