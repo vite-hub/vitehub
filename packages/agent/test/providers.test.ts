@@ -8940,7 +8940,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("steers an active queued webhook invocation once and queues when control rejects or closes", async () => {
+  it.each([true, false])("steers an active queued webhook invocation once and quarantines ambiguous input (completion succeeds: %s)", async (completionSucceeds) => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { agentInvocationControlId, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -9112,10 +9112,12 @@ describe("server helpers", () => {
 
       ambiguousSteer = true
       const retriesBeforeAmbiguous = retryDelivery.mock.calls.length
+      if (!completionSucceeds) completeDelivery.mockResolvedValueOnce(false)
       const ambiguous = await handler(request("delivery-ambiguous"), "github", options)
       await expect(ambiguous.json()).resolves.toEqual({ accepted: false, ok: false, outcome: "invalid-state" })
       expect(completeDelivery).toHaveBeenCalledWith("webhook:review:github:github:", "delivery-ambiguous", expect.any(String))
-      await expect(completeDelivery.mock.results.at(-1)?.value).resolves.toBe(true)
+      await expect(completeDelivery.mock.results.at(-1)?.value).resolves.toBe(completionSucceeds)
+      await expect(state.get("webhook:review:github:github:steer:delivery-ambiguous")).resolves.toBe("invalid-state")
       ambiguousSteer = false
       const ambiguousReplay = await handler(request("delivery-ambiguous"), "github", options)
       await expect(ambiguousReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: false, outcome: "invalid-state" })
@@ -9191,6 +9193,10 @@ describe("server helpers", () => {
       releases.shift()!()
       await withDeadline(runCompleted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not finish.")
       expect(completedRuns).toBe(5)
+      if (!completionSucceeds) {
+        await vi.waitFor(() => expect(completeDelivery.mock.calls.filter(([, id]) => id === "delivery-ambiguous")).toHaveLength(2))
+      }
+      expect(run.mock.calls.some(([context]) => context.run?.runId === "delivery-ambiguous")).toBe(false)
     } finally {
       const stopping = stop()
       releaseSteer()

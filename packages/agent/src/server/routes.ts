@@ -1163,14 +1163,10 @@ async function steerQueuedWebhookDelivery(
           invalidState = result.outcome === "invalid-state"
         } catch {}
         if (invalidState) {
-          let completed = false
           try {
-            completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
-            if (completed) await state.set(claimKey, "invalid-state")
-            else {
-              await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
-              await state.delete(claimKey)
-            }
+            // Preserve the no-resubmission decision even if another worker owns the delivery now.
+            await state.set(claimKey, "invalid-state")
+            await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
           } finally {
             stopDeliveryHeartbeat()
           }
@@ -1366,6 +1362,17 @@ async function executeQueuedWebhookDelivery(
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
 ): Promise<number | undefined> {
+  const steeringClaim = await state.get(webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId))
+  if (steeringClaim === "invalid-state" || steeringClaim === "steered") {
+    await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
+    return
+  }
+  if (steeringClaim === "steering") {
+    // An expired lease does not prove that provider submission failed.
+    const retryAt = Date.now() + defaultWebhookQueueRetryMs
+    await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt, { incrementAttempts: false })
+    return retryAt
+  }
   if (delivery.attempts >= maxWebhookQueueAttempts) {
     const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
     if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
