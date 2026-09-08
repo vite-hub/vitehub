@@ -380,11 +380,19 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { rm } = await import("node:fs/promises")
+    const { rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
+    }).catch(async (error: NodeJS.ErrnoException) => {
+      // Node's rm rejects even empty directories without recursive mode.
+      // rmdir preserves the Store's non-recursive, empty-directory contract.
+      if (error.code === "ERR_FS_EISDIR" && !options.recursive) {
+        await rmdir(resolveInside(this.root, path))
+        return
+      }
+      throw error
     }).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" && options.force) return
       throw error

@@ -107,6 +107,7 @@ async function waitForWorkspaceSync(pending: Promise<void>, signal?: AbortSignal
 export interface UseWorkspaceOptions {
   definition?: WorkspaceDefinition
   mode?: "read" | "write"
+  refresh?: boolean
 }
 
 export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
@@ -234,11 +235,11 @@ async function materializeWorkspaceSources(workspace: Workspace, options?: Works
   return await workspace.materializeSources(options)
 }
 
-function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition): Workspace {
+function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition, options: { reuseStartupSnapshots?: boolean } = {}): Workspace {
   let workspacePromise: Promise<Workspace> | undefined
 
   async function resolveWorkspace() {
-    workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition)) : useRegisteredWorkspace(name)
+    workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition, options)) : useRegisteredWorkspace(name, options)
     return await workspacePromise
   }
 
@@ -594,7 +595,7 @@ function emptyTools(): ToolSet {
 }
 
 export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "read" }): ReadonlyWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode?: "read" }): ReadonlyWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "write" }): WritableWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
   if (options?.mode === "write") {
@@ -644,7 +645,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     } as WritableWorkspaceFacade<Name> & WorkspaceStoreTargetCarrier
   }
 
-  const workspace = createLazyWorkspace(name, options?.definition)
+  const workspace = createLazyWorkspace(name, options?.definition, { reuseStartupSnapshots: options?.refresh === false })
   const fs = createReadonlyFs(name, workspace)
   const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: opts?.broadSearchPaths,

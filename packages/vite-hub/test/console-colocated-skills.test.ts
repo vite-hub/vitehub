@@ -25,8 +25,8 @@ it("loads colocated Skills into the production Console definition", async () => 
     execute(() => {}, () => {}, install, agentWithColocatedSkills, { default: definition })
     const installed = install.mock.calls[0]?.[0]?.[0]?.definition
     expect(installed?.[Symbol.for("vitehub.agent.colocatedSkills")]).toMatchObject({
-      "__vitehubAgentSkill:skills/review/SKILL.md": { content: new TextEncoder().encode("# Review\n"), workspacePath: "skills/review/SKILL.md" },
-      "__vitehubAgentSkill:skills/review/references/evidence.md": { content: new TextEncoder().encode("Use the mounted evidence.\n"), workspacePath: "skills/review/references/evidence.md" },
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md": { content: new TextEncoder().encode("# Review\n"), materialize: "startup", workspacePath: ".agents/skills/review/SKILL.md" },
+      "__vitehubAgentSkill:.agents/skills/review/references/evidence.md": { content: new TextEncoder().encode("Use the mounted evidence.\n"), materialize: "startup", workspacePath: ".agents/skills/review/references/evidence.md" },
     })
   }
   finally {

@@ -34,6 +34,7 @@ import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-cap
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
+import { colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -81,6 +82,7 @@ import type {
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
   WorkspaceRules,
+  WorkspaceSourceInput,
   WorkspaceSourceMaterializationStatus,
 } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -266,9 +268,15 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
-  const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
-    : { ...ownedWorkspace.sources }
+  // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
+  const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
+  const sources: Record<string, WorkspaceSourceInput> = {
+    ...colocatedSkills,
+    ...ownedWorkspace.sources,
+  }
+  if (colocatedInstructions && !Object.hasOwn(sources, "__vitehubAgentInstructions")) {
+    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
+  }
   const workspaceOptions = {
     ...options,
     workspace: {

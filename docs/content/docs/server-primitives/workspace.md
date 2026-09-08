@@ -293,6 +293,16 @@ export default defineEventHandler(async (event) => {
 
 `useWorkspace(name)` returns read access. `useWorkspace(name, { mode: 'write' })` returns write access.
 
+For read-only inspection of an existing Workspace, pass `refresh: false`:
+
+```ts
+const workspace = useWorkspace('docs', { refresh: false })
+```
+
+This reuses current persisted snapshots of Sources with `materialize: 'startup'`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior.
+
+`refresh: false` applies only to read mode. It does not disable refreshes for other Sources or change explicit `sync()` and `materializeSources()` calls on a writable facade. Write mode keeps normal refresh behavior.
+
 | Surface | Methods |
 | --- | --- |
 | `workspace.fs` read mode | `readFile`, `stat`, `exists`, `list`, `glob`, `search` |

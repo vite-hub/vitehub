@@ -13,7 +13,7 @@ import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/depl
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 
 import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCloudflareWorkflowName } from "../src/integrations/cloudflare.ts"
-import { cleanVercelNativeWorkflowOutput, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
+import { cleanVercelNativeWorkflowOutput, createWorkflowRegistryContents, discoverWorkflowProviderSourcePaths, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, installEmailDefinitionInVercelWorkflowOutput, writeProviderEntries } from "../src/internal/vite-build.ts"
 
 const workflowBackupRetirement = vi.hoisted<{
   attempts: number
@@ -81,6 +81,22 @@ async function writeViteHubWorkflowOwnership(workflowRoot: string, files: string
   }
   await writeFile(join(workflowRoot, ".vitehub-owned"), `${JSON.stringify(ownership)}\n`)
 }
+
+it("attaches startup Skills before deriving the generated Agent Workflow workspace", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-startup-skills-")
+  const agentRoot = join(rootDir, "server", "agents", "review")
+  const handler = join(agentRoot, "agent.ts")
+  await mkdir(join(agentRoot, "skills", "review"), { recursive: true })
+  await writeFile(handler, "export default {}\n")
+  await writeFile(join(agentRoot, "skills", "review", "SKILL.md"), "# Review\n")
+
+  const registry = createWorkflowRegistryContents(join(rootDir, "registry.mjs"), [
+    { handler, name: "review", source: "agent-workflow" },
+  ])
+
+  expect(registry).toContain("workspaceAgentWithSourceRoot(agentWithColocatedSkills(agentWithColocatedInstructions(")
+  expect(registry).toContain('"__vitehubAgentSkill:.agents/skills/review/SKILL.md":{"content":"IyBSZXZpZXcK","encoding":"base64","materialize":"startup","mount":"","workspacePath":".agents/skills/review/SKILL.md"}')
+})
 
 it("detects user-authored native Vercel workflow entries", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-entry-")
@@ -1232,7 +1248,8 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("workspaceAgentWithSourceRoot")
     expect(registry).toContain("agentWithColocatedSkills")
     expect(registry).toContain('agentWithColocatedInstructions("default" in loaded ? loaded.default : loaded, "Use flat Agent instructions.\\n")')
-    expect(registry).toContain("__vitehubAgentSkill:skills/review/SKILL.md")
+    expect(registry).toContain("workspaceAgentWithSourceRoot(agentWithColocatedSkills(agentWithColocatedInstructions(")
+    expect(registry).toContain("__vitehubAgentSkill:.agents/skills/review/SKILL.md")
     expect(registry).toContain("/.vitehub/workflow/sources/")
     expect(registry).toContain("/server/agents/nuxt/workspace")
     expect(registry).not.toContain(JSON.stringify(join(agentDir, "workspace")))
