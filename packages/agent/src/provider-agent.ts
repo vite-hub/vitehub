@@ -1,4 +1,4 @@
-import { providerCallbackMetadata } from "./internal/provider-callback-metadata.ts"
+import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
@@ -27,7 +27,7 @@ import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
-import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
@@ -1988,7 +1988,13 @@ async function* runProvider<
   const effectiveSignal = context.input.abortSignal && timeoutSignal
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
     : context.input.abortSignal || timeoutSignal
-  context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+  if (effectiveSignal !== context.input.abortSignal) {
+    const wrapped = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+    if (isAuxiliaryAgentAdapterContext(context)) markAuxiliaryMessageChannelInstructionContext(wrapped)
+    const metadata = providerCallbackMetadata(context)
+    if (metadata) withProviderCallbackMetadata(wrapped, metadata)
+    context = wrapped
+  }
   effectiveSignal?.throwIfAborted()
   if (options.provider === "codex") {
     await waitForProviderOperation(runCodexCredentialHomeScavenger(), effectiveSignal)

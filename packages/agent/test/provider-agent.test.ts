@@ -152,7 +152,7 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
-  it("forwards parent Workspace metadata to auxiliary resolvers without mounting it", async () => {
+  it.each([undefined, 30_000])("forwards parent Workspace metadata without mounting it (timeout: %s)", async (timeout) => {
     const threadId = "title-parent-metadata"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const workspace = { fs: {}, startSession: vi.fn(), tools: {} }
@@ -162,7 +162,9 @@ describe("Provider Agent Driver", () => {
       return { TITLE_METADATA: "available" }
     })
     const adapter = createProviderAgentAdapter({ provider: "codex", env })
-    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId, {
+      input: { prompt: "hello", timeout, abortSignal: new AbortController().signal },
+    }))
     // SAFETY: The fixture provides the Workspace metadata used by the resolver.
     withProviderCallbackMetadata(auxiliary, { workspace, fs: workspace.fs } as never)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
