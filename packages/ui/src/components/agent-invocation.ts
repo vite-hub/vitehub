@@ -1461,13 +1461,7 @@ function renderInvocationActivities(
   }
   if (firstUser < 0) return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect, messageRendering);
 
-  const invocationTitle = invocation.title?.trim();
-  const history = orderedActivities.slice(0, firstUser).filter(isVisibleMessage).filter(activity => !(
-    invocationTitle
-    && activity.role === "assistant"
-    && activity.name !== "agent.input.message"
-    && activity.body?.trim() === invocationTitle
-  ));
+  const history = orderedActivities.slice(0, firstUser).filter(isVisibleMessage);
   const workBeforePrompt = orderedActivities.slice(0, firstUser).filter(activity => activity.kind !== "message");
   const prompt = orderedActivities[firstUser]!;
   const tail = orderedActivities.slice(firstUser + 1);

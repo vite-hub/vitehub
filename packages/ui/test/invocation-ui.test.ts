@@ -2504,6 +2504,30 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("preserves assistant history matching the session title while omitting title observations", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "title-matching-history",
+      title: "Done",
+      observations: [
+        { attributes: { "message.id": "earlier-answer", "message.content": "Done", "message.role": "assistant" }, name: "agent.message", sequence: 1, timestamp, type: "lifecycle" },
+        { attributes: { "message.content": "Done", "message.role": "assistant" }, name: "agent.title.recorded", sequence: 2, timestamp, type: "lifecycle" },
+        { attributes: { "message.id": "prompt", "message.content": "Check again", "message.role": "user" }, name: "agent.message", sequence: 3, timestamp, type: "lifecycle" },
+        { attributes: { "message.id": "answer", "message.content": "Checked again", "message.role": "assistant" }, name: "agent.message", sequence: 4, timestamp, type: "lifecycle" },
+      ],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const history = wrapper.findAll(".vh-invocation-history__messages .vh-invocation-message");
+    expect(history).toHaveLength(1);
+    expect(history[0]!.text()).toContain("Done");
+    expect(wrapper.findAll('[role="log"] .vh-invocation-message')).toHaveLength(3);
+    wrapper.unmount();
+  });
+
   it("preserves distinct assistant turns with identical text after a steer", async () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const invocation: AgentInvocationView = {
