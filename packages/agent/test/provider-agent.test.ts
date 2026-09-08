@@ -2883,7 +2883,50 @@ cli_auth_credentials_store = "keyring"
     expect(kinds.filter(kind => kind === "input.steered")).toHaveLength(1)
   })
 
-  it.each(["messages", "prompt"] as const)("falls back before submitting live steering with attachments in %s", async (inputField) => {
+  it("fails without a finish event when steering outlives the terminal drain", async () => {
+    const threadId = "thread-steering-drain-timeout"
+    let releaseTerminal!: () => void
+    let releaseSteering!: () => void
+    const terminal = new Promise<void>(resolve => { releaseTerminal = resolve })
+    const steering = new Promise<void>(resolve => { releaseSteering = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { beforeEvent: () => terminal })
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const output: StreamEvent[] = []
+    const result = (async () => {
+      const stream = await createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never)
+      // SAFETY: The provider adapter returns its normalized StreamEvent iterator.
+      for await (const item of stream as AsyncIterable<StreamEvent>) output.push(item)
+    })()
+    const failed = expect(result).rejects.toThrow("steering submission cleanup timed out")
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
+    provider.sendTurn.mockImplementationOnce(async () => {
+      await steering
+      return { resumeCursor: undefined, threadId, turnId: "turn-1" }
+    })
+    const submitted = sendAgentInvocationInput(invocationId, { prompt: "late follow-up" }, { mode: "steer" })
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledTimes(2))
+    vi.useFakeTimers()
+    try {
+      releaseTerminal()
+      await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).not.toBe(true))
+      await vi.advanceTimersByTimeAsync(10_000)
+      await failed
+      releaseSteering()
+      await expect(submitted).resolves.toBe("invalid-state")
+      expect(output.some(item => item.type === "finish")).toBe(false)
+      expect(JSON.stringify(output)).not.toContain("input.steered")
+      expect(provider.close).toHaveBeenCalledOnce()
+    } finally {
+      releaseSteering()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each(["messages", "prompt", "message"] as const)("falls back before submitting live steering with non-text parts in %s", async (inputField) => {
     const threadId = "thread-steer-attachment"
     let releaseTurn!: () => void
     const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
@@ -2898,12 +2941,18 @@ cli_auth_credentials_store = "keyring"
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
     try {
-      await expect(sendAgentInvocationInput(invocationId, {
-        [inputField]: [{ id: "message-steer-attachment", role: "user", parts: [
-          { type: "text", text: "inspect this image" },
-          { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
-        ] }],
-      }, { mode: "steer" })).resolves.toBe("unsupported")
+      for (const part of [
+        { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
+        { type: "data-selection", data: { value: "selected" } },
+        { type: "source", title: "Notes", url: "https://example.com/notes" },
+      ]) {
+        const message = { id: "message-steer-non-text", role: "user", parts: [
+          { type: "text", text: "inspect this input" }, part,
+        ] }
+        await expect(sendAgentInvocationInput(invocationId, {
+          [inputField]: inputField === "message" ? message : [message],
+        }, { mode: "steer" })).resolves.toBe("unsupported")
+      }
       expect(provider.sendTurn).toHaveBeenCalledTimes(1)
       expect(fetchData).not.toHaveBeenCalled()
     } finally {

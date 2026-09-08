@@ -1957,6 +1957,7 @@ async function* runProvider<
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
   const pendingSteering = new Set<Promise<void>>()
+  let steeringEvidenceClosed = false
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
   const capabilityApprovalIds = new Set<string>()
   let notifyToolEvent: (() => void) | undefined
@@ -2300,7 +2301,7 @@ async function* runProvider<
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
             const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
-            if (messages.some(message => message.parts.some(isAttachmentPart))) return "unsupported"
+            if (messages.some(message => message.parts.some(part => part.type !== "text"))) return "unsupported"
             const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
             if (!text.trim()) return "unsupported"
             let resolveSteering!: () => void
@@ -2312,6 +2313,7 @@ async function* runProvider<
                 await activeRuntime.interruptTurn(threadId, steeredTurn.turnId)
                 return "unsupported"
               }
+              if (steeringEvidenceClosed) return "invalid-state"
               emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
               emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
               return "accepted"
@@ -2405,19 +2407,24 @@ async function* runProvider<
         })
         const drained = await Promise.race([steeringDrain.then(() => "drained" as const), drainTimeout, aborted])
         if (timeout) clearTimeout(timeout)
+        steeringEvidenceClosed = true
         if (drained === "timeout") {
           caught = agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver steering submission cleanup timed out." })
         }
         if (!caught) completed = true
       }
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
-      for (const event of normalized) yield event
+      for (const event of normalized) {
+        if (caught && event.type === "finish") continue
+        yield event
+      }
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
       nextEvent = events.next()
     }
   }
   catch (error) {
+    steeringEvidenceClosed = true
     const launchFailure = await providerLaunchFailure(
       providerLaunchDiagnosticPath,
       providerRuntimeEnvironment,
@@ -2428,6 +2435,7 @@ async function* runProvider<
     throw caught
   }
   finally {
+    steeringEvidenceClosed = true
     unregister?.()
     clearActiveWorkspaceCommands?.()
     clearActiveWorkspaceFiles?.()
