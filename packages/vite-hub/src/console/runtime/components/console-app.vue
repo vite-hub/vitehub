@@ -23,7 +23,7 @@ import {
   encodeAgentRouteParam,
   resolveConsoleRouteName,
 } from "../console-route";
-import { requestConsole } from "../client/request";
+import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
 import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
@@ -997,7 +997,7 @@ onBeforeUnmount(() => {
           </UPopover>
         </div>
         <div
-          v-if="!connectionUnavailable && errorMessage(list.error.value || list.loadMoreError.value)"
+          v-if="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
           class="px-3"
         >
           <UAlert
@@ -1005,9 +1005,9 @@ onBeforeUnmount(() => {
             variant="subtle"
             icon="i-ph-cloud-slash-light"
             title="Could not load sessions"
-            :description="errorMessage(list.error.value || list.loadMoreError.value)"
+            :description="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
             :actions="
-              list.error.value
+              !connectionUnavailable && list.error.value
                 ? [
                     {
                       label: 'Try again',

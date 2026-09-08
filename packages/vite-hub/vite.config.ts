@@ -85,6 +85,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-connection-state.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-connection.ts",
         to: "dist/console/runtime/components",
       },

@@ -414,7 +414,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
-    expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
+    expect(consoleSessionNavbar).toContain('v-if="externalTarget.github"');
+    expect(consoleSessionNavbar).toContain('fill="currentColor"');
     expect(consoleSessionNavbar).toContain('label: "Open on GitHub"');
     expect(consolePage).toMatch(/scrollbar-width: none;/);
     expect(consolePage).toMatch(/::-webkit-scrollbar[\s\S]*?display: none;/);
