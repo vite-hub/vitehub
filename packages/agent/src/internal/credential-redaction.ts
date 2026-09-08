@@ -2,11 +2,12 @@
 const uppercaseCredentialKeys = [
   "APIKEY", "ACCESSKEY", "PRIVATEKEY", "SECRETKEY", "PUBLICKEY",
   "ACCESSTOKEN", "AUTHTOKEN", "REFRESHTOKEN", "CLIENTSECRET", "SESSIONTOKEN",
+  "X-API-KEY", "X-ACCESS-TOKEN",
 ]
 
 function isCredentialKey(key: string): boolean {
   return uppercaseCredentialKeys.includes(key.toUpperCase())
-    || /(?:^|_)(?:key|secret|token|password)$/i.test(key)
+    || /(?:^|[_-])(?:key|secret|token|password)$/i.test(key)
     || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
 }
 
@@ -42,10 +43,10 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
   return pendingAuthorizationHeader(value)
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[A-Za-z]*$/i.exec(tail)?.[0]
-    ?? /["']?\b[A-Za-z][A-Za-z0-9_]*["']?\s*$/.exec(tail)?.[0]
+    ?? /["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_])(["']?((?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?\s*[:=]\s*)`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])(["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?\s*[:=]\s*)`
 
 export function redactCredentialText(value: string): string {
   return value
@@ -72,10 +73,10 @@ export function credentialTextMayContinue(value: string): boolean {
   if (pendingCredentialScheme(value)) return true
   if (pendingCredentialAssignment(value)) return true
   const tail = value.slice(-128)
-  const trailingWord = /\b([A-Za-z][A-Za-z0-9_]*)["']?\s*$/.exec(tail)?.[1]
+  const trailingWord = /\b([A-Za-z][A-Za-z0-9_-]*)["']?\s*$/.exec(tail)?.[1]
   if (!trailingWord) return false
   const normalized = trailingWord.toUpperCase()
-  const finalSegment = trailingWord.split(/_|(?<=[a-z0-9])(?=[A-Z])/).at(-1)?.toUpperCase() ?? ""
+  const finalSegment = trailingWord.split(/[_-]|(?<=[a-z0-9])(?=[A-Z])/).at(-1)?.toUpperCase() ?? ""
   return isCredentialKey(trailingWord)
     || uppercaseCredentialKeys.some(key => key.startsWith(normalized))
     || ["BEARER", "BASIC"].some(marker => marker.startsWith(normalized))

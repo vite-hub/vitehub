@@ -157,3 +157,15 @@ it("recognizes a quoted credential key after its opening quote was flushed", () 
   expect(pendingCredentialAssignment('password":')).toBe("assignment")
   expect(pendingCredentialQuote('password":"sensitive')).toBe('"')
 })
+
+it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY"])("redacts hyphenated %s credentials and retains every name prefix", (key) => {
+  expect(redactCredentialText(`${key}: sensitive-value;status=ok`)).toBe(`${key}: [REDACTED];status=ok`)
+  expect(redactCredentialText(`"${key}":"sensitive-value"`)).toBe(`"${key}":"[REDACTED]"`)
+  expect(pendingCredentialAssignment(`${key}: sensitive`)).toBe("unquoted")
+  expect(pendingCredentialQuote(`"${key}":"sensitive`)).toBe('"')
+  for (let split = 1; split <= key.length; split++) {
+    const prefix = key.slice(0, split)
+    expect(credentialTextMayContinue(`${".".repeat(512)}${prefix}`)).toBe(true)
+    expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
+  }
+})
