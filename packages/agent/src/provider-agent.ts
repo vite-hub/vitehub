@@ -1785,7 +1785,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const usedTokens = usage.usedTokens ?? usage.lastUsedTokens
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
-  const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
+  const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
+  const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? partitionTotal
+  const includePartition = usage.totalProcessedTokens === undefined || partitionTotal === usage.totalProcessedTokens
   return {
     type: "usage",
     usageRecord: {
@@ -1793,12 +1795,12 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       raw: usage,
       usage: {
         details: {
-          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(!includePartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(!includePartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
           ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
-        inputTokens,
-        outputTokens,
+        inputTokens: includePartition ? inputTokens : undefined,
+        outputTokens: includePartition ? outputTokens : undefined,
         totalTokens,
       },
     },

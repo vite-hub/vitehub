@@ -2049,21 +2049,23 @@ cli_auth_credentials_store = "keyring"
         raw: usage,
         usage: {
           details: {},
-          inputTokens: "inputTokens" in partition ? partition.inputTokens : undefined,
-          outputTokens: "lastOutputTokens" in partition ? partition.lastOutputTokens : undefined,
+          inputTokens: undefined,
+          outputTokens: undefined,
           totalTokens: 100,
         },
       },
     })
   })
 
-  it("preserves explicit last-response usage alongside a cumulative total", async () => {
+  it.each([
+    { inputTokens: 7, outputTokens: 5 },
+    { lastInputTokens: 7, lastOutputTokens: 5 },
+  ])("omits response partitions that differ from the cumulative total: %j", async (partition) => {
     const threadId = "thread-cumulative-usage"
     runtime(threadId, [
       event("thread.token-usage.updated", threadId, { usage: {
+        ...partition,
         cachedInputTokens: 2,
-        inputTokens: 7,
-        outputTokens: 5,
         reasoningOutputTokens: 3,
         toolUses: 1,
         totalProcessedTokens: 100,
@@ -2073,10 +2075,11 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
-    expect(events.find(item => item.type === "usage")).toMatchObject({
+    expect(events.find(item => item.type === "usage")).toEqual({
+      type: "usage",
       usageRecord: {
-        raw: { cachedInputTokens: 2, inputTokens: 7, outputTokens: 5, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
-        usage: { details: { cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1 }, inputTokens: 7, outputTokens: 5, totalTokens: 100 },
+        raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
+        usage: { details: { toolUses: 1 }, inputTokens: undefined, outputTokens: undefined, totalTokens: 100 },
       },
     })
   })
