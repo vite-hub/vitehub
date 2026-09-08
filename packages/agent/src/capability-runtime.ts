@@ -623,6 +623,8 @@ async function sourceConflictPaths(source: { key: string, mountPath: string, pro
 async function workspaceSourcePathExists(
   workspace: ReadonlyWorkspaceFacade,
   source: { key: string, mountPath: string, probePaths?: string[], source?: WorkspaceSource },
+  retainedPaths: ReadonlyMap<string, string> = new Map(),
+  desiredWorkspace?: ReadonlyWorkspaceFacade,
 ): Promise<boolean> {
   for (const path of await sourceConflictPaths(source)) {
     for (const parent of parentPaths(path)) {
@@ -633,7 +635,17 @@ async function workspaceSourcePathExists(
       }
       catch {}
     }
-    if (await workspacePathExists(workspace, path)) return true
+    if (await workspacePathExists(workspace, path)) {
+      const owner = retainedPaths.get(path)
+      const metadata = owner ? (await workspace.fs.stat(path as never)).metadata?.capabilityWorkspaceContribution : undefined
+      if (owner && isRuntimeRecord(metadata) && metadata.capabilityId === owner && metadata.path === path) continue
+      if (owner && metadata === undefined && desiredWorkspace) {
+        const current = await workspace.fs.readFile(path as never, { encoding: "binary" })
+        const desired = await desiredWorkspace.fs.readFile(path as never, { encoding: "binary" })
+        if (await capabilityContributionDigest(current) === await capabilityContributionDigest(desired)) continue
+      }
+      return true
+    }
   }
   return false
 }
@@ -650,6 +662,8 @@ async function assertResolvedWorkspaceContributionSources(
   selectedWorkspaceScope: WorkspaceSelectedScope | undefined,
   workspace: ReadonlyWorkspaceFacade,
   runtime: WorkspaceContributionRuntime,
+  persistencePaths: readonly { capabilityId: string, path: string }[] = [],
+  desiredWorkspace?: ReadonlyWorkspaceFacade,
 ) {
   const contributed = new Map<string, string>()
   for (const contribution of registries) {
@@ -671,7 +685,8 @@ async function assertResolvedWorkspaceContributionSources(
         throw agentDiagnostics.AGENT_R0330({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with ${label} "${existingKey}" at mount "${contributedSource.mountPath || "."}".` })
       }
     }
-    if (!contributedSource.requestOnly && await workspaceSourcePathExists(workspace, contributedSource)) {
+    const retainedPaths = new Map(persistencePaths.filter(item => item.capabilityId === capabilityId).map(item => [item.path, item.capabilityId]))
+    if (!contributedSource.requestOnly && await workspaceSourcePathExists(workspace, contributedSource, retainedPaths, desiredWorkspace)) {
       throw agentDiagnostics.AGENT_R0331({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace path at mount "${contributedSource.mountPath}".` })
     }
   }
@@ -807,6 +822,11 @@ function withInvocationReadableSources(sources: Record<string, WorkspaceSourceIn
   return Object.fromEntries(Object.entries(sources).map(([key, source]) => [key, withInvocationReadableSource(source)]))
 }
 
+async function capabilityContributionDigest(content: string | Uint8Array): Promise<string> {
+  const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("")
+}
+
 async function applyCapabilityWorkspaceContributions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -816,6 +836,7 @@ async function applyCapabilityWorkspaceContributions<
     workspace: ReadonlyWorkspaceFacade<Name>
     workspaceDefinition: WorkspaceDefinition
     workspaceMaterializationPaths?: readonly string[]
+    workspacePersistencePaths?: readonly { capabilityId: string, path: string }[]
   },
   workspaceMode: AgentCapabilityMode,
   baseWorkspace: ReadonlyWorkspaceFacade<Name>,
@@ -883,7 +904,51 @@ async function applyCapabilityWorkspaceContributions<
     selectedWorkspaceScope,
     baseWorkspace,
     workspaceRuntime,
+    context.workspacePersistencePaths,
+    sourceResolution.workspace,
   )
+  const persistencePaths = context.workspacePersistencePaths || []
+  const retainedWorkspace = baseWorkspace as ReadonlyWorkspaceFacade<Name> & {
+    fs: ReadonlyWorkspaceFacade<Name>["fs"] & {
+      writeFile(path: string, content: string | Uint8Array, options?: { mediaType?: string, metadata?: Record<string, unknown> }): Promise<string>
+    }
+  }
+  if (persistencePaths.length && typeof retainedWorkspace.fs.writeFile === "function") {
+    await Promise.all(persistencePaths.map(({ path }) => sourceResolution.workspace.fs.materializeSources?.({ path })))
+    const pending: Array<{ capabilityId: string, path: string }> = []
+    const desired = new Map<string, { content: string | Uint8Array, digest: string }>()
+    for (const item of persistencePaths) {
+      if (!await sourceResolution.workspace.fs.exists(item.path)) continue
+      const content = await sourceResolution.workspace.fs.readFile(item.path, { encoding: "binary" })
+      const digest = await capabilityContributionDigest(content)
+      desired.set(item.path, { content, digest })
+      if (!await baseWorkspace.fs.exists(item.path as never)) {
+        pending.push(item)
+        continue
+      }
+      const current = await baseWorkspace.fs.readFile(item.path as never, { encoding: "binary" })
+      const metadata = (await baseWorkspace.fs.stat(item.path as never)).metadata?.capabilityWorkspaceContribution
+      if (metadata === undefined && await capabilityContributionDigest(current) === digest) {
+        pending.push(item)
+        continue
+      }
+      if (isRuntimeRecord(metadata)
+        && metadata.capabilityId === item.capabilityId
+        && typeof metadata.digest === "string"
+        && await capabilityContributionDigest(current) === metadata.digest
+        && metadata.digest !== digest) pending.push(item)
+    }
+    if (pending.length) {
+      for (const { capabilityId, path } of pending) {
+        const stat = await sourceResolution.workspace.fs.stat(path)
+        const { content, digest } = desired.get(path)!
+        await retainedWorkspace.fs.writeFile(path, content, {
+          mediaType: stat.mediaType,
+          metadata: { ...stat.metadata, capabilityWorkspaceContribution: { capabilityId, digest, path } },
+        })
+      }
+    }
+  }
   return {
     definition: sourceResolution.definition,
     registries,
@@ -955,6 +1020,13 @@ export async function resolveAgentCapabilities<
           ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
         ],
       ))
+    : []
+  const workspacePersistencePaths = driverKind === "provider"
+    ? capabilities.flatMap(capability =>
+        ((capability as InternalAgentCapabilityDefinition)[workspaceMaterializationPathsSymbol] || [])
+          .filter(path => /^\.agents\/skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/.test(path))
+          .map(path => ({ capabilityId: capability.id, path })),
+      )
     : []
   let currentInput = normalizeRunInput(input)
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
@@ -1058,6 +1130,7 @@ export async function resolveAgentCapabilities<
       workspace: currentWorkspace,
       workspaceDefinition: currentWorkspaceDefinition,
       workspaceMaterializationPaths,
+      workspacePersistencePaths,
     }, workspaceMode, workspace || currentWorkspace, invocationOptions.workspaceDefinition)
     if (workspaceContribution) {
       currentWorkspace = hasTrustedWorkspaceAccessScope(invocationContext)

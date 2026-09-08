@@ -60,7 +60,7 @@ import {
 
 | Ability | Capability | Use it when |
 | --- | --- | --- |
-| Browser automation | [`browser()`](/docs/capabilities/browser) | A Provider Agent needs headless browser guidance and the `agent-browser` CLI is installed. |
+| Browser automation | [`browser()`](/docs/capabilities/browser) | A Provider Agent needs a managed headless browser, browser guidance, and screenshot delivery. |
 | Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | Inspect or edit Workspace files, or run configured Workspace commands. |
 | Git source history | [`git()`](/docs/capabilities/git) | The Agent needs bounded Git source-history inspection or local Workspace Session git state selection. |
 | Skills file | [`skills()`](/docs/capabilities/skills) | The Agent requires a Workspace skill file at invocation time. |

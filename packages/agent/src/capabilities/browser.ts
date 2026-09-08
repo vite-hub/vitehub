@@ -4,18 +4,30 @@ import { readAgentWorkspaceDiff } from "../agent-workspace-runtime.ts"
 import { normalizeDeliveryArtifactPath } from "../delivery-artifacts.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { cloneWithPropertyDescriptors } from "../internal/stream-result.ts"
+import { browserRuntimeEnvironment, closeBrowserRuntimeSession, prepareBrowserRuntime, provideBrowserRuntimeEnvironment } from "../internal/browser-runtime.ts"
 
 import type { AgentCapabilityDefinition, AgentDeliveryArtifact } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface BrowserCapabilityOptions {
+  /** Executable name for an external browser runtime. Defaults to `agent-browser`. */
   command?: string
+  /** Managed installs a pinned local runtime; external expects the command to be ready in the provider environment. Defaults to managed for the default command. */
+  runtime?: "external" | "managed"
+  /** Skill content mounted for the provider. Managed mode defaults to the installed CLI's official discovery skill. */
   skillContent?: string
+  /** Workspace path for the browser skill. Defaults to `.agents/skills/agent-browser/SKILL.md`. */
   skillPath?: string
+  /** Workspace source key for the browser skill. Defaults to `skill.browser`. */
   sourceKey?: string
 }
 
-const defaultBrowserSkillContent = `# Browser
+const defaultBrowserSkillContent = `---
+name: agent-browser
+description: Browser automation through the agent-browser CLI. Use for website interaction, screenshots, extraction, and web app testing.
+---
+
+# Browser
 
 Use the \`agent-browser\` CLI through the provider's shell for headless browser work.
 
@@ -120,9 +132,12 @@ function attachBrowserScreenshots(
 
 export function browser(options: BrowserCapabilityOptions = {}): AgentCapabilityDefinition {
   const command = assertCommand(options.command || "agent-browser")
-  const skillPath = normalizeSkillPath(options.skillPath || "skills/browser/SKILL.md")
+  if (options.command !== undefined && options.runtime === "managed") {
+    throw agentDiagnostics.AGENT_R0025({ message: "[vitehub] browser({ runtime: \"managed\" }) owns the agent-browser command. Remove command or use runtime: \"external\" for a custom executable." })
+  }
+  const skillPath = normalizeSkillPath(options.skillPath || ".agents/skills/agent-browser/SKILL.md")
   const sourceKey = options.sourceKey || "skill.browser"
-  const skillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
+  let skillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
 
   return Object.assign(defineCapability({
     id: "browser",
@@ -133,10 +148,22 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
       }
     },
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
-    prepare(context) {
+    async prepare(context) {
       if (context.driver?.kind !== "provider") throw agentDiagnostics.AGENT_R0026({ message: "[vitehub] browser() requires a Provider Agent Driver." })
+      const managed = options.runtime === "managed" || (options.runtime === undefined && options.command === undefined)
+      if (!managed) return
+      const runtime = await prepareBrowserRuntime()
+      provideBrowserRuntimeEnvironment(context.context, Object.freeze({
+        ...runtime.environment,
+        AGENT_BROWSER_SESSION: `vh-${crypto.randomUUID().slice(0, 12)}`,
+      }))
+      if (options.skillContent === undefined) skillContent = runtime.skillContent
     },
-    workspace: {
+    async close(context) {
+      const environment = browserRuntimeEnvironment(context.context)
+      if (environment) await closeBrowserRuntimeSession(environment)
+    },
+    workspace: () => ({
       rules: {
         [`${screenshotRoot}/**`]: { commit: true, write: true },
       },
@@ -147,7 +174,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
           workspacePath: skillPath,
         },
       },
-    },
+    }),
   }), {
     [workspaceMaterializationPathsSymbol]: [skillPath],
   })

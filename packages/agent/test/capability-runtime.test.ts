@@ -1,6 +1,11 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
+import { defineWorkspace, useWorkspace } from "@vite-hub/workspace"
+import { registerWorkspace } from "@vite-hub/workspace/test"
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const runtime = () => ({
@@ -756,16 +761,22 @@ describe("agent capability runtime", () => {
     ])
   })
 
-  it("applies browser workspace source contributions", async () => {
+  it.each([false, true])("applies browser workspace source contributions with an identical existing skill: %s", async (existingSkill) => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
+    const workspaceName = `retained-browser-${crypto.randomUUID()}`
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-retained-browser-"))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    await workspace.fs.writeFile(".agents/skills/coding/SKILL.md", "# Coding\n")
+    if (existingSkill) await workspace.fs.writeFile(".agents/skills/agent-browser/SKILL.md", "# Browser\nUse bash.\n")
 
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser({ skillContent: "# Browser\nUse bash.\n" })],
-    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      capabilities: [browser({ runtime: "external", skillContent: "# Browser\nUse bash.\n" })],
+    }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider",
       workspaceDefinition: {
-        name: "review",
+        name: workspaceName,
         sources: {},
       },
     })
@@ -773,7 +784,7 @@ describe("agent capability runtime", () => {
     expect(resolved.workspaceDefinition?.sources?.["skill.browser"]).toMatchObject({
       materialize: "lazy",
       mediaType: "text/markdown",
-      workspacePath: "skills/browser/SKILL.md",
+      workspacePath: ".agents/skills/agent-browser/SKILL.md",
     })
     expect(resolved.tools).toBeUndefined()
     expect(resolved.registries.workspaceContributions).toEqual([
@@ -784,6 +795,26 @@ describe("agent capability runtime", () => {
       },
     ])
     expect(resolved.workspaceDefinition?.rules?.["screenshots/**"]).toEqual({ commit: true, write: true })
+    await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Browser\nUse bash.\n")
+    await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
+    expect((await workspace.fs.stat(".agents/skills/agent-browser/SKILL.md")).metadata?.capabilityWorkspaceContribution).toMatchObject({ capabilityId: "browser" })
+    await resolveAgentCapabilities({
+      capabilities: [browser({ runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
+    }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider",
+      workspaceDefinition: { name: workspaceName, sources: {} },
+    })
+    await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Browser\nUpdated guidance.\n")
+    await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
+    await workspace.fs.writeFile(".agents/skills/agent-browser/SKILL.md", "# Custom browser skill\n")
+    await expect(resolveAgentCapabilities({
+      capabilities: [browser({ runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
+    }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider",
+      workspaceDefinition: { name: workspaceName, sources: {} },
+    })).rejects.toThrow("conflicts with an existing Workspace path")
+    await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Custom browser skill\n")
+    await rm(workspaceRoot, { force: true, recursive: true })
   })
 
   it("does not mention Blob tools in the default browser skill", async () => {
@@ -791,7 +822,7 @@ describe("agent capability runtime", () => {
     const { browser } = await import("../src/capabilities.ts")
 
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser()],
+      capabilities: [browser({ runtime: "external" })],
     }, runtime(), {}, emptyWorkspace() as never, "write", {
       driverKind: "provider",
       workspaceDefinition: {
@@ -806,9 +837,15 @@ describe("agent capability runtime", () => {
     if (!source || typeof source !== "object") throw new Error("Expected browser skill source object.")
     const content = (source as { content?: unknown }).content
     expect(content).toContain("save screenshots inside that workspace directory")
+    expect(content).toContain("name: agent-browser")
     expect(content).toContain("![Description](screenshots/name.png)")
     expect(content).not.toContain("blob_edit")
     expect(content).not.toContain("Blob")
+  })
+
+  it("rejects a custom command for the managed browser runtime", async () => {
+    const { browser } = await import("../src/capabilities.ts")
+    expect(() => browser({ command: "custom-browser", runtime: "managed" })).toThrow('runtime: "external"')
   })
 
   it("attaches changed browser screenshots referenced by Provider final replies", async () => {
@@ -826,7 +863,7 @@ describe("agent capability runtime", () => {
       to: "next",
     })
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser()],
+      capabilities: [browser({ runtime: "external" })],
     }, {
       ...runtime(),
       driver: { kind: "provider" },
@@ -894,7 +931,7 @@ describe("agent capability runtime", () => {
     const { applyOutputRenderers, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser()],
+      capabilities: [browser({ runtime: "external" })],
     }, runtime(), {}, emptyWorkspace() as never, "write", {
       driverKind: "provider",
       workspaceDefinition: {

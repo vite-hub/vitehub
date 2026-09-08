@@ -71,6 +71,7 @@ import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocati
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
+import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
@@ -225,6 +226,44 @@ describe("Provider Agent Driver", () => {
     expect(lastRuntimeCall).toBeDefined()
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("VITEHUB_UNRELATED_SECRET")
     vi.unstubAllEnvs()
+  })
+
+  it("scopes managed browser environment to its invocation and preserves caller overrides", async () => {
+    const browserThread = "thread-browser-environment"
+    runtime(browserThread, [event("turn.completed", browserThread, { state: "completed" }, { turnId: "turn-1" })])
+    const browserContext = context(browserThread)
+    provideBrowserRuntimeEnvironment(browserContext.context as never, {
+      AGENT_BROWSER_EXECUTABLE_PATH: "/managed/chrome",
+      AGENT_BROWSER_SOCKET_DIR: "/managed/sockets",
+      PATH: "/managed/bin",
+    })
+    await createProviderAgentAdapter({
+      env: { AGENT_BROWSER_SOCKET_DIR: "/caller/sockets", PATH: "/caller/bin" },
+      provider: "codex",
+    }).generate(browserContext as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      AGENT_BROWSER_EXECUTABLE_PATH: "/managed/chrome",
+      AGENT_BROWSER_SOCKET_DIR: "/caller/sockets",
+      PATH: `/managed/bin${process.platform === "win32" ? ";" : ":"}/caller/bin`,
+    })
+
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain('allow_login_shell=false')
+
+    const cleanThread = "thread-without-browser-environment"
+    runtime(cleanThread, [event("turn.completed", cleanThread, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(cleanThread) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("AGENT_BROWSER_EXECUTABLE_PATH")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+  })
+
+  it("rejects managed browser environment with a custom or remote launcher", async () => {
+    const threadId = "thread-browser-remote-launch"
+    const runContext = context(threadId)
+    provideBrowserRuntimeEnvironment(runContext.context as never, { PATH: "/managed/bin" })
+    await expect(createProviderAgentAdapter({
+      launch: { command: "ssh", args: ["host"] },
+      provider: "codex",
+    }).generate(runContext as never)).rejects.toThrow('browser({ runtime: "external" })')
   })
 
   it.each([
@@ -3972,6 +4011,102 @@ cli_auth_credentials_store = "keyring"
     expect(session.diff).toHaveBeenCalledOnce()
     expect(session.commit).not.toHaveBeenCalled()
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("makes canonical and legacy Skill directories mutually readable without overwriting collisions", async () => {
+    const threadId = "thread-workspace-provider-skill-compatibility"
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        await expect(readFile(`${root}/.claude/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        await expect(readFile(`${root}/.agents/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
+        await expect(readFile(`${root}/.codex/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
+        await expect(readFile(`${root}/.codex/skills/collision/SKILL.md`, "utf8")).resolves.toBe("# Codex collision\n")
+        await expect(readFile(`${root}/.agents/skills/collision/SKILL.md`, "utf8")).resolves.toBe("# Canonical collision\n")
+        await rm(`${root}/.codex/skills/canonical`)
+        await mkdir(`${root}/.codex/skills/canonical`)
+        await writeFile(`${root}/.codex/skills/canonical/SKILL.md`, "# Provider replacement\n")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => {
+        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Provider replacement\n")
+        await expect(access(`${root}/.agents/skills/legacy`)).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(readFile(`${root}/.agents/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        await expect(readFile(`${root}/.claude/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
+        return { entries: [] }
+      }),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(`${root}/.agents/skills/canonical`, { recursive: true })
+        await mkdir(`${root}/.agents/skills/collision`, { recursive: true })
+        await mkdir(`${root}/.claude/skills/legacy`, { recursive: true })
+        await mkdir(`${root}/.codex/skills/collision`, { recursive: true })
+        await writeFile(`${root}/.agents/skills/canonical/SKILL.md`, "# Canonical\n")
+        await writeFile(`${root}/.agents/skills/collision/SKILL.md`, "# Canonical collision\n")
+        await writeFile(`${root}/.claude/skills/legacy/SKILL.md`, "# Legacy\n")
+        await writeFile(`${root}/.codex/skills/collision/SKILL.md`, "# Codex collision\n")
+        return session
+      }),
+      tools: {},
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceAutoCommit: true,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("does not discover Skills through a linked provider directory", async () => {
+    const threadId = "thread-workspace-linked-provider-skills"
+    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skills-"))
+    await mkdir(`${external}/skills/escaped`, { recursive: true })
+    await writeFile(`${external}/skills/escaped/SKILL.md`, "# External\n")
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        await expect(access(`${root}/.agents/skills/escaped`)).rejects.toMatchObject({ code: "ENOENT" })
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await symlink(external, `${root}/.claude`, "dir")
+        return session
+      }),
+      tools: {},
+    }
+
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId, { workspace }) as never)
+      await expect(readFile(`${external}/skills/escaped/SKILL.md`, "utf8")).resolves.toBe("# External\n")
+    }
+    finally {
+      await rm(external, { force: true, recursive: true })
+    }
   })
 
   it("rejects colocated Skill materialization through Workspace symlinks", async () => {
