@@ -273,6 +273,11 @@ export interface AgentEvlogHost {
 }
 
 export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { start(): void; stop(): Promise<void> }[] = []): (host: AgentEvlogHost) => void {
+  const statusCodeOf = (error: unknown) => {
+    if (!error || typeof error !== "object") return undefined
+    const value = (error as { statusCode?: unknown, status?: unknown }).statusCode ?? (error as { status?: unknown }).status
+    return typeof value === "number" && Number.isInteger(value) ? value : undefined
+  }
   return (host) => {
     host.hooks.hook("request", event => {
       event.req.context ||= {}
@@ -281,12 +286,19 @@ export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { st
     host.hooks.hook("evlog:drain", telemetry.drain)
     host.hooks.hook("error", (error, context) => {
       const request = context.event?.req
-      telemetry.exception(error, {
+      const status = statusCodeOf(error)
+      const properties = {
         operation: "http.request",
         method: request?.method,
         path: request ? new URL(request.url).pathname : undefined,
         request_id: request?.context?.requestId,
-      })
+        status_code: status,
+      }
+      // Client errors are expected request outcomes. Keep them visible as warning
+      // events without creating PostHog exception noise or fake failures.
+      if (status !== undefined && status >= 400 && status < 500) {
+        telemetry.event("http.request.failed", { ...properties, level: "warn" })
+      } else telemetry.exception(error, properties)
     })
     if (telemetry.status().configured) for (const reporter of reporters) reporter.start()
     host.hooks.hook("close", async () => {
