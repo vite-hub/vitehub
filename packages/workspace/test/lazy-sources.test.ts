@@ -465,6 +465,33 @@ describe("lazy sources", () => {
     await expect(store.stat(path("created"))).resolves.toBeUndefined()
   })
 
+  it.each(["", "docs"].flatMap(mount => [false, true].map(restart => ({ mount, restart }))))("preserves pre-existing child directories during refresh at mount $mount with restart $restart", async ({ mount, restart }) => {
+    const root = await createRoot()
+    const store = restart ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    await store.mkdir(path("kept"), { recursive: true })
+    const initial = {
+      name: "preexisting-startup-directories",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          mount,
+          files: [
+            { path: "kept/file.md", content: "generated" },
+            { path: "created/file.md", content: "generated" },
+          ],
+        }),
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await createWorkspaceSourceView({ name: initial.name, sources: { docs: custom({ materialize: "startup", mount, files: [] }) } }, restart ? createLocalWorkspaceStore(root) : store).materializeSources()
+
+    await expect(store.stat(path("kept"))).resolves.toMatchObject({ type: "directory" })
+    await expect(store.stat(path("kept/file.md"))).resolves.toBeUndefined()
+    await expect(store.stat(path("created"))).resolves.toBeUndefined()
+  })
+
   it.each(["", "docs"])("removes unchanged startup files after a local Store restart at mount %s", async (mount) => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)

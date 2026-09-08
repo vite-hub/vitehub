@@ -321,7 +321,7 @@ async function removeStaleMaterializedSourceFiles(
     if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || (Boolean(source.mountPath) && !overlapsAnotherSource)))) {
       for (const directory of parentDirectoryPaths(entry.path)) {
         if (sourceOwnsDirectory(source, directory)
-          && (directory !== source.mountPath || previousSnapshot?.ownsMount)) staleDirectories.add(directory)
+          && (directory === source.mountPath ? previousSnapshot?.ownsMount : previousSnapshot?.ownedDirectories?.includes(directory) || !store.getMeta || !store.setMeta)) staleDirectories.add(directory)
       }
       for (const candidate of sources) {
         if (candidate.key === source.key) continue
