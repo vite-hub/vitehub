@@ -4917,7 +4917,6 @@ async function handleChatSdkMessage(
           const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
           const activeRunId = active.runId
           // Once submitted, only the Driver can determine whether input was accepted.
-          let timedOut = false
           let timeoutEvidence: Promise<void> | undefined
           const submitted = (active.steering ?? Promise.resolve()).then(() => {
             if (!inlineKey || inlineChatTurns.get(inlineKey) !== active) return "unavailable" as const
@@ -4929,9 +4928,9 @@ async function handleChatSdkMessage(
           const submission = submitted.then(async (result) => {
             await timeoutEvidence
             if (result === "accepted") {
-              // A late authoritative result reconciles the failed wait with the real invocation.
-              if (timedOut) await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: activeRunId })
               await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: activeRunId })
+              // Track the active invocation, including acceptance after a failed wait.
+              await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: activeRunId })
               if (active.settleDelivery) await active.settleDelivery(delivery)
               else (active.steeredDeliveries ??= []).push(delivery)
             }
@@ -4945,7 +4944,6 @@ async function handleChatSdkMessage(
               submission,
               new Promise<"timed-out">((resolve) => {
                 steeringTimer = setTimeout(() => {
-                  timedOut = true
                   timeoutEvidence = recordChannelDeliveryEvidence(delivery, {
                     error: "Timed out waiting for steering confirmation; submission may still be accepted.",
                     type: "failed",

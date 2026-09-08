@@ -16531,6 +16531,7 @@ describe("server helpers", () => {
         const pending = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
         const followUpDelivery = pending.find(delivery => delivery.sourceId === "91107")
         expect(followUpDelivery).toBeDefined()
+        expect(followUpDelivery?.status).toBe("running")
         expect(followUpDelivery?.events.some(event => ["completed", "failed", "invocation.completed", "invocation.failed"].includes(event.type))).toBe(false)
         releaseFirst()
       }
@@ -16550,6 +16551,7 @@ describe("server helpers", () => {
       const followUpDelivery = deliveries.find(delivery => delivery.sourceId === "91107")
       const outcome = failInvocation ? "failed" : "completed"
       expect(followUpDelivery?.status).toBe(outcome)
+      expect(followUpDelivery?.events.filter(event => event.type.startsWith("invocation.")).map(event => event.type)).toEqual(["invocation.started", `invocation.${outcome}`])
       expect(followUpDelivery?.events.filter(event => event.type === "invocation.completed" || event.type === "invocation.failed").map(event => event.type)).toEqual([`invocation.${outcome}`])
       expect(followUpDelivery?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual(timeoutAcceptance ? ["failed", outcome] : [outcome])
       expect(runs).toBe(2)
