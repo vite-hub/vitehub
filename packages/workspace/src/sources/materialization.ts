@@ -159,9 +159,9 @@ function sourceSkillPromotion(path: string): { destination: string, root: typeof
 
 function isPromotedSourceSkillFile(value: unknown): value is PromotedSourceSkillFile {
   return hasRuntimeType(value, "object") && value !== null
-    && readStringMeta(value as Record<string, unknown>, "digest") !== undefined
-    && readStringMeta(value as Record<string, unknown>, "source") !== undefined
-    && readStringMeta(value as Record<string, unknown>, "sourcePath") !== undefined
+    && hasRuntimeType(Reflect.get(value, "digest"), "string")
+    && hasRuntimeType(Reflect.get(value, "source"), "string")
+    && hasRuntimeType(Reflect.get(value, "sourcePath"), "string")
 }
 
 async function reconcilePromotedSourceSkills(
