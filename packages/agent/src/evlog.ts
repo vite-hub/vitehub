@@ -1,4 +1,5 @@
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { readAgentErrorProperty } from "./agent-error.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
 import { withExportDeadline } from "./internal/export-deadline.ts"
@@ -57,7 +58,7 @@ export interface AgentEvlog {
   flush(): Promise<void>
 }
 
-const minimalKeys = /^(?:agent_name|environment|service|run_id|invocation_id|thread_id|trace_id|parent_trace_id|\$ai_trace_id|session_url|model|provider|provider_name|status|level|severity|duration_ms|timestamp|started_at|ended_at|input_tokens|output_tokens|total_tokens|cost_usd|cost_estimated|cost_source|tool_steps|retry|attempt|reason|code|diagnostic_code|diagnostic_status|warning|error|message)$/i
+const minimalKeys = /^(?:agent_name|environment|service|run_id|invocation_id|thread_id|trace_id|parent_trace_id|\$ai_trace_id|session_url|model|provider|provider_name|status_code|request_id|method|path|operation|status|level|severity|duration_ms|timestamp|started_at|ended_at|input_tokens|output_tokens|total_tokens|cost_usd|cost_estimated|cost_source|tool_steps|retry|attempt|reason|code|diagnostic_code|diagnostic_status|warning|error|message)$/i
 const contentKeys = /(?:prompt|message|input|output|instruction|tool|argument|result|body|context|header|cookie|token|secret|credential)/i
 
 /** Apply the configured observability level before exporter delivery. */
@@ -274,8 +275,7 @@ export interface AgentEvlogHost {
 
 export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { start(): void; stop(): Promise<void> }[] = []): (host: AgentEvlogHost) => void {
   const statusCodeOf = (error: unknown) => {
-    if (!isRuntimeRecord(error)) return undefined
-    const value = error.statusCode ?? error.status
+    const value = readAgentErrorProperty(error, "statusCode") ?? readAgentErrorProperty(error, "status")
     return hasRuntimeType(value, "number") && Number.isInteger(value) ? value : undefined
   }
   return (host) => {
