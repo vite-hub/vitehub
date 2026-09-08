@@ -54,6 +54,28 @@ describe("lazy sources", () => {
     expect(Buffer.from((await store.readFile("shared.md"))!.content).toString()).toBe("first")
   })
 
+  it.each(["memory", "local"])("restores cached startup attributes after an equal-content scoped write on %s", async (storeType) => {
+    const store = storeType === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const definition = {
+      name: "cached-startup-attributes",
+      sources: {
+        first: custom({ materialize: "startup", mount: "", cache: { maxAge: 3600 }, getKeys: async () => ["shared.md"], getMeta: async () => ({ etag: "first-v1" }), getItem: async key => ({ key, content: "same", mediaType: "text/markdown", metadata: { label: "first" } }) }),
+        second: custom({ materialize: "startup", mount: "", cache: { maxAge: 3600 }, files: [{ path: "shared.md", content: "same", mediaType: "text/plain", metadata: { label: "second" } }] }),
+      },
+    }
+    await materializeWorkspaceSources(definition, store)
+    const expected = await store.readFile("shared.md")
+    await materializeWorkspaceSources(definition, store, { sources: ["second"], path: "shared.md" })
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ mediaType: "text/plain", metadata: { label: "second", source: "second" } })
+
+    const result = await materializeWorkspaceSources(definition, store)
+    expect(result.sources.every(source => source.status === "ready")).toBe(true)
+    const restored = await store.readFile("shared.md")
+    expect(restored?.content).toEqual(expected?.content)
+    expect(restored?.mediaType).toBe("text/markdown")
+    expect(restored?.metadata).toMatchObject({ label: "first", source: "first" })
+  })
+
   it.each([false, true])("isolates startup cleanup for Workspaces sharing a Store with abortable sync %s", async (abortableSync) => {
     const store = createMemoryWorkspaceStore()
     const first = {

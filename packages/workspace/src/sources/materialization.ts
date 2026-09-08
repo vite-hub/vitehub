@@ -185,6 +185,13 @@ function fileAttributesEqual(
     && (previous.metadata === undefined || isDeepStrictEqual(observableFileMetadata(previous.metadata), observableFileMetadata(metadata)))
 }
 
+async function materializedFileMatches(file: Awaited<ReturnType<WorkspaceStore["readFile"]>>, item: LazyMaterializedMetadata) {
+  if (!file) return false
+  if (item.materializedContentDigest && await sha256(file.content) !== item.materializedContentDigest) return false
+  return !item.materializedAttributes || file.mediaType === item.materializedMediaType
+    && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
+}
+
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
   if (options?.sources && !options.sources.includes(source.key)) return false
   const requested = normalizeWorkspacePath(options?.path || "")
@@ -552,8 +559,8 @@ async function* iterateMaterializationEntries(
     const previous = materializedItemMeta(snapshot, configHash, path)
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
-      const file = stat?.type === "file" && previous.materializedContentDigest ? await store.readFile(path) : undefined
-      if (stat?.type === "file" && (!previous.materializedContentDigest || file && await sha256(file.content) === previous.materializedContentDigest)) {
+      const file = stat?.type === "file" ? await store.readFile(path) : undefined
+      if (stat?.type === "file" && await materializedFileMatches(file, previous)) {
         yield {
           metadata: previous,
           path,
@@ -645,11 +652,11 @@ async function materializeWorkspaceSourcesInternal(
     const completeSource = materializesCompleteSource(source, options)
     let cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
     // A scoped refresh of another Source can overwrite these files while the
-    // snapshot remains fresh. Recheck the backing content before accepting it.
+    // snapshot remains fresh. Recheck its content and attributes before accepting it.
     if (cacheHit) {
       for (const [path, item] of Object.entries(existing?.items || {})) {
         const file = await store.readFile(path)
-        if (!file || item.materializedContentDigest && await sha256(file.content) !== item.materializedContentDigest) {
+        if (!await materializedFileMatches(file, item)) {
           cacheHit = false
           break
         }
