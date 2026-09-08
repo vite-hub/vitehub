@@ -218,6 +218,11 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       state.started = true
       continue
     }
+    if (!state.started && character === "(" && state.yamlIndent === undefined && !state.yamlFlow) {
+      state.shellSubstitutions = [{ closer: ")" }]
+      state.started = true
+      continue
+    }
     state.started = true
     if (state.yaml) {
       const yaml = state.yaml

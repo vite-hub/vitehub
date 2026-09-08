@@ -81,6 +81,26 @@ describe("plain YAML credential scalars", () => {
 
 describe("structured credential redaction", () => {
   it.each([
+    "(first-secret second-secret)",
+    "('first ) secret' \"second secret\")",
+    "(first\\)secret second-secret)",
+    '("$(printf \'%s\' "nested secret")" last-secret)',
+    "($(printf '%s' nested-secret) last-secret)",
+    "(<(printf '%s' nested-secret) last-secret)",
+  ])("redacts complete shell credential arrays: %s", (credential) => {
+    const prefix = "PASSWORD="
+    const suffix = "; status=ok"
+    expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    for (let split = 0; split <= credential.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + credential.slice(0, split))!
+      expect(state, `split ${split}`).toBeDefined()
+      const remainder = credential.slice(split) + suffix
+      expect(remainder.slice(consumeCredentialAssignment(remainder, state)), `split ${split}`).toBe(suffix)
+    }
+    expect(redactCredentialText("VALUES=" + credential + suffix)).toBe("VALUES=" + credential + suffix)
+  })
+
+  it.each([
     '{"d":"sensitive"}',
     '["first-secret","second-secret"]',
     '[{"d":"sensitive"},["other-secret"]]',
