@@ -2313,6 +2313,62 @@ describe("lazy sources", () => {
     await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
   })
 
+  it.each([false, true])("preserves a pre-existing mount during refresh with local Store %s", async (local) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    await store.mkdir("docs/generated", { recursive: true })
+    let keys = ["stale.md"]
+    const view = createWorkspaceSourceView({
+      name: "preexisting-refresh-directories",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }, store)
+    await view.materializeSources()
+    keys = []
+    await view.materializeSources()
+
+    await expect(store.stat("docs/generated/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each([false, true])("relinquishes directories deleted during refresh with local Store %s", async (local) => {
+    const root = await createRoot()
+    const store = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    let keys = ["nested/stale.md"]
+    const definition = {
+      name: "deleted-refresh-directories",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    keys = []
+    await view.materializeSources()
+
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toMatchObject({
+      ownsMount: false,
+      ownedDirectories: [],
+    })
+    await store.mkdir("docs/generated/nested", { recursive: true })
+    const restarted = local ? createLocalWorkspaceStore(root) : store
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
+
+    await expect(restarted.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    await expect(restarted.stat("docs/generated/nested")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it("removes stale root-mounted lazy source files on refresh", async () => {
     let keys = ["AGENTS.md", "nested/stale.md"]
     registerWorkspace("lazy-root-refresh", defineWorkspace({

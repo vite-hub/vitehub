@@ -295,6 +295,7 @@ async function removeStaleMaterializedSourceFiles(
   const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
+  const removedDirectories = new Set<string>()
   // Build cleanup leaves an empty snapshot object; only that missing index needs recovery.
   // With metadata support, an absent snapshot is a first startup with no owned paths.
   const entries = source.mountPath
@@ -319,7 +320,8 @@ async function removeStaleMaterializedSourceFiles(
     )
     if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || (Boolean(source.mountPath) && !overlapsAnotherSource)))) {
       for (const directory of parentDirectoryPaths(entry.path)) {
-        if (sourceOwnsDirectory(source, directory)) staleDirectories.add(directory)
+        if (sourceOwnsDirectory(source, directory)
+          && (directory !== source.mountPath || previousSnapshot?.ownsMount)) staleDirectories.add(directory)
       }
       await control.mutate(() => store.rm(entry.path, { force: true }))
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
@@ -328,9 +330,11 @@ async function removeStaleMaterializedSourceFiles(
   for (const path of [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)) {
     try {
       await control.mutate(() => store.rm(path, { force: true }))
+      removedDirectories.add(path)
     }
     catch {}
   }
+  return removedDirectories
 }
 
 export async function reconcileRemovedStartupSources(
@@ -630,7 +634,7 @@ async function materializeWorkspaceSourcesInternal(
       continue
     }
 
-    const ownsMount = Boolean(source.mountPath) && (
+    let ownsMount = Boolean(source.mountPath) && (
       existing?.mountPath === source.mountPath && existing.ownsMount === true
       || !await store.stat(source.mountPath)
     )
@@ -761,12 +765,14 @@ async function materializeWorkspaceSourcesInternal(
         }
       }
       throwIfAborted(options.abortSignal)
-      await removeStaleMaterializedSourceFiles(store, source, configuredSources, nextPaths, options, control, existing, (path, removedBytes) => {
+      const removedDirectories = await removeStaleMaterializedSourceFiles(store, source, configuredSources, nextPaths, options, control, existing, (path, removedBytes) => {
         counts.removed++
         if (Object.hasOwn(itemMetadata, path)) persistedBytesDelta -= itemMetadata[path]?.materializedBytes ?? removedBytes
         delete itemMetadata[path]
         paths.push({ path, status: "removed" })
       })
+      if (removedDirectories.has(source.mountPath)) ownsMount = false
+      for (const directory of removedDirectories) ownedDirectories.delete(directory)
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
         return metadata ? [[path, metadata] as const] : []
@@ -792,6 +798,7 @@ async function materializeWorkspaceSourcesInternal(
         const scopedItems = checkpointItems(itemMetadata)
         await control.mutate(() => writeSourceSnapshotMetadata(store, {
           ...existing,
+          ownsMount,
           ownedDirectories: [...ownedDirectories],
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
           files: scopedItems ? Object.keys(scopedItems).length : 0,
