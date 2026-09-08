@@ -73,6 +73,15 @@ export function sourceSnapshotMetaKey(sourceKey: string) {
   return `source:${sourceKey}:snapshot`
 }
 
+function sourceMountSnapshotMetaKey(sourceKey: string, mountPath: string) {
+  return `source-mount:${JSON.stringify([sourceKey, mountPath])}:snapshot`
+}
+
+async function readSourceMountSnapshotMetadata(store: WorkspaceStore, sourceKey: string, mountPath: string) {
+  // SAFETY: This private metadata key is written by writeSourceSnapshotMetadata.
+  return await store.getMeta?.(sourceMountSnapshotMetaKey(sourceKey, mountPath)) as SourceSnapshotMetadata | undefined
+}
+
 type SourceConfiguration = Pick<ResolvedWorkspaceSource, "cache" | "key" | "materialize" | "mountPath" | "source">
 
 function sourceConfigFingerprint(source: SourceConfiguration) {
@@ -134,6 +143,11 @@ export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, sourceKey
 }
 
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: SourceSnapshotMetadata) {
+  // Concurrent definitions can materialize the same key at different mounts.
+  // Keep each mount's cleanup evidence before replacing the current snapshot.
+  if (metadata.mountPath !== undefined) {
+    await store.setMeta?.(sourceMountSnapshotMetaKey(metadata.source, metadata.mountPath), metadata)
+  }
   await store.setMeta?.(sourceSnapshotMetaKey(metadata.source), metadata)
 }
 
@@ -403,7 +417,10 @@ async function reconcileRemovedStartupSourcesInternal(
   const activeOwners = [...activeSources]
   const isActive = (source: MaterializedStartupSource) => activeOwners.some(active => active.key === source.key && active.mountPath === source.mountPath)
   for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath && !isActive(source))) {
-    const snapshot = await readSourceSnapshotMetadata(store, source.key)
+    const currentSnapshot = await readSourceSnapshotMetadata(store, source.key)
+    const snapshot = currentSnapshot?.mountPath !== undefined && currentSnapshot.mountPath !== source.mountPath
+      ? await readSourceMountSnapshotMetadata(store, source.key, source.mountPath)
+      : currentSnapshot
     const invalidatedSnapshot = snapshot && snapshot.mountPath === undefined && snapshot.items === undefined
     if (snapshot?.mountPath !== source.mountPath && !invalidatedSnapshot) continue
     // Build synchronization can clear the index while owned files remain outside its mount.
@@ -467,7 +484,14 @@ async function reconcileRemovedStartupSourcesInternal(
       }
       catch {}
     }
-    await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(source.key), {}))
+    await control.checkpoint(async () => {
+      await store.setMeta?.(sourceMountSnapshotMetaKey(source.key, source.mountPath), {})
+      const latest = await readSourceSnapshotMetadata(store, source.key)
+      if (latest?.mountPath !== undefined && latest.mountPath !== source.mountPath) return
+      const retainedMount = currentMounts.get(source.key)
+      const retained = retainedMount === undefined ? undefined : await readSourceMountSnapshotMetadata(store, source.key, retainedMount)
+      await store.setMeta?.(sourceSnapshotMetaKey(source.key), retained || {})
+    })
   }
   // Register before materialization can persist files, including failed or interrupted attempts.
   // A newer definition must retain owners that can still write or checkpoint files.

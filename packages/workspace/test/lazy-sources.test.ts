@@ -1204,6 +1204,60 @@ describe("lazy sources", () => {
     expect(retainedKeys).toHaveBeenCalledTimes(2)
   })
 
+  it.each([true, false].flatMap(oldFirst => [false, true].map(local => ({ oldFirst, local }))))("cleans both mounts after a concurrent same-key move with oldFirst=$oldFirst local=$local", async ({ oldFirst, local }) => {
+    const root = await createRoot()
+    let store: WorkspaceStore = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const pausedSource = (mount: string) => {
+      let signalStarted!: () => void
+      const started = new Promise<void>((resolve) => { signalStarted = resolve })
+      let release!: () => void
+      const resumed = new Promise<void>((resolve) => { release = resolve })
+      return {
+        started,
+        release: () => release(),
+        source: custom({
+          materialize: "startup",
+          mount,
+          async getKeys() { return ["file.md"] },
+          async getItem(key) {
+            signalStarted()
+            await resumed
+            return { key, content: mount }
+          },
+        }),
+      }
+    }
+    const old = pausedSource("old")
+    const next = pausedSource("new")
+    const name = "concurrent-startup-move"
+    const oldRun = createWorkspaceSourceView({ name, sources: { docs: old.source } }, store).materializeSources()
+    await old.started
+    const definition = { name, sources: { docs: next.source } }
+    const nextRun = createWorkspaceSourceView(definition, store).materializeSources()
+    await next.started
+    if (oldFirst) {
+      old.release()
+      await oldRun
+      next.release()
+      await nextRun
+    }
+    else {
+      next.release()
+      await nextRun
+      old.release()
+      await oldRun
+    }
+
+    if (local) store = createLocalWorkspaceStore(root)
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.stat("old/file.md")).resolves.toBeUndefined()
+    await expect(store.stat("old")).resolves.toBeUndefined()
+    await expect(store.readFile("new/file.md")).resolves.toMatchObject({ content: local ? new TextEncoder().encode("new") : "new" })
+    await syncWorkspaceDefinition({ name, sources: {} }, store)
+    await expect(store.stat("new/file.md")).resolves.toBeUndefined()
+    await expect(store.stat("new")).resolves.toBeUndefined()
+  })
+
   it.each([false, true])("retains active startup ownership across concurrent removal with abortable sync %s", async (abortableSync) => {
     const store = createMemoryWorkspaceStore()
     let signalStarted!: () => void
