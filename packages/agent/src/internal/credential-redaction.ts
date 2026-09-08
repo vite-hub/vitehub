@@ -1,11 +1,11 @@
-// Concatenated uppercase names have no case boundary; recognize established credential names.
+// Recognize established concatenated credential names regardless of case.
 const uppercaseCredentialKeys = [
   "APIKEY", "ACCESSKEY", "PRIVATEKEY", "SECRETKEY", "PUBLICKEY",
   "ACCESSTOKEN", "AUTHTOKEN", "REFRESHTOKEN", "CLIENTSECRET", "SESSIONTOKEN",
 ]
 
 function isCredentialKey(key: string): boolean {
-  return uppercaseCredentialKeys.includes(key)
+  return uppercaseCredentialKeys.includes(key.toUpperCase())
     || /(?:^|_)(?:key|secret|token|password)$/i.test(key)
     || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
 }
@@ -67,7 +67,7 @@ export function credentialTextMayContinue(value: string): boolean {
   const normalized = trailingWord.toUpperCase()
   const finalSegment = trailingWord.split(/_|(?<=[a-z0-9])(?=[A-Z])/).at(-1)?.toUpperCase() ?? ""
   return isCredentialKey(trailingWord)
-    || uppercaseCredentialKeys.some(key => key.startsWith(trailingWord))
+    || uppercaseCredentialKeys.some(key => key.startsWith(normalized))
     || ["BEARER", "BASIC"].some(marker => marker.startsWith(normalized))
     || ["KEY", "SECRET", "TOKEN", "PASSWORD"].some(marker => marker.startsWith(finalSegment))
 }

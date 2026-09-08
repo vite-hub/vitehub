@@ -59,13 +59,16 @@ it.each(["apiToken", "apiTOKEN", "clientSecret", "dbPassword", "accessKey", "oau
 it.each([
   "APIKEY", "ACCESSKEY", "PRIVATEKEY", "SECRETKEY", "PUBLICKEY",
   "ACCESSTOKEN", "AUTHTOKEN", "REFRESHTOKEN", "CLIENTSECRET", "SESSIONTOKEN",
-])("redacts conventional uppercase %s credentials and retains split names", (key) => {
+].flatMap(key => [key, key.toLowerCase(), key[0] + key.slice(1).toLowerCase()]))("redacts conventional %s credentials and retains split names", (key) => {
   expect(redactCredentialText(`${key}=sensitive;status=ok`)).toBe(`${key}=[REDACTED];status=ok`)
   for (const quote of ['"', "'"]) {
     expect(redactCredentialText(`${key}=${quote}sensitive words${quote};status=ok`)).toBe(`${key}=${quote}[REDACTED]${quote};status=ok`)
     expect(pendingCredentialQuote(`${key}=${quote}sensitive words`)).toBe(quote)
   }
   expect(credentialTextMayContinue(`${key}=sensitive`)).toBe(true)
+  expect(pendingCredentialAssignment(`${key}=`)).toBe("assignment")
+  expect(pendingCredentialAssignment(`${key}=sensitive`)).toBe("unquoted")
+  expect(redactCredentialText(`{"${key}":"sensitive","status":"ok"}`)).toBe(`{"${key}":"[REDACTED]","status":"ok"}`)
   for (let split = 1; split <= key.length; split++) {
     expect(credentialTextMayContinue(`${".".repeat(512)}${key.slice(0, split)}`)).toBe(true)
   }
