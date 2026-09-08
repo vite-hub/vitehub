@@ -131,14 +131,18 @@ describe("title journal ownership", () => {
     }))
   })
 
-  it("uses the first user message when a prompt is also supplied", async () => {
+  it("uses the first user message with multi-turn history and a prompt", async () => {
     const execute = vi.fn(() => "First topic")
     await runAgent(defineAgent({
       capabilities: [title({ execute })],
       driver: { run: () => "Done." },
       invocations: journal(),
     }), runtime("existing-message"), {
-      messages: [createMessage({ role: "user", text: "Original topic" })],
+      messages: [
+        createMessage({ role: "user", text: "Original topic" }),
+        createMessage({ role: "assistant", text: "Earlier reply" }),
+        createMessage({ role: "user", text: "Later topic" }),
+      ],
       prompt: "Follow up",
     })
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({ text: "Original topic" }))
