@@ -11,6 +11,7 @@ import type { StreamEvent } from "../src/messages.ts"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { github } from "@vite-hub/workspace"
 
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
 const providerRuntimes = vi.hoisted(() => [] as Array<Record<string, unknown>>)
@@ -2004,7 +2005,33 @@ cli_auth_credentials_store = "keyring"
     await expect(access(cwd)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("preserves explicit last-response usage alongside a cumulative total", async () => {
+  it.each([
+    { inputTokens: 7, outputTokens: 5 },
+    { lastInputTokens: 7, lastOutputTokens: 5 },
+    { inputTokens: 0, outputTokens: 12 },
+  ])("preserves a complete partition matching the cumulative total: %j", async (partition) => {
+    const threadId = "thread-matching-usage"
+    const usage = { ...partition, cachedInputTokens: 0, reasoningOutputTokens: 3, totalProcessedTokens: 12 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: {
+        raw: usage,
+        usage: {
+          details: { cachedInputTokens: 0, reasoningOutputTokens: 3 },
+          inputTokens: "inputTokens" in partition ? partition.inputTokens : partition.lastInputTokens,
+          outputTokens: "outputTokens" in partition ? partition.outputTokens : partition.lastOutputTokens,
+          totalTokens: 12,
+        },
+      },
+    })
+  })
+
+  it("keeps last-response usage raw when reporting a cumulative total", async () => {
     const threadId = "thread-cumulative-usage"
     runtime(threadId, [
       event("thread.token-usage.updated", threadId, { usage: {
@@ -2020,12 +2047,10 @@ cli_auth_credentials_store = "keyring"
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
     expect(events.find(item => item.type === "usage")).toMatchObject({
-      usageRecord: { usage: {
-        details: { cachedInputTokens: 2, reasoningOutputTokens: 3 },
-        inputTokens: 7,
-        outputTokens: 5,
-        totalTokens: 100,
-      } },
+      usageRecord: {
+        raw: { cachedInputTokens: 2, inputTokens: 7, outputTokens: 5, reasoningOutputTokens: 3, totalProcessedTokens: 100, usedTokens: 12 },
+        usage: { details: {}, inputTokens: undefined, outputTokens: undefined, totalTokens: 100 },
+      },
     })
   })
 
@@ -3236,6 +3261,10 @@ cli_auth_credentials_store = "keyring"
     await rm(heartbeatFile, { force: true })
   })
 
+  it("advertises bounded parallel Workspace materialization for the local host", () => {
+    expect(localWorkspaceHost().materializationConcurrency).toBe(8)
+  })
+
   it("reports executable modes while listing local Workspace files", async () => {
     const root = `/tmp/vitehub-provider-file-modes-${crypto.randomUUID()}`
     await mkdir(root, { recursive: true })
@@ -3360,6 +3389,14 @@ cli_auth_credentials_store = "keyring"
     }
     const workspace = {
       fs: {},
+      materializeSources: vi.fn(async () => ({
+        bytes: 0,
+        directories: 0,
+        durationMs: 0,
+        files: 1,
+        path: "",
+        sources: [{ mountPath: "docs", provider: "github", revision: { id: "d".repeat(40), immutable: true }, source: "docs", status: "ready" }],
+      })),
       startSession: vi.fn(async (options: { target: string }) => {
         root = options.target
         await mkdir(root, { recursive: true })
@@ -3370,7 +3407,7 @@ cli_auth_credentials_store = "keyring"
     }
     const runContext = context(threadId, {
       workspace,
-      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
       workspaceMode: "write",
     })
     await setAgentTelemetryConfiguration(runContext.context, {
@@ -3381,7 +3418,65 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "claude-code" }).generate(runContext as never)
 
-    expect(getAgentTelemetryConfiguration(runContext.context)?.value.instructions).toEqual(["native workspace instructions"])
+    const [instructions] = getAgentTelemetryConfiguration(runContext.context)?.value.instructions || []
+    expect(instructions).toMatch(/^native workspace instructions\n\nMounted source provenance/)
+    expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+  })
+
+  it.each([
+    { provider: "codex" as const, file: "AGENTS.md" },
+    { provider: "claude-code" as const, file: "CLAUDE.md" },
+  ])("preserves native $file changes while removing transient provenance", async ({ provider, file }) => {
+    for (const change of ["unchanged", "edit", "replace", "delete", "empty"]) {
+      const threadId = `thread-native-${provider}-${change}`
+      let root = ""
+      let committed: string | undefined
+      const original = change === "empty" ? "" : "native workspace instructions"
+      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onStartSession() {
+          const path = `${root}/${file}`
+          const content = await readFile(path, "utf8")
+          expect(content).toContain("Mounted source provenance")
+          if (change === "edit") await writeFile(path, content.replace(original, "edited instructions") + "\nprovider addition")
+          if (change === "replace") await writeFile(path, "replacement instructions")
+          if (change === "delete") await rm(path)
+        },
+      })
+      const session = {
+        close: vi.fn(async () => undefined),
+        commit: vi.fn(async () => undefined),
+        diff: vi.fn(async () => {
+          committed = await readFile(`${root}/${file}`, "utf8").catch(() => undefined)
+          return { entries: [] }
+        }),
+        exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+        readFile: vi.fn(async () => new Uint8Array()),
+      }
+      const workspace = {
+        fs: {},
+        materializeSources: vi.fn(async () => ({
+          bytes: 0, directories: 0, durationMs: 0, files: 1, path: "",
+          sources: [{ mountPath: "docs", provider: "github", revision: { id: "d".repeat(40), immutable: true }, source: "docs", status: "ready" }],
+        })),
+        startSession: vi.fn(async (options: { target: string }) => {
+          root = options.target
+          await mkdir(root, { recursive: true })
+          await writeFile(`${root}/${file}`, original)
+          return session
+        }),
+        tools: {},
+      }
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider }).generate(context(threadId, {
+        workspace,
+        workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
+        workspaceMode: "write",
+      }) as never)
+      expect(session.diff).toHaveBeenCalled()
+      expect(committed).toBe(change === "delete" ? undefined
+        : change === "edit" ? "edited instructions\nprovider addition"
+          : change === "replace" ? "replacement instructions" : original)
+    }
   })
 
   it("materializes AGENTS.md fallback instructions for Claude", async () => {
@@ -3533,6 +3628,148 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it.each(["direct", "inferred", "resolved", "resolved-inferred"])("supplies verified %s GitHub source provenance without serializing unsafe source configuration", async (form) => {
+    const threadId = "thread-source-provenance"
+    let root = ""
+    let instructions = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { instructions = await readFile(`${root}/AGENTS.md`, "utf8") },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const materializeSources = vi.fn(async () => ({
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 2,
+      path: "",
+      sources: [
+        { mountPath: "references/engine", provider: "github", revision: { id: "a".repeat(40), immutable: true, ref: "main" }, source: "engine", status: "ready" },
+        { mountPath: "references/mutable", provider: "github", revision: { id: "main", immutable: false }, source: "mutable", status: "ready" },
+        { mountPath: "references/custom", provider: "custom", revision: { id: "rev-1", immutable: true }, source: "custom", status: "ready" },
+        { mountPath: "references/unsafe", provider: "github", revision: { id: "b".repeat(40), immutable: true }, source: "unsafe", status: "ready" },
+        { mountPath: "wrong-mount", provider: "github", revision: { id: "c".repeat(40), immutable: true }, source: "mismatched", status: "ready" },
+      ],
+    }))
+    const source = (fingerprint: unknown) => ({
+      fingerprint,
+      async getItem() { throw new Error("unused") },
+      async getKeys() { return [] },
+      name: "github",
+    })
+    const options = { repo: "quiverdk/forecasting-engine", auth: "secret-provenance-token" }
+    const fingerprint = form === "resolved-inferred"
+      ? { inferredSource: "github", options }
+      : { repo: options.repo }
+    const engine = form === "direct" ? github(options)
+      : form === "inferred" ? options
+        : source({ source: fingerprint, sourceResolution: {} })
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async (options: { target: string }) => { root = options.target; return session }), tools: {} }
+
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: {
+        name: "docs",
+        sources: {
+          custom: source({ repo: "owner/custom", root: "" }),
+          engine: { mount: "references/engine", source: engine },
+          mismatched: { mount: "references/expected", source: source({ repo: "owner/mismatched", root: "" }) },
+          mutable: source({ repo: "owner/mutable", root: "" }),
+          unsafe: source({ repo: "https://token@github.com/owner/repo?auth=secret", root: "" }),
+        },
+      },
+    }) as never)
+
+    expect(instructions).toContain('"mount": "references/engine"')
+    expect(instructions).toContain('"root": ""')
+    expect(instructions).toContain(`"id": "${"a".repeat(40)}"`)
+    expect(instructions).toContain("https://github.com/quiverdk/forecasting-engine")
+    expect(instructions).not.toContain("secret-provenance-token")
+    expect(instructions).not.toContain("token@")
+    expect(instructions).not.toContain("auth=secret")
+    expect(instructions).not.toContain("owner/mutable")
+    expect(instructions).not.toContain("owner/custom")
+    expect(instructions).not.toContain("owner/mismatched")
+  })
+
+  it.each([
+    { sourceRoot: undefined, expectedRoot: "", conflicting: false },
+    { sourceRoot: "/docs", expectedRoot: "docs", conflicting: false },
+    { sourceRoot: "./docs", expectedRoot: "docs", conflicting: false },
+    { sourceRoot: "\\docs\\.\\guide\\", expectedRoot: "docs/guide", conflicting: false },
+    { sourceRoot: "docs//./guide/", expectedRoot: "docs/guide", conflicting: false },
+    { sourceRoot: "../docs", expectedRoot: undefined, conflicting: false },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: true },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs" },
+    { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs/nested" },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs/nested", selectedPaths: ["docs/a.md", "docs/nested/b.md"] },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "docs/nested", selectedPaths: ["docs"] },
+    { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs/a" },
+    { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "" },
+    { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs-other" },
+  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount, selectedPaths = ["docs/a.md", "docs/b.md"] }) => {
+    const threadId = "thread-native-codex-provenance"
+    let root = ""
+    let instructions = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { instructions = await readFile(`${root}/AGENTS.md`, "utf8") },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      materializeSources: vi.fn(async ({ path }: { path: string }) => ({
+        bytes: 0, directories: 0, durationMs: 0, files: 1, path: "",
+        sources: [{ mountPath: "docs", provider: "github", revision: { id: (conflicting && path === "docs/b.md" ? "f" : "e").repeat(40), immutable: true }, source: "docs", status: "ready" }],
+      })),
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(root, { recursive: true })
+        await writeFile(`${root}/AGENTS.md`, "native Codex workspace instructions")
+        return session
+      }),
+      tools: {},
+    }
+
+    const runContext = context(threadId, {
+      workspace,
+      workspaceDefinition: {
+        name: "docs",
+        sources: {
+          docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }),
+          ...(overlappingMount === undefined ? {} : {
+            other: { mount: overlappingMount, source: github({ repo: "owner/other" }) },
+          }),
+        },
+      },
+    })
+    runContext.context.set("access", { workspaceScope: { all: false, paths: selectedPaths } })
+    // SAFETY: This fixture supplies the trusted access context expected by the helper.
+    markTrustedWorkspaceAccessScope(runContext.context as never)
+    // SAFETY: This fixture supplies the complete provider generation context.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+
+    expect(workspace.materializeSources).toHaveBeenCalledTimes(selectedPaths.length)
+    if (expectedRoot === undefined) {
+      expect(instructions).toBe("native Codex workspace instructions")
+      return
+    }
+    expect(instructions).toContain(`"root": "${expectedRoot}"`)
+    expect(instructions.match(/"repository":/g)).toHaveLength(1)
+    expect(instructions).toMatch(/^native Codex workspace instructions\n\nMounted source provenance/)
+    expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+  })
+
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {
     const threadId = "thread-workspace-materialization-cancellation"
     const abort = new AbortController()
@@ -3571,7 +3808,11 @@ cli_auth_credentials_store = "keyring"
 
   it("keeps session materialization enabled after selected Source errors", async () => {
     const threadId = "thread-workspace-materialization-error"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    let root = ""
+    let instructions = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { instructions = await readFile(`${root}/AGENTS.md`, "utf8") },
+    })
     const session = {
       close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
@@ -3585,17 +3826,25 @@ cli_auth_credentials_store = "keyring"
       durationMs: 0,
       files: 0,
       path: "",
-      sources: [{ source: "docs", status: "error" }],
+      sources: [
+        { source: "docs", status: "error" },
+        { mountPath: "engine", provider: "github", revision: { id: "a".repeat(40), immutable: true }, source: "engine", status: "ready" },
+      ],
     }))
-    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async () => session), tools: {} }
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async (options: { target: string }) => {
+      root = options.target
+      await writeFile(`${root}/AGENTS.md`, "native instructions after rematerialization")
+      return session
+    }), tools: {} }
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
       workspace,
-      workspaceDefinition: { name: "docs" },
+      workspaceDefinition: { name: "docs", sources: { engine: github({ repo: "owner/engine" }) } },
     }) as never)
 
     expect(workspace.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ materializeSources: false }))
+    expect(instructions).toBe("native instructions after rematerialization")
   })
 
   it("keeps colocated Skills readable and out of Workspace writeback", async () => {
@@ -4028,7 +4277,12 @@ cli_auth_credentials_store = "keyring"
     try {
       const threadId = "thread-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      let reportCloseStarted!: () => void
+      const closeStarted = new Promise<void>((resolve) => { reportCloseStarted = resolve })
+      provider.close.mockImplementationOnce(() => {
+        reportCloseStarted()
+        return new Promise(() => {})
+      })
       const adapter = createProviderAgentAdapter({
         credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
         provider: "codex",
@@ -4037,7 +4291,9 @@ cli_auth_credentials_store = "keyring"
       const stream = await adapter.stream!(context(threadId) as never)
       const result = collect(stream)
 
-      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      // Let filesystem setup finish before advancing the cleanup deadline.
+      await closeStarted
+      expect(provider.close).toHaveBeenCalledOnce()
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
       // SAFETY: The mocked Codex runtime call records the credential homePath setting.
@@ -4060,7 +4316,12 @@ cli_auth_credentials_store = "keyring"
     try {
       const threadId = "thread-profile-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      let reportCloseStarted!: () => void
+      const closeStarted = new Promise<void>((resolve) => { reportCloseStarted = resolve })
+      provider.close.mockImplementationOnce(() => {
+        reportCloseStarted()
+        return new Promise(() => {})
+      })
       const options = {
         credentialProfile: `cleanup-timeout-${crypto.randomUUID()}`,
         credentials: JSON.stringify({ OPENAI_API_KEY: "private" }),
@@ -4069,7 +4330,9 @@ cli_auth_credentials_store = "keyring"
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const result = createProviderAgentAdapter(options).generate(context(threadId) as never)
 
-      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      // Let filesystem setup finish before advancing the cleanup deadline.
+      await closeStarted
+      expect(provider.close).toHaveBeenCalledOnce()
       await vi.advanceTimersByTimeAsync(10_000)
       await expect(result).resolves.toBeDefined()
 

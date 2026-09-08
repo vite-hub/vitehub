@@ -3460,6 +3460,7 @@ describe("Agent invocation console", () => {
   })
 
   it("reports the diagnostic code for an invalid usage cursor", async () => {
+    installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const url = "http://localhost/api/_vitehub/console/usage?cursor=invalid"
     if (!requestEvent.node?.req || !requestEvent.req) throw new TypeError("Expected a request event.")

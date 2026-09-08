@@ -1272,9 +1272,10 @@ describe("agent message protocol", () => {
     }, {})).rejects.toThrow("capability setup failed")
 
     expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.capability.resolve",
       "agent.invocation.error",
     ])
-    expect(traceLog.entries()[0]!.attributes).toMatchObject({
+    expect(traceLog.entries().find(event => event.name === "agent.invocation.error")?.attributes).toMatchObject({
       "agent.invoker.id": "tenant-1",
       "agent.invoker.kind": "tenant",
       "agent.invoker.label": "Acme Tenant",
@@ -10874,6 +10875,8 @@ describe("agent message protocol", () => {
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].result).toBeInstanceOf(Response)
     expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.capability.output",
+      "agent.capability.output",
       "agent.invocation.start",
       "agent.message.delta",
       "agent.tool.start",
@@ -11135,6 +11138,7 @@ describe("agent message protocol", () => {
     expect(finalRenderer).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].result).toBe(nativeResult)
     expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.capability.output",
       "agent.invocation.start",
       "agent.message.delta",
       "agent.stream.finish",

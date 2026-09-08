@@ -110,6 +110,8 @@ The resolver remains the external source of truth, but ViteHub does not write Co
 
 Provider Drivers require a local Node.js host and don't accept `box`; Cloudflare Agents and Deno fail explicitly. Provider Workspaces additionally require a POSIX host and fail explicitly on Windows. ViteHub materializes an Agent Workspace into a temporary provider working directory, applies Workspace Scope, writes `AGENTS.md` or `CLAUDE.md`, then commits successful write-mode changes through Workspace rules. Runtime sessions resume by Agent thread while the Agent Definition process remains active. Set `sessionStorePath` to keep opaque provider cursors in SQLite across restarts. Codex credentials supplied through `credentials` require a named `credentialProfile` before session persistence can be enabled because an invocation-private Codex Home is removed after each run. Dedicate each file to one provider Agent Definition on one persistent process host; it does not coordinate concurrent ownership of one thread across workers. Normalized assistant, reasoning, tool, approval, user-input, usage, warning, error, and terminal events stay behind the ViteHub Agent Invocation contract.
 
+When all selected Workspace Sources materialize successfully before the provider session starts, ViteHub appends source evidence for each ready GitHub Source with an immutable commit revision. Direct, inferred shorthand, and resolved GitHub Sources are supported. If session startup must retry materialization, ViteHub omits source evidence because the mounted revision may change. The evidence gives the canonical repository URL, commit revision, configured source root, and Workspace mount so the provider can cite the mounted files without rediscovering their origin. ViteHub omits mutable or unavailable revisions, custom Sources, invalid repository metadata, and Source credentials.
+
 Process hosts can call `failInterruptedAgentInvocations(store, { recover })` at startup. `recover` must identify records owned by the stopped process host. Exclude durable Workflows and other provider-owned work because their active records may not hold a store claim while suspended. Recovery first respects an existing claim, waits up to `recoveryTimeoutMs`, and asks `recover` again before taking over the stopped host's claim. The timeout defaults to `claimLeaseMs`.
 
 Hosts can persist external delivery evidence with `await invocations.appendObservation(invocationId, event, { id: deliveryId })`. The stable observation ID makes retries idempotent. The store assigns the sequence atomically, including for completed, failed, or cancelled Invocations, without changing lifecycle state or taking the running Agent's claim. The configured content policy still applies. Appends return the persisted record, return `undefined` when the Invocation does not exist, and throw if storage fails or the observation capacity prevents an append. Retain the same ID when retrying an ambiguous storage failure. Use one store instance per SQLite connection so its write queue serializes concurrent append calls.
@@ -165,6 +167,8 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
 The portable `@vite-hub/agent/server` entry exports `failInterruptedAgentInvocations()`, `readAgentInvocationWorkload()`, and `summarizeAgentInvocationWorkload()` for process-start recovery and health reporting. `readAgentInvocationWorkload()` combines the latest 100 invocation summaries with every active invocation. Its `total` counts that de-duplicated union, not all historical invocations. Recovery follows every store page and acquires each invocation's lease before failing it. Invocation journals renew their lease until they finish, so work owned by a live host remains active. These are host primitives. The application still owns credential storage, admission policy, scheduling, recovery timing, and deployment lifecycle.
 
 `defineAgentInvocations({ observations, store })` configures retained observation count, content string length, encoded byte budget, and finish drain time. Defaults remain 256 observations, 65,536 UTF-16 code units of content strings, and a one-second drain, with a 16 MiB aggregate storage limit. Explicit limits support longer traces without removing bounds; records keep those limits across restarts. See [Agent Invocations](../../docs/content/docs/agents/invocations.md) for the limits and privacy policy.
+
+Capability setup and close callbacks emit `agent.capability.<phase>` timing events through the invocation trace. They include capability ID, measured duration, outcome, and available correlation IDs, without callback payloads or thrown messages. See [Agent Invocations](../../docs/content/docs/agents/invocations.md#observe-the-outcome) for the event contract.
 
 `title()` accepts message input or a plain `prompt`. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
@@ -344,6 +348,8 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 ## evlog integration
 
+Import `observability()` and `createAgentEvlog()` from `@vite-hub/agent/evlog`, not `@vite-hub/agent/capabilities`. This keeps unrelated Capabilities usable without the optional `evlog` peer. Applications can use `vite-hub/agent/evlog`. Install `evlog` when using this integration.
+
 `createAgentEvlog()` from `@vite-hub/agent/evlog` exports invocation lifecycle events through evlog. Add its `capability` to your Agent, connect its `drain` to the host, and await `flush()` after invocation background tasks finish. `@vite-hub/agent/evlog/posthog` adds PostHog events, Error Tracking and the official evlog log drain through optional dependencies.
 
 `createPapercutReporter()` from `@vite-hub/agent/capabilities` journals reports in persistent Agent Invocations before delivery and replays pending reports after restart. See [evlog](../../docs/content/docs/agents/evlog.md) for delivery, privacy and shutdown contracts.
@@ -423,6 +429,10 @@ The defaults are `/api/health` and
 `{ exportName, route }`. Omit an option to omit its route. Workspace exports accept
 `(invocationId, path?)` and return a Response; for GitHub checkouts, use
 `createGitHubInvocationWorkspaceHandler({ host: github, invocations })`.
+The default Workspace route also serves Console RPC inspection, so retained GitHub
+snapshots remain available after disposable checkouts are removed. A custom route
+keeps its own URL and does not replace the default Console inspector.
+
 These are opt-in host routes: the application owns access control, including any
 middleware protecting Workspace content. They do not grant Console authorization.
 

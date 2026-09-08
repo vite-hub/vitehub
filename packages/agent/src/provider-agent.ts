@@ -9,6 +9,7 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspectProvider } from "@t3tools/provider-runtime"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
@@ -96,6 +97,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
+  appendedContent?: string
   content?: Uint8Array
   directories: string[]
   existed: boolean
@@ -139,6 +141,21 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  if (generated.appendedContent !== undefined) {
+    const entry = await lstat(generated.path).catch(() => undefined)
+    if (entry?.isFile()) {
+      const content = await readFile(generated.path, "utf8")
+      const expectedOffset = (generated.content?.length ?? 0) + (generated.content?.length ? 2 : 0)
+      let offset = -1
+      for (let candidate = content.indexOf(generated.appendedContent); candidate !== -1; candidate = content.indexOf(generated.appendedContent, candidate + 1)) {
+        if (offset === -1 || Math.abs(candidate - expectedOffset) < Math.abs(offset - expectedOffset)) offset = candidate
+      }
+      if (offset !== -1) {
+        await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
+      }
+    }
+    return
+  }
   await rm(generated.path, { force: true, recursive: true })
   if (generated.link !== undefined) await symlink(generated.link, generated.path)
   else if (generated.existed) {
@@ -1359,6 +1376,7 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
       network: "unrestricted",
       processes: "arbitrary",
     }),
+    materializationConcurrency: 8,
     files: {
       async exists(path, options) {
         options?.signal?.throwIfAborted()
@@ -1519,7 +1537,7 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const materialize = (workspace as ReadonlyWorkspaceFacade & { materializeSources?: ReadonlyWorkspaceFacade["fs"]["materializeSources"] } | undefined)?.materializeSources
     || workspace?.fs.materializeSources
-  if (!materialize || (paths && !paths.length)) return false
+  if (!materialize || (paths && !paths.length)) return
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
   const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
@@ -1530,21 +1548,89 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   })))
   const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
   if (failure) throw failure.reason
-  return results.every(result => result.status === "fulfilled"
-    && result.value.sources.every(source => source.status === "ready"))
+  const values = results.flatMap(result => result.status === "fulfilled" ? [result.value] : [])
+  return {
+    ready: values.every(result => result.sources.every(source => source.status === "ready")),
+    sources: values.flatMap(result => result.sources),
+  }
 }
 
-async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
+interface ProviderSourceProvenance {
+  mount: string
+  provider: "github"
+  repository: string
+  revision: { id: string, ref?: string }
+  root: string
+  source: string
+}
+
+function providerSourceProvenance(context: AgentAdapterRunContext, materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>): ProviderSourceProvenance[] {
+  if (!materialized?.ready || !context.workspaceDefinition?.sources) return []
+  let metadata
+  try {
+    metadata = new Map(normalizeWorkspaceSourcesMetadata(context.workspaceDefinition.sources).map(source => [source.key, source]))
+  }
+  catch {
+    return []
+  }
+  const paths = selectedWorkspacePaths(context)
+  const overlaps = (left: string, right: string) => !left || !right || left === right
+    || left.startsWith(`${right}/`) || right.startsWith(`${left}/`)
+  return materialized.sources.flatMap((status) => {
+    if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(status.revision.id)) return []
+    const source = metadata.get(status.source)
+    if (!source || source.mountPath !== status.mountPath) return []
+    // Only overlaps within the session's selected paths can make ownership ambiguous.
+    if ([...metadata.values()].some(candidate => candidate.key !== source.key
+      && overlaps(candidate.mountPath, source.mountPath)
+      && (!paths || paths.some(path => overlaps(path, candidate.mountPath) && overlaps(path, source.mountPath))))) return []
+    const sourceFingerprint = source.source.fingerprint
+    if (!isRuntimeRecord(sourceFingerprint)) return []
+    let fingerprint = sourceFingerprint
+    if (isRuntimeRecord(fingerprint.sourceResolution) && isRuntimeRecord(fingerprint.source)) fingerprint = fingerprint.source
+    if (fingerprint.inferredSource === "github" && isRuntimeRecord(fingerprint.options)) fingerprint = fingerprint.options
+    const repo = fingerprint.repo
+    const rawRoot = fingerprint.root ?? ""
+    if (!hasRuntimeType(repo, "string") || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return []
+    if (!hasRuntimeType(rawRoot, "string")) return []
+    // Match GitHub Source root normalization before validating repository paths.
+    const root = rawRoot.replace(/\\/g, "/").split("/").filter(part => part && part !== ".").join("/")
+    if (root.split("/").includes("..")) return []
+    const revisionId = status.revision.id
+    // Selected paths can materialize independently while a branch advances.
+    if (materialized.sources.some(candidate => candidate.source === status.source
+      && candidate.mountPath === status.mountPath
+      && (candidate.revision?.id !== revisionId || candidate.revision.immutable !== true))) return []
+    return [{
+      mount: status.mountPath,
+      provider: "github" as const,
+      repository: `https://github.com/${repo}`,
+      revision: { id: status.revision.id, ...(status.revision.ref ? { ref: status.revision.ref } : {}) },
+      root,
+      source: status.source,
+    }]
+  }).filter((entry, index, entries) => entries.findIndex(candidate => candidate.source === entry.source
+    && candidate.mount === entry.mount
+    && candidate.revision.id === entry.revision.id) === index)
+}
+
+function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvenance[]): string | undefined {
+  if (!provenance.length) return
+  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nUse the repository URL and immutable revision for source citations. Read files from the matching mounted path.`
+}
+
+async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
   }
   const paths = selectedWorkspacePaths(context)
   const materializedSources = await materializeWorkspaceSources(context, paths)
+  const provenance = providerSourceProvenance(context, materializedSources)
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
-    ...(materializedSources ? { materializeSources: false } : {}),
+    ...(materializedSources?.ready ? { materializeSources: false } : {}),
     onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,
@@ -1552,7 +1638,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
   await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
-  return session
+  return { provenance, session }
 }
 
 async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
@@ -1712,6 +1798,8 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
   const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
+  const omitPartition = usage.totalProcessedTokens !== undefined
+    && (inputTokens === undefined || outputTokens === undefined || inputTokens + outputTokens !== usage.totalProcessedTokens)
   return {
     type: "usage",
     usageRecord: {
@@ -1719,12 +1807,12 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       raw: usage,
       usage: {
         details: {
-          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-          ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+          ...(omitPartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(omitPartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(omitPartition || usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
-        inputTokens,
-        outputTokens,
+        inputTokens: omitPartition ? undefined : inputTokens,
+        outputTokens: omitPartition ? undefined : outputTokens,
         totalTokens,
       },
     },
@@ -1948,6 +2036,7 @@ async function* runProvider<
     throw error
   }
   let workspaceSession: WorkspaceSession | undefined
+  let sourceProvenance: ProviderSourceProvenance[] = []
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
@@ -2047,12 +2136,12 @@ async function* runProvider<
   }
   try {
     effectiveSignal?.throwIfAborted()
-    workspaceSession = await waitForProviderOperation(
+    const preparedWorkspace = await waitForProviderOperation(
       prepareWorkspace(context, root),
       effectiveSignal,
-      async (lateSession) => {
+      async (lateWorkspace) => {
         try {
-          await lateSession?.close()
+          await lateWorkspace?.session.close()
         }
         finally {
           await cleanupRoot()
@@ -2061,6 +2150,8 @@ async function* runProvider<
       deferWorkspaceSessionCleanup,
       cleanupRoot,
     )
+    workspaceSession = preparedWorkspace?.session
+    sourceProvenance = preparedWorkspace?.provenance || []
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
         async readFile(path) {
@@ -2089,6 +2180,15 @@ async function* runProvider<
         materializeInstructions = Boolean(instructions)
       }
     }
+    const preserveNativeInstructions = !materializeInstructions
+    const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
+    if (!instructions && provenanceInstructions && options.provider === "codex") {
+      instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+    }
+    if (provenanceInstructions) {
+      instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
+      materializeInstructions = true
+    }
     const inspectedTools = inspectAgentTools(context.tools)
     if (!isAuxiliaryAgentAdapterContext(context)) {
       await updateAgentTelemetryConfiguration(context.context, {
@@ -2102,7 +2202,12 @@ async function* runProvider<
     }
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
-      generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))
+      const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
+      if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
+        // Remove only the injected text so native instruction edits reach Workspace write-back.
+        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+      }
+      generatedProviderFiles.push(generated)
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {

@@ -2809,56 +2809,71 @@ describe("Agent Invocations", () => {
   })
 
   it("requeues an in-flight earliest fatal observation when its write fails", async () => {
-    let releaseFatal!: () => void
-    let reportFatalStarted!: () => void
-    let failFatal = true
-    const fatalGate = new Promise<void>((resolve) => { releaseFatal = resolve })
-    const fatalStarted = new Promise<void>((resolve) => { reportFatalStarted = resolve })
-    const memory = createMemoryAgentInvocationStore()
-    const invocations = defineAgentInvocations({
-      store: {
-        ...memory,
-        async update(id, input, claimId) {
-          if (failFatal && input.observation?.attributes?.["error.message"] === "earliest fatal") {
-            reportFatalStarted()
-            await fatalGate
-            failFatal = false
-            return
-          }
-          return memory.update(id, input, claimId)
+    // This test covers retry ordering and the count limit, not the wall-clock flush deadline.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      let releaseFatal!: () => void
+      let reportFatalStarted!: () => void
+      let reportFatalRetried!: () => void
+      let fatalWrites = 0
+      let failFatal = true
+      const fatalGate = new Promise<void>((resolve) => { releaseFatal = resolve })
+      const fatalStarted = new Promise<void>((resolve) => { reportFatalStarted = resolve })
+      const fatalRetried = new Promise<void>((resolve) => { reportFatalRetried = resolve })
+      const memory = createMemoryAgentInvocationStore()
+      const invocations = defineAgentInvocations({
+        store: {
+          ...memory,
+          async update(id, input, claimId) {
+            const isEarliestFatal = input.observation?.attributes?.["error.message"] === "earliest fatal"
+            if (isEarliestFatal) fatalWrites++
+            if (failFatal && isEarliestFatal) {
+              reportFatalStarted()
+              await fatalGate
+              failFatal = false
+              return
+            }
+            const updated = await memory.update(id, input, claimId)
+            if (isEarliestFatal) reportFatalRetried()
+            return updated
+          },
         },
-      },
-    })
-    const journal = await bindAgentInvocations(invocations, runtime("retried-earliest-fatal"))
-    if (!journal) throw new Error("Expected the invocation journal to be configured.")
-    await journal.running()
-    await journal.context.traceLog?.append({
-      attributes: { "error.message": "earliest fatal" },
-      name: "agent.stream.error",
-      type: "error",
-    })
-    await fatalStarted
-    for (let index = 0; index < 255; index++) {
-      await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+      })
+      const journal = await bindAgentInvocations(invocations, runtime("retried-earliest-fatal"))
+      if (!journal) throw new Error("Expected the invocation journal to be configured.")
+      await journal.running()
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "earliest fatal" },
+        name: "agent.stream.error",
+        type: "error",
+      })
+      await fatalStarted
+      for (let index = 0; index < 255; index++) {
+        await journal.context.traceLog?.append({ name: `ordinary-${index}`, type: "run" })
+      }
+      await journal.context.traceLog?.append({
+        attributes: { "error.message": "later fatal" },
+        name: "agent.stream.error",
+        type: "error",
+      })
+      await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
+
+      releaseFatal()
+      await fatalRetried
+      expect(fatalWrites).toBe(2)
+      await journal.finish("failed", new Error("earliest fatal"))
+
+      const record = await invocations.getByRunId("retried-earliest-fatal")
+      expect(record?.observations).toHaveLength(256)
+      expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
+        { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
+        { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
+        { name: "agent.invocation.finish" },
+      ])
     }
-    await journal.context.traceLog?.append({
-      attributes: { "error.message": "later fatal" },
-      name: "agent.stream.error",
-      type: "error",
-    })
-    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run" })
-
-    const finishing = journal.finish("failed", new Error("earliest fatal"))
-    releaseFatal()
-    await finishing
-
-    const record = await invocations.getByRunId("retried-earliest-fatal")
-    expect(record?.observations).toHaveLength(256)
-    expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
-      { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
-      { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
-      { name: "agent.invocation.finish" },
-    ])
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("requeues an in-flight earliest fatal observation after its write times out", async () => {

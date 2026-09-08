@@ -66,7 +66,7 @@ export interface GitHubGraphQLBudgetOptions extends GitHubHostCheckoutOptions {
 
 export interface GitHubHostCommandOptions extends GitHubHostCheckoutOptions {
   cwd?: string
-  env?: NodeJS.ProcessEnv
+  env?: Record<string, string | undefined>
   repository?: string
 }
 
