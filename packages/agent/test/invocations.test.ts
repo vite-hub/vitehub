@@ -1,12 +1,13 @@
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
-import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
 import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
+import * as invocationModule from "../src/invocations.ts"
 import { applyAgentInvocationStoreUpdate, bindAgentInvocations, byteBoundedObservations, observationLimits } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -3733,6 +3734,48 @@ describe("Agent Invocations", () => {
     const terminal = observations.find(entry => entry.name === (status === "failed" ? "agent.invocation.error" : "agent.invocation.cancelled"))
     expect(terminal).toBeDefined()
     expect(deltas[0]!.sequence).toBeLessThan(terminal!.sequence)
+  })
+
+  it("preserves cancellation after journal finalization rejects", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const abort = new AbortController()
+    const failure = new Error("stopped")
+    const finishFailure = new Error("journal finish failed")
+    const traceLog = createTraceEventLog()
+    const originalBind = invocationModule.bindAgentInvocations
+    const bind = vi.spyOn(invocationModule, "bindAgentInvocations").mockImplementation(async (...args) => {
+      const journal = await originalBind(...args)
+      if (!journal) return journal
+      const originalFinish = journal.finish.bind(journal)
+      journal.finish = vi.fn(originalFinish).mockRejectedValueOnce(finishFailure)
+      return journal
+    })
+    try {
+      const agent = defineAgent({
+        driver: { run() {
+          abort.abort(failure)
+          throw failure
+        } },
+        invocations,
+        runtime: false,
+      })
+      await expect(runAgent(agent, { ...runtime("cancelled-finish-error"), traceLog }, {
+        abortSignal: abort.signal,
+      })).rejects.toThrow()
+
+      const terminals = traceLog.entries().filter(entry => [
+        "agent.invocation.cancelled", "agent.invocation.error",
+      ].includes(entry.name ?? ""))
+      const firstCancellation = terminals.findIndex(entry => entry.name === "agent.invocation.cancelled")
+      expect(firstCancellation).toBeGreaterThanOrEqual(0)
+      expect(terminals.slice(firstCancellation + 1).some(entry => entry.name === "agent.invocation.error")).toBe(true)
+      expect(terminals.at(-1)?.name).toBe("agent.invocation.cancelled")
+      expect(deriveTraceRuns(traceLog.entries())).toMatchObject([{ status: "cancelled" }])
+      expect(await invocations.getByRunId("cancelled-finish-error")).toMatchObject({ status: "cancelled" })
+    }
+    finally {
+      bind.mockRestore()
+    }
   })
 
   it("persists bounded message chunks while an invocation is still running", async () => {
