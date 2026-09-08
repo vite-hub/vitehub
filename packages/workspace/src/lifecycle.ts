@@ -162,13 +162,20 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
 async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[], buildSources: ResolvedWorkspaceSource[]) {
   for (const source of startupSources) {
     const snapshot = await readCurrentSourceSnapshot(store, source)
-    if (snapshot?.status !== "ready") continue
+    if (!snapshot) continue
     for (const path of Object.keys(snapshot.items || {})) {
       const file = await store.readFile(path)
       if (!buildSources.some(buildSource => buildSource.key === file?.metadata?.source)) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
-      // Retain the item index so the next startup can still clean up its stale files.
-      await store.setMeta?.(sourceSnapshotMetaKey(source.key), { ...snapshot, status: "updating" })
+      const current = await readCurrentSourceSnapshot(store, source)
+      if (!current) break
+      const items = { ...current.items }
+      for (const itemPath of Object.keys(items)) {
+        const item = await store.readFile(itemPath)
+        if (buildSources.some(buildSource => buildSource.key === item?.metadata?.source)) delete items[itemPath]
+      }
+      // Keep cleanup evidence for paths that build synchronization did not replace.
+      await store.setMeta?.(sourceSnapshotMetaKey(source.key), { ...current, items, status: "updating" })
       break
     }
   }

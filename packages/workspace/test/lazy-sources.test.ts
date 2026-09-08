@@ -17,6 +17,7 @@ const githubSource = github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
+import { readCurrentSourceSnapshot } from "../src/sources/materialization.ts"
 
 const tempDirs: string[] = []
 
@@ -3586,6 +3587,40 @@ describe("lazy sources", () => {
     const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots })
     await expect(inspection.readFile("shared.md")).resolves.toBe("startup")
     await expect(store.readFile("shared.md")).resolves.toMatchObject({ metadata: { source: "generated" } })
+  })
+
+  it.each(["error", "updating"] as const)("restores startup files overwritten by build sync from a %s snapshot", async (status) => {
+    let fail = true
+    const definition = {
+      name: "startup-failed-build-overwrite",
+      sources: {
+        built: custom({ materialize: "build", mount: "", files: [{ path: "shared.md", content: "build" }] }),
+        generated: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return ["shared.md", "retained.md", "last.md"] },
+          async getMeta() { return { ref: "unchanged" } },
+          async getItem(key) {
+            if (key === "last.md" && fail) throw new Error("startup failed")
+            return { key, content: "startup" }
+          },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["generated"] })
+    const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSource("generated", definition.sources.generated))
+    expect(snapshot).toMatchObject({ status: "error", items: { "shared.md": {}, "retained.md": {} } })
+    if (status === "updating") await store.setMeta?.("source:generated:snapshot", { ...snapshot, status })
+
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "build" })
+    fail = false
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["generated"] })
+
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "startup", metadata: { source: "generated" } })
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
+    await expect(store.stat("retained.md")).resolves.toBeUndefined()
   })
 
   it("preserves a disjoint root startup snapshot during root build cleanup", async () => {
