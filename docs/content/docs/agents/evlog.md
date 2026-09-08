@@ -25,7 +25,7 @@ export const telemetry = createAgentEvlog({
 })
 ```
 
-Add `telemetry.capability` to an Agent Definition. It emits a start event and one terminal `$ai_trace` event through the Agent telemetry lifecycle, including failed preparation. Terminal events include duration, invocation identity, available usage and cost, and completion status. Streaming usage updates do not emit extra terminal events. Set `resources` to export measurements from an explicit runtime inspector. The same Capability owns the diagnostics registration.
+Add `telemetry.capability` to an Agent Definition. It emits one terminal `$ai_trace` event through the Agent telemetry lifecycle, including failed preparation. Terminal events include duration, invocation identity, available usage and cost, and completion status. Streaming usage updates do not emit extra terminal events. Set `resources` to export measurements from an explicit runtime inspector. The same Capability owns the diagnostics registration.
 
 The integration uses evlog's logger and drain pipeline. It does not reinitialize a host's global evlog configuration. On Nitro, install the shared host plugin:
 
@@ -38,6 +38,8 @@ export default telemetry.plugin
 The plugin assigns request IDs, connects the evlog drain and HTTP error hooks, and flushes on shutdown. Configured papercut reporters start when an exporter is available and stop before it flushes. The lower-level `agentEvlogPlugin(telemetry, reporters)` remains available for custom reporters. Other hosts can connect `telemetry.drain` and `telemetry.exception(error, properties)` themselves. Internal Agent events bypass the global drain when an explicit exporter is set, to avoid duplicate exports. Without an exporter, they use the host's existing global drain.
 
 Terminal event delivery runs in the background instead of delaying the final response. Honor the Agent runtime's `waitUntil` tasks. On shutdown, stop accepting work, wait for active invocations and their background tasks, then await `telemetry.flush()`. Flush closes the exporter; subsequent ordinary events are dropped and explicit delivery fails. Export calls and the final exporter flush each have a ten-second deadline, configurable with `deliveryTimeoutMs`. Custom exporters receive an abort signal and must stop their I/O when it aborts. Deadlines bound waiting even if an exporter ignores the signal, but cannot terminate arbitrary application code.
+
+HTTP request log export defaults to `logs: 'failures'`, which exports request records with a warning or error level or a status of 400 or higher. Set `logs: 'all'` to retain successful request logs or `logs: false` to disable HTTP request log export. Request records have both `method` and `path` fields. Other application logs, Agent events and exception delivery are unaffected.
 
 Ordinary logs and events are best effort. `maxPending` defaults to 1,000 for event deliveries and independently for the log buffer. `status()` exposes accepted, failed, dropped, pending and closed state. Counters include log records and event deliveries. Without an exporter, events still reach local evlog output and explicit `capture()` rejects.
 
