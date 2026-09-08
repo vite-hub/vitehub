@@ -1265,6 +1265,7 @@ function journalTraceLog(
   const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
   const admittedMessageDeltaKeys = new Set<string>()
   let messageDeltaKeysTruncated = false
+  const precedingMessageText = new Map<string, string>()
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
   const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
@@ -1291,10 +1292,11 @@ function journalTraceLog(
     let retainedContent: string | undefined
     if (hasRuntimeType(rawContent, "string")) {
       let content = rawContent
-      if (!final && credentialTextMayContinue(content)) {
+      const precedingText = precedingMessageText.get(key) ?? ""
+      if (!final && credentialTextMayContinue(content, precedingText)) {
         if (content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content)
-        const scheme = pendingCredentialScheme(content)
+        const scheme = pendingCredentialScheme(content, precedingText)
         const assignment = pendingCredentialAssignment(content)
         if (quote) {
           redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
@@ -1314,7 +1316,11 @@ function journalTraceLog(
           if (retainedContent) content = content.slice(0, -retainedContent.length)
         }
       }
-      const redacted = redactCredentialText(content)
+      const redacted = redactCredentialText(content, precedingText)
+      // Retain only character context, never credential text, across emitted chunks.
+      const emittedRaw = rawContent.slice(0, rawContent.length - (retainedContent?.length ?? 0))
+      const lastLine = (precedingText + emittedRaw).split(/[\r\n]/).at(-1) ?? ""
+      precedingMessageText.set(key, /^[\t "']*$/.test(lastLine) ? "" : "x")
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
         emit({
           ...pending.entry,

@@ -83,7 +83,7 @@ it.each([
   expect(credentialTextMayContinue(text)).toBe(false)
 })
 
-it.each(["Authorization: Basic", "Basic", "Bearer", "Authorization: bearer", "Authorization: BEARER"])("keeps credential redaction for %s", (scheme) => {
+it.each(["Authorization: Basic", "Basic", "Bearer", "bearer", "BEARER", "bEaReR", "basic", "BASIC", "Authorization: bearer", "Authorization: BEARER"])("keeps credential redaction for %s", (scheme) => {
   expect(redactCredentialText(`${scheme} sensitive-value;status=ok`)).toBe(`${scheme} [REDACTED];status=ok`)
   expect(credentialTextMayContinue(`${scheme} sensitive-value`)).toBe(true)
 })
@@ -248,4 +248,16 @@ it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: basic
 it.each(["The bearer of good news arrived", "A basic explanation follows"])("preserves ordinary scheme prose: %s", (text) => {
   expect(redactCredentialText(text)).toBe(text)
   expect(pendingCredentialScheme(text)).toBeUndefined()
+})
+
+it.each(["bearer", "BEARER", "bEaReR", "basic", "BASIC", "bAsIc"])("redacts bare scheme lines: %s", (scheme) => {
+  const prefix = `launcher failed\n  ${scheme} `
+  expect(redactCredentialText(`${prefix}sensitive-value;status=ok`)).toBe(`${prefix}[REDACTED];status=ok`)
+  expect(pendingCredentialScheme(`${prefix}sensitive`)).toBe("unquoted")
+})
+
+it("keeps preceding prose context across scheme detection boundaries", () => {
+  expect(redactCredentialText("bearer of good news", "The ")).toBe("bearer of good news")
+  expect(pendingCredentialScheme("bearer of", "The ")).toBeUndefined()
+  expect(redactCredentialText("bearer sensitive-value", "launcher failed\n")).toBe("bearer [REDACTED]")
 })

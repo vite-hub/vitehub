@@ -26,12 +26,13 @@ function isCredentialAssignment(key: string, prefix: string): boolean {
 
 function isCredentialScheme(scheme: string, prefix: string): boolean {
   return scheme === "Bearer" || scheme === "Basic"
+    || /(?:^|[\r\n])[\t "']*$/.test(prefix)
     || /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
 }
 
-export function pendingCredentialScheme(value: string): "scheme" | "unquoted" | undefined {
+export function pendingCredentialScheme(value: string, precedingText = ""): "scheme" | "unquoted" | undefined {
   const match = new RegExp(String.raw`\b(Bearer|Basic)\s+(${unquotedCredentialValue}*)$`, "i").exec(value)
-  if (!match || !isCredentialScheme(match[1]!, value.slice(0, match.index))) return
+  if (!match || !isCredentialScheme(match[1]!, precedingText + value.slice(0, match.index))) return
   return match[2] ? "unquoted" : "scheme"
 }
 
@@ -55,7 +56,7 @@ const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
-export function redactCredentialText(value: string): string {
+export function redactCredentialText(value: string, precedingText = ""): string {
   return value
     .replace(new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*"?|'(?:\\\\[\\s\\S]|[^'\\\\])*'?)`, "gi"), (match, prefix: string, key: string, quoted: string) => {
       if (!isCredentialAssignment(key, prefix)) return match
@@ -64,7 +65,7 @@ export function redactCredentialText(value: string): string {
       return `${prefix}${quote}[REDACTED]${closed ? quote : ""}`
     })
     .replace(new RegExp(String.raw`\b(Bearer|Basic)\s+${unquotedCredentialValue}+`, "gi"), (match, scheme: string, offset: number, source: string) =>
-      isCredentialScheme(scheme, source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
+      isCredentialScheme(scheme, precedingText + source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
     .replace(new RegExp(`${credentialAssignmentPrefix}(${unquotedCredentialValue}+)`, "gi"), (match, prefix: string, key: string) => isCredentialAssignment(key, prefix) ? `${prefix}[REDACTED]` : match)
 }
 
@@ -74,11 +75,11 @@ export function pendingCredentialAssignment(value: string): "assignment" | "unqu
   return assignment[3] ? "unquoted" : "assignment"
 }
 
-export function credentialTextMayContinue(value: string): boolean {
+export function credentialTextMayContinue(value: string, precedingText = ""): boolean {
   if (/(?<![A-Za-z0-9_-])--?$/.test(value)) return true
   if (pendingAuthorizationHeader(value)) return true
   if (pendingCredentialQuote(value)) return true
-  if (pendingCredentialScheme(value)) return true
+  if (pendingCredentialScheme(value, precedingText)) return true
   if (pendingCredentialAssignment(value)) return true
   const tail = value.slice(-128)
   const trailingWord = /\b([A-Za-z][A-Za-z0-9_-]*)["']?\s*$/.exec(tail)?.[1]
