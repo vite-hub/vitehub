@@ -23,6 +23,7 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocation, { props: { invocation: {
       createdAt: "2026-09-08T00:00:00.000Z",
       id: "artifact-run",
+      traceId: "artifact-trace",
       observations: [{
         attributes: { "message.content": "[Source map](/workspace/provider-session/artifacts/source-map.html)", "message.id": "answer", "message.role": "assistant" },
         name: "agent.message",
@@ -1323,7 +1324,7 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocation, { props: { invocation } });
     const links = wrapper.findAll('[data-activity-id="cat-skills"] .vh-invocation-event__title-link');
     expect(links.map(link => link.text())).toEqual(["Read show-me skill", "Read unslop skill"]);
-    expect(wrapper.get('[data-activity-id="cat-skills"] .vh-invocation-event__disclosure').exists()).toBe(true);
+    expect(wrapper.find('[data-activity-id="cat-skills"] .vh-invocation-event__disclosure').exists()).toBe(true);
     await links[0]!.trigger("click");
     await links[1]!.trigger("click");
     expect(wrapper.emitted("inspect")).toEqual([
@@ -1357,7 +1358,7 @@ describe("Agent Invocation UI", () => {
     const row = mount(AgentInvocation, { props: { invocation } }).get('[data-activity-id="image"]');
     expect(row.get(".vh-invocation-event__title").text()).toBe("View image");
     expect(row.get(".vh-invocation-event__suffix").text()).toBe("source-map.png");
-    expect(row.get('[data-icon="eye"]').exists()).toBe(true);
+    expect(row.find('[data-icon="eye"]').exists()).toBe(true);
     expect(row.findAll("details")).toHaveLength(1);
     expect(row.findAll(".vh-invocation-event__payload")).toHaveLength(0);
     expect(row.get(".vh-invocation-image-details").text()).toContain("/tmp/source-map.png");
@@ -3606,6 +3607,7 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll(".vh-invocation-inspector__content > section h4").map(node => node.text())).toContain("Agent setup");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("Instructions");
     expect(wrapper.get('.vh-invocation-inspector__badge[href="https://github.com/vite-hub/vitehub"]').text()).toBe("vitehub");
+    expect(wrapper.get('.vh-invocation-inspector__badge[href="https://github.com/vite-hub/vitehub"] .vh-channel-icon').attributes("aria-label")).toBe("GitHub");
     expect(wrapper.get(".vh-agent-tool-list__disclosure").text()).toContain("Run a shell command.");
     expect(wrapper.get(".vh-agent-tool-list__schema").text()).toContain("command");
     expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");

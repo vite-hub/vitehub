@@ -41,7 +41,7 @@ describe("invocation Workspace inspection", () => {
   it("identifies current mounted files without claiming a historical snapshot", async () => {
     expect(await handler(request())).toEqual({ paths: ["AGENTS.md"], repository: "bot", revision: "current" })
     expect(mocks.definition).toHaveBeenCalledWith("bot", "inspect")
-    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read", refresh: false })
+    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read" })
   })
   it("reads a visible file", async () => {
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
@@ -63,6 +63,10 @@ describe("invocation Workspace inspection", () => {
       size: 4,
       revision: "current",
     })
+  })
+  it.each([null, "portal", {}, { source: 42 }, { source: "../secret" }, { source: "" }, { source: "a".repeat(101) }])("omits invalid promoted provenance %j while preserving the file preview", async promotedSourceSkill => {
+    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { promotedSourceSkill } })
+    expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
   })
   it.each(["../secret", "/etc/passwd", "repo/../../secret", "repo\\secret", ".env.local", "repo/.git/config", "auth.json"])("rejects unsafe path %s before reading", async path => {
     await expect(handler(request(path))).rejects.toMatchObject({ statusCode: 400 })

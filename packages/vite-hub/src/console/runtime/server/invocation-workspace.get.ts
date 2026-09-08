@@ -8,6 +8,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 const configurationSchema = v.object({ workspace: v.object({ name: v.string() }) })
+const promotedSourceSchema = v.object({ source: v.pipe(v.string(), v.regex(/^[A-Za-z0-9._-]{1,100}$/)) })
 const hostWorkspaceSchema = v.union([
   v.object({ paths: v.array(v.string()), repository: v.string(), revision: v.string() }),
   v.object({ content: v.string(), path: v.string(), provenance: v.optional(v.object({ source: v.string() })), revision: v.string(), size: v.number() }),
@@ -41,7 +42,7 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
     .find(result => result.success)
   if (!configuration?.success) throw failure(404, "This run did not record its Workspace. Open a newer run to inspect its mounted files.")
   const name = configuration.output.workspace.name
-  const workspace = useWorkspace(name, { mode: "read", refresh: false })
+  const workspace = useWorkspace(name, { mode: "read" })
   // These are the mounted files now, not a retained snapshot of the invocation.
   const revision = "current"
   if (path !== null) {
@@ -54,9 +55,8 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
     const size = new TextEncoder().encode(content).byteLength
     if (size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
     if (content.includes("\0")) throw failure(415, "Binary files cannot be previewed as text.")
-    const promoted = stat.metadata?.promotedSourceSkill
-    const source = promoted && typeof promoted === "object" && "source" in promoted && typeof promoted.source === "string"
-      && /^[A-Za-z0-9._-]{1,100}$/.test(promoted.source) ? promoted.source : undefined
+    const promoted = v.safeParse(promotedSourceSchema, stat.metadata?.promotedSourceSkill)
+    const source = promoted.success ? promoted.output.source : undefined
     return { content, path, ...(source ? { provenance: { source } } : {}), revision, size }
   }
   const entries = await workspace.fs.glob("**/*")

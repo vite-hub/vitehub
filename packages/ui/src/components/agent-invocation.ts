@@ -675,11 +675,11 @@ function imageViewPath(activity: InvocationActivity): string | undefined {
   for (const key of ["tool.input", "tool.output"]) {
     const payload = activity.attributes[key];
     if (!hasRuntimeType(payload, "object") || payload === null || Array.isArray(payload)) continue;
-    const item = hasRuntimeType(payload.item, "object") && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
-    if (hasRuntimeType(item.path, "string") && item.path) return item.path;
-    if (!Array.isArray(item.commandActions)) continue;
+    const item = "item" in payload && hasRuntimeType(payload.item, "object") && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
+    if ("path" in item && hasRuntimeType(item.path, "string") && item.path) return item.path;
+    if (!("commandActions" in item) || !Array.isArray(item.commandActions)) continue;
     for (const value of item.commandActions) {
-      if (hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) && hasRuntimeType(value.path, "string") && value.path) return value.path;
+      if (hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) && "path" in value && hasRuntimeType(value.path, "string") && value.path) return value.path;
     }
   }
   return activity.preview?.startsWith("/") ? activity.preview : undefined;
@@ -1215,12 +1215,14 @@ function statusIcon(status: AgentInvocationView["status"]) {
 }
 
 function sourcePresentation(source: string | { id: string; repository?: string }) {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Recorded sources explicitly allow string IDs and structured descriptors.
   const id = typeof source === "string" ? source : source.id;
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only string IDs encode repositories with the gh: prefix; descriptors carry a separate field.
   const repository = typeof source === "string"
     ? /^gh:([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(source)?.[1]
     : /^[\w.-]+\/[\w.-]+$/.test(source.repository ?? "") ? source.repository : undefined;
   return repository
-    ? { href: `https://github.com/${repository}`, icon: invocationBrandMark({ id: "github", label: "GitHub" }), label: id }
+    ? { href: `https://github.com/${repository}`, icon: channelIcon("github"), label: id }
     : { label: id };
 }
 
@@ -1555,7 +1557,7 @@ function renderInvocationActivities(
   workOpen: boolean,
   setWorkOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: InspectHandler,
   messageRendering: MessageRendering,
 ) {
   const orderedActivities = activities.filter(activity => activity.kind !== "message" || isVisibleMessage(activity));
@@ -1620,6 +1622,7 @@ function renderInvocationActivities(
 export const AgentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vue's runtime event validator checks the optional path argument at the component boundary.
     inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || typeof path === "string"),
   },
   props: {
