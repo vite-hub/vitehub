@@ -400,6 +400,15 @@ it("keeps preceding prose context across scheme detection boundaries", () => {
   expect(redactCredentialText("bearer sensitive-value", "launcher failed\n")).toBe("bearer [REDACTED]")
 })
 
+it.each([".".repeat(512), "diagnostic...", "status=ok;", "prefix-"])("preserves authorization boundaries after %s", (prefix) => {
+  const context = credentialTextLineContext(prefix)
+  for (const scheme of ["basic", "BASIC", "bearer", "BEARER"]) {
+    const header = `Authorization: ${scheme} `
+    expect(redactCredentialText(`${header}sensitive-value;status=ok`, context)).toBe(`${header}[REDACTED];status=ok`)
+    expect(pendingCredentialScheme(header, context)).toBe("scheme")
+  }
+})
+
 it.each([
   ["PASSWORD=$(printf supersecret);status=ok", "PASSWORD=[REDACTED];status=ok"],
   ["PASSWORD=${UNSET:-sensitive-value};status=ok", "PASSWORD=[REDACTED];status=ok"],

@@ -381,7 +381,10 @@ export function credentialTextLineContext(value: string): string {
   // Retain a possible block header across chunks, without retaining its key.
   const header = /^( *(?:- +)?)([^:\r\n]+)(:[\t ]*(?:[|>][1-9+-]*[\t ]*(?:#.*)?)?)?$/.exec(block.line)
   if (header && !/["']/.test(block.line) && !/^(?:[\t ]*| *- +)$/.test(block.line)) {
-    return `${header[1]}x${header[3]?.replace(/#.*$/, "#") ?? /\s*$/.exec(block.line)![0]}`
+    // A synthetic key must preserve the word boundary before a retained header.
+    // Otherwise punctuation followed by Authorization becomes xAuthorization.
+    const separator = /\s+$/.exec(block.line)?.[0] ?? (/\w$/.test(block.line) ? "" : " ")
+    return `${header[1]}x${header[3]?.replace(/#.*$/, "#") ?? separator}`
   }
   return /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
 }
