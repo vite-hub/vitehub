@@ -135,6 +135,7 @@ async function withFilesystemReadLock<T>(lock: string, description: string, oper
   }
   finally {
     await rm(reader, { force: true })
+    await rm(`${lock}.readers`, { force: true, recursive: true })
   }
 }
 
@@ -169,7 +170,7 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
     if (index === paths.length) return await operation()
     const lockedPath = paths[index]!
     const key = createHash("sha256").update(lockedPath).digest("hex")
-    const lockPath = `${root}.vitehub-locks/${key}`
+    const lockPath = `${root}/.vitehub-locks/${key}`
     const next = () => lock(index + 1)
     return !readOnly && index === paths.length - 1
       ? await withFilesystemWriteLock(lockPath, `path: ${lockedPath}.`, next)
@@ -202,7 +203,7 @@ async function walk(
     const absolute = `${current}/${dirent.name}`
     if (privatePaths.some(path => !relative(path, absolute))) continue
     const path = normalizeWorkspacePath(relative(root, absolute))
-    if (path === ".vitehub" || path.startsWith(".vitehub/")) continue
+    if (path === ".vitehub" || path.startsWith(".vitehub/") || path === ".vitehub-locks" || path.startsWith(".vitehub-locks/")) continue
     if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
