@@ -441,7 +441,9 @@ describe("lazy sources", () => {
     const reopened = restart ? createLocalWorkspaceStore(root) : store
     await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
     if (replaceDirectory) {
-      await expect(reopened.readFile(replaceDirectory)).resolves.toMatchObject({ content: "user replacement" })
+      const replacement = await reopened.readFile(replaceDirectory)
+      expect(replacement).toBeDefined()
+      expect(typeof replacement!.content === "string" ? replacement!.content : new TextDecoder().decode(replacement!.content)).toBe("user replacement")
     }
     else {
       await expect(reopened.stat("docs")).resolves.toBeUndefined()
