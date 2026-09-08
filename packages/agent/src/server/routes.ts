@@ -1166,7 +1166,6 @@ async function steerQueuedWebhookDelivery(
           try {
             // Preserve the no-resubmission decision even if another worker owns the delivery now.
             await state.set(claimKey, "invalid-state")
-            await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
           } finally {
             stopDeliveryHeartbeat()
           }
