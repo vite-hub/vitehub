@@ -44,7 +44,7 @@ it.each([3600, 0])("restores legacy materialization ownership with cache maxAge 
       ...snapshot, configHash,
       materializedAt: new Date(Date.now() - 1000).toISOString(),
     })
-    await rm(sidecars, { recursive: true })
+    await rm(sidecars, { recursive: true, force: true })
 
     const restarted = createLocalWorkspaceStore(root)
     await expect(restarted.readFile("file.txt")).resolves.toMatchObject({ metadata: undefined })
@@ -98,7 +98,7 @@ it.each([3600, 0])("converges scoped legacy materialization ownership with cache
       ...snapshot, configHash,
       materializedAt: new Date(Date.now() - 1000).toISOString(),
     })
-    await rm(sidecars, { recursive: true })
+    await rm(sidecars, { recursive: true, force: true })
 
     const restarted = createLocalWorkspaceStore(root)
     await expect(restarted.readFile("docs/file.txt")).resolves.toMatchObject({ metadata: undefined })
