@@ -40,9 +40,12 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
 }
 
 function isCredentialScheme(scheme: string, prefix: string): boolean {
-  return scheme === "Bearer" || scheme === "Basic"
-    || /(?:^|[\r\n])[\t "']*$/.test(prefix)
-    || /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
+  // Capitalized schemes are the conventional credential markers. Lowercase
+  // words such as "bearer" or "basic" commonly occur in ordinary prose and
+  // should only be treated as credentials when attached to an authorization
+  // header or an equivalent structured boundary.
+  if (scheme === "Bearer" || scheme === "Basic") return true
+  return /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
 }
 
 export function pendingCredentialScheme(value: string, precedingText = ""): "scheme" | "unquoted" | undefined {
