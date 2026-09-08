@@ -1,3 +1,4 @@
+import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -1075,19 +1076,6 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     try { await home?.release() }
     finally { if (root) await rm(root, { recursive: true, force: true }) }
   }
-}
-
-function codexLaunchArgs(options: ProviderAgentAdapterOptions): string | undefined {
-  const values = [
-    options.reasoningEffort && ["model_reasoning_effort", options.reasoningEffort],
-    options.reasoningSummary && ["model_reasoning_summary", options.reasoningSummary],
-  ].filter((value): value is [string, string] => Boolean(value))
-  return values.length
-    ? values.map(([key, value]) => {
-        const config = `${key}=${JSON.stringify(value)}`
-        return `-c "${config.replace(/["\\$`]/g, "\\$&")}"`
-      }).join(" ")
-    : undefined
 }
 
 async function waitForProviderOperation<T>(

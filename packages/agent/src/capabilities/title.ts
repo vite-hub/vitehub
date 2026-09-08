@@ -1,3 +1,5 @@
+import { resolveRuntimeValue } from "@vite-hub/runtime"
+import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
 import { streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
@@ -28,6 +30,7 @@ import type {
   AgentDriver,
   AgentFinishEvent,
   AgentModelResolver,
+  AgentProviderCredentialContext,
   AgentRunInput,
   AgentRunContext,
   AgentRuntimeConfig,
@@ -483,6 +486,20 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
         ...inheritedDriver,
         ...(hasRuntimeType(options.model, "string") ? { model: options.model } : {}),
         ...(options.reasoningEffort !== undefined ? { reasoningEffort: options.reasoningEffort } : {}),
+      }
+      if (inheritedDriver.provider === "codex" && options.reasoningEffort !== undefined && inheritedDriver.env !== undefined) {
+        // Codex applies later config arguments last. Keep inherited launch flags,
+        // but put the title settings in the same channel to avoid the conflict guard.
+        const launchArgs = codexLaunchArgs(providerDriver)
+        providerDriver.reasoningEffort = undefined
+        providerDriver.reasoningSummary = undefined
+        providerDriver.env = async (resolverContext: AgentProviderCredentialContext) => {
+          const environment = await resolveRuntimeValue(inheritedDriver.env!, resolverContext)
+          return {
+            ...environment,
+            T3CODE_CODEX_LAUNCH_ARGS: [environment.T3CODE_CODEX_LAUNCH_ARGS, launchArgs].filter(Boolean).join(" "),
+          }
+        }
       }
       return cleanGeneratedTitle(await raceTimeout(generateTitleWithDriver(context, options, timedInput, prompt, providerDriver)), maxLength, fallback)
     }

@@ -21,6 +21,9 @@ vi.mock("../src/provider-agent.ts", () => ({
   },
 }));
 
+import { resolveRuntimeValue } from "@vite-hub/runtime";
+import { codexLaunchArgs } from "../src/internal/codex-launch-args.ts";
+import type { AgentProviderEnvironmentResolver } from "../src/types.ts";
 import { title } from "../src/capabilities.ts";
 import { createMessage, defineAgent, runAgent } from "../src/index.ts";
 
@@ -36,6 +39,7 @@ describe("title provider inheritance", () => {
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: undefined },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap", reasoningEffort: "low" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "low" }, reasoningEffort: "medium" },
+    { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "low" }, reasoningEffort: undefined },
   ])(
     "reuses the normalized provider configuration with model $expectedModel",
     async ({ expectedModel, titleOptions, reasoningEffort }) => {
@@ -43,7 +47,7 @@ describe("title provider inheritance", () => {
       const environment = vi.fn(() => ({
         CODEX_HOME: "/agent/codex",
         ...(reasoningEffort === undefined
-          ? { T3CODE_CODEX_LAUNCH_ARGS: '-c model_reasoning_effort="high"' }
+          ? { T3CODE_CODEX_LAUNCH_ARGS: '--sandbox read-only -c model_reasoning_effort="high"' }
           : {}),
       }));
       const finish = vi.fn();
@@ -78,15 +82,26 @@ describe("title provider inheritance", () => {
       expect(mainDriver).toBeDefined();
       expect(titleDriver).toMatchObject({
         credentials,
-        env: environment,
         launch: { args: ["codex"], command: "ssh" },
         model: expectedModel,
         permissions: "allow-all",
         provider: "codex",
-        reasoningEffort: titleOptions.reasoningEffort ?? reasoningEffort,
+        reasoningEffort: titleOptions.reasoningEffort === undefined ? reasoningEffort : undefined,
       });
       expect(titleDriver?.credentials).toBe(mainDriver?.credentials);
-      expect(titleDriver?.env).toBe(mainDriver?.env);
+      expect(mainDriver?.env).toBe(environment);
+      if (titleOptions.reasoningEffort === undefined) {
+        expect(titleDriver?.env).toBe(mainDriver?.env);
+      } else {
+        const resolverContext = finish.mock.calls[0]![0];
+        const resolved = await resolveRuntimeValue(titleDriver?.env as AgentProviderEnvironmentResolver, resolverContext);
+        expect(resolved).toEqual({
+          ...environment(),
+          T3CODE_CODEX_LAUNCH_ARGS: [environment().T3CODE_CODEX_LAUNCH_ARGS, codexLaunchArgs({ reasoningEffort: "low" })].filter(Boolean).join(" "),
+        });
+        expect(environment).toHaveBeenCalledWith(resolverContext);
+        expect(environment().T3CODE_CODEX_LAUNCH_ARGS).toBe(reasoningEffort === undefined ? '--sandbox read-only -c model_reasoning_effort="high"' : undefined);
+      }
       expect(titleDriver?.launch).toBe(mainDriver?.launch);
       expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({
         title: "Inherited provider title",
