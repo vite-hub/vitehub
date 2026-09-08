@@ -2398,7 +2398,16 @@ async function* runProvider<
       if (isTerminalEvent(current.value, turn.turnId)) {
         unregister?.()
         unregister = undefined
-        await Promise.race([Promise.all(pendingSteering), aborted])
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const steeringDrain = Promise.all(pendingSteering)
+        const drainTimeout = new Promise<"timeout">(resolve => {
+          timeout = setTimeout(() => resolve("timeout"), providerCleanupTimeoutMs)
+        })
+        const drained = await Promise.race([steeringDrain.then(() => "drained" as const), drainTimeout, aborted])
+        if (timeout) clearTimeout(timeout)
+        if (drained === "timeout") {
+          caught = agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver steering submission cleanup timed out." })
+        }
         if (!caught) completed = true
       }
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
