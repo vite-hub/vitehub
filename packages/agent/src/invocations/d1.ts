@@ -255,7 +255,7 @@ export function createD1AgentInvocationStore(options: D1AgentInvocationStoreOpti
         values.push(listOptions.capabilityId.trim(), listOptions.capabilityId.trim())
       }
       if (listOptions.triggeredBy?.trim()) {
-        filters.push("trim(json_extract(summary, '$.annotations.triggeredBy'), ?) = ?")
+        filters.push("json_type(summary, '$.annotations.triggeredBy') = 'text' AND trim(json_extract(summary, '$.annotations.triggeredBy'), ?) = ?")
         values.push(sqlTrimWhitespace, listOptions.triggeredBy.trim())
       }
       if (search) {
