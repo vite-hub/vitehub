@@ -25,6 +25,23 @@ import type {
   WorkspaceStore,
 } from "../core/types.ts"
 
+async function backupFile(path: string, backup: string): Promise<void> {
+  const { copyFile, link, rm } = await import("node:fs/promises")
+  try {
+    await link(path, backup)
+  } catch (error) {
+    if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EXDEV"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error
+    // Some filesystems cannot hard-link. Copy before publishing so readers
+    // retain the original content and failed writes can still roll back.
+    try {
+      await copyFile(path, backup)
+    } catch (error) {
+      await rm(backup, { force: true }).catch(() => undefined)
+      throw error
+    }
+  }
+}
+
 async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
   const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
   const { dirname } = await import("node:path")
@@ -316,7 +333,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const { dirname } = await import("node:path")
-    const { link, mkdir, rename, rm, writeFile } = await import("node:fs/promises")
+    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
@@ -341,8 +358,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await writeFile(temp, bytes)
       // Keep the live file readable until the replacement rename commits.
       const hadExisting = existing?.type === "file"
-      // Retain the old inode for rollback without duplicating its contents.
-      if (hadExisting) await link(absolute, backup)
+      if (hadExisting) await backupFile(absolute, backup)
       await rename(temp, absolute).catch(async (error) => {
         await rm(backup, { force: true }).catch(() => undefined)
         throw error
@@ -371,7 +387,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
     const { dirname } = await import("node:path")
-    const { link, mkdir, rename, rm } = await import("node:fs/promises")
+    const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
@@ -416,8 +432,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
 
       const hadExisting = existing?.type === "file"
-      // Retain the old inode for rollback without duplicating its contents.
-      if (hadExisting) await link(absolute, backup)
+      if (hadExisting) await backupFile(absolute, backup)
       await rename(temp, absolute).catch(async (error) => {
         await rm(backup, { force: true }).catch(() => undefined)
         throw error
