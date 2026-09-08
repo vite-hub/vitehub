@@ -719,6 +719,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const normalized = normalizeWorkspacePath(path)
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
     const marker = this.#removalMarker(normalized)
+    let createdMarker = false
     if (metadata.root) {
       const directory = `${this.root}/.vitehub/file-removals`
       await mkdir(directory, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
@@ -734,13 +735,17 @@ class LocalWorkspaceStore implements WorkspaceStore {
         if (error.code === "EEXIST") return undefined
         throw error
       })
+      createdMarker = file !== undefined
       await file?.close()
     }
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
-    }).catch((error: NodeJS.ErrnoException) => {
+    }).catch(async (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" && options.force) return
+      // A failed non-recursive removal cannot have deleted descendants. Only
+      // clear our own marker; an earlier interrupted removal still needs recovery.
+      if (createdMarker && !options.recursive) await rm(marker, { force: true })
       throw error
     })
     for (const key of this.#files.keys()) {

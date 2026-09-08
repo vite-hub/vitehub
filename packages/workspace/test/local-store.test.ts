@@ -57,6 +57,33 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each(["file", "directory"])("keeps metadata readable after rejected non-recursive %s removal", async (kind) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = "docs/file.txt"
+    await store.writeFile(path, { path, content: "original", metadata: { source: "docs" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    if (kind === "file") {
+      vi.mocked(rm).mockImplementation(async (target, options) => {
+        if (String(target) === `${root}/${path}`) throw Object.assign(new Error("access denied"), { code: "EACCES" })
+        return await actual.rm(target, options)
+      })
+    }
+    try {
+      await expect(store.rm(kind === "file" ? path : "docs")).rejects.toThrow()
+    }
+    finally {
+      vi.mocked(rm).mockImplementation(actual.rm)
+    }
+    for (const reader of [store, createLocalWorkspaceStore(root)]) {
+      await expect(reader.readFile(path)).resolves.toMatchObject({ metadata: { source: "docs" } })
+      await expect(reader.stat(path)).resolves.toMatchObject({ metadata: { source: "docs" } })
+      await expect(reader.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ path })]))
+      await expect(reader.snapshot()).resolves.toHaveProperty("entries")
+    }
+    expect(await readdir(`${root}/.vitehub/file-removals`)).toEqual([])
+  })
+
   it.each([false, true])("rejects restored ownership after interrupted removal, recursive: %s", async (recursive) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
@@ -78,6 +105,16 @@ describe("local workspace store", () => {
     }
     if (recursive) await mkdir(`${root}/docs`)
     await writeFile(`${root}/${path}`, "restored externally")
+    vi.mocked(rm).mockImplementation(async (target, options) => {
+      if (String(target) === `${root}/${removedPath}`) throw Object.assign(new Error("recovery denied"), { code: "EACCES" })
+      return await actual.rm(target, options)
+    })
+    try {
+      await expect(store.rm(removedPath)).rejects.toThrow("recovery denied")
+    }
+    finally {
+      vi.mocked(rm).mockImplementation(actual.rm)
+    }
     for (const reader of [store, createLocalWorkspaceStore(root)]) {
       await expect(reader.readFile(path)).rejects.toThrow("Interrupted Workspace removal")
       await expect(reader.stat(path)).rejects.toThrow("Interrupted Workspace removal")
