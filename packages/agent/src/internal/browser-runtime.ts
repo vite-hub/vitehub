@@ -145,21 +145,23 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
     if (ready.version !== agentBrowserVersion || !ready.chrome) return
     const executablePath = join(root, ready.chrome)
     if (!(await stat(command).catch(() => undefined))?.isFile() || !(await stat(executablePath).catch(() => undefined))?.isFile()) return
-    const browserEnvironment = ready.linuxBundle ? {
-      LD_LIBRARY_PATH: join(root, "chromium", "al2023", "lib"),
-      FONTCONFIG_PATH: join(root, "chromium", "fonts"),
-    } : {}
+    const browserEnvironment: Record<string, string> = {}
+    if (ready.linuxBundle) {
+      browserEnvironment.LD_LIBRARY_PATH = join(root, "chromium", "al2023", "lib")
+      browserEnvironment.FONTCONFIG_PATH = join(root, "chromium", "fonts")
+    }
     const noSandbox = await smokeChrome(executablePath, { ...installerEnvironment(), ...browserEnvironment }, ready.noSandbox, ready.linuxBundle)
     await mkdir(socketRoot, { mode: 0o700, recursive: true })
+    const environment: Record<string, string> = {
+      ...browserEnvironment,
+      AGENT_BROWSER_EXECUTABLE_PATH: executablePath,
+      AGENT_BROWSER_SOCKET_DIR: socketRoot,
+      PATH: binRoot,
+    }
+    if (noSandbox) environment.AGENT_BROWSER_ARGS = noSandbox
     return {
       command,
-      environment: Object.freeze({
-        ...browserEnvironment,
-        AGENT_BROWSER_EXECUTABLE_PATH: executablePath,
-        AGENT_BROWSER_SOCKET_DIR: socketRoot,
-        ...(noSandbox ? { AGENT_BROWSER_ARGS: noSandbox } : {}),
-        PATH: binRoot,
-      }),
+      environment: Object.freeze(environment),
       skillContent: `${await readFile(skillPath, "utf8")}\n## Managed runtime\n\nViteHub has installed the CLI and browser and assigned an isolated session for this invocation. Use \`agent-browser\` directly. Keep the configured \`AGENT_BROWSER_SESSION\`; skip installation and session setup examples in the CLI guide. Do not use \`npx\` or override \`--session\`. ViteHub closes the session when this invocation finishes.\n`,
     }
   }
