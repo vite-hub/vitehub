@@ -382,8 +382,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
       // Read and identify the same sidecar even if another writer replaces its path.
       const info = await file.stat({ bigint: true })
       version = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
-      const cached = this.#files.get(path)
-      if (cached?.version === version) return cached.value
       content = await file.readFile("utf8")
     }
     finally {
@@ -403,10 +401,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
     // Invalid ownership must not turn a Source file into an ordinary writable file.
     if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
     const { path: _path, ...result } = parsed.output
-    // Keep scans larger than the cache from evicting every reusable entry.
-    if (this.#files.has(path) || this.#files.size < 1024) {
-      this.#files.set(path, { version, value: result })
-    }
     return result
   }
 
