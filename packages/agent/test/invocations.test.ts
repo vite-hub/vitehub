@@ -3034,6 +3034,37 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(observations)).not.toContain("sensitive words")
   })
 
+  it("bounds admitted message streams without losing credential boundary state", async () => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxCount: 8 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const delta = (id: string, text: string) => context.traceLog?.append({
+          name: "agent.message.delta",
+          type: "run",
+          attributes: { "message.id": id, "message.content": text },
+        })
+        await delta("answer", "Authorization: Bear")
+        for (let index = 0; index < 100; index++) await delta(`stream-${index}`, "short")
+        await context.traceLog?.append({ name: "checkpoint", type: "run" })
+        await delta("stream-99", "er dropped-secret")
+        await delta("answer", "er retained-secret;status=ok")
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("bounded-streams"), {})
+    const observations = (await invocations.getByRunId("bounded-streams"))?.observations || []
+    const serialized = JSON.stringify(observations)
+    expect(serialized).not.toContain("retained-secret")
+    expect(serialized).not.toContain("dropped-secret")
+    expect(observations.some(entry => entry.attributes?.["content.truncated"])).toBe(true)
+  })
+
   it("preserves the configured trace content policy and coalesces message deltas", async () => {
     const run = async (
       runId: string,

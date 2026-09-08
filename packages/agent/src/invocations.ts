@@ -1257,11 +1257,14 @@ function journalTraceLog(
   content: TraceEventContentPolicy,
   metadataContent: ReadonlySet<string>,
   maxMessageDeltaCharacters: number,
+  maxMessageDeltaKeys: number,
 ): TraceEventLog {
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const messageDeltaChunkCharacters = maxMessageDeltaCharacters
   const messageDeltaChunkEvents = 32
   const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
+  const admittedMessageDeltaKeys = new Set<string>()
+  let messageDeltaKeysTruncated = false
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
   const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment" } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
@@ -1338,6 +1341,27 @@ function journalTraceLog(
   }
   const queueMessageDelta = (entry: TraceEventLogEntry) => {
     const key = messageDeltaKey(entry)
+    if (!admittedMessageDeltaKeys.has(key)) {
+      if (admittedMessageDeltaKeys.size >= maxMessageDeltaKeys) {
+        if (!messageDeltaKeysTruncated) {
+          messageDeltaKeysTruncated = true
+          const attributes = { ...entry.attributes }
+          delete attributes["message.content"]
+          emit({
+            ...entry,
+            attributes: {
+              ...attributes,
+              "content.omitted": ["message.content"],
+              "content.truncated": true,
+            },
+          })
+        }
+        return
+      }
+      // Keep admission stable for the invocation: accepting a previously dropped
+      // stream later could expose a credential continuation without its prefix.
+      admittedMessageDeltaKeys.add(key)
+    }
     const rawContent = entry.attributes?.["message.content"]
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
@@ -1765,7 +1789,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount),
         },
         async finish(status, error) {
           if (finished || finishing) return
