@@ -2350,6 +2350,37 @@ describe("lazy sources", () => {
     expect(readFile).not.toHaveBeenCalled()
   })
 
+  it("cleans streamed startup files after restart with a Store-native digest", async () => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const writeFileStream = store.writeFileStream!.bind(store)
+    store.writeFileStream = async (path, file) => ({
+      ...await writeFileStream(path, file),
+      digest: "native-store-digest",
+    })
+    const definition = {
+      name: "startup-stream-native-digest",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["stale.md", "edited.md"] },
+          async getItem(key) { return { key, contentStream: new Blob(["generated"]).stream() } },
+        }),
+      },
+    } satisfies import("../src/core/types.ts").WorkspaceDefinition
+    await syncWorkspaceDefinition(definition, store)
+    await createWorkspaceSourceView(definition, store).materializeSources()
+
+    await expect(store.stat("docs/stale.md")).resolves.toMatchObject({ type: "file" })
+
+    const restarted = createLocalWorkspaceStore(root)
+    await restarted.writeFile("docs/edited.md", { path: "docs/edited.md", content: "user edit" })
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
+
+    await expect(restarted.stat("docs/stale.md")).resolves.toBeUndefined()
+    await expect(createWorkspaceSourceView({ name: definition.name }, restarted).readFile("docs/edited.md")).resolves.toBe("user edit")
+  })
+
   it("rejects streaming Stores that omit the required digest", async () => {
     const store = createLocalWorkspaceStore(await createRoot())
     const writeFileStream = store.writeFileStream!.bind(store)
