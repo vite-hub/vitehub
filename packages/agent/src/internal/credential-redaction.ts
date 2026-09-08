@@ -18,13 +18,13 @@ export function redactCredentialText(value: string): string {
       const closed = quoted.length > 1 && quoted.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(quoted)
       return `${key}=${quote}[REDACTED]${closed ? quote : ""}`
     })
-    .replace(/\b(Bearer|Basic)\s+[^\s"',;&{}<>]+/gi, "$1 [REDACTED]")
+    .replace(/\b([Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s+[^\s"',;&{}<>]+/g, "$1 [REDACTED]")
     .replace(/\b((?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD))=(["']?)([^\s"',;&{}<>]+)/gi, (match, key: string, quote: string) => isCredentialKey(key) ? `${key}=${quote}[REDACTED]` : match)
 }
 
 export function credentialTextMayContinue(value: string): boolean {
   if (pendingCredentialQuote(value)) return true
-  if (/\b(?:Bearer|Basic)\s+[^\s"',;&{}<>]*$/i.test(value)) return true
+  if (/\b(?:[Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s+[^\s"',;&{}<>]*$/.test(value)) return true
   const assignment = /\b((?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD))=["']?[^\s"',;&{}<>]*$/i.exec(value)
   if (assignment && isCredentialKey(assignment[1]!)) return true
   const tail = value.slice(-128)

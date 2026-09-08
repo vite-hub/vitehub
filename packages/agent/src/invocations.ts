@@ -1294,14 +1294,14 @@ function journalTraceLog(
         if (quote) {
           redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
         }
-        else if (/\b(?:Bearer|Basic)\s+[^\s"',;&{}<>]*$/i.test(content)
+        else if (/\b(?:[Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s+[^\s"',;&{}<>]*$/.test(content)
           || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;&{}<>]*$/i.test(content)) {
           redactingCredentialDeltas.set(key, {
-            kind: /\b(?:Bearer|Basic)\s*$/i.test(content)
+            kind: /\b(?:[Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s*$/.test(content)
               ? "scheme"
               : content.endsWith("=") ? "assignment" : "unquoted",
           })
-          if (/\b(?:Bearer|Basic)\s+$/i.test(content)
+          if (/\b(?:[Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s+$/.test(content)
             || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?$/i.test(content)) {
             content += "[REDACTED]"
           }

@@ -70,3 +70,17 @@ it.each([
     expect(credentialTextMayContinue(`${".".repeat(512)}${key.slice(0, split)}`)).toBe(true)
   }
 })
+
+it.each([
+  "This is a basic example",
+  "Use basic authentication",
+  "A basic tutorial;status=ok",
+])("preserves ordinary prose: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+  expect(credentialTextMayContinue(text)).toBe(false)
+})
+
+it.each(["Authorization: Basic", "Basic", "Bearer", "bearer", "BEARER"])("keeps credential redaction for %s", (scheme) => {
+  expect(redactCredentialText(`${scheme} sensitive-value;status=ok`)).toBe(`${scheme} [REDACTED];status=ok`)
+  expect(credentialTextMayContinue(`${scheme} sensitive-value`)).toBe(true)
+})
