@@ -162,8 +162,9 @@ export interface CredentialAssignmentState {
   shellSubstitutions?: { closer: string, quote?: string }[]
   yamlIndent?: number
   yamlFlow?: boolean
+  yamlSeparatorLimit?: number
   yamlProperty?: boolean
-  yaml?: { header: boolean, modifiers: boolean, plain?: boolean, carriageReturn?: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
+  yaml?: { header: boolean, modifiers: boolean, plain?: boolean, carriageReturn?: boolean, indent?: number, line: boolean, spaces: number, whitespace: string, truncated?: boolean }
 }
 
 // Retain ordinary separators without letting whitespace-only stream deltas
@@ -278,16 +279,21 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     state.started = true
     if (state.yaml) {
       const yaml = state.yaml
+      const appendWhitespace = (text: string, spaces = 0) => {
+        const remaining = Math.max(0, (state.yamlSeparatorLimit ?? maxYamlSeparatorLength) - yaml.whitespace.length)
+        if (spaces + text.length > remaining) yaml.truncated = true
+        yaml.whitespace += " ".repeat(Math.min(spaces, remaining)) + text.slice(0, Math.max(0, remaining - spaces))
+      }
       const followsCarriageReturn = yaml.carriageReturn
       yaml.carriageReturn = character === "\r"
       if (character === "\n" && followsCarriageReturn) {
-        yaml.whitespace += "\n"
+        appendWhitespace("\n")
         continue
       }
       // Plain YAML scalars include spaces and shell punctuation. Only a
       // separated comment or a dedented line ends the credential value.
       if (yaml.plain && character === "#" && (yaml.line || yaml.whitespace)) {
-        if (yaml.line) yaml.whitespace += " ".repeat(Math.min(yaml.spaces, maxYamlSeparatorLength - yaml.whitespace.length))
+        if (yaml.line) appendWhitespace("", yaml.spaces)
         return index
       }
       if (yaml.header) {
@@ -300,8 +306,12 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
         }
       }
       else if (/[\r\n]/.test(character)) {
+        if (yaml.plain) appendWhitespace(character, yaml.line ? yaml.spaces : 0)
+        else {
+          yaml.whitespace = character
+          yaml.truncated = false
+        }
         yaml.line = true
-        yaml.whitespace = character
         yaml.spaces = 0
       }
       else if (yaml.line) {
@@ -309,17 +319,21 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
         else {
           const indent = yaml.spaces
           if (indent < (yaml.indent ?? state.yamlIndent! + 1)) {
-            yaml.whitespace += " ".repeat(Math.min(indent, maxYamlSeparatorLength - yaml.whitespace.length))
+            appendWhitespace("", indent)
             return index
           }
           if (!yaml.plain) yaml.indent ??= indent
           yaml.line = false
           yaml.whitespace = ""
+          yaml.truncated = false
         }
       }
       else if (yaml.plain) {
-        if (!/[\t \r]/.test(character)) yaml.whitespace = ""
-        else if (yaml.whitespace.length < maxYamlSeparatorLength) yaml.whitespace += character
+        if (!/[\t \r]/.test(character)) {
+          yaml.whitespace = ""
+          yaml.truncated = false
+        }
+        else appendWhitespace(character)
       }
       continue
     }
@@ -372,11 +386,12 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
   return value.length
 }
 
-export function pendingCredentialAssignmentState(value: string, precedingText = ""): CredentialAssignmentState | undefined {
+export function pendingCredentialAssignmentState(value: string, precedingText = "", yamlSeparatorLimit = maxYamlSeparatorLength): CredentialAssignmentState | undefined {
   for (const match of value.matchAll(new RegExp(credentialAssignmentPrefix, "gi"))) {
     if (!isCredentialAssignment(match[2]!, match[1]!, precedingText + value.slice(0, match.index))) continue
     const content = value.slice(match.index + match[0].length)
     const state = assignmentState(precedingText + value, precedingText.length + match.index, match[1]!)
+    if (state.yamlIndent !== undefined) state.yamlSeparatorLimit = yamlSeparatorLimit
     if (consumeCredentialAssignment(content, state) === content.length) return state
   }
 }

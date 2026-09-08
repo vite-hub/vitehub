@@ -1278,6 +1278,7 @@ function journalTraceLog(
   metadataContent: ReadonlySet<string>,
   maxMessageDeltaCharacters: number,
   maxMessageDeltaKeys: number,
+  maxSeparatorCharacters: number,
 ): TraceEventLog {
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const messageDeltaChunkCharacters = maxMessageDeltaCharacters
@@ -1319,7 +1320,7 @@ function journalTraceLog(
         if (!interveningEvent && content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content, precedingText)
         const scheme = pendingCredentialScheme(content, precedingText)
-        const assignment = pendingCredentialAssignmentState(content, precedingText)
+        const assignment = pendingCredentialAssignmentState(content, precedingText, maxSeparatorCharacters)
         const authorization = pendingAuthorizationState(content)
         if (authorization) {
           redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
@@ -1434,7 +1435,7 @@ function journalTraceLog(
         if (boundary === content.length) return
         redactingCredentialDeltas.delete(key)
         content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? redaction.state.shellProcess ?? "" : "") + content.slice(boundary)
-        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
+        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content, ...(redaction.kind === "shell" && redaction.state.yaml?.truncated ? { "content.truncated": true } : {}) } }
       }
       else {
         if (redaction.kind === "scheme") {
@@ -1871,7 +1872,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount, limits.maxBytes),
         },
         async finish(status, error) {
           if (finished || finishing) return

@@ -1,6 +1,34 @@
 import { describe, expect, it } from "vitest"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
+it.each([" # public comment\nstatus: ok", "\n\nstatus: ok", "\r\n\r\nstatus: ok"])("preserves complete streamed YAML separators before %j", (ending) => {
+  const separator = " \t".repeat(2048)
+  const state = pendingCredentialAssignmentState("password: private", "", 16384)!
+  let restored = ""
+  const suffix = separator + ending
+  for (let offset = 0; offset < suffix.length; offset += 17) {
+    const chunk = suffix.slice(offset, offset + 17)
+    const boundary = consumeCredentialAssignment(chunk, state)
+    expect(state.yaml!.whitespace.length).toBeLessThanOrEqual(16384)
+    if (boundary < chunk.length) {
+      restored = state.yaml!.whitespace + chunk.slice(boundary) + suffix.slice(offset + chunk.length)
+      break
+    }
+  }
+  expect(restored).toBe(suffix)
+  expect(state.yaml!.truncated).not.toBe(true)
+})
+
+it("marks separator overflow and clears it when secret content resumes", () => {
+  const state = pendingCredentialAssignmentState("password: private", "", 32)!
+  consumeCredentialAssignment(" ".repeat(4096), state)
+  expect(state.yaml!.whitespace).toBe(" ".repeat(32))
+  expect(state.yaml!.truncated).toBe(true)
+  consumeCredentialAssignment("more-private", state)
+  expect(state.yaml!.whitespace).toBe("")
+  expect(state.yaml!.truncated).toBe(false)
+})
+
 it("bounds structured credential state across an unclosed stream", () => {
   const state = pendingCredentialAssignmentState("PASSWORD={")!
   for (let chunk = 0; chunk < 128; chunk++) {

@@ -194,6 +194,28 @@ describe("Agent Invocations", () => {
     expect(JSON.stringify(observations)).not.toMatch(/correct|horse|battery|staple|sensitive|more secret/)
   })
 
+  it.each([" # public comment\nstatus: ok", "\n\nstatus: ok", "\r\n\r\nstatus: ok"])("preserves long streamed YAML separator evidence: %j", async (ending) => {
+    const separator = " \t".repeat(2048)
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const chunks = ["password: private", ...separator.match(/.{1,64}/g)!, ending]
+        for (const chunk of chunks) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "separator", "message.content": chunk } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("long-yaml-separator"), {})
+    const observations = (await invocations.getByRunId("long-yaml-separator"))!.observations
+    expect(observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join(""))
+      .toBe("password: [REDACTED]" + separator + ending)
+    expect(observations.some(entry => entry.attributes?.["content.truncated"])).toBe(false)
+  })
+
   it("flushes interleaved message identities and safe text before tool events", async () => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
