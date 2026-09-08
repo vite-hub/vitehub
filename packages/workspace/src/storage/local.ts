@@ -181,12 +181,17 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
 
 async function walk(
   root: string,
-  current = root,
+  current: string,
+  privatePaths: readonly string[],
   excluded: readonly string[] = [],
   recursive = true,
 ): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
-  const { relative } = await import("node:path")
+  const { isAbsolute, relative, sep } = await import("node:path")
+  if (privatePaths.some((path) => {
+    const relativePath = relative(path, current)
+    return !relativePath || (!isAbsolute(relativePath) && relativePath !== ".." && !relativePath.startsWith(`..${sep}`))
+  })) return []
   const entries: WorkspaceEntry[] = []
   const dirents = await readdir(current, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") return []
@@ -195,6 +200,7 @@ async function walk(
 
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
+    if (privatePaths.some(path => !relative(path, absolute))) continue
     const path = normalizeWorkspacePath(relative(root, absolute))
     if (path === ".vitehub" || path.startsWith(".vitehub/")) continue
     if (isExcludedWorkspacePath(path, excluded)) continue
@@ -206,7 +212,7 @@ async function walk(
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      if (recursive) entries.push(...await walk(root, absolute, excluded, true))
+      if (recursive) entries.push(...await walk(root, absolute, privatePaths, excluded, true))
       continue
     }
     if (dirent.isFile()) {
@@ -547,7 +553,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #list(prefix: string, options: ListOptions, includeDigest: boolean): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
-    const all = await walk(this.root, current, options.exclude, options.recursive === true)
+    const privatePaths = [this.#fileMetadataRoot, this.#metaPath, `${this.root}.vitehub-locks`]
+    const all = await walk(this.root, current, privatePaths, options.exclude, options.recursive === true)
     const filtered = all
       .filter((entry) => {
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")

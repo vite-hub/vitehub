@@ -57,6 +57,23 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it("hides metadata inside a root ending with a separator", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    const root = `${directory}/`
+    tempDirs.push(directory)
+    const store = createLocalWorkspaceStore(root)
+    await store.writeFile("file.txt", { path: "file.txt", content: "hello", metadata: { source: "docs" } })
+    await store.setMeta("test", { private: true })
+    const metadataDirectory = metadataRoot(root).slice(root.length)
+    await expect(readdir(metadataRoot(root))).resolves.toContain("file.txt")
+    await expect(store.list("", { recursive: true })).resolves.toMatchObject([{ path: "file.txt" }])
+    await expect(store.glob("**/*")).resolves.toMatchObject([{ path: "file.txt" }])
+    expect(Object.keys((await store.snapshot()).entries)).toEqual(["file.txt"])
+    await expect(store.list(metadataDirectory, { recursive: true })).resolves.toEqual([])
+    await expect(store.list(`${metadataDirectory}/file.txt`, { recursive: true })).resolves.toEqual([])
+    await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({ metadata: { source: "docs" } })
+  })
+
   it("ignores a directory in place of a metadata sidecar", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
