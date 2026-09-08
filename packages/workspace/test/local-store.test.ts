@@ -66,6 +66,39 @@ describe("local workspace store", () => {
     })
   })
 
+  it.skipIf(process.platform === "win32").each(["write", "clear", "remove"])("repairs existing nested permissions on %s", async (operation) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const sidecars = metadataRoot(root)
+    await store.writeFile("nested/file.txt", { path: "nested/file.txt", content: "same", metadata: { source: "private" } })
+    for (const path of [sidecars, `${sidecars}/nested`, `${sidecars}/nested/file.txt`]) await chmod(path, 0o755)
+    if (operation === "remove") await store.rm("nested/file.txt")
+    else await store.writeFile("nested/file.txt", {
+      path: "nested/file.txt", content: "same", metadata: operation === "write" ? { source: "private" } : undefined,
+    })
+    for (const path of [sidecars, `${sidecars}/nested`]) expect((await stat(path)).mode & 0o777).toBe(0o700)
+    if (operation !== "remove") expect((await stat(`${sidecars}/nested/file.txt`)).mode & 0o777).toBe(0o700)
+  })
+
+  it.skipIf(process.platform === "win32")("preserves Workspace group permissions despite the process umask", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await chmod(root, 0o770)
+    const previous = process.umask(0o077)
+    try {
+      await store.writeFile("nested/file.txt", { path: "nested/file.txt", content: "shared", metadata: { source: "shared" } })
+    }
+    finally { process.umask(previous) }
+    const sidecars = metadataRoot(root)
+    for (const path of [sidecars, `${sidecars}/nested`, `${sidecars}/nested/file.txt`]) {
+      const info = await stat(path)
+      expect(info.mode & 0o777).toBe(0o770)
+      expect(info.gid).toBe((await stat(root)).gid)
+    }
+    expect((await stat(`${sidecars}/nested/file.txt/metadata.json`)).mode & 0o777).toBe(0o660)
+    await expect(createLocalWorkspaceStore(root).readFile("nested/file.txt")).resolves.toMatchObject({ metadata: { source: "shared" } })
+  })
+
   it.each([
     { streamed: false, hasExisting: false },
     { streamed: false, hasExisting: true },

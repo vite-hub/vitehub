@@ -231,22 +231,49 @@ class LocalWorkspaceStore implements WorkspaceStore {
     return result
   }
 
+  async #prepareMetadataDirectories(path: string, create: boolean) {
+    const { chmod, chown, mkdir, stat } = await import("node:fs/promises")
+    const root = await stat(this.root).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" && !create) return undefined
+      throw error
+    })
+    if (!root) return { mode: 0o600, gid: undefined }
+    const mode = root.mode & 0o777
+    let directory = this.#fileMetadataRoot
+    for (const part of ["", ...normalizeWorkspacePath(path).split("/").filter(Boolean)]) {
+      if (part) directory = resolveInside(directory, part)
+      if (create) await mkdir(directory, { recursive: true, mode: 0o700 })
+      const info = await stat(directory).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT" && !create) return undefined
+        throw error
+      })
+      if (!info) break
+      if (process.platform !== "win32") {
+        if (info.gid !== root.gid) await chown(directory, info.uid, root.gid)
+        if ((info.mode & 0o777) !== mode) await chmod(directory, mode)
+      }
+    }
+    return { mode: mode & 0o666, gid: root.gid }
+  }
+
   async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {
-    const { dirname } = await import("node:path")
-    const { chmod, mkdir, rename, rm, writeFile } = await import("node:fs/promises")
+    const { chmod, chown, rename, rm, stat, writeFile } = await import("node:fs/promises")
     const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
-    if (value.mediaType === undefined && value.metadata === undefined) {
+    const hasMetadata = value.mediaType !== undefined || value.metadata !== undefined
+    const permissions = await this.#prepareMetadataDirectories(path, hasMetadata)
+    if (!hasMetadata) {
       await rm(metadataPath, { force: true })
       this.#files.delete(path)
       return
     }
     const temp = `${metadataPath}.${randomUUID()}.tmp`
-    await mkdir(this.#fileMetadataRoot, { recursive: true, mode: 0o700 })
-    // Also restrict trees created by earlier Store versions.
-    await chmod(this.#fileMetadataRoot, 0o700)
-    await mkdir(dirname(metadataPath), { recursive: true, mode: 0o700 })
     try {
       await writeFile(temp, JSON.stringify({ path, ...value }), { mode: 0o600 })
+      if (process.platform !== "win32") {
+        const info = await stat(temp)
+        if (permissions.gid !== undefined && info.gid !== permissions.gid) await chown(temp, info.uid, permissions.gid)
+        await chmod(temp, permissions.mode)
+      }
       await rename(temp, metadataPath)
     }
     catch (error) {
@@ -487,6 +514,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
     const { rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
+    await this.#prepareMetadataDirectories(normalized, false)
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
