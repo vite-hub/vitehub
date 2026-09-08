@@ -5027,18 +5027,10 @@ async function handleChatSdkMessage(
           }
           if (outcome === "timed-out") {
             await timeoutEvidence
-            // Keep late acceptance under host custody for one more bounded confirmation window.
+            // The response wait is bounded, but a timeout cannot cancel Driver input.
+            // Retain host custody until that input and all resulting evidence settle.
             // Use the host hook directly so a webhook flush does not delay its response.
-            const reconciliationTimeout = Math.max(0, Math.min(
-              options?.timeout ?? 28_000,
-              28_000,
-              maximumInvocationDeadline === undefined ? Infinity : maximumInvocationDeadline - Date.now(),
-            ))
-            // Bound the Driver response, but retain host custody through its evidence writes.
-            const reconciliation = enforceChatInvocationTimeout(submitted, reconciliationTimeout)
-              .then(() => submission)
-              .catch(() => undefined)
-            state.reconciliationWaitUntil?.(reconciliation)
+            state.reconciliationWaitUntil?.(submission.catch(() => undefined))
             return
           }
           if (outcome === "accepted") return

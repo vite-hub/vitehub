@@ -16461,10 +16461,11 @@ describe("server helpers", () => {
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true, noHost: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, neverAccepts: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, afterReconciliationDeadline: true, delayedEvidence: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, delayedEvidence: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, neverAccepts: true },
     { failInvocation: true, lateAcceptance: true },
-  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance, Cloudflare deadline: $cloudflareDeadline, unresolved: $neverAccepts)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost, cloudflareDeadline, delayedEvidence }) => {
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance, Cloudflare deadline: $cloudflareDeadline, unresolved: $neverAccepts)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost, cloudflareDeadline, delayedEvidence, afterReconciliationDeadline }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16576,7 +16577,7 @@ describe("server helpers", () => {
         await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
         expect(steeredPrompt).toBe("hello")
         if (timeoutAcceptance) {
-          // The response finishes while the host retains bounded reconciliation custody.
+          // The response finishes while the host retains reconciliation custody.
           await expect(followUp).resolves.toMatchObject({ status: 200 })
           const timedOut = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
           expect(timedOut.find(delivery => delivery.sourceId === "91107")?.status).toBe("failed")
@@ -16597,13 +16598,20 @@ describe("server helpers", () => {
           expect(Date.now() - followUpStartedAt).toBeLessThan(20_000)
           await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + (delayedEvidence ? 27_500 : 26_000) - Date.now())))
         }
+        if (afterReconciliationDeadline) {
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + 1_200 - Date.now())))
+          let custodySettled = false
+          void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+          await new Promise(resolve => setTimeout(resolve, 0))
+          expect(custodySettled).toBe(false)
+        }
         delayEvidenceWrites = delayedEvidence === true
         if (!neverAccepts) acceptance.resolve()
         if (delayedEvidence) {
           await evidenceStarted.promise
           let custodySettled = false
           void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
-          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + 29_000 - Date.now())))
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + (cloudflareDeadline ? 29_000 : 1_250) - Date.now())))
           expect(custodySettled).toBe(false)
           evidenceReleased.resolve()
         }
@@ -16620,6 +16628,14 @@ describe("server helpers", () => {
       await firstResult
       await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
 
+      if (neverAccepts) {
+        let custodySettled = false
+        void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+        await new Promise(resolve => setTimeout(resolve, cloudflareDeadline ? 0 : 600))
+        expect(custodySettled).toBe(false)
+        // Simulate the Driver terminating without acceptance to release test custody.
+        acceptance.reject(new Error("Driver stopped before confirmation"))
+      }
       if (timeoutAcceptance) await Promise.all(reconciliationTasks)
       if (cloudflareDeadline) expect(Date.now() - followUpStartedAt).toBeLessThan(30_000)
       if (neverAccepts) {
