@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   adapters: [] as Array<Record<string, unknown>>,
+  generateText: vi.fn(async () => ({ text: "Requested model title" })),
   generate: vi.fn(async (context: { input?: { prompt?: string }; prompt?: string }) => ({
     text: (context.prompt ?? context.input?.prompt ?? "").includes("Generate a title")
       ? "Inherited provider title"
@@ -21,6 +22,10 @@ vi.mock("../src/provider-agent.ts", () => ({
   },
 }));
 
+vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
+  loadAiSdk: async () => ({ generateText: mocks.generateText }),
+}));
+
 import { resolveRuntimeValue } from "@vite-hub/runtime";
 import { codexLaunchArgs } from "../src/internal/codex-launch-args.ts";
 import type { AgentProviderEnvironmentResolver } from "../src/types.ts";
@@ -31,10 +36,37 @@ describe("title provider inheritance", () => {
   afterEach(() => {
     mocks.adapters.length = 0;
     mocks.generate.mockClear();
+    mocks.generateText.mockClear();
+  });
+
+  it.each([false, true])("honors a non-string title model override (resolver: %s)", async (resolver) => {
+    const model = {
+      specificationVersion: "v3" as const,
+      provider: "test",
+      modelId: "title-only",
+      supportedUrls: {},
+      doGenerate: vi.fn(),
+      doStream: vi.fn(),
+    };
+    const resolveModel = vi.fn(() => model);
+    const agent = defineAgent({
+      capabilities: [title({ model: resolver ? resolveModel : model })],
+      driver: { kind: "codex", model: "gpt-main" },
+    });
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain model routing" })],
+    });
+    expect(mocks.generateText).toHaveBeenCalledOnce();
+    expect(mocks.generateText).toHaveBeenCalledWith(expect.objectContaining({
+      model: expect.objectContaining({ modelId: "title-only" }),
+    }));
+    expect(mocks.adapters).toHaveLength(1);
+    if (resolver) expect(resolveModel).toHaveBeenCalled();
   });
 
   it.each([
     { expectedModel: "gpt-main", titleOptions: {}, reasoningEffort: "medium" },
+    { expectedModel: "gpt-main", titleOptions: { instructions: "Use a short subject title" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: undefined },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap", reasoningEffort: "low" }, reasoningEffort: "medium" },
@@ -55,6 +87,8 @@ describe("title provider inheritance", () => {
         capabilities: [title(titleOptions)],
         driver: {
           credentials,
+          credentialProfile: "primary-profile",
+          instructions: "Primary agent policy",
           env: environment,
           kind: "codex",
           launch: { args: ["codex"], command: "ssh" },
@@ -88,6 +122,10 @@ describe("title provider inheritance", () => {
         provider: "codex",
         reasoningEffort: titleOptions.reasoningEffort === undefined ? reasoningEffort : undefined,
       });
+      expect(titleDriver?.instructions).toBe(titleOptions.instructions);
+      expect(titleDriver?.credentialProfile).toBeUndefined();
+      expect(mainDriver?.instructions).toBe("Primary agent policy");
+      expect(mainDriver?.credentialProfile).toBe("primary-profile");
       expect(titleDriver?.credentials).toBe(mainDriver?.credentials);
       expect(mainDriver?.env).toBe(environment);
       if (titleOptions.reasoningEffort === undefined) {

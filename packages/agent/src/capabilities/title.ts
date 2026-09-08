@@ -479,11 +479,13 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
   // changes the model name on that inherited driver.
   // SAFETY: The invocation runtime supplies the normalized enclosing driver.
   const inheritedDriver = context.agentDriver as NormalizedAgentDriver | undefined
-  if (inheritedDriver?.kind === "provider") {
+  if (inheritedDriver?.kind === "provider" && (options.model === undefined || hasRuntimeType(options.model, "string"))) {
     try {
       const prompt = await raceTimeout(renderTitleTemplate(options, timedTemplateInput))
       const providerDriver = {
         ...inheritedDriver,
+        credentialProfile: undefined,
+        instructions: options.instructions,
         ...(hasRuntimeType(options.model, "string") ? { model: options.model } : {}),
         ...(options.reasoningEffort !== undefined ? { reasoningEffort: options.reasoningEffort } : {}),
       }
