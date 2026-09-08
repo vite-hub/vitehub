@@ -25,6 +25,10 @@ async function createStore() {
   return createLocalWorkspaceStore(root)
 }
 
+function metadataRoot(root: string) {
+  return `${root}.vitehub-file-metadata-${createHash("sha256").update(root).digest("hex").slice(0, 16)}`
+}
+
 afterEach(async () => {
   vi.clearAllMocks()
   await Promise.all(tempDirs.splice(0).flatMap(path => [
@@ -43,11 +47,11 @@ describe("local workspace store", () => {
     const paths = Array.from({ length: 1025 }, (_, index) => `file-${String(index).padStart(4, "0")}`)
     await Promise.all(paths.map(async (path) => {
       await writeFile(join(root, path), "content")
-      const directory = `${root}.vitehub-file-metadata/${path}`
+      const directory = `${metadataRoot(root)}/${path}`
       await mkdir(directory, { recursive: true })
       await writeFile(`${directory}/metadata.json`, JSON.stringify({ path, mediaType: "text/plain" }))
     }))
-    const handle = await open(`${root}.vitehub-file-metadata/${paths[0]}/metadata.json`, "r")
+    const handle = await open(`${metadataRoot(root)}/${paths[0]}/metadata.json`, "r")
     const read = vi.spyOn(Object.getPrototypeOf(handle), "readFile")
     await handle.close()
     try {
@@ -215,7 +219,7 @@ describe("local workspace store", () => {
       content: "content",
       mediaType: "text/plain",
     })
-    await writeFile(`${root}.vitehub-file-metadata/file.txt/metadata.json`, JSON.stringify(attributes))
+    await writeFile(`${metadataRoot(root)}/file.txt/metadata.json`, JSON.stringify(attributes))
     await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject(expected)
   })
 
