@@ -3,6 +3,9 @@ import { credentialTextMayContinue, redactCredentialText } from "../src/internal
 
 describe("structured credential redaction", () => {
   it.each([
+    ["Bearer sensitive-value&status=ok", "Bearer [REDACTED]&status=ok"],
+    ["Basic sensitive-value&status=ok", "Basic [REDACTED]&status=ok"],
+    ["API_TOKEN=sensitive-value&status=ok", "API_TOKEN=[REDACTED]&status=ok"],
     ['{"authorization":"Bearer sensitive-value","status":"ok"}', '{"authorization":"Bearer [REDACTED]","status":"ok"}'],
     ["'Basic sensitive-value', status=ok", "'Basic [REDACTED]', status=ok"],
     ['API_TOKEN="sensitive-value";status=ok', 'API_TOKEN="[REDACTED]";status=ok'],

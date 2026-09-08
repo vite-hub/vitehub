@@ -3312,6 +3312,37 @@ describe("Agent Invocations", () => {
     }
   })
 
+  it.each(["Bearer ", "Basic ", "API_TOKEN="])("preserves ampersand suffixes after %s credentials across flush boundaries", async (marker) => {
+    for (const padding of ["", ".".repeat(512)]) {
+      const invocations = defineAgentInvocations({
+        content: "content",
+        observations: { maxStringLength: 128 },
+        store: createMemoryAgentInvocationStore(),
+      })
+      const agent = defineAgent({
+        driver: { async run(context) {
+          for (const value of [padding + marker + "sensitive", "-value&status=ok"]) {
+            await context.traceLog?.append({
+              attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+              name: "agent.message.delta",
+              type: "run",
+            })
+            await context.traceLog?.append({ name: "checkpoint", type: "run" })
+          }
+          return "done"
+        } },
+        invocations,
+        runtime: false,
+      })
+      await runAgent(agent, runtime("ampersand-credential"), {})
+      const observations = (await invocations.getByRunId("ampersand-credential"))?.observations ?? []
+      const text = observations.filter(entry => entry.name === "agent.message.delta")
+        .map(entry => entry.attributes?.["message.content"]).join("")
+      expect(text).toBe(padding + marker + "[REDACTED]&status=ok")
+      expect(JSON.stringify(observations)).not.toContain("sensitive")
+    }
+  })
+
   it.each(["failed", "cancelled"] as const)("retains buffered response evidence when an invocation is %s", async (status) => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const abort = new AbortController()

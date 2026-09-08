@@ -1,12 +1,12 @@
 export function redactCredentialText(value: string): string {
   return value
-    .replace(/\b(Bearer|Basic)\s+[^\s"',;{}<>]+/gi, "$1 [REDACTED]")
-    .replace(/\b((?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD))=(["']?)([^\s"',;{}<>]+)/gi, "$1=$2[REDACTED]")
+    .replace(/\b(Bearer|Basic)\s+[^\s"',;&{}<>]+/gi, "$1 [REDACTED]")
+    .replace(/\b((?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD))=(["']?)([^\s"',;&{}<>]+)/gi, "$1=$2[REDACTED]")
 }
 
 export function credentialTextMayContinue(value: string): boolean {
-  if (/\b(?:Bearer|Basic)\s+[^\s"',;{}<>]*$/i.test(value)) return true
-  if (/\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;{}<>]*$/i.test(value)) return true
+  if (/\b(?:Bearer|Basic)\s+[^\s"',;&{}<>]*$/i.test(value)) return true
+  if (/\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;&{}<>]*$/i.test(value)) return true
   const tail = value.slice(-128)
   const trailingWord = /\b([A-Za-z][A-Za-z0-9_]*)$/.exec(tail)?.[1]
   if (!trailingWord) return false

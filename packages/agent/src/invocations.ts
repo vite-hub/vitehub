@@ -1290,8 +1290,8 @@ function journalTraceLog(
       let content = rawContent
       if (!final && credentialTextMayContinue(content)) {
         if (content.length < maxPendingCredentialCharacters) return
-        if (/\b(?:Bearer|Basic)\s+[^\s"',;{}<>]*$/i.test(content)
-          || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;{}<>]*$/i.test(content)) {
+        if (/\b(?:Bearer|Basic)\s+[^\s"',;&{}<>]*$/i.test(content)
+          || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;&{}<>]*$/i.test(content)) {
           redactingCredentialDeltas.set(key, /\b(?:Bearer|Basic)\s*$/i.test(content))
           if (/\b(?:Bearer|Basic)\s+$/i.test(content)
             || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?$/i.test(content)) {
@@ -1340,7 +1340,7 @@ function journalTraceLog(
         if (!content) return
         redactingCredentialDeltas.set(key, false)
       }
-      const boundary = content.search(/[\s"',;{}<>]/)
+      const boundary = content.search(/[\s"',;&{}<>]/)
       if (boundary < 0) return
       redactingCredentialDeltas.delete(key)
       content = content.slice(boundary)
