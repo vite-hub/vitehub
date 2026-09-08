@@ -3011,6 +3011,29 @@ describe("Agent Invocations", () => {
     await expect(invocations.list({ cursor: "invalid" })).rejects.toThrow("cursor is invalid")
   })
 
+  it.each(["content", "metadata"] as const)("redacts terminal result credentials under the %s capture policy", async (content) => {
+    const answer = 'PASSWORD="sensitive words";status=ok'
+    const invocations = defineAgentInvocations({ content, store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { "message.content": answer, "message.id": "answer", "message.role": "assistant" },
+          name: "agent.message.delta",
+          type: "run",
+        })
+        return answer
+      } },
+      invocations,
+      runtime: false,
+    })
+    await expect(runAgent(agent, runtime("terminal-credential"), {})).resolves.toBe(answer)
+    const observations = (await invocations.getByRunId("terminal-credential"))?.observations ?? []
+    const finish = observations.find(entry => entry.name === "agent.invocation.finish")
+    expect(finish).toBeDefined()
+    expect(finish?.attributes?.["result.text"]).toBe(content === "content" ? 'PASSWORD="[REDACTED]";status=ok' : undefined)
+    expect(JSON.stringify(observations)).not.toContain("sensitive words")
+  })
+
   it("preserves the configured trace content policy and coalesces message deltas", async () => {
     const run = async (
       runId: string,

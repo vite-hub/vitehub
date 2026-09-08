@@ -1422,6 +1422,10 @@ function journalTraceLog(
         const safeEntry = await safeEntryPromise
         safeEntry.timestamp = entry.timestamp
         if (content === "metadata") restoreMetadataContentValues(safeEntry, metadataContentValues)
+        const resultText = safeEntry.attributes?.["result.text"]
+        if (safeEntry.name === "agent.invocation.finish" && hasRuntimeType(resultText, "string")) {
+          safeEntry.attributes = { ...safeEntry.attributes, "result.text": redactCredentialText(resultText) }
+        }
         if (safeEntry.name === "agent.message.delta") {
           queueMessageDelta(safeEntry)
         }
