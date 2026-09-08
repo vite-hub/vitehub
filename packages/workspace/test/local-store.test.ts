@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -13,6 +13,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     ...actual,
     readFile: vi.fn(actual.readFile),
     readdir: vi.fn(actual.readdir),
+    rename: vi.fn(actual.rename),
     writeFile: vi.fn(actual.writeFile),
   }
 })
@@ -42,6 +43,46 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it("rejects file replacement of a directory without removing its children", async () => {
+    const store = await createStore()
+    await store.writeFile("directory/child.txt", { path: "directory/child.txt", content: "preserved" })
+    await expect(store.writeFile("directory", { path: "directory", content: "replacement" })).rejects.toThrow("directory")
+    await expect(store.readFile("directory/child.txt")).resolves.toMatchObject({
+      content: new TextEncoder().encode("preserved"),
+    })
+  })
+
+  it("keeps the live file readable while preparing an atomic replacement", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("file.txt", { path: "file.txt", content: "before" })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let observed = false
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (String(from).endsWith(".tmp") && String(to) === join(root, "file.txt")) {
+        observed = true
+        await expect(store.readFile("file.txt")).resolves.toMatchObject({
+          content: new TextEncoder().encode("before"),
+        })
+        await expect(store.stat("file.txt")).resolves.toMatchObject({ type: "file" })
+        await expect(store.list()).resolves.toEqual([
+          expect.objectContaining({ path: "file.txt", type: "file" }),
+        ])
+      }
+      await actual.rename(from, to)
+    })
+    try {
+      await store.writeFile("file.txt", { path: "file.txt", content: "after" })
+      expect(observed).toBe(true)
+      await expect(store.readFile("file.txt")).resolves.toMatchObject({
+        content: new TextEncoder().encode("after"),
+      })
+    }
+    finally {
+      vi.mocked(rename).mockImplementation(actual.rename)
+    }
+  })
+
   it("reuses cached sidecars across listings larger than the cache", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!

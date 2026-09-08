@@ -286,7 +286,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const { dirname } = await import("node:path")
-    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
+    const { copyFile, mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
@@ -295,6 +295,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
     const existing = await this.stat(normalized)
+    if (existing?.type === "directory") throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
     if (existing?.type === "file" && existing.digest === digest) {
       await this.#writeFileMetadata(normalized, {
         mediaType: file.mediaType,
@@ -308,13 +309,17 @@ class LocalWorkspaceStore implements WorkspaceStore {
     ])
     try {
       await writeFile(temp, bytes)
-      const hadExisting = await rename(absolute, backup).then(() => true, () => false)
+      // Keep the live file readable until the replacement rename commits.
+      const hadExisting = existing?.type === "file"
+      if (hadExisting) await copyFile(absolute, backup)
       try {
         await rename(temp, absolute)
         await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
       } catch (error) {
-        await rm(absolute, { force: true }).catch(() => undefined)
-        if (hadExisting) await rename(backup, absolute).catch(() => undefined)
+        if (hadExisting) {
+          await rename(backup, absolute)
+        }
+        else await rm(absolute, { force: true })
         throw error
       }
       await rm(backup, { force: true, recursive: true })
@@ -324,10 +329,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
-    await this.#writeFileMetadata(normalized, {
-      mediaType: file.mediaType,
-      metadata: file.metadata,
-    })
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
