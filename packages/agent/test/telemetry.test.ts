@@ -724,6 +724,11 @@ describe("Agent telemetry", () => {
             name: "agent.message.delta",
             type: "run",
           })
+          await context.traceLog?.append({
+            attributes: { "message.content": "application output without a role" },
+            name: "application.output",
+            type: "run",
+          })
           return "ok"
         },
       },
@@ -738,7 +743,9 @@ describe("Agent telemetry", () => {
 
     expect(JSON.stringify(inputs.mock.calls)).toContain("private steering input")
     expect(JSON.stringify(inputs.mock.calls)).not.toContain("public assistant response")
+    expect(JSON.stringify(inputs.mock.calls)).not.toContain("application output without a role")
     expect(JSON.stringify(outputs.mock.calls)).toContain("public assistant response")
+    expect(JSON.stringify(outputs.mock.calls)).toContain("application output without a role")
     expect(JSON.stringify(outputs.mock.calls)).not.toContain("private steering input")
   })
 
