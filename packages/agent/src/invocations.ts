@@ -2,7 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { consumeAuthorization, consumeCredentialAssignment, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
+import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AuthorizationState, CredentialAssignmentState } from "./internal/credential-redaction.ts"
@@ -1331,9 +1331,7 @@ function journalTraceLog(
       const redacted = redactCredentialText(content, precedingText)
       // Retain only line and authorization-header context, never credential text.
       const emittedRaw = rawContent.slice(0, rawContent.length - (retainedContent?.length ?? 0))
-      const lastLine = (precedingText + emittedRaw).split(/[\r\n]/).at(-1) ?? ""
-      const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
-      precedingMessageText.set(key, authorizationHeader ? "Authorization: " : /^[\t "']*$/.test(lastLine) ? lastLine : "x ")
+      precedingMessageText.set(key, credentialTextLineContext(precedingText + emittedRaw))
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
         emit({
           ...pending.entry,

@@ -264,3 +264,10 @@ export function pendingCredentialQuote(value: string, precedingText = ""): strin
   const assignment = new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*\\\\?$|'(?:\\\\[\\s\\S]|[^'\\\\])*\\\\?$)`, "i").exec(value)
   return assignment && isCredentialAssignment(assignment[2]!, assignment[1]!, precedingText + value.slice(0, assignment.index)) ? assignment[3]?.[0] : undefined
 }
+
+// Preserve assignment context between bounded journal chunks without retaining values.
+export function credentialTextLineContext(value: string): string {
+  const lastLine = value.split(/[\r\n]/).at(-1) ?? ""
+  const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
+  return authorizationHeader ? "Authorization: " : /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
+}
