@@ -16440,8 +16440,10 @@ describe("server helpers", () => {
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true, noHost: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, neverAccepts: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, neverAccepts: true },
     { failInvocation: true, lateAcceptance: true },
-  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost }) => {
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance, Cloudflare deadline: $cloudflareDeadline, unresolved: $neverAccepts)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost, cloudflareDeadline }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16460,7 +16462,7 @@ describe("server helpers", () => {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
           adapter: () => adapter as never,
-          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 500, ...(nonStreaming ? { stream: false } : {}) },
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: cloudflareDeadline ? 30_000 : 500, ...(nonStreaming ? { stream: false } : {}) },
         }),
       },
       driver: {
@@ -16531,6 +16533,7 @@ describe("server helpers", () => {
       const followUpStartedAt = Date.now()
       const followUp = handler(request(91_107, 457), "telegram", {
         agentIdentity: { name: "calories" },
+        ...(cloudflareDeadline ? { runtime: "cloudflare-agents" as const, cloudflare: { env: {} } } : {}),
         ...(noHost ? {} : { waitUntil: (task: Promise<unknown>) => { reconciliationTasks.push(task) } }),
       })
       if (lateAcceptance) {
@@ -16555,6 +16558,11 @@ describe("server helpers", () => {
             expect(custodySettled).toBe(false)
           }
         }
+        if (cloudflareDeadline) {
+          // Custody expires 30 seconds after request start, not registration.
+          expect(Date.now() - followUpStartedAt).toBeLessThan(20_000)
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + 26_000 - Date.now())))
+        }
         if (!neverAccepts) acceptance.resolve()
       }
       await expect(followUp).resolves.toMatchObject({ status: 200 })
@@ -16570,6 +16578,7 @@ describe("server helpers", () => {
       await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
 
       if (timeoutAcceptance) await Promise.all(reconciliationTasks)
+      if (cloudflareDeadline) expect(Date.now() - followUpStartedAt).toBeLessThan(30_000)
       if (neverAccepts) {
         expect(runs).toBe(2)
         return
@@ -16593,7 +16602,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 40_000)
 
   it("serializes overlapping inline steering submissions", async () => {
     const { defineAgent } = await import("../src/index.ts")

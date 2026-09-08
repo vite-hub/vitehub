@@ -4995,7 +4995,9 @@ async function handleChatSdkMessage(
             return result
           })
           let steeringTimer: ReturnType<typeof setTimeout> | undefined
-          const steeringWait = Math.max(0, Math.min(28_000, inlineWaitDeadline === undefined ? Infinity : inlineWaitDeadline - Date.now()))
+          // Reserve half the remaining host budget for late confirmation.
+          const hostConfirmationWait = maximumInvocationDeadline === undefined ? Infinity : (maximumInvocationDeadline - Date.now()) / 2
+          const steeringWait = Math.max(0, Math.min(28_000, hostConfirmationWait, inlineWaitDeadline === undefined ? Infinity : inlineWaitDeadline - Date.now()))
           let outcome: Awaited<typeof submission> | "timed-out"
           try {
             outcome = await Promise.race([
@@ -5018,7 +5020,11 @@ async function handleChatSdkMessage(
             await timeoutEvidence
             // Keep late acceptance under host custody for one more bounded confirmation window.
             // Use the host hook directly so a webhook flush does not delay its response.
-            const reconciliationTimeout = Math.max(1, Math.min(options?.timeout ?? 28_000, 28_000))
+            const reconciliationTimeout = Math.max(0, Math.min(
+              options?.timeout ?? 28_000,
+              28_000,
+              maximumInvocationDeadline === undefined ? Infinity : maximumInvocationDeadline - Date.now(),
+            ))
             const reconciliation = enforceChatInvocationTimeout(submission, reconciliationTimeout).catch(() => undefined)
             state.reconciliationWaitUntil?.(reconciliation)
             return
