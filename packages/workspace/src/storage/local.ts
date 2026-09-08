@@ -38,15 +38,16 @@ async function backupFile(path: string, backup: string): Promise<boolean> {
   }
 }
 
-async function reclaimBackup(path: string, retryDelay = 1000): Promise<void> {
+async function reclaimBackup(path: string, retryDelay = 1000, attempts = 0): Promise<void> {
   const { rm } = await import("node:fs/promises")
   try {
     await rm(path, { force: true })
   } catch {
+    if (attempts >= 5) return
     // Only committed backups enter this retry loop; active rollback files stay intact.
     // Keep retrying transient failures without keeping the process alive.
     setTimeout(() => {
-      void reclaimBackup(path, Math.min(retryDelay * 2, 30_000))
+      void reclaimBackup(path, Math.min(retryDelay * 2, 30_000), attempts + 1)
     }, retryDelay).unref()
   }
 }
