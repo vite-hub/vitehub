@@ -4874,17 +4874,10 @@ async function handleChatSdkMessage(
           }
           inlineOwnershipAbort = new AbortController()
           let ownershipLost = false
-          const renewal = setInterval(() => {
-            void state.state.extendLock(ownerLock, 30_000).then((extended) => {
-              if (!extended) {
-                ownershipLost = true
-                inlineOwnershipAbort?.abort(agentDiagnostics.AGENT_R0820({ message: "Lost ownership of the active inline Channel turn." }))
-              }
-            }).catch(() => {
-              ownershipLost = true
-              inlineOwnershipAbort?.abort(agentDiagnostics.AGENT_R0820({ message: "Lost ownership of the active inline Channel turn." }))
-            })
-          }, 10_000)
+          const stopRenewal = startWebhookLockHeartbeat(state.state, ownerLock, 30_000, () => {
+            ownershipLost = true
+            inlineOwnershipAbort?.abort(agentDiagnostics.AGENT_R0820({ message: "Lost ownership of the active inline Channel turn." }))
+          })
           let finishDone = false
           let finish!: () => void
           const done = new Promise<void>(resolve => { finish = resolve })
@@ -4893,7 +4886,7 @@ async function handleChatSdkMessage(
             async finish() {
               if (finishDone) return
               finishDone = true
-              clearInterval(renewal)
+              stopRenewal()
               finish()
               if (!ownershipLost) await state.state.releaseLock(ownerLock).catch(() => undefined)
             },

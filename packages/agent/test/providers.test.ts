@@ -16322,6 +16322,72 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["transient", "expired", "lost"] as const)("handles %s inline Channel owner lease renewal", async (outcome) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-lease-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const released = deferred<void>()
+    let signal: AbortSignal | undefined
+    let ownerRenewals = 0
+    const originalExtendLock = state.extendLock.bind(state)
+    vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
+      if (lock.threadId.endsWith(":owner")) {
+        ownerRenewals += 1
+        if (outcome === "lost") return false
+        if (outcome === "expired" || ownerRenewals === 1) throw new Error("State temporarily unavailable")
+      }
+      return await originalExtendLock(lock, ttlMs)
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state, timeout: 60_000 },
+        }),
+      },
+      driver: {
+        async run(context) {
+          signal = context.input.abortSignal
+          await released.promise
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent definition expected by the route.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    let pending: Promise<unknown> | undefined
+    try {
+      await state.connect()
+      vi.useFakeTimers()
+      pending = handler(chatWebhookRequest(91_100), "telegram", { agentIdentity: { name: "calories" } }).catch(error => error)
+      await vi.waitFor(() => expect(signal).toBeDefined())
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(ownerRenewals).toBe(1)
+      expect(signal?.aborted).toBe(outcome === "lost")
+      if (outcome !== "lost") {
+        await vi.advanceTimersByTimeAsync(outcome === "expired" ? 15_000 : 250)
+        expect(ownerRenewals).toBeGreaterThan(1)
+        expect(signal?.aborted).toBe(outcome === "expired")
+      }
+      released.resolve()
+      await pending
+      const renewalsAtFinish = ownerRenewals
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(ownerRenewals).toBe(renewalsAtFinish)
+    } finally {
+      released.resolve()
+      await pending
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it.each([
     { failInvocation: false, lateAcceptance: false },
     { failInvocation: true, lateAcceptance: false },
@@ -16624,7 +16690,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-shared-backend-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter()
-    adapter.channelIdFromThreadId.mockReturnValue("shared-channel")
+    vi.mocked(adapter.channelIdFromThreadId).mockReturnValue("shared-channel")
     const runIds: string[] = []
     const invocationIds: string[] = []
     const agent = defineAgent({
