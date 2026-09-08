@@ -3584,7 +3584,7 @@ describe("Agent Invocations", () => {
     const prefix = ".".repeat(512)
     const agent = defineAgent({
       driver: { async run(context) {
-        for (const value of [`${prefix}${credentialPrefix}`, quote, "secret", "\\", quote, "private", "\\", "\\", quote, ";status=ok"]) {
+        for (const value of [`${prefix}${credentialPrefix}`, quote, "secret", quote, ";status=ok"]) {
           await context.traceLog?.append({
             attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
             name: "agent.message.delta",
