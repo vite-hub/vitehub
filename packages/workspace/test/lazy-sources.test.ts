@@ -74,6 +74,24 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/shared.md")).resolves.toBe("first")
   })
 
+  it.each([false, true].flatMap(readFirst => [undefined, ["docs"]].map(paths => ({ readFirst, paths }))))("preserves startup source precedence during search with an earlier read=$readFirst and paths=$paths", async ({ readFirst, paths }) => {
+    const definition = {
+      name: "startup-search-precedence",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "first needle" }] }),
+        second: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "second needle" }] }),
+        root: custom({ materialize: "startup", mount: "", files: [{ path: "docs/shared.md", content: "root needle" }] }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, createMemoryWorkspaceStore())
+    if (readFirst) await expect(view.readFile("docs/shared.md")).resolves.toBe("first needle")
+    const hits = await view.search({ pattern: "first needle", paths })
+    expect(hits).toHaveLength(1)
+    expect(hits[0]?.path).toBe("docs/shared.md")
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("first needle")
+    await expect(view.search({ pattern: "second needle|root needle", regex: true, paths })).resolves.toEqual([])
+  })
+
   it("refreshes nested startup files before the first directory listing", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["stale.md"]

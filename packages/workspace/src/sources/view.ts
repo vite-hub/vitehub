@@ -437,10 +437,19 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       sourcePaths.set(resolution.sourceKey, list)
     }
 
-    for (const source of sources) {
+    // Match listing precedence, including Sources loaded before this search.
+    const refreshedSources: typeof sources = []
+    for (const source of [...sources].reverse()) {
       if (source.materialize !== "startup" || !requestedPaths.some(path => sourceMountIntersectsPath(source, normalizeWorkspacePath(path)))) continue
       await ensurePrepared(source.key)
-      await ensureMaterialized(source.key)
+      const generation = generationBySource.get(source.key)
+      if (refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
+        await materializeSerialized({ sources: [source.key] })
+      }
+      else {
+        await ensureMaterialized(source.key)
+      }
+      if (generationBySource.get(source.key) !== generation) refreshedSources.push(source)
     }
 
     const results: WorkspaceSearchHit[] = await searchMaterializedStore(store, {
