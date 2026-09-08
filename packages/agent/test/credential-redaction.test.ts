@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { credentialTextMayContinue, redactCredentialText } from "../src/internal/credential-redaction.ts"
+import { credentialTextMayContinue, pendingCredentialQuote, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
 describe("structured credential redaction", () => {
   it.each([
@@ -27,4 +27,22 @@ describe("structured credential redaction", () => {
     "buffers the unfinished credential %s",
     (input) => expect(credentialTextMayContinue(input)).toBe(true),
   )
+})
+
+describe("credential key boundaries", () => {
+  it.each(["monkey", "hockey", "turnkey", "MONKEY", "Hockey", "donkey"])("preserves ordinary %s assignments", (key) => {
+    for (const value of ["banana", '"banana', "'banana", '"banana with spaces"']) {
+      const input = `${key}=${value}`
+      expect(redactCredentialText(input)).toBe(input)
+      expect(credentialTextMayContinue(input)).toBe(false)
+      expect(pendingCredentialQuote(input)).toBeUndefined()
+    }
+  })
+
+  it.each(["key", "KEY", "api_key", "API_KEY", "apiKey", "apiKEY", "clientSecret", "accessToken", "dbPassword"])("redacts credential %s assignments", (key) => {
+    expect(redactCredentialText(`${key}=sensitive`)).toBe(`${key}=[REDACTED]`)
+    expect(redactCredentialText(`${key}="sensitive words`)).toBe(`${key}="[REDACTED]`)
+    expect(credentialTextMayContinue(`${key}=sensitive`)).toBe(true)
+    expect(pendingCredentialQuote(`${key}="sensitive words`)).toBe('"')
+  })
 })
