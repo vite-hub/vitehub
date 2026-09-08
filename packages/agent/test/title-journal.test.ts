@@ -17,6 +17,44 @@ function journal() {
 const runtime = (runId: string) => ({ memo: vi.fn(), run: { runId }, runtime: "unknown" as const, waitUntil: vi.fn() })
 
 describe("title journal ownership", () => {
+  it.each(["text", "stream"] as const)("includes auxiliary title calls in terminal usage for %s output", async (mode) => {
+    const invocations = journal()
+    const titleUsage = { model: "title-model", usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } }
+    const primaryUsage = { model: "answer-model", usage: { inputTokens: 10, outputTokens: 7, totalTokens: 17 } }
+    const agent = defineAgent({
+      capabilities: [title({ driver: { run: () => mode === "text"
+        ? { text: "Usage accounting", usageRecord: titleUsage }
+        : (async function* () {
+            yield { text: "Usage accounting", type: "text-delta" as const }
+            yield { type: "usage" as const, usageRecord: titleUsage }
+            yield { type: "finish" as const }
+          })(),
+      } })],
+      driver: { run: () => mode === "text"
+        ? { text: "Done.", usageRecord: primaryUsage }
+        : (async function* () {
+            yield { text: "Done.", type: "text-delta" as const }
+            yield { type: "usage" as const, usageRecord: primaryUsage }
+            yield { type: "finish" as const }
+          })(),
+      },
+      invocations,
+    })
+    const runId = `title-usage-${mode}`
+    if (mode === "text") await runAgent(agent, runtime(runId), { prompt: "Explain usage accounting" })
+    else {
+      const stream = await streamAgent(agent, runtime(runId), { prompt: "Explain usage accounting" })
+      for await (const _event of stream as AsyncIterable<unknown>) {}
+    }
+    const invocation = (await invocations.getByRunId(runId))!
+    const terminal = invocation.observations.filter(entry => entry.name === "agent.invocation.finish")
+    expect(terminal).toHaveLength(1)
+    expect(terminal[0]?.attributes?.["usage.record"]).toMatchObject({
+      calls: [primaryUsage, titleUsage],
+      usage: { inputTokens: 13, outputTokens: 9, totalTokens: 22 },
+    })
+  })
+
   it("retains recoverable title diagnostics without exporting title deltas", async () => {
     const traceLog = createTraceEventLog({ content: "content" })
     const invocations = journal()

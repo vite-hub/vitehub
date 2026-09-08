@@ -1,3 +1,4 @@
+import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
@@ -5437,12 +5438,13 @@ async function finishAgentInvocation<
       await traceAgentInvocationCancelled(toTraceContext(context))
     }
     else if (!failed) {
+      const invocationUsage = invocationUsageWithAuxiliaryCalls(context.context, usage)
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,
         "result.text": text,
         ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
-        ...(usage ? { "usage.record": usage } : {}),
+        ...(invocationUsage ? { "usage.record": invocationUsage } : {}),
       })
     }
     else {
