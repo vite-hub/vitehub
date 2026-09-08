@@ -3408,6 +3408,9 @@ cli_auth_credentials_store = "keyring"
     const [instructions] = getAgentTelemetryConfiguration(runContext.context)?.value.instructions || []
     expect(instructions).toMatch(/^native workspace instructions\n\nMounted source provenance/)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+    expect(instructions).toContain("<repository>/blob/<revision.id>/<root>/<relative-path>#L<line>")
+    expect(instructions).toContain("Never cite /workspace paths")
+    expect(instructions).toContain("If the mounted path cannot be mapped exactly to one provenance entry, cite no link.")
   })
 
   it.each([
