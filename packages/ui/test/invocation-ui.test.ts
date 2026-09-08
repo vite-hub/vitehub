@@ -2504,6 +2504,37 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it("preserves distinct assistant turns with identical text after a steer", async () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "repeated-answer",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check this" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "message.id": "first-answer", "message.content": "Done", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" },
+        { attributes: { "input.mode": "steer", "message.id": "steer", "message.content": "Check again", "message.role": "user" }, name: "agent.message.delta", sequence: 3, timestamp, type: "lifecycle" },
+        { attributes: { "message.id": "second-answer", "message.content": "Done", "message.role": "assistant" }, name: "agent.message.delta", sequence: 4, timestamp, type: "lifecycle" },
+        { attributes: { "result.text": "Done" }, name: "agent.invocation.finish", sequence: 5, timestamp, type: "lifecycle" },
+      ],
+      status: "completed",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const messages = wrapper.findAll(".vh-invocation-activities > .vh-invocation-message");
+    expect(messages).toHaveLength(2);
+    expect(messages[1]!.text()).toContain("Done");
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    const workMessages = wrapper.findAll(".vh-invocation-work__activities .vh-invocation-message");
+    expect(workMessages).toHaveLength(2);
+    expect(workMessages[0]!.text()).toContain("Done");
+    expect(workMessages[1]!.text()).toContain("Check again");
+    wrapper.unmount();
+  });
+
   it("models preparation and channel delivery observations as first-class activities", () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const invocation = {

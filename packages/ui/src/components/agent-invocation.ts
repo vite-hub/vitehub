@@ -1501,7 +1501,6 @@ function renderInvocationActivities(
   const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
     if (firstUser + 1 + offset === lastAssistant) return false;
     if (activity === finalDelivery) return false;
-    if (activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary" && activity.body?.trim() === finalBody) return false;
     return true;
   })]);
 
