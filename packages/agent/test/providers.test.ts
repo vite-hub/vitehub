@@ -16668,19 +16668,25 @@ describe("server helpers", () => {
     }
   })
 
-  it.each(["bigint", "circular"])("accepts inline steering invoker metadata containing %s", async (kind) => {
+  it.each(["bigint", "circular"])("steers overlapping messages with equivalent %s invoker metadata", async (kind) => {
     const { defineAgent } = await import("../src/index.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-meta-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter()
-    const nested: Record<string, unknown> = {}
-    nested.value = kind === "bigint" ? 1n : nested
-    const run = vi.fn(async () => "done")
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "accepted" as const)
+    let runs = 0
     const agent = defineAgent({
-      invoker: { resolve: () => ({ id: "user", meta: nested }) },
+      invoker: { resolve: () => {
+        const nested: Record<string, unknown> = {}
+        nested.value = kind === "bigint" ? 1n : nested
+        return { id: "user", meta: nested }
+      } },
       channels: {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture constructs the Chat adapter contract for the test.
@@ -16688,22 +16694,43 @@ describe("server helpers", () => {
           messages: { concurrency: "steer", delivery: "manual", durable: false, state },
         }),
       },
-      driver: { run },
+      driver: {
+        async run(context) {
+          runs++
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          started.resolve()
+          try {
+            await release.promise
+            return "done"
+          } finally {
+            unregister()
+          }
+        },
+      },
     })
     // SAFETY: This fixture constructs the Agent contract for the test.
     const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
     try {
       await state.connect()
-      const response = await handler(chatWebhookRequest(91_119, 456, "hello"), "telegram")
-      expect(response.status).toBe(200)
-      expect(run).toHaveBeenCalledTimes(1)
+      pending.push(handler(chatWebhookRequest(91_119, 456, "hello"), "telegram"))
+      await started.promise
+      pending.push(handler(chatWebhookRequest(91_120, 456, "follow-up"), "telegram"))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      expect(runs).toBe(1)
+      release.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200])
     } finally {
+      release.resolve()
+      await Promise.allSettled(pending)
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
   })
 
-  it.each(["undefined", "function", "symbol", "toJSON"])("does not steer across lossy %s invoker metadata", async (kind) => {
+  it.each(["undefined", "function", "symbol", "toJSON", "proxy"])("does not steer across lossy %s invoker metadata", async (kind) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16716,7 +16743,9 @@ describe("server helpers", () => {
     const sendInput = vi.fn(() => "accepted" as const)
     let resolutions = 0
     let runs = 0
-    const metadata = kind === "toJSON"
+    const metadata = kind === "proxy"
+      ? [1, 2].map(value => new Proxy({ value }, { get: () => undefined }))
+      : kind === "toJSON"
       ? [{ value: 1, toJSON: () => ({}) }, { value: 2, toJSON: () => ({}) }]
       : [{}, { value: kind === "function" ? () => {} : kind === "symbol" ? Symbol("other") : undefined }]
     expect(JSON.stringify(metadata[0])).toBe(JSON.stringify(metadata[1]))

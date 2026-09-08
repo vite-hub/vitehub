@@ -31,6 +31,7 @@ import {
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
+import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { agentInvocationId } from "../invocations.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
@@ -4717,35 +4718,13 @@ async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number
 interface InlineChatTurn {
   done: Promise<void>
   finish: () => Promise<void>
-  invokerKey: string
+  invoker: AgentInvoker
   settleDelivery?: (delivery: AgentChannelDeliveryTracker) => Promise<void>
   steeredDeliveries?: AgentChannelDeliveryTracker[]
   runId?: string
 }
 
 const inlineChatTurns = new Map<string, InlineChatTurn>()
-
-function isLosslessInlineInvokerJson(value: unknown, ancestors = new Set<object>()): boolean {
-  if (value === null || isRuntimeString(value) || isRuntimeBoolean(value)) return true
-  if (isRuntimeNumber(value)) return Number.isFinite(value) && !Object.is(value, -0)
-  if (!isRuntimeObject(value) || ancestors.has(value)) return false
-  const array = Array.isArray(value)
-  if (Object.getPrototypeOf(value) !== (array ? Array.prototype : Object.prototype)) return false
-  const keys = Reflect.ownKeys(value)
-  if (array && keys.length !== value.length + 1) return false
-  ancestors.add(value)
-  try {
-    return keys.every((key) => {
-      if (array && key === "length") return true
-      if (!isRuntimeString(key)) return false
-      if (array && (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length)) return false
-      const descriptor = Object.getOwnPropertyDescriptor(value, key)
-      return !!descriptor?.enumerable && "value" in descriptor && isLosslessInlineInvokerJson(descriptor.value, ancestors)
-    })
-  } finally {
-    ancestors.delete(value)
-  }
-}
 
 async function waitForInlineChatTurn(turn: InlineChatTurn, maximumInvocationDeadline?: number): Promise<void> {
   if (maximumInvocationDeadline === undefined) return await turn.done
@@ -4882,16 +4861,6 @@ async function handleChatSdkMessage(
     }
 
     if (inlineKey) {
-      // Metadata may contain non-JSON values. If it cannot be compared safely,
-      // give this message its own identity so it waits instead of steering.
-      let inlineInvokerKey: string
-      try {
-        inlineInvokerKey = isLosslessInlineInvokerJson(invoker)
-          ? JSON.stringify(invoker)
-          : `unserializable:${randomToken()}`
-      } catch {
-        inlineInvokerKey = `unserializable:${randomToken()}`
-      }
       let waitedForActiveTurn = false
       while (!inlineTurn) {
         const active = inlineChatTurns.get(inlineKey)
@@ -4927,13 +4896,13 @@ async function handleChatSdkMessage(
               finish()
               if (!ownershipLost) await state.state.releaseLock(ownerLock).catch(() => undefined)
             },
-            invokerKey: inlineInvokerKey,
+            invoker,
           }
           inlineChatTurns.set(inlineKey, inlineTurn)
           break
         }
         waitedForActiveTurn = true
-        if (active.runId && active.invokerKey === inlineInvokerKey) {
+        if (active.runId && sameInlineInvoker(active.invoker, invoker)) {
           const [steerMessage] = uiMessagesToAgentMessages([currentMessage])
           const activeRunId = active.runId
           // Once submitted, only the Driver can determine whether input was accepted.
