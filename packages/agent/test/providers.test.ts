@@ -8949,6 +8949,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
+    const completeWebhookDelivery = state.completeWebhookDelivery.bind(state)
     const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
     const rehydrate = vi.fn((deliveryId: string) => ({
       input: { prompt: `fresh ${deliveryId}` },
@@ -9112,11 +9113,17 @@ describe("server helpers", () => {
 
       ambiguousSteer = true
       const retriesBeforeAmbiguous = retryDelivery.mock.calls.length
-      if (!completionSucceeds) completeDelivery.mockResolvedValueOnce(false)
+      let ambiguousCompletionFailed = false
+      completeDelivery.mockImplementation((scope, deliveryId, leaseToken) => {
+        if (!completionSucceeds && deliveryId === "delivery-ambiguous" && !ambiguousCompletionFailed) {
+          ambiguousCompletionFailed = true
+          return Promise.resolve(false)
+        }
+        return completeWebhookDelivery(scope, deliveryId, leaseToken)
+      })
       const ambiguous = await handler(request("delivery-ambiguous"), "github", options)
       await expect(ambiguous.json()).resolves.toEqual({ accepted: false, ok: false, outcome: "invalid-state" })
-      expect(completeDelivery).toHaveBeenCalledWith("webhook:review:github:github:", "delivery-ambiguous", expect.any(String))
-      await expect(completeDelivery.mock.results.at(-1)?.value).resolves.toBe(completionSucceeds)
+      expect(completeDelivery.mock.calls.filter(([, id]) => id === "delivery-ambiguous")).toHaveLength(0)
       await expect(state.get("webhook:review:github:github:steer:delivery-ambiguous")).resolves.toBe("invalid-state")
       ambiguousSteer = false
       const ambiguousReplay = await handler(request("delivery-ambiguous"), "github", options)
@@ -9193,9 +9200,11 @@ describe("server helpers", () => {
       releases.shift()!()
       await withDeadline(runCompleted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not finish.")
       expect(completedRuns).toBe(5)
-      if (!completionSucceeds) {
-        await vi.waitFor(() => expect(completeDelivery.mock.calls.filter(([, id]) => id === "delivery-ambiguous")).toHaveLength(2))
-      }
+      await vi.waitFor(() => {
+        expect(completeDelivery.mock.calls.filter(([, id]) => id === "delivery-ambiguous")).toHaveLength(completionSucceeds ? 1 : 2)
+      }, { timeout: 3_000 })
+      const completionIndex = completeDelivery.mock.calls.findLastIndex(([, id]) => id === "delivery-ambiguous")
+      await expect(completeDelivery.mock.results[completionIndex]?.value).resolves.toBe(true)
       expect(run.mock.calls.some(([context]) => context.run?.runId === "delivery-ambiguous")).toBe(false)
     } finally {
       const stopping = stop()
