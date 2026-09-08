@@ -316,6 +316,9 @@ describe("framework package contract", () => {
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-session-bootstrap.ts`),
     ).toBe(true);
+    expect(
+      existsSync(`${packageRoot}/dist/console/runtime/components/console-workspace-file.ts`),
+    ).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/console-route.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/sections.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true);
