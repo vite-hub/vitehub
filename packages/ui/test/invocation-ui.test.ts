@@ -1749,6 +1749,42 @@ describe("Agent Invocation UI", () => {
     expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Final answer."]);
   });
 
+  it.each([
+    { sourceText: JSON.stringify({ disposition: "complete", text: "Final answer." }), sourceTruncated: false, expectedTruncated: false },
+    { sourceText: JSON.stringify({ disposition: "complete", text: "Final answer." }), sourceTruncated: true, expectedTruncated: true },
+    { sourceText: JSON.stringify({ text: "Different answer." }), sourceTruncated: false, expectedTruncated: true },
+    { sourceText: '{"text":"Final answer."', sourceTruncated: false, expectedTruncated: true },
+  ])("checks preserved response content before applying a finish metadata warning: $expectedTruncated ($sourceText, $sourceTruncated)", ({ sourceText, sourceTruncated, expectedTruncated }) => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      id: "structured-finish", status: "completed", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      observationsTruncated: true,
+      observations: [
+        { name: "agent.message.delta", sequence: 1, timestamp, type: "lifecycle", attributes: {
+          "message.content": "Checking the branch.", "message.role": "assistant", "message.phase": "commentary",
+        } },
+        { name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle", attributes: {
+          "message.content": sourceText.slice(0, 10), "message.role": "assistant", "message.phase": "final",
+        } },
+        { name: "agent.message.delta", sequence: 3, timestamp, type: "lifecycle", attributes: {
+          "message.content": sourceText.slice(10), "message.role": "assistant", "message.phase": "final",
+          "vitehub.observation.truncated": sourceTruncated,
+        } },
+        { name: "agent.invocation.finish", sequence: 4, timestamp, type: "lifecycle", attributes: {
+          "result.text": "Final answer.", "result.kind": "object",
+          "usage.record": { raw: "[Truncated]" }, "vitehub.observation.truncated": true,
+        } },
+      ],
+    };
+    const activities = invocationActivities(invocation);
+    const result = activities.find(activity => activity.name === "agent.invocation.finish");
+    expect(result?.body).toBe("Final answer.");
+    expect(result?.truncated === true).toBe(expectedTruncated);
+    expect(activities.some(activity => activity.name === "vitehub.observation.truncated")).toBe(true);
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.findAll('[data-role="assistant"] .vh-invocation-event__notice').length > 0).toBe(expectedTruncated);
+  });
+
   it("keeps an aggregate final answer when no matching deltas exist", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {

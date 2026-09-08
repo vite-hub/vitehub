@@ -343,6 +343,25 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     else groups.set(key, [groupedObservation]);
   }
 
+  // A finish record can truncate usage metadata while preserving the whole response.
+  // Only suppress its message warning when an untruncated assistant turn proves it intact.
+  const completeAssistantTexts = new Set<string>();
+  for (const observations of groups.values()) {
+    if (observations.some(item => item.attributes?.["vitehub.observation.truncated"] === true)) continue;
+    if (!observations.every(item => item.name.startsWith("agent.message")
+      && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant"))) continue;
+    const text = observations.map(item => stringAttribute(item.attributes ?? {}, "message.content") ?? "").join("");
+    if (!text) continue;
+    completeAssistantTexts.add(text);
+    try {
+      const response = record(JSON.parse(text));
+      const responseText = response && stringAttribute(response, "text");
+      if (responseText) completeAssistantTexts.add(responseText);
+    } catch {
+      // Plain text and incomplete JSON cannot verify a structured response's text field.
+    }
+  }
+
   const activities = [...groups.entries()]
     .map(([id, observations]): InvocationActivity => {
       const sorted = observations.slice().sort((left, right) => left.sequence - right.sequence);
@@ -404,6 +423,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ...(role ? { role } : {}),
         status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
         ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
+          && !(first.name === "agent.invocation.finish" && completeAssistantTexts.has(stringAttribute(attributes, "result.text") ?? ""))
           ? { truncated: true }
           : {}),
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined

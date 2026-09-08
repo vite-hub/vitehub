@@ -860,6 +860,7 @@ onBeforeUnmount(() => {
           <ConsoleMark class="size-4" />
           <span class="shrink-0 text-xs font-medium text-muted">ViteHub Agent</span>
           <UDropdownMenu
+            v-if="hasMultipleAgents"
             :items="agentMenuItems"
             :content="{ align: 'start', collisionPadding: 12 }"
             :ui="{ content: 'w-(--reka-dropdown-menu-trigger-width)' }"
@@ -868,16 +869,13 @@ onBeforeUnmount(() => {
               class="min-w-0 justify-start rounded-md border border-default px-1.5 hover:bg-elevated"
               color="neutral"
               :label="selectedAgentLabel"
-              :trailing-icon="hasMultipleAgents ? 'i-ph-caret-up-down-light' : undefined"
+              trailing-icon="i-ph-caret-up-down-light"
               size="xs"
               variant="ghost"
-              :aria-label="
-                hasMultipleAgents
-                  ? `Switch Agent. ${selectedAgentLabel} selected.`
-                  : selectedAgentLabel
-              "
+              :aria-label="`Switch Agent. ${selectedAgentLabel} selected.`"
             />
           </UDropdownMenu>
+          <span v-else class="min-w-0 truncate text-xs text-default">{{ selectedAgentLabel }}</span>
         </div>
       </template>
 
