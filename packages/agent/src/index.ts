@@ -2916,7 +2916,7 @@ function agentTelemetryConfigurationForContent(
 
 function agentTelemetryWorkspaceSources(sources: WorkspaceDefinition["sources"]): Array<{ id: string; repository?: string }> {
   return normalizeWorkspaceSourcesMetadata(sources).map(({ key, source }) => {
-    const fingerprint = hasRuntimeType(source, "object") && hasRuntimeType(source.fingerprint, "object")
+    const fingerprint = isRuntimeRecord(source) && isRuntimeRecord(source.fingerprint)
       ? source.fingerprint
       : undefined
     const repository = fingerprint && hasRuntimeType(fingerprint.repo, "string") && /^[\w.-]+\/[\w.-]+$/.test(fingerprint.repo)

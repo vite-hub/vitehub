@@ -2187,6 +2187,7 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const result = await createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
     expect(result.usageRecord).toMatchObject({
       calls: [
         { usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 } },
@@ -2209,6 +2210,7 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
     expect(result.usageRecord).toMatchObject({
       raw: { inputTokens: 3, outputTokens: 2, totalProcessedTokens: 5 },
       usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
@@ -2224,6 +2226,7 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
     expect(result.usageRecord).toMatchObject({
       calls: [
         { usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 } },
@@ -2243,10 +2246,11 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
-    expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 9, outputTokens: 3, totalTokens: 12 })
-    expect(result.usageRecord?.usage?.details).not.toHaveProperty("cachedInputTokens")
-    expect(result.usageRecord?.usage?.details).not.toHaveProperty("reasoningOutputTokens")
-    expect(result.usageRecord?.usage).not.toHaveProperty("inputTokenDetails")
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage")
+    expect(result.usageRecord.usage).toMatchObject({ inputTokens: 9, outputTokens: 3, totalTokens: 12 })
+    expect(result.usageRecord.usage).not.toHaveProperty("details.cachedInputTokens")
+    expect(result.usageRecord.usage).not.toHaveProperty("details.reasoningOutputTokens")
+    expect(result.usageRecord.usage).not.toHaveProperty("inputTokenDetails")
   })
 
   it("keeps reasoning summaries separate from following commentary", async () => {
