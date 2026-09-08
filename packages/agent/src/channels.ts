@@ -142,7 +142,7 @@ type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
 
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /** Use a host-managed credential resolver instead of minting another installation token. */
-  token?: GitHubAppValue<string | undefined, TRuntimeConfig>
+  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string }) => string | undefined | Promise<string | undefined>)
   /** Trusted login of the host's authenticated GitHub identity. */
   identity?: { login: string }
   apiBaseUrl?: string
@@ -851,7 +851,7 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
 
   try {
     const appOptions = app ? githubAppOptions(app) || {} : {}
-    const token = await githubPullRequestMetadataToken(app, context, command.installationId).catch(() => undefined)
+    const token = await githubPullRequestMetadataToken(app, context, command.installationId, command.repository).catch(() => undefined)
     const fetcher = appOptions.fetch || fetch
     const headers = githubApiHeaders(token, appOptions.userAgent)
     const apiBaseUrl = appOptions.apiBaseUrl || "https://api.github.com"
@@ -1186,10 +1186,13 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
   app: true | GitHubAppOptions<TRuntimeConfig>,
   context: GitHubAppContext<TRuntimeConfig>,
   installation?: number,
+  repository?: string,
 ) {
   const options = githubAppOptions(app) || {}
   if (options.token) {
-    const token = hasRuntimeType(options.token, "function") ? await options.token(context) : options.token
+    const token = hasRuntimeType(options.token, "function") ? await options.token(context, {
+      repository: repository ?? ("effect" in context ? githubCommandFromEffect(context)?.repository : undefined),
+    }) : options.token
     return requiredString(token, 'token')
   }
   const env = await githubEnv(context)
@@ -1220,12 +1223,13 @@ async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntim
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
   installation?: number,
+  repository?: string,
 ) {
   const env = await githubEnv(context)
   const token = cleanSecret(env.token)
   if (!app) return token
   try {
-    return await githubAppInstallationToken(app, context, installation)
+    return await githubAppInstallationToken(app, context, installation, repository)
   }
   catch (error) {
     if (token) return token
@@ -1596,7 +1600,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
       const commentsTarget = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
       const previousUpdate = githubActivityUpdates.get(commentsTarget) || Promise.resolve()
       const update = previousUpdate.catch(() => {}).then(async () => {
-        const token = await githubPullRequestMetadataToken(app, context, target.installationId)
+        const token = await githubPullRequestMetadataToken(app, context, target.installationId, target.repository)
         if (!token) throw agentDiagnostics.AGENT_R0359({ message: "[vitehub] GitHub Agent activity requires GitHub authentication." })
         const headers = githubApiHeaders(token, options.userAgent)
         const identity = await githubActivityIdentity(fetcher, apiBaseUrl, headers, token, app, context)
@@ -2718,7 +2722,7 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
     id: "github-pull-request-workspace",
     async workspace(context) {
       const value = githubPullRequestContextValue(context)
-      const token = await githubPullRequestMetadataToken(app, context, githubPullRequestInstallationId(value))
+      const token = await githubPullRequestMetadataToken(app, context, githubPullRequestInstallationId(value), value.repository)
       const { github: githubSource } = await import("@vite-hub/workspace")
       return {
         sources: {
