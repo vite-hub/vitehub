@@ -5,6 +5,9 @@ describe("structured credential redaction", () => {
   it.each([
     '{"d":"sensitive"}',
     '["first-secret","second-secret"]',
+    '[{"d":"sensitive"},["other-secret"]]',
+    '{]"d":"sensitive"}',
+    '[}"sensitive"]',
     '{"nested":[{"d":"escaped\\\"} ] secret"},["other-secret"]]}',
   ])("redacts complete structured credential values: %s", (credential) => {
     const prefix = '{"privateKey":'
@@ -14,10 +17,10 @@ describe("structured credential redaction", () => {
     // inside an escaped quote and immediately after the final closing delimiter.
     for (let split = 0; split <= credential.length; split++) {
       const state = pendingCredentialAssignmentState(prefix + credential.slice(0, split))!
-      expect(state).toBeDefined()
+      expect(state, `split ${split}`).toBeDefined()
       const remainder = credential.slice(split) + suffix
       const boundary = consumeCredentialAssignment(remainder, state)
-      expect(remainder.slice(boundary)).toBe(suffix)
+      expect(remainder.slice(boundary), `split ${split}`).toBe(suffix)
     }
     expect(redactCredentialText('{"payload":' + credential + suffix)).toBe('{"payload":' + credential + suffix)
   })

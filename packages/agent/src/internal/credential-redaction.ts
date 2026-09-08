@@ -133,7 +133,7 @@ export interface CredentialAssignmentState {
   escaped: boolean
   started: boolean
   quote?: string
-  structureDepth?: number
+  structureClosers?: string[]
   yamlIndent?: number
   yamlProperty?: boolean
   yaml?: { header: boolean, modifiers: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
@@ -169,7 +169,7 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
 export function consumeCredentialAssignment(value: string, state: CredentialAssignmentState): number {
   for (let index = 0; index < value.length; index++) {
     const character = value[index]!
-    if (state.structureDepth === 0) return index
+    if (state.structureClosers?.length === 0) return index
     // YAML anchors and tags precede the value, including across chunk boundaries.
     if (state.yamlProperty) {
       if (!/\s/.test(character)) continue
@@ -183,7 +183,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     if (!state.started && state.yamlIndent !== undefined && (character === "|" || character === ">")) {
       state.yaml = { header: true, modifiers: true, line: false, spaces: 0, whitespace: "" }
     }
-    if (!state.started && (character === "{" || character === "[")) state.structureDepth = 1
+    if (!state.started && (character === "{" || character === "[")) state.structureClosers = []
     state.started = true
     if (state.yaml) {
       const yaml = state.yaml
@@ -223,9 +223,10 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       if (character === state.quote) delete state.quote
     }
     else if (character === '"' || character === "'") state.quote = character
-    else if (state.structureDepth !== undefined) {
-      if (character === "{" || character === "[") state.structureDepth++
-      else if (character === "}" || character === "]") state.structureDepth--
+    else if (state.structureClosers) {
+      if (character === "{") state.structureClosers.push("}")
+      else if (character === "[") state.structureClosers.push("]")
+      else if (character === state.structureClosers.at(-1)) state.structureClosers.pop()
     }
     else if (/[\s,;&{}<>]/.test(character)) return index
   }

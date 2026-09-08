@@ -105,6 +105,9 @@ describe("Agent Invocations", () => {
   it.each([
     '{"d":"sensitive"}',
     '["first-secret","second-secret"]',
+    '[{"d":"sensitive"},["other-secret"]]',
+    '{]"d":"sensitive"}',
+    '[}"sensitive"]',
     '{"nested":[{"d":"escaped\\\"} ] secret"},["other-secret"]]}',
   ])("redacts structured credentials across forced message flushes: %s", async (credential) => {
     const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
