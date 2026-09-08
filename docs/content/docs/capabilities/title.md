@@ -81,6 +81,7 @@ Test a vague first message and confirm the fallback title is used instead of an 
 | `instructions` | `string` | none | System instructions for model-backed title generation. |
 | `maxLength` | `number` | `39` | Maximum title length. |
 | `model` | `AgentModelResolver` | Agent model, then heuristic fallback | Model used for title generation. |
+| `reasoningEffort` | `string` | Inherited provider Driver setting | Override reasoning effort only for title generation through the inherited provider Driver. When omitted, preserve the Driver's reasoning configuration, including environment-based settings. Does not apply to an explicit title `driver`, custom `execute`, or AI SDK model. |
 | `template` | `string \| function` | generated | Prompt template for model-backed generation. String templates can use `{{ message }}` and `{{ source }}`. |
 | `trigger` | `string \| string[]` | all triggers | Limit title generation to selected Agent Trigger ids. |
 | `variables` | `Record<string, value \| function>` | none | Extra template variables. |
