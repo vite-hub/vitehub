@@ -304,6 +304,7 @@ it.each([
   "The machine needs a password with several words",
   "Use the default password with several words",
   "machine example.com documentation mentions password requirements",
+  "default login uses password authentication",
 ])("preserves non-netrc password prose: %s", (text) => {
   expect(redactCredentialText(text)).toBe(text)
 })
