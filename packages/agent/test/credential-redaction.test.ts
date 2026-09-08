@@ -30,7 +30,7 @@ describe("structured credential redaction", () => {
 })
 
 describe("credential key boundaries", () => {
-  it.each(["monkey", "hockey", "turnkey", "MONKEY", "Hockey", "donkey"])("preserves ordinary %s assignments", (key) => {
+  it.each(["monkey", "hockey", "turnkey", "MONKEY", "HOCKEY", "TURNKEY", "Hockey", "donkey"])("preserves ordinary %s assignments", (key) => {
     for (const value of ["banana", '"banana', "'banana", '"banana with spaces"']) {
       const input = `${key}=${value}`
       expect(redactCredentialText(input)).toBe(input)
@@ -53,5 +53,20 @@ it.each(["apiToken", "apiTOKEN", "clientSecret", "dbPassword", "accessKey", "oau
     const prefix = key.slice(0, split)
     expect(credentialTextMayContinue(`${".".repeat(512)}${prefix}`)).toBe(true)
     expect(redactCredentialText(`${prefix}${key.slice(split)}=sensitive;status=ok`)).toBe(`${key}=[REDACTED];status=ok`)
+  }
+})
+
+it.each([
+  "APIKEY", "ACCESSKEY", "PRIVATEKEY", "SECRETKEY", "PUBLICKEY",
+  "ACCESSTOKEN", "AUTHTOKEN", "REFRESHTOKEN", "CLIENTSECRET", "SESSIONTOKEN",
+])("redacts conventional uppercase %s credentials and retains split names", (key) => {
+  expect(redactCredentialText(`${key}=sensitive;status=ok`)).toBe(`${key}=[REDACTED];status=ok`)
+  for (const quote of ['"', "'"]) {
+    expect(redactCredentialText(`${key}=${quote}sensitive words${quote};status=ok`)).toBe(`${key}=${quote}[REDACTED]${quote};status=ok`)
+    expect(pendingCredentialQuote(`${key}=${quote}sensitive words`)).toBe(quote)
+  }
+  expect(credentialTextMayContinue(`${key}=sensitive`)).toBe(true)
+  for (let split = 1; split <= key.length; split++) {
+    expect(credentialTextMayContinue(`${".".repeat(512)}${key.slice(0, split)}`)).toBe(true)
   }
 })
