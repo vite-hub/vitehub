@@ -640,7 +640,7 @@ export interface AgentTriggerDefinition<
   TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
   health?: AgentHealthDescriptor
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
   webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
@@ -655,7 +655,7 @@ export interface ResolvedAgentTriggerDefinition<
   channelId?: string
   definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
   id: `${string}.${string}`
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
