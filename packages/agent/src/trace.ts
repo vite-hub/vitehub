@@ -375,7 +375,7 @@ export async function traceAgentInvocationCancelled<TRuntimeConfig extends Agent
   await traceAgentEvent(context, {
     attributes: invocationAttributes(context),
     name: "agent.invocation.cancelled",
-    type: "error",
+    type: "run",
   })
 }
 
