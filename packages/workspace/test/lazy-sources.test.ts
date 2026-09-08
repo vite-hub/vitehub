@@ -316,6 +316,32 @@ describe("lazy sources", () => {
     if (moved) await expect(store.stat("docs/moved")).resolves.toMatchObject({ type: "directory" })
   })
 
+  it.each([true, false])("restores shared empty startup mounts after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
+    const store = createMemoryWorkspaceStore()
+    const source = () => custom({
+      materialize: "startup",
+      mount: "docs/generated",
+      async getKeys() { return [] },
+      async getItem(key) { return { key, content: "" } },
+    })
+    const retained = source()
+    const initial = { name: "shared-empty-startup-mount", sources: { removed: source(), retained } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await expect(store.getMeta?.("source:removed:snapshot")).resolves.toMatchObject({ ownsMount: true })
+    await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false, status: "ready" })
+
+    const next = { name: initial.name, sources: { retained } }
+    await syncWorkspaceDefinition(next, store)
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/generated", type: "directory" }),
+    ]))
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+  })
+
   it.each([true, false])("restores overlapping startup files after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
     const store = createMemoryWorkspaceStore()
     const retainedKeys = vi.fn(async () => ["shared.md"])

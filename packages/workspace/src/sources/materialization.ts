@@ -372,6 +372,12 @@ async function reconcileRemovedStartupSourcesInternal(
       await control.mutate(() => store.rm(path, { force: true }))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
+      for (const currentSource of currentSources) {
+        if (currentSource.mountPath !== path) continue
+        const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
+        if (retainedSnapshot?.status !== "ready") continue
+        await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
+      }
       try {
         await control.mutate(() => store.rm(path, { force: true }))
       }
