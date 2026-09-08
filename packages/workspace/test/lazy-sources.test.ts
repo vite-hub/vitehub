@@ -17,7 +17,7 @@ const githubSource = github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
-import { readCurrentSourceSnapshot } from "../src/sources/materialization.ts"
+import { materializeWorkspaceSources, readCurrentSourceSnapshot } from "../src/sources/materialization.ts"
 
 const tempDirs: string[] = []
 
@@ -35,6 +35,25 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["memory", "local"])("restores cached startup precedence after a scoped lower-priority write on %s", async (storeType) => {
+    const store = storeType === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const definition = {
+      name: "cached-startup-precedence",
+      sources: {
+        first: custom({ materialize: "startup", mount: "", cache: { maxAge: 3600 }, getKeys: async () => ["shared.md"], getMeta: async () => ({ etag: "first-v1" }), getItem: async key => ({ key, content: "first" }) }),
+        second: custom({ materialize: "startup", mount: "", cache: { maxAge: 3600 }, files: [{ path: "shared.md", content: "second" }] }),
+      },
+    }
+    await materializeWorkspaceSources(definition, store)
+    expect(Buffer.from((await store.readFile("shared.md"))!.content).toString()).toBe("first")
+    await materializeWorkspaceSources(definition, store, { sources: ["second"], path: "shared.md" })
+    expect(Buffer.from((await store.readFile("shared.md"))!.content).toString()).toBe("second")
+
+    const result = await materializeWorkspaceSources(definition, store)
+    expect(result.sources.every(source => source.status === "ready")).toBe(true)
+    expect(Buffer.from((await store.readFile("shared.md"))!.content).toString()).toBe("first")
+  })
+
   it.each([false, true])("isolates startup cleanup for Workspaces sharing a Store with abortable sync %s", async (abortableSync) => {
     const store = createMemoryWorkspaceStore()
     const first = {

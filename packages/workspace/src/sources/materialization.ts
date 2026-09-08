@@ -546,7 +546,8 @@ async function* iterateMaterializationEntries(
     const previous = materializedItemMeta(snapshot, configHash, path)
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
-      if (stat?.type === "file") {
+      const file = stat?.type === "file" && previous.materializedContentDigest ? await store.readFile(path) : undefined
+      if (stat?.type === "file" && (!previous.materializedContentDigest || file && await sha256(file.content) === previous.materializedContentDigest)) {
         yield {
           metadata: previous,
           path,
@@ -636,7 +637,18 @@ async function materializeWorkspaceSourcesInternal(
       continue
     }
     const completeSource = materializesCompleteSource(source, options)
-    const cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
+    let cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
+    // A scoped refresh of another Source can overwrite these files while the
+    // snapshot remains fresh. Recheck the backing content before accepting it.
+    if (cacheHit) {
+      for (const [path, item] of Object.entries(existing?.items || {})) {
+        const file = await store.readFile(path)
+        if (!file || item.materializedContentDigest && await sha256(file.content) !== item.materializedContentDigest) {
+          cacheHit = false
+          break
+        }
+      }
+    }
     const cacheStatus = materializationCacheStatus(source, completeSource, cacheHit)
     if (cacheHit) {
       const durationMs = Date.now() - sourceStarted
