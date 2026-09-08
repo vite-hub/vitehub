@@ -213,3 +213,22 @@ it.each(["=", " "])("redacts conventional token flags with separator %s", (separ
   expect(pendingCredentialQuote(`--token${separator}"sensitive`)).toBe('"')
   expect(redactCredentialText(`sort --key${separator}1,1`)).toBe(`sort --key${separator}1,1`)
 })
+
+it.each([
+  [String.raw`PASSWORD=correct\ horse battery`, "PASSWORD=[REDACTED] battery"],
+  [String.raw`API_TOKEN=abc\;def;status=ok`, "API_TOKEN=[REDACTED];status=ok"],
+  [String.raw`--token abc\,def,status=ok`, "--token [REDACTED],status=ok"],
+  [String.raw`PASSWORD=abc\\;status=ok`, "PASSWORD=[REDACTED];status=ok"],
+])("redacts escaped unquoted values: %s", (text, expected) => {
+  expect(redactCredentialText(text)).toBe(expected)
+})
+
+it.each([String.raw`PASSWORD=correct\ horse`, String.raw`API_TOKEN=abc\;def`, "--token abc\\"])("retains escaped credential continuation: %s", (text) => {
+  expect(pendingCredentialAssignment(text)).toBe("unquoted")
+  expect(credentialTextMayContinue(text)).toBe(true)
+})
+
+it("ends unquoted credentials after an even number of backslashes", () => {
+  expect(pendingCredentialAssignment(String.raw`PASSWORD=abc\\;`)).toBeUndefined()
+  expect(pendingCredentialAssignment(String.raw`PASSWORD=abc\\;status=ok`)).toBeUndefined()
+})

@@ -1266,7 +1266,7 @@ function journalTraceLog(
   const admittedMessageDeltaKeys = new Set<string>()
   let messageDeltaKeysTruncated = false
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
-  const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment" } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
+  const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1302,6 +1302,7 @@ function journalTraceLog(
         else if (scheme || assignment) {
           redactingCredentialDeltas.set(key, {
             kind: scheme ?? assignment!,
+            escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1,
           })
           if (scheme === "scheme" || assignment === "assignment") {
             content += "[REDACTED]"
@@ -1396,9 +1397,19 @@ function journalTraceLog(
         if (redaction.kind === "scheme") {
           content = content.trimStart()
           if (!content) return
-          redactingCredentialDeltas.set(key, { kind: "unquoted" })
+          redaction = { kind: "unquoted" }
+          redactingCredentialDeltas.set(key, redaction)
         }
-        boundary = content.search(/[\s"',;&{}<>]/)
+        boundary = -1
+        for (let index = 0; index < content.length; index++) {
+          const character = content[index]!
+          if (redaction.escaped) redaction.escaped = false
+          else if (character === "\\") redaction.escaped = true
+          else if (/[\s"',;&{}<>]/.test(character)) {
+            boundary = index
+            break
+          }
+        }
       }
       if (boundary < 0) return
       redactingCredentialDeltas.delete(key)

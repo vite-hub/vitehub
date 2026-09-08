@@ -53,6 +53,8 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
 
 const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?(?:\s*[:=]\s*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
 
+const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
+
 export function redactCredentialText(value: string): string {
   return value
     .replace(new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*"?|'(?:\\\\[\\s\\S]|[^'\\\\])*'?)`, "gi"), (match, prefix: string, key: string, quoted: string) => {
@@ -63,11 +65,11 @@ export function redactCredentialText(value: string): string {
     })
     .replace(/\b(Bearer|Basic)\s+[^\s"',;&{}<>]+/gi, (match, scheme: string, offset: number, source: string) =>
       isCredentialScheme(scheme, source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
-    .replace(new RegExp(`${credentialAssignmentPrefix}([^\\s"',;&{}<>]+)`, "gi"), (match, prefix: string, key: string) => isCredentialAssignment(key, prefix) ? `${prefix}[REDACTED]` : match)
+    .replace(new RegExp(`${credentialAssignmentPrefix}(${unquotedCredentialValue}+)`, "gi"), (match, prefix: string, key: string) => isCredentialAssignment(key, prefix) ? `${prefix}[REDACTED]` : match)
 }
 
 export function pendingCredentialAssignment(value: string): "assignment" | "unquoted" | undefined {
-  const assignment = new RegExp(`${credentialAssignmentPrefix}([^\\s"',;&{}<>]*)$`, "i").exec(value)
+  const assignment = new RegExp(`${credentialAssignmentPrefix}(${unquotedCredentialValue}*)$`, "i").exec(value)
   if (!assignment || !isCredentialAssignment(assignment[2]!, assignment[1]!)) return
   return assignment[3] ? "unquoted" : "assignment"
 }
