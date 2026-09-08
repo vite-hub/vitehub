@@ -5902,8 +5902,8 @@ async function handleChatSdkMessages(
               provider: chatRegistrationOrigin(registration),
               scope: `${state.keyPrefix}${queuedThread.id}`,
               sourceId: queuedMessageId || randomToken(),
-            })
-            await recordChannelDeliveryEvidence(listenerDelivery, { type: "rejected" })
+            }).catch(() => undefined)
+            if (listenerDelivery) await recordChannelDeliveryEvidence(listenerDelivery, { type: "rejected" })
           }
           if (queuedDelivery) await recordChannelDeliveryEvidence(queuedDelivery, { type: "rejected" })
           if (queuedMessage === message && requestDelivery && requestDelivery.delivery.id !== queuedDelivery?.delivery.id) {

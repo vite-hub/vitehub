@@ -7889,6 +7889,65 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["steer", "queue"] as const)("ignores unmentioned polling listener messages when evidence State fails with %s concurrency", async (concurrency) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createTelegramPollingRouteHandler } = await import("../src/server.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-polling-rejection-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: The fixture implements the Adapter methods exercised by this listener.
+          adapter: () => adapter as never,
+          mode: "polling",
+          messages: { concurrency, delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: { run },
+    })
+    const request = (messageId: number, isMention: boolean) => new Request("https://example.com/listener", {
+      body: JSON.stringify({ message: {
+        chat: { id: 456, type: "group" },
+        from: { id: 123, username: "maxi" },
+        isMention,
+        message_id: messageId,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+
+    try {
+      const response = await createTelegramPollingRouteHandler(agent as never)(
+        new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"),
+        { agentName: "support" },
+      )
+      expect(response.status).toBe(200)
+      // Dispatch through the initialized listener, without a webhook request delivery tracker.
+      await adapter.handleWebhook(request(91_140, true))
+      const setIfNotExists = state.setIfNotExists.bind(state)
+      const rejectEvidence = vi.fn(() => { throw new Error("Delivery State unavailable") })
+      const openEvidence = vi.spyOn(state, "setIfNotExists").mockImplementation((key, value, ttl) => {
+        if (key.startsWith("deliveries:source:")) return rejectEvidence()
+        return setIfNotExists(key, value, ttl)
+      })
+      await expect(adapter.handleWebhook(request(91_141, false))).resolves.toBeDefined()
+      expect(rejectEvidence).toHaveBeenCalledOnce()
+      openEvidence.mockRestore()
+
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+    } finally {
+      const chat = adapter._chatInstance()
+      if (chat instanceof Chat) await chat.shutdown()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("rejects generated GitHub webhooks without configured secrets", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
