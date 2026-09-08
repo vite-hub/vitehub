@@ -5871,18 +5871,19 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const durableSteerScope = chatSdkOption<string>(options, "concurrency") === "steer" ? await chatSdkLockKey(adapter, thread.id, options) : undefined
-  const messages = serial ? [...(messageContext?.skipped ?? []), message] : [message]
+  const individualMessages = serial || (chatSdkOption<string>(options, "concurrency") === "queue" && !thread.isDM)
+  const messages = individualMessages ? [...(messageContext?.skipped ?? []), message] : [message]
   const requestDelivery = agentChannelDeliveryTracker(context)
   if (requestDelivery) requestDelivery.claimed = true
-  const stopRefreshingLock = serial ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options)) : () => undefined
+  const stopRefreshingLock = individualMessages ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options)) : () => undefined
 
   try {
     for (const queuedMessage of messages) {
       try {
-        const queuedThread = serial ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
+        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
         const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
-        const queuedDelivery = serial
+        const queuedDelivery = individualMessages
           ? (payloadFingerprint ? await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprint) : undefined) ||
             (queuedMessageId
               ? (await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)) ||
@@ -5914,7 +5915,7 @@ async function handleChatSdkMessages(
           }
           continue
         }
-        const deliveryKind = serial ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
+        const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
         const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
         await handleChatSdkMessage(
@@ -5926,13 +5927,13 @@ async function handleChatSdkMessages(
           deliveryKind,
           options,
           state,
-          serial ? undefined : messageContext,
+          individualMessages ? undefined : messageContext,
           maximumInvocationDeadline,
-          serial,
+          individualMessages,
           durableSteerScope,
         )
       } catch (error) {
-        if (!serial) throw error
+        if (!individualMessages) throw error
       }
     }
   } finally {

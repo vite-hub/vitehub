@@ -12615,7 +12615,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("requires mentions throughout serial batches", async () => {
+  it.each(["serial", "queue"] as const)("requires mentions throughout %s batches", async (concurrency) => {
     const { defineAgent } = await import("../src/index.ts")
     const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -12646,7 +12646,7 @@ describe("server helpers", () => {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
             adapter: () => adapter as never,
             messages: {
-              concurrency: "serial",
+              concurrency,
               filter: ({ deliveryKind, message }) => {
                 const text = message.parts.find((part) => part.type === "text")
                 routed.push({ deliveryKind, text: text?.type === "text" ? text.text : "" })
@@ -12679,7 +12679,8 @@ describe("server helpers", () => {
         { deliveryKind: "mention", text: "mention" },
       ])
       const deliveries = await readAgentChannelDeliveries(state)
-      expect(deliveries.some(delivery => delivery.status === "rejected")).toBe(true)
+      expect(deliveries.find(delivery => delivery.sourceId === "91031")?.status).toBe("completed")
+      expect(deliveries.find(delivery => delivery.sourceId === "91032")?.status).toBe("rejected")
       expect(deliveries.filter(delivery => delivery.status === "received" || delivery.status === "running")).toEqual([])
       expect(deliveries.filter(delivery => delivery.status === "rejected").every(delivery =>
         delivery.events.filter(event => event.type === "completed" || event.type === "failed" || event.type === "rejected").length === 1,
