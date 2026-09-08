@@ -10,6 +10,23 @@ function isCredentialKey(key: string): boolean {
     || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
 }
 
+function isCredentialScheme(scheme: string, prefix: string): boolean {
+  return scheme.toLowerCase() === "bearer" || scheme === "Basic"
+    || /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
+}
+
+export function pendingCredentialScheme(value: string): "scheme" | "unquoted" | undefined {
+  const match = /\b(Bearer|Basic)\s+([^\s"',;&{}<>]*)$/i.exec(value)
+  if (!match || !isCredentialScheme(match[1]!, value.slice(0, match.index))) return
+  return match[2] ? "unquoted" : "scheme"
+}
+
+export function pendingCredentialTextSuffix(value: string): string | undefined {
+  const tail = value.slice(-128)
+  return /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[A-Za-z]*$/i.exec(tail)?.[0]
+    ?? /[A-Za-z][A-Za-z0-9_]*$/.exec(tail)?.[0]
+}
+
 export function redactCredentialText(value: string): string {
   return value
     .replace(/\b((?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD))=("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?)/gi, (match, key: string, quoted: string) => {
@@ -18,13 +35,14 @@ export function redactCredentialText(value: string): string {
       const closed = quoted.length > 1 && quoted.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(quoted)
       return `${key}=${quote}[REDACTED]${closed ? quote : ""}`
     })
-    .replace(/\b([Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s+[^\s"',;&{}<>]+/g, "$1 [REDACTED]")
+    .replace(/\b(Bearer|Basic)\s+[^\s"',;&{}<>]+/gi, (match, scheme: string, offset: number, source: string) =>
+      isCredentialScheme(scheme, source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
     .replace(/\b((?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD))=(["']?)([^\s"',;&{}<>]+)/gi, (match, key: string, quote: string) => isCredentialKey(key) ? `${key}=${quote}[REDACTED]` : match)
 }
 
 export function credentialTextMayContinue(value: string): boolean {
   if (pendingCredentialQuote(value)) return true
-  if (/\b(?:[Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s+[^\s"',;&{}<>]*$/.test(value)) return true
+  if (pendingCredentialScheme(value)) return true
   const assignment = /\b((?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD))=["']?[^\s"',;&{}<>]*$/i.exec(value)
   if (assignment && isCredentialKey(assignment[1]!)) return true
   const tail = value.slice(-128)

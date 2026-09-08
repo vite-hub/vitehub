@@ -3297,7 +3297,7 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}PASSWORD=[REDACTED];status=ok`)
   })
 
-  it.each(["Bearer", "Basic"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
+  it.each(["Bearer", "Basic", "Authorization: basic", "Authorization: BASIC"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
     const invocations = defineAgentInvocations({
       content: "content",
       observations: { maxStringLength: 10 },

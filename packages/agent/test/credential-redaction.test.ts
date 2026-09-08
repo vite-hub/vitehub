@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { credentialTextMayContinue, pendingCredentialQuote, redactCredentialText } from "../src/internal/credential-redaction.ts"
+import { credentialTextMayContinue, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
 describe("structured credential redaction", () => {
   it.each([
@@ -83,4 +83,17 @@ it.each([
 it.each(["Authorization: Basic", "Basic", "Bearer", "bearer", "BEARER"])("keeps credential redaction for %s", (scheme) => {
   expect(redactCredentialText(`${scheme} sensitive-value;status=ok`)).toBe(`${scheme} [REDACTED];status=ok`)
   expect(credentialTextMayContinue(`${scheme} sensitive-value`)).toBe(true)
+})
+
+it.each(["basic", "BASIC", "bAsIc"])("redacts contextual %s authorization across boundaries", (scheme) => {
+  for (const header of ["Authorization: ", "proxy-authorization: ", '"authorization":"']) {
+    expect(redactCredentialText(`${header}${scheme} c2VjcmV0;status=ok`)).toBe(`${header}${scheme} [REDACTED];status=ok`)
+    expect(pendingCredentialScheme(`${header}${scheme} c2Vj`)).toBe("unquoted")
+    expect(pendingCredentialScheme(`${header}${scheme} `)).toBe("scheme")
+    for (let split = 1; split <= scheme.length; split++) {
+      const prefix = `${header}${scheme.slice(0, split)}`
+      expect(credentialTextMayContinue(prefix)).toBe(true)
+      expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
+    }
+  }
 })

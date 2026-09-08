@@ -2,7 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { credentialTextMayContinue, pendingCredentialQuote, redactCredentialText } from "./internal/credential-redaction.ts"
+import { credentialTextMayContinue, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
@@ -1291,24 +1291,25 @@ function journalTraceLog(
       if (!final && credentialTextMayContinue(content)) {
         if (content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content)
+        const scheme = pendingCredentialScheme(content)
         if (quote) {
           redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
         }
-        else if (/\b(?:[Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s+[^\s"',;&{}<>]*$/.test(content)
+        else if (scheme
           || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?[^\s"',;&{}<>]*$/i.test(content)) {
           redactingCredentialDeltas.set(key, {
-            kind: /\b(?:[Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s*$/.test(content)
+            kind: scheme === "scheme"
               ? "scheme"
               : content.endsWith("=") ? "assignment" : "unquoted",
           })
-          if (/\b(?:[Bb][Ee][Aa][Rr][Ee][Rr]|Basic)\s+$/.test(content)
+          if (scheme === "scheme"
             || /\b(?:[A-Z][A-Z0-9_]*)?(?:KEY|SECRET|TOKEN|PASSWORD)=["']?$/i.test(content)) {
             content += "[REDACTED]"
           }
         }
         else {
           // A possible marker is still ordinary text until its separator arrives.
-          retainedContent = /[A-Za-z][A-Za-z0-9_]*$/.exec(content.slice(-128))?.[0]
+          retainedContent = pendingCredentialTextSuffix(content)
           if (retainedContent) content = content.slice(0, -retainedContent.length)
         }
       }
