@@ -186,7 +186,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   #metaPath: string
 
   constructor(public root: string) {
-    this.#fileMetadataRoot = `${root}.vitehub-file-metadata`
+    this.#fileMetadataRoot = `${root}.vitehub-file-metadata-${createHash("sha256").update(root).digest("hex").slice(0, 16)}`
     this.#metaPath = `${root}.meta.json`
   }
 
