@@ -152,6 +152,7 @@ export interface CredentialAssignmentState {
   shellProcess?: boolean
   shellSubstitutions?: { closer: string, quote?: string }[]
   yamlIndent?: number
+  yamlFlow?: boolean
   yamlProperty?: boolean
   yaml?: { header: boolean, modifiers: boolean, plain?: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
 }
@@ -163,7 +164,8 @@ const maxYamlSeparatorLength = 1024
 function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
   const line = source.slice(0, offset).split("\n").at(-1) ?? ""
   const yamlIndent = /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
-  return { escaped: false, started: false, ...(yamlIndent === undefined ? {} : { yamlIndent }) }
+  const yamlFlow = /[{,]\s*$/.test(line) && prefix.trimEnd().endsWith(":")
+  return { escaped: false, started: false, ...(yamlIndent === undefined ? {} : { yamlIndent }), ...(yamlFlow ? { yamlFlow } : {}) }
 }
 
 function redactCredentialAssignments(value: string, precedingText: string): string {
@@ -200,6 +202,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     // line break or comment so ordinary configuration evidence remains intact.
     if (!state.started && state.yamlIndent !== undefined && /[\r\n#]/.test(character)) return index
     if (!state.started && /\s/.test(character)) continue
+    if (state.yamlFlow && !state.escaped && !state.quote && !state.structureClosers && /[,}\]]/.test(character)) return index
     if (!state.started && state.yamlIndent !== undefined && (character === "&" || character === "!")) {
       state.yamlProperty = true
       continue
@@ -258,7 +261,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       }
       continue
     }
-    const shell = !state.structureClosers && state.yamlIndent === undefined
+    const shell = !state.structureClosers && state.yamlIndent === undefined && !state.yamlFlow
     const substitution = state.shellSubstitutions?.at(-1)
     const dollar = state.shellDollar
     const process = state.shellProcess
@@ -294,7 +297,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       else if (character === "[") state.structureClosers.push("]")
       else if (character === state.structureClosers.at(-1)) state.structureClosers.pop()
     }
-    else if (/[\s,;&{}<>]/.test(character)) return index
+    else if (!state.yamlFlow && /[\s,;&{}<>]/.test(character)) return index
   }
   return value.length
 }
