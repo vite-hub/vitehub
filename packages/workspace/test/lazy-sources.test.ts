@@ -92,6 +92,42 @@ describe("lazy sources", () => {
     await expect(view.search({ pattern: "second needle|root needle", regex: true, paths })).resolves.toEqual([])
   })
 
+  it.each(["search", "list"].flatMap(operation => [false, true].flatMap(local => ["", "docs"].map(mount => ({ operation, local, mount })))))("preserves overlapping inspection snapshots during $operation with local=$local and mount=$mount", async ({ operation, local, mount }) => {
+    const rootDir = await mkdtemp(join(tmpdir(), "workspace-inspection-overlap-"))
+    tempDirs.push(rootDir)
+    const store = local ? createLocalWorkspaceStore(rootDir) : createMemoryWorkspaceStore()
+    let content = "persisted needle"
+    const getItem = vi.fn(async (key: string) => ({ key, content }))
+    const definition = {
+      name: "inspection-overlap",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", getKeys: async () => ["shared.md"], getItem }),
+        second: custom({ materialize: "startup", mount, files: [{ path: mount ? "shared.md" : "docs/shared.md", content: "lower needle" }] }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).readFile("docs/shared.md")
+    const snapshot = await store.getMeta?.("source:first:snapshot")
+    content = "upstream needle"
+    getItem.mockClear()
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots: true })
+    if (operation === "search") {
+      await expect(view.search({ pattern: "needle" })).resolves.toEqual([
+        expect.objectContaining({ path: "docs/shared.md", text: "persisted needle" }),
+      ])
+    }
+    else {
+      await expect(view.list("docs", { recursive: true })).resolves.toEqual([
+        expect.objectContaining({ path: "docs/shared.md" }),
+      ])
+    }
+    expect(getItem).not.toHaveBeenCalled()
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("persisted needle")
+    const persisted = await store.readFile("docs/shared.md")
+    expect(typeof persisted?.content === "string" ? persisted.content : new TextDecoder().decode(persisted?.content)).toBe("persisted needle")
+    await expect(store.getMeta?.("source:first:snapshot")).resolves.toEqual(snapshot)
+    await expect(store.getMeta?.("source:second:snapshot")).resolves.toMatchObject({ status: "ready" })
+  })
+
   it("refreshes nested startup files before the first directory listing", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["stale.md"]

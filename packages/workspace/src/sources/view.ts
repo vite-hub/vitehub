@@ -27,6 +27,7 @@ import type {
   WorkspaceContent,
   WorkspaceDefinition,
   WorkspaceEntry,
+  WorkspaceFile,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceMaterializeSourcesResult,
@@ -351,25 +352,55 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await Promise.all(items.map(async source => await ensureMaterialized(source.key)))
   }
 
-  async function listSourceAware(path = "", options: ListOptions = {}) {
-    const normalized = normalizeWorkspacePath(path)
-    if (!isDescriptorPath(normalized)) {
-      // Path resolution prefers the first normalized Source. Write it last so
-      // listing and reading select the same owner for overlapping files.
-      const refreshedSources: typeof sources = []
-      for (const source of getLazySourcesForPath(normalized).reverse()) {
-        if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
-        await ensurePrepared(source.key)
-        const generation = generationBySource.get(source.key)
-        if (refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
-          // A lower-priority refresh may have overwritten an already loaded Source.
+  async function materializeStartupSourcesInPrecedenceOrder(items: typeof sources) {
+    const preserved = new Map<string, WorkspaceFile[]>()
+    // Capture reusable files before any overlapping lower-priority Source writes.
+    if (options.reuseStartupSnapshots) {
+      for (const source of items) {
+        const snapshot = await readCurrentSourceSnapshot(store, source)
+        if (snapshot?.status !== "ready") continue
+        const files: WorkspaceFile[] = []
+        for (const path of Object.keys(snapshot.items || {})) {
+          const file = await store.readFile(path)
+          if (file) files.push(file)
+        }
+        preserved.set(source.key, files)
+        reusedStartupSources.add(source.key)
+      }
+    }
+    const refreshedSources: typeof sources = []
+    for (const source of [...items].reverse()) {
+      await ensurePrepared(source.key)
+      const generation = generationBySource.get(source.key)
+      try {
+        if (!preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
           await materializeSerialized({ sources: [source.key] })
         }
         else {
           await ensureMaterialized(source.key)
         }
-        if (generationBySource.get(source.key) !== generation) refreshedSources.push(source)
       }
+      finally {
+        if (generationBySource.get(source.key) !== generation) {
+          refreshedSources.push(source)
+          // Restore persisted content, even after a partial failed refresh, without
+          // asking the higher-priority provider for a newer inspection snapshot.
+          for (const owner of items.slice(0, items.indexOf(source)).reverse()) {
+            for (const file of preserved.get(owner.key) || []) {
+              if (source.mountPath && !sourceMountContainsPath(source, file.path)) continue
+              await store.writeFile(file.path, file)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  async function listSourceAware(path = "", options: ListOptions = {}) {
+    const normalized = normalizeWorkspacePath(path)
+    if (!isDescriptorPath(normalized)) {
+      await materializeStartupSourcesInPrecedenceOrder(getLazySourcesForPath(normalized)
+        .filter(source => source.materialize === "startup" && !isExcludedWorkspacePath(source.mountPath, options.exclude)))
     }
     const storeEntries = isDescriptorPath(normalized) ? [] : await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
@@ -437,20 +468,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       sourcePaths.set(resolution.sourceKey, list)
     }
 
-    // Match listing precedence, including Sources loaded before this search.
-    const refreshedSources: typeof sources = []
-    for (const source of [...sources].reverse()) {
-      if (source.materialize !== "startup" || !requestedPaths.some(path => sourceMountIntersectsPath(source, normalizeWorkspacePath(path)))) continue
-      await ensurePrepared(source.key)
-      const generation = generationBySource.get(source.key)
-      if (refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))) {
-        await materializeSerialized({ sources: [source.key] })
-      }
-      else {
-        await ensureMaterialized(source.key)
-      }
-      if (generationBySource.get(source.key) !== generation) refreshedSources.push(source)
-    }
+    await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => source.materialize === "startup"
+      && requestedPaths.some(path => sourceMountIntersectsPath(source, normalizeWorkspacePath(path)))))
 
     const results: WorkspaceSearchHit[] = await searchMaterializedStore(store, {
       ...query,
