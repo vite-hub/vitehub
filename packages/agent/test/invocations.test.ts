@@ -46,6 +46,26 @@ function inspectableToolCapability() {
 }
 
 describe("Agent Invocations", () => {
+  it.each(["API_TOKEN ?=", "PASSWORD +=", "--api-token?=", "'PASSWORD' +="])("redacts compound assignments across forced flushes: %s", async (prefix) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of prefix + "sensitive-value;status=ok") {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "compound", "message.content": character } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("compound"), {})
+    const observations = (await invocations.getByRunId("compound"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(prefix + "[REDACTED];status=ok")
+    expect(JSON.stringify(observations)).not.toContain("sensitive-value")
+  })
+
   it.each(["|", ">-"])("preserves ordinary YAML %s scalar content across forced flushes", async (style) => {
     const text = `message: ${style}\n  password: "ordinary words"\n  secret: ordinary text\npassword: sensitive-value\nstatus: ok`
     const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })

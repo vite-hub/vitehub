@@ -55,9 +55,15 @@ function pendingAuthorizationHeader(value: string): string | undefined {
   return ["AUTHORIZATION", "PROXY-AUTHORIZATION"].some(header => header.startsWith(name)) ? match[0] : undefined
 }
 
+function pendingCompoundCredentialOperator(value: string): string | undefined {
+  const match = /(?<![A-Za-z0-9_-])(?:--)?["']?(_*[A-Za-z][A-Za-z0-9_-]*)["']?[\t ]*[?+]$/.exec(value.slice(-128))
+  return match && isCredentialKey(match[1]!) ? match[0] : undefined
+}
+
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
-  return /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
+  return pendingCompoundCredentialOperator(value)
+    ?? /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
     ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
     ?? pendingAuthorizationHeader(value)
@@ -327,6 +333,7 @@ export function pendingCredentialAssignment(value: string, precedingText = ""): 
 }
 
 export function credentialTextMayContinue(value: string, precedingText = ""): boolean {
+  if (pendingCompoundCredentialOperator(value)) return true
   if (pendingAuthorizationState(value)) return true
   if (/(?<![A-Za-z0-9_-])_+$/.test(value)) return true
   if (/\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.test(value)) return true

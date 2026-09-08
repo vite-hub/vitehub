@@ -233,6 +233,23 @@ it.each([
   }
 })
 
+it.each(["API_TOKEN ?", "PASSWORD +", "--api-token?", "'PASSWORD' +"])("retains partial compound assignment %s across flushes", (prefix) => {
+  expect(credentialTextMayContinue(prefix)).toBe(true)
+  expect(pendingCredentialTextSuffix(prefix)).toBe(prefix)
+  expect(redactCredentialText(prefix)).toBe(prefix)
+  expect(redactCredentialText(prefix + "= sensitive-value;status=ok")).toBe(prefix + "= [REDACTED];status=ok")
+  const state = pendingCredentialAssignmentState(prefix + "= ")!
+  expect(state).toBeDefined()
+  const rest = "sensitive-value;status=ok"
+  expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+})
+
+it.each(["status +", "ordinary ?"])("preserves non-credential partial operator %s", (text) => {
+  expect(credentialTextMayContinue(text)).toBe(false)
+  expect(pendingCredentialTextSuffix(text)).toBeUndefined()
+  expect(redactCredentialText(text + "= public")).toBe(text + "= public")
+})
+
 it.each(["API_TOKEN ?= sensitive", "PASSWORD += secret", "PASSWORD := value"]) ("redacts compound assignments", (input) => {
   expect(redactCredentialText(input)).toMatch(/\[REDACTED\]/)
 })
