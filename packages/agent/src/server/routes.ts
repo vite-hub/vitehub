@@ -4857,6 +4857,7 @@ async function handleChatSdkMessage(
     }))
   delivery.claimed = true
   context = withAgentChannelDelivery(context, delivery)
+  const sourceThread = thread
   thread = observeChatThread(thread, delivery)
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
@@ -5030,7 +5031,19 @@ async function handleChatSdkMessage(
             // The response wait is bounded, but a timeout cannot cancel Driver input.
             // Retain host custody until that input and all resulting evidence settle.
             // Use the host hook directly so a webhook flush does not delay its response.
-            state.reconciliationWaitUntil?.(submission.catch(() => undefined))
+            const reconciliation = submission.then(async (result) => {
+              if (result !== "unsupported" && result !== "unavailable") return
+              // The Driver confirmed it did not accept this input. Wait for the
+              // original turn before starting the follow-up under the same host budget.
+              try {
+                await waitForInlineChatTurn(active, maximumInvocationDeadline)
+              } catch (error) {
+                await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed" })
+                return
+              }
+              await handleChatSdkMessage(agent, context, registration, sourceThread, message, deliveryKind, options, state, messageContext, maximumInvocationDeadline, true, durableSteerScope)
+            }).catch(() => undefined)
+            state.reconciliationWaitUntil?.(reconciliation)
             return
           }
           if (outcome === "accepted") return

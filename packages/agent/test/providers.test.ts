@@ -16457,6 +16457,8 @@ describe("server helpers", () => {
     { failInvocation: true, lateAcceptance: false },
     { failInvocation: false, lateAcceptance: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, lateResult: "unsupported" as const },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, lateResult: "unavailable" as const },
     { failInvocation: true, lateAcceptance: true, timeoutAcceptance: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true, noHost: true },
@@ -16465,7 +16467,7 @@ describe("server helpers", () => {
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, delayedEvidence: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, neverAccepts: true },
     { failInvocation: true, lateAcceptance: true },
-  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance, Cloudflare deadline: $cloudflareDeadline, unresolved: $neverAccepts)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost, cloudflareDeadline, delayedEvidence, afterReconciliationDeadline }) => {
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance, Cloudflare deadline: $cloudflareDeadline, unresolved: $neverAccepts, late result: $lateResult)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost, cloudflareDeadline, delayedEvidence, afterReconciliationDeadline, lateResult }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16511,7 +16513,7 @@ describe("server helpers", () => {
               steeredPrompt = input.messages?.map(message => message.parts.find(part => typeof part === "string" || part.type === "text") && message.parts.map(part => typeof part === "string" ? part : "text" in part ? part.text : "").join("")).join("\n")
               if (failInvocation || lateAcceptance) releaseFirst()
               if (lateAcceptance) await acceptance.promise
-              return "accepted"
+              return lateResult ?? "accepted"
             },
             support: { steer: true },
           })
@@ -16653,7 +16655,7 @@ describe("server helpers", () => {
       expect(followUpDelivery?.events.filter(event => event.type.startsWith("invocation.")).map(event => event.type)).toEqual(["invocation.started", `invocation.${outcome}`])
       expect(followUpDelivery?.events.filter(event => event.type === "invocation.completed" || event.type === "invocation.failed").map(event => event.type)).toEqual([`invocation.${outcome}`])
       expect(followUpDelivery?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual(timeoutAcceptance ? ["failed", outcome] : [outcome])
-      expect(runs).toBe(2)
+      expect(runs).toBe(lateResult ? 3 : 2)
       expect(steeredPrompt).toBe("hello")
     } finally {
       evidenceReleased.resolve()
