@@ -175,6 +175,9 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       if (!/\s/.test(character)) continue
       delete state.yamlProperty
     }
+    // An empty YAML credential field has no value to redact. Stop at its
+    // line break so the following property remains intact.
+    if (!state.started && state.yamlIndent !== undefined && character === "\n") return index
     if (!state.started && /\s/.test(character)) continue
     if (!state.started && state.yamlIndent !== undefined && (character === "&" || character === "!")) {
       state.yamlProperty = true
