@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -12,7 +11,7 @@ import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
 it.each([3600, 0])("restores legacy materialization ownership with cache maxAge %i", async (maxAge) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-metadata-migration-"))
-  const sidecars = `${root}.vitehub-file-metadata-${createHash("sha256").update(root).digest("hex").slice(0, 16)}`
+  const sidecars = join(root, ".vitehub", "file-metadata")
   try {
     const getItem = vi.fn(async (key: string) => ({ key, content: "original", mediaType: "text/plain" }))
     const definition = {
@@ -66,7 +65,7 @@ it.each([3600, 0])("restores legacy materialization ownership with cache maxAge 
 
 it.each([3600, 0])("converges scoped legacy materialization ownership with cache maxAge %i", async (maxAge) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-metadata-migration-"))
-  const sidecars = `${root}.vitehub-file-metadata-${createHash("sha256").update(root).digest("hex").slice(0, 16)}`
+  const sidecars = join(root, ".vitehub", "file-metadata")
   try {
     const getItem = vi.fn(async (key: string) => ({ key, content: "original", mediaType: "text/plain" }))
     const definition = {
