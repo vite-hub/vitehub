@@ -308,13 +308,14 @@ it("keeps a closed marker-like credential attached to its assignment", () => {
 
 it.each([
   ["Authorization: ", "ghp_sensitive", ";status=ok"],
+  ["Authorization: ", "ghp_sensitive status=private", "\nstatus=ok"],
   ["Authorization: ", "x".repeat(300), "\nstatus=ok"],
   ["Proxy-Authorization: ", "raw-token+/=", "\nstatus=ok"],
   ['{"authorization":"', "sensitive-value", '", "status":"ok"}'],
   ["Authorization: token ", "ghp_sensitive", ";status=ok"],
   ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
   ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
-  ['{"authorization":"Custom-Auth ', "sensitive-value", '", "status":"ok"}'],
+  ['{"authorization":"', "Custom-Auth sensitive-value", '", "status":"ok"}'],
 ])("redacts explicit %s headers across every credential boundary", (prefix, credential, suffix) => {
   expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
   for (let split = 0; split <= credential.length; split++) {
@@ -331,4 +332,50 @@ it("retains an incomplete custom authorization scheme", () => {
   expect(credentialTextMayContinue("Authorization: Custom-Au")).toBe(true)
   expect(pendingCredentialTextSuffix("prefix Authorization: Custom-Au")).toBe("Authorization: Custom-Au")
   expect(redactCredentialText("Use token examples and Digest prose")).toBe("Use token examples and Digest prose")
+})
+
+
+it.each(["private_key", "password", "secret"].flatMap(key => ["|", ">-", "|+", "|2", ">2-", "|-2", "| # 9 is a comment", "&credential |", "!!str >-", "&credential !!str |2-", "!<tag:yaml.org,2002:str> &credential >"].map(indicator => ({ key, indicator }))))("redacts YAML $key block scalar $indicator through its dedent", ({ key, indicator }) => {
+  const prefix = `config:\n  ${key}: `
+  const scalar = `${indicator}\n    -----BEGIN PRIVATE KEY-----\n    sensitive-value\n\n    -----END PRIVATE KEY-----`
+  const suffix = "\n  status: ok\nnext: retained"
+  expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+  for (let split = 0; split <= scalar.length; split++) {
+    const first = prefix + scalar.slice(0, split)
+    const state = pendingCredentialAssignmentState(first)
+    expect(state, `split ${split}`).toBeDefined()
+    const rest = scalar.slice(split) + suffix
+    const boundary = consumeCredentialAssignment(rest, state!)
+    expect(state!.yaml!.whitespace + rest.slice(boundary), `split ${split}`).toBe(suffix)
+  }
+})
+
+it("retains YAML scalar redaction state across individual characters", () => {
+  const state = pendingCredentialAssignmentState("api_token: ")!
+  for (const character of ">-\n  sensitive-value\n\n  more-secret\n") {
+    expect(consumeCredentialAssignment(character, state)).toBe(1)
+  }
+  expect(consumeCredentialAssignment("status: ok", state)).toBe(0)
+  expect(state.yaml?.whitespace).toBe("\n")
+})
+
+it("uses preceding indentation for a retained YAML key", () => {
+  expect(redactCredentialText("api_token: |\n    secret\n  status: ok", "  "))
+    .toBe("api_token: [REDACTED]\n  status: ok")
+})
+
+
+it.each(["password", "secret"])("redacts bare YAML %s fields with retained line context", (key) => {
+  for (const preceding of ["", "  ", "config:\n  ", "  - "]) {
+    const value = `${key}: "correct horse"\nstatus: ok`
+    expect(redactCredentialText(preceding + value)).toBe(`${preceding}${key}: "[REDACTED]"\nstatus: ok`)
+    expect(redactCredentialText(value, preceding)).toBe(`${key}: "[REDACTED]"\nstatus: ok`)
+    expect(pendingCredentialQuote(`${key}: "correct`, preceding)).toBe('"')
+    expect(credentialTextMayContinue(`${key}: correct`, preceding)).toBe(true)
+    expect(pendingCredentialAssignmentState(`${key}: |`, preceding)?.yaml).toBeDefined()
+  }
+  const prose = `Field label. ${key}: "ordinary words"`
+  expect(redactCredentialText(prose)).toBe(prose)
+  expect(pendingCredentialQuote(`${key}: "ordinary`, "Field label. ")).toBeUndefined()
+  expect(credentialTextMayContinue(`${key}: ordinary`, "Field label. ")).toBe(false)
 })

@@ -68,15 +68,21 @@ describe("Agent Invocations", () => {
 
   it.each([
     ["Authorization: ", "ghp_sensitive", ";status=ok"],
+    ["Authorization: ", "ghp_sensitive status=private", "\nstatus=ok"],
     ["Authorization: ", "x".repeat(300), "\nstatus=ok"],
     ["Proxy-Authorization: ", "raw-token+/=", "\nstatus=ok"],
     ['{"authorization":"', "sensitive-value", '", "status":"ok"}'],
     ["Authorization: token ", "ghp_sensitive", ";status=ok"],
     ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
     ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
-    ['{"authorization":"Custom-Auth ', "sensitive-value", '", "status":"ok"}'],
+    ['{"authorization":"', "Custom-Auth sensitive-value", '", "status":"ok"}'],
   ])("redacts bounded custom authorization headers: %s", async (prefix, credential, suffix) => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({
+      content: "content",
+      // Every character also emits a tool event. Keep the complete test trace.
+      observations: { maxCount: 1024 },
+      store: createMemoryAgentInvocationStore(),
+    })
     const padding = ".".repeat(512)
     const agent = defineAgent({
       driver: { async run(context) {
@@ -94,6 +100,26 @@ describe("Agent Invocations", () => {
     const observations = (await invocations.getByRunId("custom-authorization"))!.observations
     const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
     expect(content).toBe(padding + prefix + "[REDACTED]" + suffix)
+  })
+
+  it.each(["api_token", "password", "secret"].flatMap(key => ["|", ">-", "|2-", "&credential |", "!!str >-", "&credential !!str |2-", "!<tag:yaml.org,2002:str> &credential >"].map(indicator => ({ key, indicator }))))("redacts YAML $key scalar $indicator across forced message flushes", async ({ key, indicator }) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
+    const text = `config:\n  ${key}: ${indicator}\n    sensitive-value\n    more-secret\n  status: ok\n`
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of text) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "yaml", "message.content": character } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("yaml-scalar"), {})
+    const observations = (await invocations.getByRunId("yaml-scalar"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(`config:\n  ${key}:[REDACTED]\n  status: ok\n`)
   })
 
   it.each([2, 100, 400])("rejects configuration updates when the marker cannot fit a %i-byte budget", (maxBytes) => {
