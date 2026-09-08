@@ -312,7 +312,35 @@ describe("local workspace store", () => {
       })
       expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
     }
-    expect(copyFile).not.toHaveBeenCalled()
+    expect(copyFile).toHaveBeenCalledTimes(5)
+  })
+
+  it.each([false, true])("keeps the live path readable before replacement without hard links, streamed: %s", async (streamed) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = join(root, "file.txt")
+    await store.writeFile("file.txt", { path: "file.txt", content: "before" })
+    const before = await stat(path)
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(link).mockRejectedValueOnce(Object.assign(new Error("unsupported"), { code: "ENOTSUP" }))
+    let observed = false
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (String(to) === path && String(from).endsWith(".tmp")) {
+        observed = true
+        expect(await actual.readFile(path, "utf8")).toBe("before")
+        expect((await actual.stat(path)).ino).toBe(before.ino)
+        expect(await actual.readdir(root)).toContain("file.txt")
+      }
+      await actual.rename(from, to)
+    })
+    try {
+      if (streamed) await store.writeFileStream!("file.txt", { path: "file.txt", content: new Blob(["after"]).stream() })
+      else await store.writeFile("file.txt", { path: "file.txt", content: "after" })
+      expect(observed).toBe(true)
+      expect(await readFile(path, "utf8")).toBe("after")
+    } finally {
+      vi.mocked(rename).mockImplementation(actual.rename)
+    }
   })
 
   it.each([false, true])("preserves original file state without hard links after sidecar failure, streamed: %s", async (streamed) => {
@@ -335,7 +363,7 @@ describe("local workspace store", () => {
         ? store.writeFileStream!("file.txt", { ...file, content: new Blob(["after"]).stream() })
         : store.writeFile("file.txt", { ...file, content: "after" })).rejects.toThrow(failure)
       const after = await stat(join(root, "file.txt"))
-      for (const key of ["ino", "mode", "uid", "gid", "mtimeMs"] as const) expect(after[key]).toBe(before[key])
+      for (const key of ["mode", "uid", "gid", "mtimeMs"] as const) expect(after[key]).toBe(before[key])
       await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({
         content: new TextEncoder().encode("before"), metadata: { source: "original" },
       })
@@ -379,23 +407,23 @@ describe("local workspace store", () => {
   })
 
   it.each([
-    { moved: false, streamed: false },
-    { moved: false, streamed: true },
-    { moved: true, streamed: false },
-    { moved: true, streamed: true },
-  ])("preserves live files on backup failure: %j", async ({ moved, streamed }) => {
+    { copied: false, streamed: false },
+    { copied: false, streamed: true },
+    { copied: true, streamed: false },
+    { copied: true, streamed: true },
+  ])("preserves live files on backup failure: %j", async ({ copied, streamed }) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     await store.writeFile("file.txt", { path: "file.txt", content: "before" })
     const failure = Object.assign(new Error("backup failed"), { code: "EIO" })
-    vi.mocked(link).mockRejectedValueOnce(moved ? Object.assign(new Error("unsupported"), { code: "ENOTSUP" }) : failure)
-    if (moved) vi.mocked(rename).mockRejectedValueOnce(failure)
+    vi.mocked(link).mockRejectedValueOnce(copied ? Object.assign(new Error("unsupported"), { code: "ENOTSUP" }) : failure)
+    if (copied) vi.mocked(copyFile).mockRejectedValueOnce(failure)
     await expect(streamed
       ? store.writeFileStream!("file.txt", { path: "file.txt", content: new Blob(["after"]).stream() })
       : store.writeFile("file.txt", { path: "file.txt", content: "after" })).rejects.toThrow(failure)
     expect(await readFile(join(root, "file.txt"), "utf8")).toBe("before")
     expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
-    expect(copyFile).not.toHaveBeenCalled()
+    expect(copyFile).toHaveBeenCalledTimes(copied ? 1 : 0)
   })
 
   it.skipIf(process.platform === "win32").each([false, true])("keeps sidecars private with an existing metadata tree: %s", async (existing) => {
@@ -940,7 +968,7 @@ describe("local workspace store", () => {
     }
   })
 
-  it("reuses cached sidecars across listings larger than the cache", async () => {
+  it("revalidates sidecars across large repeated listings", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     const paths = Array.from({ length: 1025 }, (_, index) => `file-${String(index).padStart(4, "0")}`)
@@ -957,11 +985,12 @@ describe("local workspace store", () => {
       expect(await store.list()).toHaveLength(1025)
       expect(read).toHaveBeenCalledTimes(1025)
       read.mockClear()
-      expect(await store.list()).toHaveLength(1025)
-      expect(read).toHaveBeenCalledTimes(1)
+      await writeFile(`${metadataRoot(root)}/${paths[0]}/metadata.json`, JSON.stringify({ path: paths[0], mediaType: "text/markdown" }))
+      expect(await store.list()).toEqual(expect.arrayContaining([expect.objectContaining({ path: paths[0], mediaType: "text/markdown" })]))
+      expect(read).toHaveBeenCalledTimes(1025)
       read.mockClear()
       expect(await store.list()).toHaveLength(1025)
-      expect(read).toHaveBeenCalledTimes(1)
+      expect(read).toHaveBeenCalledTimes(1025)
     }
     finally {
       read.mockRestore()

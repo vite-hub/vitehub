@@ -26,16 +26,26 @@ import type {
   WorkspaceStore,
 } from "../core/types.ts"
 
-async function backupFile(path: string, backup: string): Promise<boolean> {
-  const { link, rename } = await import("node:fs/promises")
+async function backupFile(path: string, backup: string): Promise<void> {
+  const { chmod, chown, copyFile, link, rm, stat, utimes } = await import("node:fs/promises")
   try {
     await link(path, backup)
-    return false
   } catch (error) {
     if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EXDEV"].includes(Reflect.get(Object(error), "code"))) throw error
-    // Preserve the original inode for rollback when hard links are unavailable.
-    await rename(path, backup)
-    return true
+    // Keep the public path readable until atomic replacement, even without links.
+    const original = await stat(path)
+    try {
+      await copyFile(path, backup, constants.COPYFILE_EXCL)
+      const copied = await stat(backup)
+      if (process.platform !== "win32" && (copied.uid !== original.uid || copied.gid !== original.gid)) {
+        await chown(backup, original.uid, original.gid)
+      }
+      await chmod(backup, original.mode & 0o7777)
+      await utimes(backup, original.atime, original.mtime)
+    } catch (error) {
+      await rm(backup, { force: true }).catch(() => undefined)
+      throw error
+    }
   }
 }
 
@@ -374,14 +384,11 @@ class LocalWorkspaceStore implements WorkspaceStore {
       return
     }
     let content: string
-    let version: string
     try {
       const opened = await file.stat()
       assertTrustedMetadata(metadataPath, opened, root)
       if (!opened.isFile()) return
-      // Read and identify the same sidecar even if another writer replaces its path.
-      const info = await file.stat({ bigint: true })
-      version = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
+      // Read the opened sidecar even if another writer replaces its path.
       content = await file.readFile("utf8")
     }
     finally {
@@ -536,9 +543,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await writeFile(temp, bytes)
       // Prefer a hard link so the live file remains readable during publication.
       const hadExisting = existing?.type === "file"
-      const moved = hadExisting && await backupFile(absolute, backup)
+      if (hadExisting) await backupFile(absolute, backup)
       await rename(temp, absolute).catch(async (error) => {
-        if (moved) await rename(backup, absolute)
         await rm(backup, { force: true })
         throw error
       })
@@ -612,9 +618,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
 
       const hadExisting = existing?.type === "file"
-      const moved = hadExisting && await backupFile(absolute, backup)
+      if (hadExisting) await backupFile(absolute, backup)
       await rename(temp, absolute).catch(async (error) => {
-        if (moved) await rename(backup, absolute)
         await rm(backup, { force: true })
         throw error
       })
