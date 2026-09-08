@@ -2586,7 +2586,7 @@ describe("lazy sources", () => {
     await store.writeFile("replaced.md", { path: "replaced.md", content: "user replacement" })
     await store.writeFile("user.md", { path: "user.md", content: "user" })
     await syncWorkspaceDefinition(definition, store)
-    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toEqual({})
+    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toMatchObject({ status: "updating" })
     await expect(store.stat("generated/stale.md")).resolves.toBeDefined()
 
     await syncWorkspaceDefinition({
@@ -2602,7 +2602,43 @@ describe("lazy sources", () => {
     await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user" })
   })
 
-  it("removes stale root startup files after build cleanup clears their snapshot", async () => {
+  it.each(["", "docs"])("retains startup cleanup evidence after a local restart and build invalidation at '%s'", async (buildMount) => {
+    const root = await createRoot()
+    const definition = {
+      name: "restarted-invalidated-startup",
+      sources: {
+        built: custom({ materialize: "build", mount: buildMount, files: [{ path: "shared.md", content: "build" }] }),
+        generated: custom({
+          materialize: "startup",
+          mount: "",
+          files: [
+            { path: buildMount ? `${buildMount}/shared.md` : "shared.md", content: "startup" },
+            { path: "generated/stale.md", content: "stale" },
+            { path: "edited.md", content: "original" },
+            { path: "claimed.md", content: "original" },
+          ],
+        }),
+      },
+    }
+    const original = createLocalWorkspaceStore(root)
+    await syncWorkspaceDefinition(definition, original)
+    await createWorkspaceSourceView(definition, original).materializeSources({ sources: ["generated"] })
+
+    const restarted = createLocalWorkspaceStore(root)
+    await restarted.writeFile("edited.md", { path: "edited.md", content: "user edit" })
+    await restarted.writeFile("claimed.md", { path: "claimed.md", content: "original", metadata: { source: "other" } })
+    await syncWorkspaceDefinition(definition, restarted)
+    await expect(restarted.stat("generated/stale.md")).resolves.toBeDefined()
+
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
+
+    await expect(restarted.stat("generated/stale.md")).resolves.toBeUndefined()
+    await expect(restarted.stat("generated")).resolves.toBeUndefined()
+    await expect(createWorkspaceSourceView({ name: definition.name }, restarted).readFile("edited.md")).resolves.toBe("user edit")
+    await expect(restarted.readFile("claimed.md")).resolves.toMatchObject({ metadata: { source: "other" } })
+  })
+
+  it("removes stale root startup files after build cleanup invalidates their snapshot", async () => {
     let keys = ["docs/generated.md", "stale.md", "AGENTS.md"]
     const definition = {
       name: "startup-cleared-snapshot-cleanup",
@@ -2621,7 +2657,7 @@ describe("lazy sources", () => {
     await view.materializeSources({ sources: ["generated"] })
     await store.writeFile("user.md", { path: "user.md", content: "user" })
     await syncWorkspaceDefinition(definition, store)
-    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toEqual({})
+    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toMatchObject({ status: "updating" })
     await expect(store.stat("stale.md")).resolves.toBeDefined()
     keys = ["AGENTS.md"]
 

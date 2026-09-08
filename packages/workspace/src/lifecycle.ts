@@ -196,7 +196,11 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
-    for (const source of affected) await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
+    for (const source of affected) {
+      const snapshot = await readCurrentSourceSnapshot(store, source)
+      // Files outside the build mount still need their persisted ownership evidence.
+      await store.setMeta?.(sourceSnapshotMetaKey(source.key), snapshot ? { ...snapshot, status: "updating" } : {})
+    }
     abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
     abortSignal?.throwIfAborted()
@@ -212,7 +216,10 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
-    for (const startup of affected) await store.setMeta?.(sourceSnapshotMetaKey(startup.key), {})
+    for (const startup of affected) {
+      const snapshot = await readCurrentSourceSnapshot(store, startup)
+      await store.setMeta?.(sourceSnapshotMetaKey(startup.key), snapshot ? { ...snapshot, status: "updating" } : {})
+    }
     abortSignal?.throwIfAborted()
     await removeRootBuildSourceFiles(store, removedPaths)
     abortSignal?.throwIfAborted()
