@@ -333,6 +333,37 @@ describe("lazy sources", () => {
     }
   })
 
+  it.each(["prepare", "mkdir", "list"].flatMap(stage => [false, true].map(local => ({ stage, local }))))("claims a failed startup mount only after creation at $stage with local=$local", async ({ stage, local }) => {
+    const root = await createRoot()
+    const store = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "failed-startup-mount",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async prepare() {
+            if (stage === "prepare") throw new Error("prepare failed")
+          },
+          async getKeys() { throw new Error("list failed") },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    if (stage === "mkdir") vi.spyOn(store, "mkdir").mockRejectedValueOnce(new Error("mkdir failed"))
+    await expect(createWorkspaceSourceView(definition, store).materializeSources()).resolves.toMatchObject({
+      sources: [{ status: "error", error: `${stage} failed` }],
+    })
+    vi.restoreAllMocks()
+    if (stage !== "list") {
+      await expect(store.stat("docs")).resolves.toBeUndefined()
+      await store.mkdir("docs", { recursive: true })
+    }
+    const reopened = local ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+    if (stage === "list") await expect(reopened.stat("docs")).resolves.toBeUndefined()
+    else await expect(reopened.stat("docs")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it("removes files owned by startup Sources removed from the definition", async () => {
     const store = createMemoryWorkspaceStore()
     const initial = {

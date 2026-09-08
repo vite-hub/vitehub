@@ -640,10 +640,9 @@ async function materializeWorkspaceSourcesInternal(
       continue
     }
 
-    let ownsMount = Boolean(source.mountPath) && (
-      existing?.mountPath === source.mountPath && existing.ownsMount === true
-      || !await store.stat(source.mountPath)
-    )
+    let ownsMount = Boolean(source.mountPath)
+      && existing?.mountPath === source.mountPath && existing.ownsMount === true
+      && Boolean(await store.stat(source.mountPath))
     const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let revision = existing?.revision
@@ -680,7 +679,11 @@ async function materializeWorkspaceSourcesInternal(
       await prepareWorkspaceSource(source.source, ctx)
       throwIfAborted(options.abortSignal)
       if (source.mountPath) {
-        await control.mutate(() => store.mkdir(source.mountPath, { recursive: true }))
+        await control.mutate(async () => {
+          const mountExists = Boolean(await store.stat(source.mountPath))
+          await store.mkdir(source.mountPath, { recursive: true })
+          ownsMount = ownsMount || !mountExists
+        })
       }
 
       revision = ctx.revision
