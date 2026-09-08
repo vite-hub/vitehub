@@ -1813,7 +1813,7 @@ export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
 
 export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | "serial" | "steer" | (string & {})
 
-export type AgentMessageDeliveryKind = "direct" | "mention" | "subscribed"
+export type AgentMessageDeliveryKind = "direct" | "mention"
 
 export type AgentMessageLockScope = "agent" | "channel" | "thread" | (string & {})
 
