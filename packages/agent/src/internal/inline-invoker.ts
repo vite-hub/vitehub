@@ -8,9 +8,14 @@ export function sameInlineInvoker(left: unknown, right: unknown, pairs = new Map
   try {
     const prototype = Object.getPrototypeOf(left)
     if (prototype !== Object.getPrototypeOf(right)) return false
-    // Compare record and array contents without invoking accessors or toJSON.
-    // Other object types, functions, and symbols retain reference identity.
-    if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) return false
+    // Read Date's internal value without calling user overrides, then compare
+    // its own metadata with the same descriptor rules as records and arrays.
+    if (prototype === Date.prototype) {
+      if (!Object.is(Date.prototype.getTime.call(left), Date.prototype.getTime.call(right))) return false
+    } else if (prototype !== Object.prototype && prototype !== Array.prototype && prototype !== null) {
+      // Unsupported objects, functions, and symbols retain reference identity.
+      return false
+    }
     const keys = Reflect.ownKeys(left)
     if (keys.length !== Reflect.ownKeys(right).length) return false
     pairs.set(left, right)
