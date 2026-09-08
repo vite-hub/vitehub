@@ -79,19 +79,24 @@ export function consumeAuthorization(value: string, state: AuthorizationState): 
 }
 
 function* authorizationValues(value: string) {
-  const headers = /\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*(["']?)[\t ]*([!#$%&'*+.^_`|~A-Za-z0-9-]+)[\t ]+/gi
+  const headers = /\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*(["']?)[\t ]*(?:([!#$%&'*+.^_`|~A-Za-z0-9-]+)[\t ]+)?/gi
   for (const match of value.matchAll(headers)) {
     if (/^(Bearer|Basic)$/i.test(match[2]!)) continue
     const start = match.index + match[0].length
     const state: AuthorizationState = { escaped: false, ...(match[1] ? { outerQuote: match[1] } : {}) }
     const length = consumeAuthorization(value.slice(start), state)
-    yield { start, length, state }
+    yield { start, length, state, scheme: match[2] }
   }
 }
 
 export function pendingAuthorizationState(value: string): AuthorizationState | undefined {
   for (const entry of authorizationValues(value)) {
-    if (entry.start + entry.length === value.length) return entry.state
+    if (entry.start + entry.length !== value.length) continue
+    // Retain a bounded possible scheme until its separator arrives. A raw token
+    // is redacted on final flush, or enters continuation mode beyond this bound.
+    const content = value.slice(entry.start)
+    if (!entry.scheme && content.length < 64 && /^[!#$%&'*+.^_`|~A-Za-z0-9-]*$/.test(content)) continue
+    return entry.state
   }
 }
 

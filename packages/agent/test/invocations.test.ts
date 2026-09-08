@@ -66,6 +66,10 @@ describe("Agent Invocations", () => {
   })
 
   it.each([
+    ["Authorization: ", "ghp_sensitive", ";status=ok"],
+    ["Authorization: ", "x".repeat(300), "\nstatus=ok"],
+    ["Proxy-Authorization: ", "raw-token+/=", "\nstatus=ok"],
+    ['{"authorization":"', "sensitive-value", '", "status":"ok"}'],
     ["Authorization: token ", "ghp_sensitive", ";status=ok"],
     ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
     ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
