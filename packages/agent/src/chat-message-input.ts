@@ -1,3 +1,4 @@
+import * as v from "valibot"
 import { createMessage, isAttachmentData, isAttachmentPart } from "./messages.ts"
 import { normalizeAgentInvoker } from "./invoker.ts"
 
@@ -13,6 +14,10 @@ import type {
 } from "./types.ts"
 import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+
+const retainedQueueMetadataSchema = v.object({
+  chat: v.object({ skippedCount: v.pipe(v.number(), v.safeInteger(), v.minValue(1)) }),
+})
 
 export type UIMessageLike = {
   createdAt?: Date | string
@@ -435,12 +440,10 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
   let selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
   if (options.concurrency === "queue") {
-    const metadata = metadataRecord(messages.at(-1))
-    const chat = metadata?.chat as Record<string, unknown> | undefined
-    const skippedCount = chat?.skippedCount
-    if (typeof skippedCount === "number" && Number.isSafeInteger(skippedCount) && skippedCount > 0) {
+    const metadata = v.safeParse(retainedQueueMetadataSchema, messages.at(-1)?.metadata)
+    if (metadata.success) {
       // Retained queue input belongs to this invocation, even when history is disabled.
-      const retained = messages.slice(-Math.min(messages.length, skippedCount + 1))
+      const retained = messages.slice(-Math.min(messages.length, metadata.output.chat.skippedCount + 1))
       selectedMessages = [...selectedMessages.filter(message => !retained.includes(message)), ...retained]
     }
   }
