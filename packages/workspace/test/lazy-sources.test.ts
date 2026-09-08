@@ -393,6 +393,38 @@ describe("lazy sources", () => {
     await expect(store.stat("docs/generated")).resolves.toBeUndefined()
   })
 
+  it.each([
+    { local: false, reuseStartupSnapshots: false },
+    { local: false, reuseStartupSnapshots: true },
+    { local: true, reuseStartupSnapshots: false },
+    { local: true, reuseStartupSnapshots: true },
+  ])("transfers nonempty shared mount ownership with local=$local snapshot reuse=$reuseStartupSnapshots", async ({ local, reuseStartupSnapshots }) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const source = (path: string) => custom({
+      materialize: "startup",
+      mount: "docs/generated",
+      files: [{ path, content: path }],
+    })
+    const retained = source("retained.md")
+    const initial = { name: "shared-nonempty-startup-mount", sources: { removed: source("removed.md"), retained } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await expect(store.getMeta?.("source:removed:snapshot")).resolves.toMatchObject({ ownsMount: true })
+    await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false })
+
+    const next = { name: initial.name, sources: { retained } }
+    await syncWorkspaceDefinition(next, store)
+    await expect(store.stat("docs/generated/retained.md")).resolves.toMatchObject({ type: "file" })
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/generated/retained.md", type: "file" }),
+    ]))
+    await expect(view.readFile("docs/generated/retained.md")).resolves.toBe("retained.md")
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it.each([true, false])("restores overlapping startup files after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
     const store = createMemoryWorkspaceStore()
     const retainedKeys = vi.fn(async () => ["shared.md"])

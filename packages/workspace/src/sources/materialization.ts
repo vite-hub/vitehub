@@ -384,8 +384,14 @@ async function reconcileRemovedStartupSourcesInternal(
       for (const currentSource of currentSources) {
         if (currentSource.mountPath !== path) continue
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
-        if (retainedSnapshot?.status !== "ready") continue
-        await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
+        if (retainedSnapshot?.mountPath !== path) continue
+        // Retained files can keep this directory nonempty. Carry its ownership
+        // forward even when the removal below cannot delete the shared mount.
+        await control.checkpoint(() => writeSourceSnapshotMetadata(store, {
+          ...retainedSnapshot,
+          ...(path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true } : {}),
+          status: "updating",
+        }))
       }
       try {
         await control.mutate(() => store.rm(path, { force: true }))
