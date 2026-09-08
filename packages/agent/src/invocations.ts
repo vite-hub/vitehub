@@ -1293,6 +1293,10 @@ function journalTraceLog(
         if (/\b(?:Bearer|Basic)\s+\S*$/i.test(content)
           || /\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)=\S*$/.test(content)) {
           redactingCredentialDeltas.set(key, /\b(?:Bearer|Basic)\s*$/i.test(content))
+          if (/\b(?:Bearer|Basic)\s+$/i.test(content)
+            || /\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)=$/.test(content)) {
+            content += "[REDACTED]"
+          }
         }
         else {
           // A possible marker is still ordinary text until its separator arrives.

@@ -3219,6 +3219,34 @@ describe("Agent Invocations", () => {
     expect(text).toContain(" continued")
   })
 
+  it.each(["Bearer ", "Basic ", "API_TOKEN="])("marks redaction after a bounded separator-only prefix %s", async (prefix) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${".".repeat(512)}${prefix}`, "sensitive", "-value", " continued"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("separator-boundary"), {})
+    const observations = (await invocations.getByRunId("separator-boundary"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${".".repeat(512)}${prefix}[REDACTED] continued`)
+    expect(JSON.stringify(observations)).not.toContain("sensitive")
+  })
+
   it.each([
     ["Bear", "er sensitive-value", "Bearer [REDACTED]"],
     ["Bas", "ic sensitive-value", "Basic [REDACTED]"],
