@@ -39,6 +39,7 @@ export interface LazyMaterializedMetadata {
   digest?: string
   ref?: string
   materializedAttributes?: true
+  materializedContentDigest?: string
   materializedBytes?: number
   materializedMediaType?: string
   materializedMetadata?: Record<string, unknown>
@@ -369,7 +370,12 @@ async function reconcileRemovedStartupSourcesInternal(
     if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
     for (const path of previousPaths) {
       const file = await store.readFile(path)
-      if (file?.metadata?.source !== source.key) continue
+      if (!file) continue
+      const owner = file.metadata?.source
+      const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
+      // Local Stores lose per-file metadata across restarts. Only recover ownership
+      // from a persisted content digest, so edited user files remain untouched.
+      if (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest)) continue
       for (const currentSource of currentSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
@@ -699,6 +705,7 @@ async function materializeWorkspaceSourcesInternal(
         itemMetadata[path] = {
           ...entry.metadata,
           materializedAttributes: true,
+          materializedContentDigest: written.digest,
           materializedBytes: written.size || 0,
           materializedMediaType: item.mediaType,
           materializedMetadata: observableFileMetadata(fileMetadata),
@@ -890,13 +897,13 @@ async function writeMaterializedFile(
     const content = await contentStreamToBytes(file.contentStream)
     if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))
     else await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
-    return { contentEqual: previousContent !== undefined && contentEquals(previousContent, content), size: content.byteLength }
+    return { contentEqual: previousContent !== undefined && contentEquals(previousContent, content), digest: await sha256(content), size: content.byteLength }
   }
 
   const content = file.content ?? ""
   if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))
   else await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
-  return { size: contentSize(content) }
+  return { digest: await sha256(content), size: contentSize(content) }
 }
 
 export async function statVirtualSourcePath(

@@ -306,6 +306,38 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
   })
 
+  it.each(["", "docs"])("removes unchanged startup files after a local Store restart at mount %s", async (mount) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const initial = {
+      name: "restarted-startup-cleanup",
+      sources: {
+        instructions: custom({
+          materialize: "startup",
+          mount,
+          files: [
+            { path: "AGENTS.md", content: "old instructions" },
+            { path: ".agents/skills/old/SKILL.md", content: "old skill" },
+            { path: "edited.md", content: "original" },
+            { path: "claimed.md", content: "original" },
+          ],
+        }),
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    const restarted = createLocalWorkspaceStore(root)
+    await expect(restarted.readFile(path("AGENTS.md"))).resolves.toMatchObject({ metadata: undefined })
+    await restarted.writeFile(path("edited.md"), { path: path("edited.md"), content: "user edit" })
+    await restarted.writeFile(path("claimed.md"), { path: path("claimed.md"), content: "original", metadata: { source: "other" } })
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, restarted)
+
+    await expect(restarted.stat(path("AGENTS.md"))).resolves.toBeUndefined()
+    await expect(restarted.stat(path(".agents/skills/old"))).resolves.toBeUndefined()
+    await expect(restarted.readFile(path("edited.md"))).resolves.toMatchObject({ content: expect.any(Uint8Array) })
+    await expect(restarted.readFile(path("claimed.md"))).resolves.toMatchObject({ metadata: { source: "other" } })
+  })
+
   it.each([undefined, "docs/generated"])("reconciles failed startup sources after materializing path %s", async (path) => {
     const store = createMemoryWorkspaceStore()
     const initial = {
