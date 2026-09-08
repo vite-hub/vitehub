@@ -137,6 +137,8 @@ export interface CredentialAssignmentState {
   started: boolean
   quote?: string
   structureClosers?: string[]
+  shellDollar?: boolean
+  shellSubstitutions?: { closer: string, quote?: string }[]
   yamlIndent?: number
   yamlProperty?: boolean
   yaml?: { header: boolean, modifiers: boolean, plain?: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
@@ -244,12 +246,34 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       }
       continue
     }
+    const shell = !state.structureClosers && state.yamlIndent === undefined
+    const substitution = state.shellSubstitutions?.at(-1)
+    const dollar = state.shellDollar
+    delete state.shellDollar
     if (state.escaped) state.escaped = false
     else if (character === "\\" && state.quote !== "'") state.escaped = true
+    else if (shell && dollar && character === "(") {
+      (state.shellSubstitutions ??= []).push({ closer: ")", quote: state.quote })
+      delete state.quote
+    }
+    else if (shell && character === "$" && state.quote !== "'") state.shellDollar = true
+    else if (shell && character === "`" && state.quote !== "'") {
+      if (substitution?.closer === "`" && !state.quote) {
+        state.quote = state.shellSubstitutions!.pop()!.quote
+      }
+      else {
+        (state.shellSubstitutions ??= []).push({ closer: "`", quote: state.quote })
+        delete state.quote
+      }
+    }
     else if (state.quote) {
       if (character === state.quote) delete state.quote
     }
     else if (character === '"' || character === "'") state.quote = character
+    else if (substitution) {
+      if (character === "(" && substitution.closer === ")") state.shellSubstitutions!.push({ closer: ")" })
+      else if (character === substitution.closer) state.quote = state.shellSubstitutions!.pop()!.quote
+    }
     else if (state.structureClosers) {
       if (character === "{") state.structureClosers.push("}")
       else if (character === "[") state.structureClosers.push("]")

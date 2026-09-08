@@ -363,6 +363,13 @@ it("keeps preceding prose context across scheme detection boundaries", () => {
 })
 
 it.each([
+  ["PASSWORD=$(printf supersecret);status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=`printf supersecret`;status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ['PASSWORD="$(printf "secret words")";status=ok', 'PASSWORD="[REDACTED]";status=ok'],
+  ["PASSWORD=$(printf $(printf supersecret))tail;status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=$((1 + 2));status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=$(printf 'secret) words');status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=$(printf `printf supersecret`);status=ok", "PASSWORD=[REDACTED];status=ok"],
   [String.raw`SECRET='abc\';status=ok`, "SECRET='[REDACTED]';status=ok"],
   [String.raw`SECRET=abc'def\';status=ok`, "SECRET=[REDACTED];status=ok"],
   ['PASSWORD=abc"def ghi"jkl;status=ok', 'PASSWORD=[REDACTED];status=ok'],

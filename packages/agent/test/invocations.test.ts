@@ -3683,6 +3683,34 @@ describe("Agent Invocations", () => {
     expect(text).toBe(quotedStart ? 'PASSWORD="[REDACTED]";status=ok' : "PASSWORD=[REDACTED];status=ok")
   })
 
+  it.each([["$(", ")"], ["`", "`"]])("redacts shell substitutions across bounded chunks: %s", async (open, close) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const chunks = [`PASSWORD=${open}printf ${"private".repeat(100)}`, " secret words", close, ";status=ok"]
+        for (const value of chunks) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("shell-segments"), {})
+    const observations = (await invocations.getByRunId("shell-segments"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe("PASSWORD=[REDACTED];status=ok")
+  })
+
   it.each(["PASSWORD=", "Bearer ", "Authorization: basic "].flatMap(prefix => ['"', "'"].map(quote => [prefix, quote])))
   ("redacts quoted credentials across bounded chunks with %s%s", async (credentialPrefix, quote) => {
     const invocations = defineAgentInvocations({
