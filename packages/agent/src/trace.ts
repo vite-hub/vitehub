@@ -181,6 +181,25 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
   return {}
 }
 
+export function createToolDurationTracker(now: () => number = Date.now): (event: StreamEvent) => StreamEvent {
+  const startedAt = new Map<string, number>()
+  return (event) => {
+    if (event.type === "tool-call") {
+      if (!startedAt.has(event.id)) startedAt.set(event.id, now())
+      return event
+    }
+    if (event.type !== "tool-result") return event
+    const start = startedAt.get(event.id)
+    startedAt.delete(event.id)
+    if (typeof event.durationMs === "number" && Number.isFinite(event.durationMs) && event.durationMs > 0) return event
+    if (start === undefined) {
+      const { durationMs: _durationMs, ...result } = event
+      return result
+    }
+    return { ...event, durationMs: Math.max(0, now() - start) }
+  }
+}
+
 function toolCapabilityId(
   contributions: readonly AgentDriverContribution[] | undefined,
   toolName: unknown,
@@ -469,6 +488,7 @@ function isAgentDataStreamEvent(event: StreamEvent): event is AgentDataStreamEve
 export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
 ) {
+  const trackToolDuration = createToolDurationTracker()
   let pendingText: Extract<StreamEvent, { type: "text-delta" }> | undefined
   let pendingCommandOutput: AgentDataStreamEvent | undefined
   const flush = async () => {
@@ -503,7 +523,7 @@ export function createAgentStreamEventTracer<TRuntimeConfig extends AgentRuntime
       }
       if (event.type !== "text-delta" || !hasRuntimeType(event.text, "string")) {
         await flush()
-        await traceAgentStreamEvent(context, event)
+        await traceAgentStreamEvent(context, trackToolDuration(event))
         return
       }
       if (pendingText
@@ -539,8 +559,9 @@ export function traceAgentStreamEvents<TRuntimeConfig extends AgentRuntimeConfig
   context: AgentTraceContext<TRuntimeConfig>,
 ): AsyncIterable<StreamEvent> {
   return (async function* () {
+    const trackToolDuration = createToolDurationTracker()
     for await (const event of events) {
-      await traceAgentStreamEvent(context, event)
+      await traceAgentStreamEvent(context, trackToolDuration(event as StreamEvent))
       // SAFETY: Trace normalization establishes the asserted telemetry event contract.
       yield event as StreamEvent
     }
