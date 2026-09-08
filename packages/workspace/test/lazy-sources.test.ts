@@ -124,7 +124,7 @@ describe("lazy sources", () => {
     await expect(view.writeFile("generated/result.md", "ok")).resolves.toBe("generated/result.md")
   })
 
-  it.each([undefined, false, true])("materializes startup Sources during the first root listing with recursive=%s", async (recursive) => {
+  it.each([undefined, false, true].flatMap(recursive => ["", "/", "///"].map(path => ({ recursive, path }))))("materializes startup Sources during the first root listing at $path with recursive=$recursive", async ({ recursive, path }) => {
     const store = createMemoryWorkspaceStore()
     const list = vi.spyOn(store, "list")
     const view = createWorkspaceSourceView({
@@ -145,7 +145,7 @@ describe("lazy sources", () => {
       },
     }, store)
 
-    await expect(view.list("", { recursive })).resolves.toEqual(expect.arrayContaining([
+    await expect(view.list(path, { recursive })).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "AGENTS.md", type: "file" }),
       expect.objectContaining(recursive
         ? { path: ".agents/skills/review/SKILL.md", type: "file" }
@@ -156,7 +156,7 @@ describe("lazy sources", () => {
       content: new TextEncoder().encode("# Review\n"),
     })
     // First startup only lists the Store for the consumer, not for source cleanup.
-    expect(list).toHaveBeenCalledExactlyOnceWith("", { recursive })
+    expect(list).toHaveBeenCalledExactlyOnceWith(path, { recursive })
     // Once snapshots contain item paths, refresh only stats those paths.
     list.mockClear()
     await view.materializeSources()
@@ -2116,6 +2116,35 @@ describe("lazy sources", () => {
       expect.objectContaining({ path: "docs/guide.md", type: "file" }),
     ])
     expect(getItem).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true].flatMap(reuseStartupSnapshots => ["", "docs"].map(mount => ({ reuseStartupSnapshots, mount }))))("refreshes startup files before first search at '$mount' with snapshot reuse=$reuseStartupSnapshots", async ({ reuseStartupSnapshots, mount }) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["deleted.md", "changed.md"]
+    let content = "old needle"
+    const definition = {
+      name: "startup-search-refresh",
+      sources: {
+        docs: custom({
+          mount,
+          materialize: "startup" as const,
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["changed.md"]
+    content = "new needle"
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+
+    const hits = await view.search({ pattern: "needle", limit: 1 })
+    expect(hits).toHaveLength(1)
+    expect(hits[0]).toMatchObject({ text: reuseStartupSnapshots ? "old needle" : "new needle" })
+    if (!reuseStartupSnapshots) {
+      expect(hits[0]?.path).toBe(mount ? `${mount}/changed.md` : "changed.md")
+      await expect(view.search({ pattern: "old needle" })).resolves.toEqual([])
+    }
   })
 
   it("searches materialized source snapshots", async () => {

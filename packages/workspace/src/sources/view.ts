@@ -351,8 +351,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const normalized = normalizeWorkspacePath(path)
-    if (!path) {
-      for (const source of getLazySourcesForPath(path)) {
+    if (!normalized) {
+      for (const source of getLazySourcesForPath(normalized)) {
         if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
         await ensurePrepared(source.key)
         if (!usesLiveProvider(source)) await ensureMaterialized(source.key)
@@ -374,7 +374,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await pruneLiveSourceStoreEntries(result, source)
         continue
       }
-      if (!path && options.recursive && source.materialize !== "startup" && !await hasCurrentSourceSnapshot(store, source)) {
+      if (!normalized && options.recursive && source.materialize !== "startup" && !await hasCurrentSourceSnapshot(store, source)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
           const allowed = await currentSourceTreePaths(source, getSourceContext(source))
           for (const key of result.keys()) {
@@ -389,14 +389,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
         continue
       }
-      if (!path && source.materialize === "startup") {
+      if (!normalized && source.materialize === "startup") {
         continue
       }
-      else if (sourceMountContainsPath(source, path) || !source.mountPath && path) {
+      else if (sourceMountContainsPath(source, path) || !source.mountPath && normalized) {
         await ensureMaterialized(source.key)
         for (const entry of await store.list(path, options)) result.set(entry.path, entry)
       }
-      else if (!path && !result.has(source.mountPath)) {
+      else if (!normalized && !result.has(source.mountPath)) {
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
       }
     }
@@ -422,6 +422,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const list = sourcePaths.get(resolution.sourceKey) || []
       list.push(resolution.workspacePath)
       sourcePaths.set(resolution.sourceKey, list)
+    }
+
+    for (const source of sources) {
+      if (source.materialize !== "startup" || !requestedPaths.some(path => sourceMountIntersectsPath(source, normalizeWorkspacePath(path)))) continue
+      await ensurePrepared(source.key)
+      await ensureMaterialized(source.key)
     }
 
     const results: WorkspaceSearchHit[] = await searchMaterializedStore(store, {
