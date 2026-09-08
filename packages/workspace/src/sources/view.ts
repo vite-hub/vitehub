@@ -351,7 +351,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const normalized = normalizeWorkspacePath(path)
-    if (!path && options.recursive) {
+    if (!path) {
       for (const source of getLazySourcesForPath(path)) {
         if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
         await ensurePrepared(source.key)
@@ -389,7 +389,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
         continue
       }
-      if (!path && options.recursive && source.materialize === "startup") {
+      if (!path && source.materialize === "startup") {
         continue
       }
       else if (sourceMountContainsPath(source, path) || !source.mountPath && path) {

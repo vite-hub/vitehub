@@ -124,7 +124,7 @@ describe("lazy sources", () => {
     await expect(view.writeFile("generated/result.md", "ok")).resolves.toBe("generated/result.md")
   })
 
-  it("materializes startup Sources during the first recursive root listing", async () => {
+  it.each([undefined, false, true])("materializes startup Sources during the first root listing with recursive=%s", async (recursive) => {
     const store = createMemoryWorkspaceStore()
     const list = vi.spyOn(store, "list")
     const view = createWorkspaceSourceView({
@@ -145,20 +145,45 @@ describe("lazy sources", () => {
       },
     }, store)
 
-    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+    await expect(view.list("", { recursive })).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "AGENTS.md", type: "file" }),
-      expect.objectContaining({ path: ".agents/skills/review/SKILL.md", type: "file" }),
+      expect.objectContaining(recursive
+        ? { path: ".agents/skills/review/SKILL.md", type: "file" }
+        : { path: ".agents", type: "directory" }),
     ]))
     await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# Instructions\n" })
     await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
       content: new TextEncoder().encode("# Review\n"),
     })
     // First startup only lists the Store for the consumer, not for source cleanup.
-    expect(list).toHaveBeenCalledExactlyOnceWith("", { recursive: true })
+    expect(list).toHaveBeenCalledExactlyOnceWith("", { recursive })
     // Once snapshots contain item paths, refresh only stats those paths.
     list.mockClear()
     await view.materializeSources()
     expect(list).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])("refreshes non-recursive root listings with snapshot reuse=%s", async (reuseStartupSnapshots) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["stale.md"]
+    const definition = {
+      name: "startup-root-list-refresh",
+      sources: {
+        instructions: custom({
+          mount: "",
+          materialize: "startup" as const,
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["AGENTS.md"]
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+
+    await expect(view.list()).resolves.toEqual([
+      expect.objectContaining({ path: reuseStartupSnapshots ? "stale.md" : "AGENTS.md", type: "file" }),
+    ])
   })
 
   it.each(["", "docs"])("omits deleted startup files from the first recursive listing at mount '%s'", async (mount) => {
