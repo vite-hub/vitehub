@@ -400,6 +400,12 @@ function selectedTrigger(entry: AgentInvocationStreamEntry, body: AgentInvocatio
 
 function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvocationStreamBody, signal: AbortSignal, run: AgentRunMetadata): unknown {
   const payload = payloadFromBody(body)
+  if (trigger.input && "~standard" in Object(trigger.input)) {
+    if (payload) return payload
+    const prompt = promptFromBody(body)
+    if (!prompt) throw new Response("Missing Agent Trigger payload. Pass --payload or prompt.", { status: 400 })
+    return { prompt }
+  }
   if (trigger.id !== "chat.message") {
     const prompt = promptFromBody(body)
     if (payload) {
