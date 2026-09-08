@@ -11,7 +11,7 @@ function isCredentialKey(key: string): boolean {
     || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
 }
 
-function isCredentialAssignment(key: string, prefix: string): boolean {
+function isCredentialAssignment(key: string, prefix: string, precedingText: string): boolean {
   if (!isCredentialKey(key)) return false
   const cli = prefix.startsWith("--")
   if (cli && /^key$/i.test(key)) return false
@@ -19,8 +19,10 @@ function isCredentialAssignment(key: string, prefix: string): boolean {
   if (!prefix.trimEnd().endsWith(":")) return true
   // Generic token/key fields also describe parser tokens and object identifiers.
   if (/^(?:key|token)$/i.test(key)) return false
-  // A prose label alone does not establish a password/secret assignment.
-  if (/^(?:password|secret)$/i.test(key)) return /["']\s*:\s*$/.test(prefix)
+  // Quoted fields and line-start YAML keys establish assignments; inline prose labels do not.
+  if (/^(?:password|secret)$/i.test(key)) {
+    return /["']\s*:\s*$/.test(prefix) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText)
+  }
   return true
 }
 
@@ -145,7 +147,7 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
   let result = ""
   let offset = 0
   for (const match of value.matchAll(new RegExp(credentialAssignmentPrefix, "gi"))) {
-    if (match.index < offset || !isCredentialAssignment(match[2]!, match[1]!)) continue
+    if (match.index < offset || !isCredentialAssignment(match[2]!, match[1]!, precedingText + value.slice(0, match.index))) continue
     const start = match.index + match[0].length
     const content = value.slice(start)
     if (!content) continue
@@ -215,15 +217,15 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
 
 export function pendingCredentialAssignmentState(value: string, precedingText = ""): CredentialAssignmentState | undefined {
   for (const match of value.matchAll(new RegExp(credentialAssignmentPrefix, "gi"))) {
-    if (!isCredentialAssignment(match[2]!, match[1]!)) continue
+    if (!isCredentialAssignment(match[2]!, match[1]!, precedingText + value.slice(0, match.index))) continue
     const content = value.slice(match.index + match[0].length)
     const state = assignmentState(precedingText + value, precedingText.length + match.index, match[1]!)
     if (consumeCredentialAssignment(content, state) === content.length) return state
   }
 }
 
-export function pendingCredentialAssignment(value: string): "assignment" | "unquoted" | undefined {
-  const state = pendingCredentialAssignmentState(value)
+export function pendingCredentialAssignment(value: string, precedingText = ""): "assignment" | "unquoted" | undefined {
+  const state = pendingCredentialAssignmentState(value, precedingText)
   return state ? state.started ? "unquoted" : "assignment" : undefined
 }
 
@@ -234,7 +236,7 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
   if (pendingAuthorizationHeader(value)) return true
   if (pendingCredentialQuote(value, precedingText)) return true
   if (pendingCredentialScheme(value, precedingText)) return true
-  if (pendingCredentialAssignment(value)) return true
+  if (pendingCredentialAssignment(value, precedingText)) return true
   const tail = value.slice(-128)
   const trailingWord = /\b([A-Za-z][A-Za-z0-9_-]*)["']?\s*$/.exec(tail)?.[1]
   if (!trailingWord) return false
@@ -250,5 +252,5 @@ export function pendingCredentialQuote(value: string, precedingText = ""): strin
   const scheme = /\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*\\?$|'(?:\\[\s\S]|[^'\\])*\\?$)/i.exec(value)
   if (scheme && isCredentialScheme(scheme[1]!, precedingText + value.slice(0, scheme.index))) return scheme[2]?.[0]
   const assignment = new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*\\\\?$|'(?:\\\\[\\s\\S]|[^'\\\\])*\\\\?$)`, "i").exec(value)
-  return assignment && isCredentialAssignment(assignment[2]!, assignment[1]!) ? assignment[3]?.[0] : undefined
+  return assignment && isCredentialAssignment(assignment[2]!, assignment[1]!, precedingText + value.slice(0, assignment.index)) ? assignment[3]?.[0] : undefined
 }
