@@ -457,6 +457,39 @@ describe("lazy sources", () => {
     await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
   })
 
+  it.each([
+    { local: false, reuseStartupSnapshots: false },
+    { local: false, reuseStartupSnapshots: true },
+    { local: true, reuseStartupSnapshots: false },
+    { local: true, reuseStartupSnapshots: true },
+  ])("transfers ancestor mount ownership with local=$local snapshot reuse=$reuseStartupSnapshots", async ({ local, reuseStartupSnapshots }) => {
+    const root = local ? await createRoot() : undefined
+    let store = root ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const source = (mount: string) => custom({
+      materialize: "startup",
+      mount,
+      files: [{ path: "file.md", content: mount }],
+    })
+    const retained = source("docs/generated")
+    const sibling = source("docs/sibling")
+    const initial = { name: "nested-startup-mount", sources: { removed: source("docs"), retained, sibling } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+
+    const next = { name: initial.name, sources: { retained, sibling } }
+    await syncWorkspaceDefinition(next, store)
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.readFile("docs/generated/file.md")).resolves.toBe("docs/generated")
+    await expect(view.readFile("docs/sibling/file.md")).resolves.toBe("docs/sibling")
+    // Ownership must survive both refresh and a persistent Store restart.
+    if (root) store = createLocalWorkspaceStore(root)
+    await syncWorkspaceDefinition({ name: initial.name, sources: { sibling } }, store)
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.stat("docs/sibling/file.md")).resolves.toMatchObject({ type: "file" })
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs")).resolves.toBeUndefined()
+  })
+
   it.each([true, false])("restores overlapping startup files after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
     const store = createMemoryWorkspaceStore()
     const retainedKeys = vi.fn(async () => ["shared.md"])

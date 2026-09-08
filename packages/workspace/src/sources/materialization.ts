@@ -49,6 +49,7 @@ interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStat
   configHash: string
   cacheMaxAge?: number
   ownsMount?: boolean
+  ownedAncestors?: string[]
   items?: Record<string, LazyMaterializedMetadata>
 }
 
@@ -366,7 +367,7 @@ async function reconcileRemovedStartupSourcesInternal(
     const previousPaths = invalidatedSnapshot
       ? (await store.list(source.mountPath, { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)
       : Object.keys(snapshot?.items || {})
-    const staleDirectories = new Set<string>()
+    const staleDirectories = new Set(snapshot?.ownedAncestors || [])
     if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
     for (const path of previousPaths) {
       const file = await store.readFile(path)
@@ -388,14 +389,16 @@ async function reconcileRemovedStartupSourcesInternal(
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       for (const currentSource of currentSources) {
-        if (currentSource.mountPath !== path) continue
+        if (!pathContains(path, currentSource.mountPath)) continue
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
-        if (retainedSnapshot?.mountPath !== path) continue
+        if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
         // Retained files can keep this directory nonempty. Carry its ownership
         // forward even when the removal below cannot delete the shared mount.
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, {
           ...retainedSnapshot,
-          ...(path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true } : {}),
+          ...(path === currentSource.mountPath
+            ? path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true } : {}
+            : { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }),
           status: "updating",
         }))
       }
@@ -621,6 +624,7 @@ async function materializeWorkspaceSourcesInternal(
       existing?.mountPath === source.mountPath && existing.ownsMount === true
       || !await store.stat(source.mountPath)
     )
+    const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
     let revision = existing?.revision
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
       ? { ...existing.items }
@@ -632,6 +636,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        ownedAncestors,
         status: "updating",
         revision,
         items: checkpointItems(itemMetadata),
@@ -755,6 +760,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        ownedAncestors,
         status: "ready",
         revision,
         materializedAt: new Date().toISOString(),
@@ -802,6 +808,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        ownedAncestors,
         status: "error",
         revision,
         error: error instanceof Error ? error.message : String(error),
