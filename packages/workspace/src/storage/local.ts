@@ -103,7 +103,7 @@ async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle
   }
 }
 
-async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
+async function withFilesystemLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
   const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
   const { dirname } = await import("node:path")
   const owner = randomUUID()
@@ -113,7 +113,8 @@ async function withFilesystemLock<T>(lock: string, description: string, operatio
   const deadline = Date.now() + timeoutMs
   while (true) {
     try {
-      await mkdir(lock)
+      await mkdir(lock, { mode: 0o700 })
+      if (process.platform !== "win32") await applyMetadataPermissions(lock, permissions.mode & 0o770, permissions.gid)
       const ownerFile = await open(ownerPath, "wx")
       try { await ownerFile.writeFile(owner) }
       catch (error) {
@@ -149,11 +150,12 @@ async function withFilesystemLock<T>(lock: string, description: string, operatio
   }
 }
 
-async function withFilesystemReadLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
+async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
   const { mkdir, open, rm, rmdir } = await import("node:fs/promises")
   const reader = `${lock}.readers/${randomUUID()}`
-  const lease = await withFilesystemLock(`${lock}.gate`, description, async () => {
-    await mkdir(`${lock}.readers`, { recursive: true })
+  const lease = await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
+    await mkdir(`${lock}.readers`, { recursive: true, mode: 0o700 })
+    if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
     return await open(reader, "wx")
   })
   try {
@@ -163,7 +165,7 @@ async function withFilesystemReadLock<T>(lock: string, description: string, oper
     await rm(reader, { force: true })
     // Cleanup must not wait behind a writer or reject an already completed read.
     // Keep registration serialized; a writer also reclaims empty reader directories.
-    await withFilesystemLock(`${lock}.gate`, description, async () => {
+    await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
       await rmdir(`${lock}.readers`).catch((error: NodeJS.ErrnoException) => {
         if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code ?? "")) throw error
       })
@@ -171,9 +173,9 @@ async function withFilesystemReadLock<T>(lock: string, description: string, oper
   }
 }
 
-async function withFilesystemWriteLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
+async function withFilesystemWriteLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
   const { readdir, rm, rmdir, stat } = await import("node:fs/promises")
-  return await withFilesystemLock(`${lock}.gate`, description, async () => {
+  return await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
     const readers = `${lock}.readers`
     const deadline = Date.now() + 10_000
     while (true) {
@@ -201,6 +203,17 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
   const parts = normalized.split("/").filter(Boolean)
   const paths = parts.map((_, index) => parts.slice(0, index + 1).join("/"))
 
+  const { mkdir, stat } = await import("node:fs/promises")
+  if (paths.length === 0) return await operation()
+  await mkdir(root, { recursive: true })
+  const permissions = await stat(root)
+  // Shared service accounts need access to both the persistent lock tree and
+  // transient gates/readers, independently of the creating process's umask.
+  for (const directory of [`${root}/.vitehub`, `${root}/.vitehub/locks`]) {
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    if (process.platform !== "win32") await applyMetadataPermissions(directory, permissions.mode & 0o770, permissions.gid)
+  }
+
   const lock = async (index: number): Promise<T> => {
     if (index === paths.length) return await operation()
     const lockedPath = paths[index]!
@@ -208,8 +221,8 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
     const lockPath = `${root}/.vitehub/locks/${key}`
     const next = () => lock(index + 1)
     return !readOnly && index === paths.length - 1
-      ? await withFilesystemWriteLock(lockPath, `path: ${lockedPath}.`, next)
-      : await withFilesystemReadLock(lockPath, `path: ${lockedPath}.`, next)
+      ? await withFilesystemWriteLock(lockPath, permissions, `path: ${lockedPath}.`, next)
+      : await withFilesystemReadLock(lockPath, permissions, `path: ${lockedPath}.`, next)
   }
 
   return await lock(0)

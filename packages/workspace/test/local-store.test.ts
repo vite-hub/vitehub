@@ -337,6 +337,50 @@ describe("local workspace store", () => {
     await expect(createLocalWorkspaceStore(root).readFile("nested/file.txt")).resolves.toMatchObject({ metadata: { source: "shared" } })
   })
 
+  it.skipIf(process.platform === "win32")("shares active lock directories with the Workspace group", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await chmod(root, 0o770)
+    // Also repair directories left by an earlier process with a restrictive umask.
+    await mkdir(`${root}/.vitehub/locks`, { recursive: true, mode: 0o700 })
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    const previous = process.umask(0o077)
+    const active = store.writeFileStream!("nested/file.txt", {
+      path: "nested/file.txt",
+      content: (async function* () {
+        entered()
+        await blocked
+        yield new TextEncoder().encode("shared")
+      })(),
+    })
+    try {
+      await started
+      const key = (path: string) => createHash("sha256").update(path).digest("hex")
+      for (const path of [
+        `${root}/.vitehub`,
+        `${root}/.vitehub/locks`,
+        `${root}/.vitehub/locks/${key("nested")}.readers`,
+        `${root}/.vitehub/locks/${key("nested/file.txt")}.gate`,
+      ]) {
+        const info = await stat(path)
+        expect(info.mode & 0o777).toBe(0o770)
+        expect(info.gid).toBe((await stat(root)).gid)
+      }
+    }
+    finally {
+      release()
+      process.umask(previous)
+      await active
+    }
+    await expect(createLocalWorkspaceStore(root).readFile("nested/file.txt")).resolves.toMatchObject({
+      content: new TextEncoder().encode("shared"),
+    })
+    await expect(readdir(`${root}/.vitehub/locks`)).resolves.toEqual([])
+  })
+
   it.skipIf(process.platform === "win32").each([0o755, 0o777])("excludes public access for Workspace mode %i", async (mode) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
