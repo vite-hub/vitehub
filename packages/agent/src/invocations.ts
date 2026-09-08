@@ -1317,10 +1317,11 @@ function journalTraceLog(
         }
       }
       const redacted = redactCredentialText(content, precedingText)
-      // Retain only character context, never credential text, across emitted chunks.
+      // Retain only line and authorization-header context, never credential text.
       const emittedRaw = rawContent.slice(0, rawContent.length - (retainedContent?.length ?? 0))
       const lastLine = (precedingText + emittedRaw).split(/[\r\n]/).at(-1) ?? ""
-      precedingMessageText.set(key, /^[\t "']*$/.test(lastLine) ? "" : "x")
+      const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
+      precedingMessageText.set(key, authorizationHeader ? "Authorization: " : /^[\t "']*$/.test(lastLine) ? "" : "x ")
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
         emit({
           ...pending.entry,
