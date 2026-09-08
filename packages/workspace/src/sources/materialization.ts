@@ -396,6 +396,7 @@ async function reconcileRemovedStartupSourcesInternal(
       : Object.keys(snapshot?.items || {})
     const staleDirectories = new Set([...(snapshot?.ownedAncestors || []), ...(snapshot?.ownedDirectories || []).filter(path => sourceOwnsDirectory(source, path))])
     if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
+    const removedOwnedPaths: string[] = []
     for (const path of previousPaths) {
       const file = await store.readFile(path)
       if (!file) continue
@@ -410,11 +411,14 @@ async function reconcileRemovedStartupSourcesInternal(
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
       await control.mutate(() => store.rm(path, { force: true }))
+      removedOwnedPaths.push(path)
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       // A replaced ancestor can also make stat fail with ENOTDIR. Neither case
       // provides current directory evidence for cleanup or ownership transfer.
       if ((await store.stat(path).catch(() => undefined))?.type !== "directory") continue
+      const descendants = await store.list(path, { recursive: true })
+      let preserveDirectory = false
       for (const currentSource of currentSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
@@ -422,6 +426,13 @@ async function reconcileRemovedStartupSourcesInternal(
         const containsItems = sourceOwnsDirectory(currentSource, path)
           && Object.keys(retainedSnapshot.items || {}).some(item => pathContains(path, item))
         if (!containsMount && !containsItems) continue
+        const hasCurrentDescendant = descendants.some(entry => entry.path !== path
+          && (entry.path === currentSource.mountPath || Object.hasOwn(retainedSnapshot.items || {}, entry.path)))
+        if (!hasCurrentDescendant) {
+          // Historical paths cannot establish ownership of a recreated directory.
+          preserveDirectory ||= !removedOwnedPaths.some(item => pathContains(path, item))
+          continue
+        }
         // Retained mounts or files can keep this directory nonempty. Transfer
         // ownership within the mount separately from its ancestor directories.
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, {
@@ -434,6 +445,7 @@ async function reconcileRemovedStartupSourcesInternal(
           status: "updating",
         }))
       }
+      if (preserveDirectory) continue
       try {
         await control.mutate(() => store.rm(path, { force: true }))
       }

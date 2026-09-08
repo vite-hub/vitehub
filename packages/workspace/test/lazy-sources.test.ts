@@ -833,7 +833,7 @@ describe("lazy sources", () => {
     if (moved) await expect(store.stat("docs/moved")).resolves.toMatchObject({ type: "directory" })
   })
 
-  it.each([true, false])("restores shared empty startup mounts after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
+  it.each([true, false])("preserves shared empty startup mounts without current ownership evidence with snapshot reuse %s", async (reuseStartupSnapshots) => {
     const store = createMemoryWorkspaceStore()
     const source = () => custom({
       materialize: "startup",
@@ -856,7 +856,7 @@ describe("lazy sources", () => {
     ]))
 
     await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
-    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
   })
 
   it.each([
@@ -960,6 +960,28 @@ describe("lazy sources", () => {
     await expect(store.stat("docs/sibling/file.md")).resolves.toMatchObject({ type: "file" })
     await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
     await expect(store.stat("docs")).resolves.toBeUndefined()
+  })
+
+  it.each([false, true])("preserves a recreated shared directory during ownership transfer with local=%s", async (local) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const source = (path: string) => custom({
+      materialize: "startup",
+      mount: "docs",
+      files: [{ path, content: path }],
+    })
+    const retained = source("nested/retained.md")
+    const initial = { name: "recreated-transfer-directory", sources: { removed: source("nested/removed.md"), retained } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await store.rm("docs/nested", { recursive: true })
+    await store.mkdir("docs/nested")
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: { retained } }, store)
+    await expect(store.stat("docs/nested")).resolves.toMatchObject({ type: "directory" })
+    const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSources({ retained })[0]!)
+    expect(snapshot?.ownedDirectories || []).not.toContain("docs/nested")
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs/nested")).resolves.toMatchObject({ type: "directory" })
   })
 
   it.each([true, false])("restores overlapping startup files after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
