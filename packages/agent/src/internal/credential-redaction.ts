@@ -137,7 +137,7 @@ export interface CredentialAssignmentState {
 }
 
 // Shell assignments concatenate adjacent quoted and unquoted segments.
-const shellCredentialValue = String.raw`(?:"(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?|${unquotedCredentialValue})`
+const shellCredentialValue = String.raw`(?:"(?:\\[\s\S]|[^"\\])*"?|'[^']*'?|${unquotedCredentialValue})`
 
 export function consumeCredentialAssignment(value: string, state: CredentialAssignmentState): number {
   for (let index = 0; index < value.length; index++) {
@@ -145,7 +145,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     if (!state.started && /\s/.test(character)) continue
     state.started = true
     if (state.escaped) state.escaped = false
-    else if (character === "\\") state.escaped = true
+    else if (character === "\\" && state.quote !== "'") state.escaped = true
     else if (state.quote) {
       if (character === state.quote) delete state.quote
     }

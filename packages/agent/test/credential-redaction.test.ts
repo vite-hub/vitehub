@@ -282,6 +282,8 @@ it("keeps preceding prose context across scheme detection boundaries", () => {
 })
 
 it.each([
+  [String.raw`SECRET='abc\';status=ok`, "SECRET='[REDACTED]';status=ok"],
+  [String.raw`SECRET=abc'def\';status=ok`, "SECRET=[REDACTED];status=ok"],
   ['PASSWORD=abc"def ghi"jkl;status=ok', 'PASSWORD=[REDACTED];status=ok'],
   ["SECRET=abc'def ghi'jkl;status=ok", "SECRET=[REDACTED];status=ok"],
   ['PASSWORD="abc"def"ghi jkl"mno;status=ok', 'PASSWORD="[REDACTED]";status=ok'],

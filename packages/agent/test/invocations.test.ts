@@ -3436,6 +3436,34 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}PASSWORD="[REDACTED]"`)
   })
 
+  it.each([0, 1, 2])("preserves evidence after a single-quoted backslash at split %s", async (split) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const ending = "\\';status=ok"
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`SECRET='${"private".repeat(100)}${ending.slice(0, split)}`, ending.slice(split)]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("single-quoted-backslash"), {})
+    const observations = (await invocations.getByRunId("single-quoted-backslash"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe("SECRET='[REDACTED]';status=ok")
+  })
+
   it.each([false, true])("redacts adjacent shell segments across bounded chunks (quoted start: %s)", async (quotedStart) => {
     const invocations = defineAgentInvocations({
       content: "content",
