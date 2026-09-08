@@ -4728,6 +4728,7 @@ async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number
 }
 
 interface InlineChatTurn {
+  steering?: Promise<void>
   done: Promise<void>
   finish: () => Promise<void>
   invoker: AgentInvoker
@@ -4914,19 +4915,24 @@ async function handleChatSdkMessage(
           // Once submitted, only the Driver can determine whether input was accepted.
           let timedOut = false
           let timeoutEvidence: Promise<void> | undefined
-          const submission = (steerMessage
-            ? sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
-            : Promise.resolve("unsupported" as const)).then(async (result) => {
-              await timeoutEvidence
-              if (result === "accepted") {
-                // A late authoritative result reconciles the failed wait with the real invocation.
-                if (timedOut) await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: activeRunId })
-                await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: activeRunId })
-                if (active.settleDelivery) await active.settleDelivery(delivery)
-                else (active.steeredDeliveries ??= []).push(delivery)
-              }
-              return result
-            })
+          const submitted = (active.steering ?? Promise.resolve()).then(() => {
+            if (!inlineKey || inlineChatTurns.get(inlineKey) !== active) return "unavailable" as const
+            return steerMessage
+              ? sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
+              : "unsupported" as const
+          })
+          active.steering = submitted.then(() => undefined, () => undefined)
+          const submission = submitted.then(async (result) => {
+            await timeoutEvidence
+            if (result === "accepted") {
+              // A late authoritative result reconciles the failed wait with the real invocation.
+              if (timedOut) await recordChannelDeliveryEvidence(delivery, { type: "invocation.started", runId: activeRunId })
+              await recordChannelDeliveryEvidence(delivery, { type: "accepted", runId: activeRunId })
+              if (active.settleDelivery) await active.settleDelivery(delivery)
+              else (active.steeredDeliveries ??= []).push(delivery)
+            }
+            return result
+          })
           let steeringTimer: ReturnType<typeof setTimeout> | undefined
           const steeringWait = Math.max(0, Math.min(options?.timeout ?? 28_000, 28_000, maximumInvocationDeadline === undefined ? Infinity : maximumInvocationDeadline - Date.now()))
           let outcome: Awaited<typeof submission> | "timed-out"

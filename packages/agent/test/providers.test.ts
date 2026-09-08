@@ -16562,6 +16562,70 @@ describe("server helpers", () => {
     }
   })
 
+  it("serializes overlapping inline steering submissions", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-serial-steer-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const acceptance = deferred<void>()
+    const released = deferred<void>()
+    let runs = 0
+    const sendInput = vi.fn(async () => {
+      await acceptance.promise
+      return "accepted" as const
+    })
+    const admitted = vi.fn(() => true)
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, filter: admitted, lockScope: "agent", state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          try {
+            await released.promise
+            return "Steered reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    }) as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_120), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      pending.push(handler(chatWebhookRequest(91_121), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      pending.push(handler(chatWebhookRequest(91_122), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(admitted).toHaveBeenCalledTimes(3))
+      expect(sendInput).toHaveBeenCalledTimes(1)
+      acceptance.resolve()
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(2))
+      await Promise.all(pending.slice(1))
+      expect(runs).toBe(1)
+      released.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200])
+    } finally {
+      acceptance.resolve()
+      released.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("isolates inline steering across independent State backends", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
