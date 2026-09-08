@@ -433,7 +433,17 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     throw agentDiagnostics.AGENT_R0375({ message: "[vitehub] chat.message trigger requires at least one UI message." })
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
-  const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
+  let selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
+  if (options.concurrency === "queue") {
+    const metadata = metadataRecord(messages.at(-1))
+    const chat = typeof metadata?.chat === "object" && metadata.chat !== null ? metadata.chat as Record<string, unknown> : undefined
+    const skippedCount = chat?.skippedCount
+    if (typeof skippedCount === "number" && Number.isSafeInteger(skippedCount) && skippedCount > 0) {
+      // Retained queue input belongs to this invocation, even when history is disabled.
+      const retained = messages.slice(-Math.min(messages.length, skippedCount + 1))
+      selectedMessages = [...selectedMessages.filter(message => !retained.includes(message)), ...retained]
+    }
+  }
   const transportSessionId = triggerInput?.run?.threadId ?? triggerInput?.run?.runId
   const selectedSessionId = resolveChatSessionId(messages, options.sessions, triggerInput?.session)
   const providerSessionId = triggerInput?.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId

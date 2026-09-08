@@ -12604,7 +12604,7 @@ describe("server helpers", () => {
     })
     const run = vi.fn(async ({ messages }) => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+      const text = messages.at(-1)?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       order.push(text?.text || "")
       if (text?.text === "A") {
         firstStarted()
@@ -12646,7 +12646,7 @@ describe("server helpers", () => {
     }
   })
 
-  it.each(["serial", "queue"] as const)("requires mentions throughout %s batches", async (concurrency) => {
+  it.each([["serial", false], ["queue", false], ["queue", true]] as const)("requires mentions throughout %s batches with failure=%s", async (concurrency, failInvocation) => {
     const { defineAgent } = await import("../src/index.ts")
     const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -12655,10 +12655,15 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-serial-routing-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => {
+      if (failInvocation) throw new Error("coalesced invocation failed")
+      return "ok"
+    })
     const routed: Array<{ deliveryKind: string; text: string }> = []
     const request = (messageId: number, text: string, isMention = false) =>
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
+          update_id: messageId,
           message: {
             chat: { id: 456, type: "group" },
             from: { id: 123, username: "maxi" },
@@ -12690,7 +12695,7 @@ describe("server helpers", () => {
             },
           }),
         },
-        driver: { run: () => "ok" },
+        driver: { run },
       }) as never,
     )
 
@@ -12701,16 +12706,32 @@ describe("server helpers", () => {
       await expect(handler(request(91_030, "before mention"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       await expect(handler(request(91_031, "mention", true), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       await expect(handler(request(91_032, "after mention"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(request(91_034, "second mention", true), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       expect(routed).toEqual([])
 
+      const pending = await readAgentChannelDeliveries(state)
+      expect(pending.find(delivery => delivery.sourceId === "91031")?.status).toBe("accepted")
       await state.releaseLock(lock)
-      await expect(handler(request(91_033, "drain"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      const drained = handler(request(91_033, "drain"), "telegram", { agentName: "support" })
+      if (failInvocation) await expect(drained).rejects.toThrow("coalesced invocation failed")
+      else await expect(drained).resolves.toMatchObject({ status: 200 })
 
-      expect(routed).toEqual([
+      expect(routed).toEqual(concurrency === "serial" ? [
         { deliveryKind: "mention", text: "mention" },
-      ])
+        { deliveryKind: "mention", text: "second mention" },
+      ] : [{ deliveryKind: "mention", text: "second mention" }])
+      expect(run).toHaveBeenCalledTimes(concurrency === "serial" ? 2 : 1)
+      if (concurrency === "queue") {
+        expect(run).toHaveBeenCalledWith(expect.objectContaining({
+          messages: [
+            expect.objectContaining({ parts: expect.arrayContaining([expect.objectContaining({ type: "text", text: "mention" })]) }),
+            expect.objectContaining({ parts: expect.arrayContaining([expect.objectContaining({ type: "text", text: "second mention" })]) }),
+          ],
+        }))
+      }
       const deliveries = await readAgentChannelDeliveries(state)
-      expect(deliveries.find(delivery => delivery.sourceId === "91031")?.status).toBe("completed")
+      expect(deliveries.find(delivery => delivery.sourceId === "91031")?.status).toBe(failInvocation ? "failed" : "completed")
+      expect(deliveries.find(delivery => delivery.sourceId === "91034")?.status).toBe(failInvocation ? "failed" : "completed")
       expect(deliveries.find(delivery => delivery.sourceId === "91032")?.status).toBe("rejected")
       expect(deliveries.filter(delivery => delivery.status === "received" || delivery.status === "running")).toEqual([])
       expect(deliveries.filter(delivery => delivery.status === "rejected").every(delivery =>
