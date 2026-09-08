@@ -8,7 +8,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 const configurationSchema = v.object({ workspace: v.object({ name: v.string() }) })
-const sourceSchema = v.pipe(v.string(), v.regex(/^[A-Za-z0-9._-]{1,100}$/))
+const sourceSchema = v.pipe(v.string(), v.nonEmpty(), v.regex(/^[^\p{Cc}]+$/u))
 const hostWorkspaceSchema = v.union([
   v.object({ paths: v.array(v.string()), repository: v.string(), revision: v.string() }),
   v.object({ content: v.string(), path: v.string(), provenance: v.optional(v.object({ source: v.string() })), revision: v.string(), size: v.number() }),

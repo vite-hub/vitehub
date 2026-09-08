@@ -163,7 +163,8 @@ watch(
       if (tab.value === "workspace") tab.value = "details";
       if (activeSurface.value === "view:workspace" || activeSurface.value.startsWith("file:")) activeSurface.value = "view:details";
     }
-    if (tab.value === "workspace") void loadWorkspace();
+    if (selectedPath.value) void loadFile(selectedPath.value);
+    else if (tab.value === "workspace") void loadWorkspace();
   },
   { immediate: true },
 );

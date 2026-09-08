@@ -63,18 +63,18 @@ describe("invocation Workspace inspection", () => {
     expect(mocks.stat).not.toHaveBeenCalled()
     expect(mocks.readFile).not.toHaveBeenCalled()
   })
-  it("reports safe mounted source provenance", async () => {
+  it.each(["portal", "docs:api", "org/repo", "../source", "日本語", "a".repeat(101)])("reports mounted source provenance %s as display text", async source => {
     mocks.glob.mockResolvedValue([{ path: ".agents/skills/perf/SKILL.md", type: "file" }])
-    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source: "portal" } })
+    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source } })
     expect(await handler(request(".agents/skills/perf/SKILL.md"))).toEqual({
       path: ".agents/skills/perf/SKILL.md",
       content: "test",
-      provenance: { source: "portal" },
+      provenance: { source },
       size: 4,
       revision: "current",
     })
   })
-  it.each([null, 42, {}, "../secret", "", "a".repeat(101)])("omits invalid source provenance %j while preserving the file preview", async source => {
+  it.each([null, 42, {}, "", "source\u0000key", "source\nkey"])("omits invalid source provenance %j while preserving the file preview", async source => {
     mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source } })
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
   })
