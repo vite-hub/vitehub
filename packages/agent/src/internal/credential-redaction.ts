@@ -14,7 +14,8 @@ function isCredentialKey(key: string): boolean {
 
 function isNetrcEntryContext(value: string): boolean {
   // Natural-language qualifiers before “password” are prose, not netrc fields.
-  if (/(?:\b(?:uses|use|with|needs|mentions|documentation)\s*)$/i.test(value)) return false
+  if (/(?:\b(?:uses|use|with|needs|mentions|documentation)\s*)$/i.test(value)
+    || /\b(?:default|machine\s+\S+)\s+login\s+uses\s+$/i.test(value)) return false
   const token = String.raw`(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:\\.|[^\s"'\\])+)`
   return new RegExp(String.raw`(?:^|[\r\n])[\t ]*(?:machine\s+${token}|default)(?:\s+(?:login|account|password)\s+${token})*\s+$`, "i").test(value)
 }
