@@ -890,6 +890,7 @@ function outcomeObservationPriority(observation: TraceEventLogEntry): number | u
   if (terminalObservation(observation)) return 1
   if (deliveryOutcomeObservation(observation)) return 2
   if (observationTitle(observation)) return 3
+  if (observation.attributes?.["content.truncated"] === true) return 4
 }
 
 function recoverableOutcomeObservation(observation: TraceEventLogEntry): boolean {
