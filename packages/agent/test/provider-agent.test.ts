@@ -2811,7 +2811,7 @@ cli_auth_credentials_store = "keyring"
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
   })
 
-  it.each(["text", "messages"] as const)("steers a running provider turn with a %s prompt and emits input plus method evidence", async (promptKind) => {
+  it.each(["text", "messages", "message", "multiple"] as const)("steers a running provider turn with a %s prompt and emits input plus method evidence", async (promptKind) => {
     const threadId = "thread-live-steer"
     let releaseTurn!: () => void
     const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
@@ -2826,12 +2826,16 @@ cli_auth_credentials_store = "keyring"
     const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
-    await expect(sendAgentInvocationInput(invocationId, {
-      prompt: promptKind === "text" ? "private follow-up" : [{ id: "steering-prompt", role: "user", parts: [{ type: "text", text: "private follow-up" }] }],
-    }, { mode: "steer" })).resolves.toBe("accepted")
+    await expect(sendAgentInvocationInput(invocationId, promptKind === "message"
+        ? { message: { id: "steering-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "private follow-up" }] } }
+        : { prompt: promptKind === "text" ? "private follow-up" : [
+            { id: "steering-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "private follow-up" }] },
+            ...(promptKind === "multiple" ? [{ id: "second-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "second follow-up" }] }] : []),
+          ] }, { mode: "steer" })).resolves.toBe("accepted")
     releaseTurn()
 
     await expect(result).resolves.toEqual(expect.arrayContaining([{
+      ...(promptKind === "text" ? {} : { id: "steering-prompt" }),
       data: {
         kind: "input.message",
         value: {
@@ -2844,7 +2848,14 @@ cli_auth_credentials_store = "keyring"
       data: { kind: "input.steered", value: { mode: "steer" } },
       type: "data-agent-event",
     }]))
-    expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: "private follow-up", threadId })
+    if (promptKind === "multiple") {
+      expect(await result).toContainEqual({
+        type: "data-agent-event",
+        id: "second-prompt",
+        data: { kind: "input.message", value: { message: "second follow-up", mode: "steer" } },
+      })
+    }
+    expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: promptKind === "multiple" ? "private follow-up\nsecond follow-up" : "private follow-up", threadId })
   })
 
   it("drains late accepted steering evidence before the provider stream finishes", async () => {

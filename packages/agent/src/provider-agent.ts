@@ -2314,7 +2314,13 @@ async function* runProvider<
                 return "unsupported"
               }
               if (steeringEvidenceClosed) return "invalid-state"
-              emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
+              if (hasRuntimeType(input.prompt, "string") || hasRuntimeType(input.message, "string")) {
+                emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
+              } else {
+                for (const message of messages) {
+                  emitToolEvent({ type: "data-agent-event", id: message.id, data: { kind: "input.message", value: { message: getMessageText(message), mode: "steer" } } })
+                }
+              }
               emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
               return "accepted"
             } catch {
