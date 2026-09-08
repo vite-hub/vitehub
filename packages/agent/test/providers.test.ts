@@ -16545,6 +16545,76 @@ describe("server helpers", () => {
     }
   })
 
+  it.each([456, 457])("isolates repeated message IDs across inline owners (second chat: %s)", async (secondChatId) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-backends-"))
+    const states = ["first", "second"].map(name => createLibsqlAgentState({ url: `file:${join(stateDir, `${name}.sqlite`)}` }))
+    const sendInputs = [vi.fn(() => "accepted" as const), vi.fn(() => "accepted" as const)]
+    const runIds: string[] = []
+    const released = deferred<void>()
+    let runs = 0
+    const handlers = states.map((state, index) => createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "thread", state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          runIds.push(runId)
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput: sendInputs[index]!, support: { steer: true } })
+          try {
+            await released.promise
+            return "Independent reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    }) as never))
+    const request = (messageId: number, chatId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+      body: JSON.stringify({ update_id: messageId * 1000 + chatId, message: {
+        chat: { id: chatId, type: "private" },
+        from: { id: 123, username: "maxi" },
+        message_id: messageId,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const pending: Promise<Response>[] = []
+    try {
+      await Promise.all(states.map(state => state.connect()))
+      pending.push(handlers[0]!(request(91_110, 456), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      pending.push(handlers[1]!(request(91_110, secondChatId), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(2))
+      expect(new Set(runIds).size).toBe(2)
+      for (const [index, chatId] of [456, secondChatId].entries()) {
+        const followUp = handlers[index]!(request(91_111, chatId), "telegram", { agentIdentity: { name: "calories" } })
+        pending.push(followUp)
+        await followUp
+        expect(sendInputs[index]).toHaveBeenCalledTimes(1)
+      }
+      expect(runs).toBe(2)
+      released.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200, 200])
+    } finally {
+      released.resolve()
+      await Promise.allSettled(pending)
+      await Promise.all(states.map(state => state.disconnect()))
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it.each(["bigint", "circular"])("accepts inline steering invoker metadata containing %s", async (kind) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
