@@ -291,10 +291,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const parsed = safeParse(object({
       path: literal(path),
       mediaType: fallback(optional(string()), undefined),
-      metadata: optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
+      metadata: fallback(optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
         const source = value.source
         return source === undefined || safeParse(string(), source).success
-      }))),
+      }))), undefined),
     }), value)
     if (!parsed.success) return
     const { path: _path, ...result } = parsed.output

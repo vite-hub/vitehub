@@ -690,7 +690,12 @@ describe("local workspace store", () => {
       mediaType: "text/plain",
     })
     await writeFile(`${metadataRoot(root)}/file.txt/metadata.json`, JSON.stringify(attributes))
-    await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject(expected)
+    const restarted = createLocalWorkspaceStore(root)
+    await expect(restarted.readFile("file.txt")).resolves.toMatchObject(expected)
+    await expect(restarted.stat("file.txt")).resolves.toMatchObject(expected)
+    await expect(restarted.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "file.txt", ...expected }),
+    ]))
   })
 
   it.each([undefined, { source: "old" }])("refreshes cached attributes after another Store writes: %j", async (metadata) => {
