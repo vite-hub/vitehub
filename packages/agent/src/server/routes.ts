@@ -4875,6 +4875,10 @@ async function handleChatSdkMessage(
     }
 
     if (inlineKey) {
+      const configuredWaitDeadline = input.timeout === undefined ? undefined : Date.now() + input.timeout
+      const inlineWaitDeadline = configuredWaitDeadline === undefined
+        ? maximumInvocationDeadline
+        : Math.min(configuredWaitDeadline, maximumInvocationDeadline ?? Infinity)
       let waitedForActiveTurn = false
       while (!inlineTurn) {
         const active = inlineChatTurns.get(inlineKey)
@@ -4882,7 +4886,7 @@ async function handleChatSdkMessage(
           const ownerLockKey = `${inlineScope}:owner`
           const ownerLock = await state.state.acquireLock(ownerLockKey, 30_000)
           if (!ownerLock) {
-            await pollInlineChatTurn({ done: new Promise(() => undefined) }, maximumInvocationDeadline)
+            await pollInlineChatTurn({ done: new Promise(() => undefined) }, inlineWaitDeadline)
             continue
           }
           inlineOwnershipAbort = new AbortController()
@@ -4934,7 +4938,7 @@ async function handleChatSdkMessage(
             return result
           })
           let steeringTimer: ReturnType<typeof setTimeout> | undefined
-          const steeringWait = Math.max(0, Math.min(options?.timeout ?? 28_000, 28_000, maximumInvocationDeadline === undefined ? Infinity : maximumInvocationDeadline - Date.now()))
+          const steeringWait = Math.max(0, Math.min(28_000, inlineWaitDeadline === undefined ? Infinity : inlineWaitDeadline - Date.now()))
           let outcome: Awaited<typeof submission> | "timed-out"
           try {
             outcome = await Promise.race([
@@ -4971,10 +4975,10 @@ async function handleChatSdkMessage(
             })
             return
           }
-          if (outcome === "unsupported") await waitForInlineChatTurn(active, maximumInvocationDeadline)
-          else await pollInlineChatTurn(active, maximumInvocationDeadline)
+          if (outcome === "unsupported") await waitForInlineChatTurn(active, inlineWaitDeadline)
+          else await pollInlineChatTurn(active, inlineWaitDeadline)
         } else {
-          await pollInlineChatTurn(active, maximumInvocationDeadline)
+          await pollInlineChatTurn(active, inlineWaitDeadline)
         }
       }
       if (waitedForActiveTurn) {

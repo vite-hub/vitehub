@@ -16991,6 +16991,70 @@ describe("server helpers", () => {
     }
   })
 
+  it.each(["unsupported", "remote-owner"] as const)("bounds inline steering fallback waits by messages.timeout (%s)", async (mode) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-wait-timeout-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "unsupported" as const)
+    let runs = 0
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 100 },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          started.resolve()
+          try {
+            await release.promise
+            return "done"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    let remoteOwner: Awaited<ReturnType<typeof state.acquireLock>> | undefined
+    try {
+      await state.connect()
+      if (mode === "remote-owner") {
+        remoteOwner = await state.acquireLock("chat:calories:telegram:inline-steer:agent:owner", 60_000)
+        expect(remoteOwner).toBeTruthy()
+      } else {
+        pending.push(handler(chatWebhookRequest(91_140, 456, "first"), "telegram", { agentIdentity: { name: "calories" } }))
+        await started.promise
+      }
+      const followUp = handler(chatWebhookRequest(91_141, 456, "second"), "telegram", { agentIdentity: { name: "calories" } })
+      pending.push(followUp)
+      await expect(followUp).rejects.toThrow("timed out while waiting to steer")
+      expect(runs).toBe(mode === "unsupported" ? 1 : 0)
+      expect(sendInput).toHaveBeenCalledTimes(mode === "unsupported" ? 1 : 0)
+    } finally {
+      release.resolve()
+      if (remoteOwner) await state.releaseLock(remoteOwner)
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("limits refreshed inline steering history to each waiting message", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
