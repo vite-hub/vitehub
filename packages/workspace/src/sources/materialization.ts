@@ -176,7 +176,7 @@ function fileAttributesEqual(
 }
 
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
-  if (options?.sources?.length && !options.sources.includes(source.key)) return false
+  if (options?.sources && !options.sources.includes(source.key)) return false
   const requested = normalizeWorkspacePath(options?.path || "")
   if (!requested) return true
   return sourceMountIntersectsPath(source, requested)

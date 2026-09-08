@@ -29,6 +29,40 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
 }
 
 describe("Workspace runtime preparation", () => {
+  it("reconciles removed startup files before rejecting preparation without startup sources", async () => {
+    const store = createMemoryWorkspaceStore()
+    const name = registerPreparationWorkspace(async () => [{ content: "# Ready", key: "ready.md" }], store)
+    const initial = createWorkspacePreparation({ workspace: name })
+    try {
+      await expect(initial.start()).resolves.toMatchObject({ status: "ready" })
+      await expect(store.readFile("docs/ready.md")).resolves.toMatchObject({ content: "# Ready" })
+    }
+    finally { await initial.stop() }
+
+    const getItems = vi.fn(async () => [{ content: "lazy", key: "lazy.md" }])
+    registerWorkspace(name, {
+      sources: {
+        lazy: custom({
+          getItem: async key => ({ content: "lazy", key }),
+          getItems,
+          getKeys: async () => ["lazy.md"],
+          materialize: "lazy",
+        }),
+      },
+      store,
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+    try {
+      await expect(preparation.start()).resolves.toMatchObject({
+        status: "error",
+        error: expect.stringContaining("has no startup sources to prepare"),
+      })
+      await expect(store.readFile("docs/ready.md")).resolves.toBeUndefined()
+      expect(getItems).not.toHaveBeenCalled()
+    }
+    finally { await preparation.stop() }
+  })
+
   it.each([false, true])("allows empty sources unless requireNonEmpty is %s", async (requireNonEmpty) => {
     const preparation = createWorkspacePreparation({
       workspace: registerPreparationWorkspace(async () => []),
