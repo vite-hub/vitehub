@@ -346,7 +346,13 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   // A finish record can truncate usage metadata while preserving the whole response.
   // Only suppress its message warning when an untruncated assistant turn proves it intact.
   const completeAssistantTexts = new Set<string>();
+  let latestFinalSequence = -Infinity;
   for (const observations of groups.values()) {
+    const sequence = Math.max(...observations.map(item => item.sequence));
+    if (sequence > latestFinalSequence && observations.every(item => item.attributes?.["message.phase"] !== "commentary")) latestFinalSequence = sequence;
+  }
+  for (const observations of groups.values()) {
+    if (Math.max(...observations.map(item => item.sequence)) !== latestFinalSequence) continue;
     if (observations.some(item => item.attributes?.["vitehub.observation.truncated"] === true)) continue;
     if (!observations.every(item => item.name.startsWith("agent.message")
       && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
