@@ -5284,6 +5284,7 @@ async function finishAgentInvocation<
       catch {
         // Invocation data must not change Agent output or mask the original failure.
       }
+      usage = invocationUsageWithAuxiliaryCalls(context.context, usage)
     }
     if (hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
@@ -5438,13 +5439,12 @@ async function finishAgentInvocation<
       await traceAgentInvocationCancelled(toTraceContext(context))
     }
     else if (!failed) {
-      const invocationUsage = invocationUsageWithAuxiliaryCalls(context.context, usage)
       await traceAgentInvocationFinish(toTraceContext(context), {
         "invocation.durationMs": durationMs,
         "result.hasValue": result !== undefined,
         "result.text": text,
         ...(resultKind !== undefined ? { "result.kind": resultKind } : {}),
-        ...(invocationUsage ? { "usage.record": invocationUsage } : {}),
+        ...(usage ? { "usage.record": usage } : {}),
       })
     }
     else {
