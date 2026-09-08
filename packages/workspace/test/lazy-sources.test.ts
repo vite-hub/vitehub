@@ -2805,6 +2805,27 @@ describe("lazy sources", () => {
     else await expect(store.stat("docs")).resolves.toBeUndefined()
   })
 
+  it.each([false, true].flatMap(local => ["docs", "docs/nested"].map(recreated => ({ local, recreated }))))("preserves recreated mount ancestors after refresh with local=$local at $recreated", async ({ local, recreated }) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "recreated-mount-ancestor",
+      sources: {
+        generated: custom({ materialize: "startup", mount: "docs/nested/generated", files: [{ path: "file.md", content: "generated" }] }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.rm("docs", { recursive: true })
+    await store.mkdir(recreated, { recursive: true })
+
+    await createWorkspaceSourceView({ ...definition }, store).materializeSources()
+    await expect(store.stat("docs/nested/generated/file.md")).resolves.toMatchObject({ type: "file" })
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
+
+    await expect(store.stat(recreated)).resolves.toMatchObject({ type: "directory" })
+    await expect(store.stat("docs/nested/generated")).resolves.toBeUndefined()
+    if (recreated === "docs") await expect(store.stat("docs/nested")).resolves.toBeUndefined()
+  })
+
   it("cleans mount ancestors created before recursive mkdir fails", async () => {
     const store = createMemoryWorkspaceStore()
     const mkdir = store.mkdir.bind(store)

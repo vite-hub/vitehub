@@ -688,7 +688,15 @@ async function materializeWorkspaceSourcesInternal(
     const counts = emptyMaterializationCounts()
     const paths: WorkspaceSourceMaterializationPathResult[] = []
     try {
-      if (ownsMount) ownsMount = Boolean(await store.stat(source.mountPath))
+      if (source.mountPath && (ownsMount || ownedAncestors.length)) {
+        const mount = await store.stat(source.mountPath)
+        if (mount?.type !== "directory") {
+          ownsMount = false
+          // A missing mount breaks the ownership chain for retained ancestors.
+          // Only directories created by this refresh can be claimed again.
+          ownedAncestors.length = 0
+        }
+      }
       const ctx = createSourceContext(definition, source, store, { abortSignal: options.abortSignal })
       throwIfAborted(options.abortSignal)
       await prepareWorkspaceSource(source.source, ctx)
