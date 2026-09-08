@@ -218,7 +218,6 @@ describe("lazy sources", () => {
     await createWorkspaceSourceView(definition, store).readFile("docs/shared.md")
     await store.rm("docs/shared.md")
     const middle = definition.sources.second
-    middle.files = undefined
     middle.getKeys = async () => ["shared.md"]
     middle.getItem = async () => { throw new Error("provider unavailable") }
     const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots: true })
