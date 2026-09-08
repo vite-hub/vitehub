@@ -289,7 +289,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const { dirname } = await import("node:path")
-    const { copyFile, mkdir, rename, rm, writeFile } = await import("node:fs/promises")
+    const { link, mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
@@ -314,7 +314,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await writeFile(temp, bytes)
       // Keep the live file readable until the replacement rename commits.
       const hadExisting = existing?.type === "file"
-      if (hadExisting) await copyFile(absolute, backup)
+      // Retain the old inode for rollback without duplicating its contents.
+      if (hadExisting) await link(absolute, backup)
       await rename(temp, absolute).catch(async (error) => {
         await rm(backup, { force: true }).catch(() => undefined)
         throw error
@@ -343,7 +344,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
     const { dirname } = await import("node:path")
-    const { copyFile, mkdir, rename, rm } = await import("node:fs/promises")
+    const { link, mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
@@ -388,7 +389,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
 
       const hadExisting = existing?.type === "file"
-      if (hadExisting) await copyFile(absolute, backup)
+      // Retain the old inode for rollback without duplicating its contents.
+      if (hadExisting) await link(absolute, backup)
       await rename(temp, absolute).catch(async (error) => {
         await rm(backup, { force: true }).catch(() => undefined)
         throw error

@@ -66,26 +66,32 @@ describe("local workspace store", () => {
     })
   })
 
-  it.each([false, true])("restores streamed content after sidecar failure with existing file: %s", async (hasExisting) => {
+  it.each([
+    { streamed: false, hasExisting: false },
+    { streamed: false, hasExisting: true },
+    { streamed: true, hasExisting: false },
+    { streamed: true, hasExisting: true },
+  ])("restores content after sidecar failure: %j", async ({ streamed, hasExisting }) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     if (hasExisting) {
       await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { source: "original" } })
     }
     const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const original = hasExisting ? await stat(join(root, "file.txt")) : undefined
     const failure = new Error("sidecar publication failed")
     vi.mocked(rename).mockImplementation(async (from, to) => {
       if (String(to).endsWith("/metadata.json")) throw failure
       await actual.rename(from, to)
     })
     try {
-      await expect(store.writeFileStream!("file.txt", {
-        path: "file.txt",
-        content: new Blob(["after"]).stream(),
-        metadata: { source: "replacement" },
-      })).rejects.toThrow(failure)
+      const file = { path: "file.txt", metadata: { source: "replacement" } }
+      await expect(streamed
+        ? store.writeFileStream!("file.txt", { ...file, content: new Blob(["after"]).stream() })
+        : store.writeFile("file.txt", { ...file, content: "after" })).rejects.toThrow(failure)
       const restarted = createLocalWorkspaceStore(root)
       if (hasExisting) {
+        expect((await stat(join(root, "file.txt"))).ino).toBe(original!.ino)
         await expect(restarted.readFile("file.txt")).resolves.toMatchObject({
           content: new TextEncoder().encode("before"),
           metadata: { source: "original" },
