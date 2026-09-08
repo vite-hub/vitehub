@@ -288,6 +288,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
+    const backup = `${tempRoot}/${randomUUID()}.bak`
     const normalized = normalizeWorkspacePath(path)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
@@ -305,7 +306,17 @@ class LocalWorkspaceStore implements WorkspaceStore {
     ])
     try {
       await writeFile(temp, bytes)
-      await rename(temp, absolute)
+      const hadExisting = await rename(absolute, backup).then(() => true, () => false)
+      try {
+        await rename(temp, absolute)
+        await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
+      } catch (error) {
+        await rm(absolute, { force: true }).catch(() => undefined)
+        if (hadExisting) await rename(backup, absolute).catch(() => undefined)
+        throw error
+      }
+      await rm(backup, { force: true })
+      return
     }
     catch (error) {
       await rm(temp, { force: true }).catch(() => undefined)
