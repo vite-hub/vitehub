@@ -3949,6 +3949,38 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}${credentialPrefix}[REDACTED];status=ok`)
   })
 
+  it.each(["bearer", "basic", "bEaReR", "bAsIc"].flatMap(scheme => [
+    { scheme, start: "sensitive", end: "-value;status=ok", expected: "[REDACTED];status=ok" },
+    { scheme, start: "of", end: " good news", expected: "of good news" },
+  ]))("distinguishes bounded bare $scheme content ending in $end", async ({ scheme, start, end, expected }) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 10 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = `${".".repeat(512)}\n  ${scheme} `
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [prefix + start, end]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    const runId = `bare-scheme-${scheme}-${start}`
+    await runAgent(agent, runtime(runId), {})
+    const observations = (await invocations.getByRunId(runId))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(prefix + expected)
+  })
+
   it.each(["Bearer", "Basic", "Authorization: basic", "Authorization: BASIC"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
     const invocations = defineAgentInvocations({
       content: "content",

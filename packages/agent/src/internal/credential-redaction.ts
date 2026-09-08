@@ -39,18 +39,24 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   return true
 }
 
-function isCredentialScheme(scheme: string, prefix: string): boolean {
-  // Capitalized schemes are the conventional credential markers. Lowercase
-  // words such as "bearer" or "basic" commonly occur in ordinary prose and
-  // should only be treated as credentials when attached to an authorization
-  // header or an equivalent structured boundary.
-  if (scheme === "Bearer" || scheme === "Basic") return true
-  return /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
+function isCredentialScheme(scheme: string, prefix: string, value: string): boolean {
+  if (scheme === "Bearer" || scheme === "Basic" || scheme === scheme.toUpperCase()) return true
+  if (/\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)) return true
+  // Bare lowercase schemes also occur in prose. Require a token-shaped value
+  // (digits, punctuation, or quotes) before committing to credential redaction.
+  return /(?:^|[\r\n])\s*$/.test(prefix) && /[^a-z]/i.test(value)
+}
+
+function pendingBareCredentialScheme(value: string): string | undefined {
+  // Keep an ambiguous scheme and alphabetic token together until a later delta
+  // establishes a credential or completes an ordinary word.
+  const match = /(?:^|[\r\n])[\t ]*((?:bearer|basic)[\t ]+[a-z]*)$/i.exec(value)?.[1]
+  return match && match.length <= 128 ? match : undefined
 }
 
 export function pendingCredentialScheme(value: string, precedingText = ""): "scheme" | "unquoted" | undefined {
   const match = new RegExp(String.raw`\b(Bearer|Basic)\s+(${unquotedCredentialValue}*)$`, "i").exec(value)
-  if (!match || !isCredentialScheme(match[1]!, precedingText + value.slice(0, match.index))) return
+  if (!match || !isCredentialScheme(match[1]!, precedingText + value.slice(0, match.index), match[2]!)) return
   return match[2] ? "unquoted" : "scheme"
 }
 
@@ -68,7 +74,8 @@ function pendingCompoundCredentialOperator(value: string): string | undefined {
 
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
-  return pendingCompoundCredentialOperator(value)
+  return pendingBareCredentialScheme(value)
+    ?? pendingCompoundCredentialOperator(value)
     ?? /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
     ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
@@ -144,13 +151,13 @@ function redactAuthorizationHeaders(value: string): string {
 export function redactCredentialText(value: string, precedingText = ""): string {
   const redacted = redactAuthorizationHeaders(value)
     .replace(/\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?)/gi, (match, scheme: string, quoted: string, offset: number, source: string) => {
-      if (!isCredentialScheme(scheme, precedingText + source.slice(0, offset))) return match
+      if (!isCredentialScheme(scheme, precedingText + source.slice(0, offset), quoted)) return match
       const quote = quoted[0]!
       const closed = quoted.length > 1 && quoted.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(quoted)
       return `${scheme} ${quote}[REDACTED]${closed ? quote : ""}`
     })
     .replace(new RegExp(String.raw`\b(Bearer|Basic)\s+${unquotedCredentialValue}+`, "gi"), (match, scheme: string, offset: number, source: string) =>
-      isCredentialScheme(scheme, precedingText + source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
+      isCredentialScheme(scheme, precedingText + source.slice(0, offset), match.slice(scheme.length).trimStart()) ? `${scheme} [REDACTED]` : match)
 
   return redactCredentialAssignments(redacted, precedingText)
 }
@@ -419,6 +426,7 @@ export function pendingCredentialAssignment(value: string, precedingText = ""): 
 }
 
 export function credentialTextMayContinue(value: string, precedingText = ""): boolean {
+  if (pendingBareCredentialScheme(precedingText + value)) return true
   if (pendingCompoundCredentialOperator(value)) return true
   if (pendingAuthorizationState(value)) return true
   if (/(?<![A-Za-z0-9_-])_+$/.test(value)) return true
@@ -441,7 +449,7 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
 
 export function pendingCredentialQuote(value: string, precedingText = ""): string | undefined {
   const scheme = /\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*\\?$|'(?:\\[\s\S]|[^'\\])*\\?$)/i.exec(value)
-  if (scheme && isCredentialScheme(scheme[1]!, precedingText + value.slice(0, scheme.index))) return scheme[2]?.[0]
+  if (scheme && isCredentialScheme(scheme[1]!, precedingText + value.slice(0, scheme.index), scheme[2]!)) return scheme[2]?.[0]
   const assignment = new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*\\\\?$|'(?:\\\\[\\s\\S]|[^'\\\\])*\\\\?$)`, "i").exec(value)
   return assignment && isCredentialAssignment(assignment[2]!, assignment[1]!, precedingText + value.slice(0, assignment.index)) ? assignment[3]?.[0] : undefined
 }

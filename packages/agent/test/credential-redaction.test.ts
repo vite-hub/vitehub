@@ -542,14 +542,14 @@ it.each(["The bearer of good news arrived", "A basic explanation follows"])("pre
   expect(pendingCredentialScheme(text)).toBeUndefined()
 })
 
-it.each(["BEARER", "BASIC"])("redacts bare scheme lines: %s", (scheme) => {
+it.each(["bearer", "BEARER", "bEaReR", "basic", "BASIC", "bAsIc"])("redacts bare scheme lines: %s", (scheme) => {
   const prefix = `launcher failed\n  ${scheme} `
   expect(redactCredentialText(`${prefix}sensitive-value;status=ok`)).toBe(`${prefix}[REDACTED];status=ok`)
-  expect(pendingCredentialScheme(`${prefix}sensitive`)).toBe("unquoted")
+  expect(pendingCredentialScheme(`${prefix}sensitive-`)).toBe("unquoted")
 })
 
 it.each(["bearer", "bEaReR", "basic", "bAsIc"])("preserves lowercase bare scheme prose: %s", (scheme) => {
-  const value = `launcher failed\n  ${scheme} sensitive-value;status=ok`
+  const value = `launcher failed\n  ${scheme} of good news`
   expect(redactCredentialText(value)).toBe(value)
   expect(pendingCredentialScheme(value)).toBeUndefined()
 })
@@ -799,4 +799,17 @@ it("bounds retained YAML comment context without parsing comment syntax", () => 
 it("preserves grammar-shaped netrc prose", () => {
   const prose = "default login uses password authentication"
   expect(redactCredentialText(prose)).toBe(prose)
+})
+
+it.each(["bearer of good news", "basic explanation follows", "bEaReR of good news", "bAsIc explanation follows"])("preserves line-start scheme prose: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+  expect(pendingCredentialScheme(text)).toBeUndefined()
+})
+
+it.each(["bearer", "basic", "bEaReR", "bAsIc"])("retains ambiguous bare %s token prefixes", (scheme) => {
+  const prefix = `launcher failed\n  ${scheme} sensitive`
+  expect(credentialTextMayContinue(prefix)).toBe(true)
+  expect(pendingCredentialScheme(prefix)).toBeUndefined()
+  expect(pendingCredentialTextSuffix(prefix)).toBe(`${scheme} sensitive`)
+  expect(pendingCredentialScheme(`${scheme} sensitive-value`)).toBe("unquoted")
 })
