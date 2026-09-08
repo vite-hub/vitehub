@@ -1498,9 +1498,13 @@ function journalTraceLog(
           queueMessageDelta(safeEntry)
         }
         else {
-          flushMessageDeltas(safeEntry.name === "agent.invocation.finish"
+          const terminal = safeEntry.name === "agent.invocation.finish"
             || safeEntry.name === "agent.invocation.error"
-            || safeEntry.name === "agent.invocation.cancelled")
+            || safeEntry.name === "agent.invocation.cancelled"
+          flushMessageDeltas(terminal)
+          if (terminal && messageDeltaKeysTruncated) {
+            safeEntry.attributes = { ...safeEntry.attributes, "content.truncated": true }
+          }
           emit(safeEntry)
         }
       }
