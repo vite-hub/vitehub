@@ -123,7 +123,7 @@ async function withFilesystemLock<T>(lock: string, description: string, operatio
 }
 
 async function withFilesystemReadLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
-  const { mkdir, open, rm } = await import("node:fs/promises")
+  const { mkdir, open, rm, rmdir } = await import("node:fs/promises")
   const reader = `${lock}.readers/${randomUUID()}`
   await withFilesystemLock(`${lock}.gate`, description, async () => {
     await mkdir(`${lock}.readers`, { recursive: true })
@@ -135,7 +135,13 @@ async function withFilesystemReadLock<T>(lock: string, description: string, oper
   }
   finally {
     await rm(reader, { force: true })
-    await rm(`${lock}.readers`, { force: true, recursive: true })
+    // Release our marker before taking the gate so a waiting writer can finish.
+    // Serialize directory cleanup with registration and never remove other readers.
+    await withFilesystemLock(`${lock}.gate`, description, async () => {
+      await rmdir(`${lock}.readers`).catch((error: NodeJS.ErrnoException) => {
+        if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code ?? "")) throw error
+      })
+    })
   }
 }
 

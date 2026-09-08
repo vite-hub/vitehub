@@ -63,7 +63,7 @@ describe("local workspace store", () => {
     tempDirs.push(directory)
     const store = createLocalWorkspaceStore(root)
     await store.writeFile("file.txt", { path: "file.txt", content: "hello", metadata: { source: "docs" } })
-    await store.setMeta("test", { private: true })
+    await store.setMeta!("test", { private: true })
     const metadataDirectory = metadataRoot(root).slice(root.length)
     await expect(readdir(metadataRoot(root))).resolves.toContain("file.txt")
     await expect(store.list("", { recursive: true })).resolves.toMatchObject([{ path: "file.txt" }])
@@ -465,6 +465,61 @@ describe("local workspace store", () => {
     await expect(store.readFile("directory/child.txt")).resolves.toMatchObject({
       content: new TextEncoder().encode("preserved"),
     })
+  })
+
+  it.each(["file.txt", "nested/file.txt"])("preserves overlapping readers while cleaning up locks for %s", async (path) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile(path, { path, content: "before", metadata: { source: "original" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const signal = () => {
+      let resolve!: () => void
+      const promise = new Promise<void>((done) => { resolve = done })
+      return { promise, resolve }
+    }
+    const entered = [signal(), signal()]
+    const releases = [signal(), signal()]
+    let calls = 0
+    vi.mocked(readFile).mockImplementation(async (...args) => {
+      const content = await actual.readFile(...args)
+      if (String(args[0]) === join(root, path) && calls < 2) {
+        const index = calls++
+        entered[index]!.resolve()
+        await releases[index]!.promise
+      }
+      return content
+    })
+    const first = store.readFile(path)
+    const second = store.readFile(path)
+    let writing: Promise<unknown> | undefined
+    try {
+      await Promise.all(entered.map(item => item.promise))
+      releases[0]!.resolve()
+      // Either invocation can acquire its marker first.
+      await Promise.race([first, second])
+      const parts = path.split("/")
+      for (let index = 1; index <= parts.length; index++) {
+        const key = createHash("sha256").update(parts.slice(0, index).join("/")).digest("hex")
+        expect(await readdir(`${root}/.vitehub-locks/${key}.readers`)).toHaveLength(1)
+      }
+      let published = false
+      writing = store.writeFile(path, { path, content: "after", metadata: { source: "replacement" } })
+        .then(() => { published = true })
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(published).toBe(false)
+      releases[1]!.resolve()
+      const reads = await Promise.all([first, second])
+      for (const result of reads) {
+        expect(result).toMatchObject({ content: new TextEncoder().encode("before"), metadata: { source: "original" } })
+      }
+      await writing
+      await expect(readdir(`${root}/.vitehub-locks`)).resolves.toEqual([])
+    }
+    finally {
+      for (const release of releases) release.resolve()
+      await Promise.allSettled([first, second, writing])
+      vi.mocked(readFile).mockImplementation(actual.readFile)
+    }
   })
 
   it.each([false, true])("reads one content and ownership version during publication, streamed=%s", async (streamed) => {
