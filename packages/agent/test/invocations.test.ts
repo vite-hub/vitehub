@@ -3219,6 +3219,40 @@ describe("Agent Invocations", () => {
     expect(text).toContain(" continued")
   })
 
+  it.each([
+    ["Bear", "er sensitive-value", "Bearer [REDACTED]"],
+    ["Bas", "ic sensitive-value", "Basic [REDACTED]"],
+    ["pass", "word", "password"],
+    ["sec", "tion", "section"],
+  ])("retains an unconfirmed bounded marker %s until its continuation arrives", async (prefix, continuation, expected) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${".".repeat(512)}${prefix}`, continuation, " complete"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+          await context.traceLog?.append({ name: "checkpoint", type: "run" })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("bounded-marker"), {})
+    const observations = (await invocations.getByRunId("bounded-marker"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${".".repeat(512)}${expected} complete`)
+    expect(JSON.stringify(observations)).not.toContain("sensitive-value")
+  })
+
   it("persists bounded message chunks while an invocation is still running", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     let runningObservations: string[] = []

@@ -1284,11 +1284,21 @@ function journalTraceLog(
   const flushMessageDelta = (key: string, final = true) => {
     const pending = pendingMessageDeltas.get(key)
     if (!pending) return
-    const content = pending.entry.attributes?.["message.content"]
-    if (hasRuntimeType(content, "string")) {
+    const rawContent = pending.entry.attributes?.["message.content"]
+    let retainedContent: string | undefined
+    if (hasRuntimeType(rawContent, "string")) {
+      let content = rawContent
       if (!final && credentialTextMayContinue(content)) {
         if (content.length < maxPendingCredentialCharacters) return
-        redactingCredentialDeltas.set(key, /\b(?:Bearer|Basic)\s*$/i.test(content))
+        if (/\b(?:Bearer|Basic)\s+\S*$/i.test(content)
+          || /\b[A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)=\S*$/.test(content)) {
+          redactingCredentialDeltas.set(key, /\b(?:Bearer|Basic)\s*$/i.test(content))
+        }
+        else {
+          // A possible marker is still ordinary text until its separator arrives.
+          retainedContent = /[A-Za-z][A-Za-z0-9_]*$/.exec(content.slice(-128))?.[0]
+          if (retainedContent) content = content.slice(0, -retainedContent.length)
+        }
       }
       const redacted = redactCredentialText(content)
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
@@ -1304,9 +1314,17 @@ function journalTraceLog(
       emit(pending.entry)
     }
     pendingMessageDeltas.delete(key)
+    if (retainedContent) {
+      pendingMessageDeltas.set(key, {
+        entry: { ...pending.entry, attributes: { ...pending.entry.attributes, "message.content": retainedContent } },
+        events: 0,
+      })
+    }
   }
   const flushMessageDeltas = (final = true) => {
-    for (const key of pendingMessageDeltas.keys()) flushMessageDelta(key, final)
+    // Flushing may reinsert a retained suffix; visit each original key only once.
+    // oxlint-disable-next-line unicorn/no-useless-spread
+    for (const key of [...pendingMessageDeltas.keys()]) flushMessageDelta(key, final)
   }
   const queueMessageDelta = (entry: TraceEventLogEntry) => {
     const key = messageDeltaKey(entry)
