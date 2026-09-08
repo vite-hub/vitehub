@@ -39,6 +39,25 @@ it.each([
   }
 })
 
+it.each(["\r", "\n", "\r\n"])("preserves YAML siblings after %j line breaks", (lineBreak) => {
+  for (const scalar of ["sensitive value", `|${lineBreak}    sensitive value`, `>${lineBreak}    sensitive value`]) {
+    const prefix = `config:${lineBreak}  password: `
+    const suffix = `${lineBreak}  status: ok`
+    expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    const captured = scalar + suffix
+    for (let split = 1; split <= scalar.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + captured.slice(0, split))!
+      const rest = captured.slice(split)
+      const boundary = consumeCredentialAssignment(rest, state)
+      expect(state.yaml!.whitespace + rest.slice(boundary)).toBe(suffix)
+    }
+    const state = pendingCredentialAssignmentState(prefix + scalar)!
+    for (const character of lineBreak + "  ") expect(consumeCredentialAssignment(character, state)).toBe(1)
+    expect(consumeCredentialAssignment("status: ok", state)).toBe(0)
+    expect(state.yaml!.whitespace + "status: ok").toBe(suffix)
+  }
+})
+
 describe("plain YAML credential scalars", () => {
   it.each(["", "\n"])("bounds retained separators after a credential and %j", (lineBreak) => {
     const state = pendingCredentialAssignmentState("password: sensitive" + lineBreak)!
