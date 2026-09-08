@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
@@ -761,7 +761,7 @@ describe("agent capability runtime", () => {
     ])
   })
 
-  it.each([false, true])("applies browser workspace source contributions with an identical existing skill: %s", async (existingSkill) => {
+  it.each([{ existingSkill: false, directEdit: false }, { existingSkill: true, directEdit: false }, { existingSkill: true, directEdit: true }])("applies browser workspace source contributions: %j", async ({ existingSkill, directEdit }) => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
     const workspaceName = `retained-browser-${crypto.randomUUID()}`
@@ -806,7 +806,8 @@ describe("agent capability runtime", () => {
     })
     await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Browser\nUpdated guidance.\n")
     await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
-    await workspace.fs.writeFile(".agents/skills/agent-browser/SKILL.md", "# Custom browser skill\n")
+    if (directEdit) await writeFile(join(workspaceRoot, ".agents/skills/agent-browser/SKILL.md"), "# Custom browser skill\n")
+    else await workspace.fs.writeFile(".agents/skills/agent-browser/SKILL.md", "# Custom browser skill\n")
     await expect(resolveAgentCapabilities({
       capabilities: [browser({ runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
     }, runtime(), {}, workspace as never, "write", {
@@ -815,6 +816,33 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow("conflicts with an existing Workspace path")
     await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Custom browser skill\n")
     await rm(workspaceRoot, { force: true, recursive: true })
+  })
+
+  it("preserves a Skill created during Capability resolution", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const workspaceName = `concurrent-browser-${crypto.randomUUID()}`
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-concurrent-browser-"))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const write = workspace.fs.writeFile.bind(workspace.fs)
+    const spy = vi.spyOn(workspace.fs, "writeFile").mockImplementationOnce(async (path, content, options) => {
+      await write(path, "# Concurrent developer edit\n")
+      return await write(path, content, options)
+    })
+    try {
+      await expect(resolveAgentCapabilities({
+        capabilities: [browser({ runtime: "external", skillContent: "# Generated browser skill\n" })],
+      }, runtime(), {}, workspace as never, "write", {
+        driverKind: "provider",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })).rejects.toThrow("changed before the conditional write")
+      await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Concurrent developer edit\n")
+    }
+    finally {
+      spy.mockRestore()
+      await rm(workspaceRoot, { force: true, recursive: true })
+    }
   })
 
   it("does not mention Blob tools in the default browser skill", async () => {

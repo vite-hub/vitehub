@@ -639,7 +639,11 @@ async function workspaceSourcePathExists(
       const owner = retainedPaths.get(path)
       // SAFETY: Capability contribution paths are normalized workspace paths before conflict inspection.
       const metadata = owner ? (await workspace.fs.stat(path as never)).metadata?.capabilityWorkspaceContribution : undefined
-      if (owner && isRuntimeRecord(metadata) && metadata.capabilityId === owner && metadata.path === path) continue
+      if (owner && isRuntimeRecord(metadata) && metadata.capabilityId === owner && metadata.path === path) {
+        // SAFETY: Capability contribution paths are normalized workspace paths before conflict inspection.
+        const current = await workspace.fs.readFile(path as never, { encoding: "binary" })
+        if (await capabilityContributionDigest(current) === metadata.digest) continue
+      }
       if (owner && metadata === undefined && desiredWorkspace) {
         // SAFETY: Capability contribution paths are normalized workspace paths before conflict inspection.
         const current = await workspace.fs.readFile(path as never, { encoding: "binary" })
@@ -914,12 +918,12 @@ async function applyCapabilityWorkspaceContributions<
   // SAFETY: Persistence runs only for the writable workspace returned by capability source resolution.
   const retainedWorkspace = baseWorkspace as ReadonlyWorkspaceFacade<Name> & {
     fs: ReadonlyWorkspaceFacade<Name>["fs"] & {
-      writeFile(path: string, content: string | Uint8Array, options?: { mediaType?: string, metadata?: Record<string, unknown> }): Promise<string>
+      writeFile(path: string, content: string | Uint8Array, options?: { ifDigest?: string | null, mediaType?: string, metadata?: Record<string, unknown> }): Promise<string>
     }
   }
   if (persistencePaths.length && hasRuntimeType(retainedWorkspace.fs.writeFile, "function")) {
     await Promise.all(persistencePaths.map(({ path }) => sourceResolution.workspace.fs.materializeSources?.({ path })))
-    const pending: Array<{ capabilityId: string, path: string }> = []
+    const pending: Array<{ capabilityId: string, path: string, ifDigest: string | null }> = []
     const desired = new Map<string, { content: string | Uint8Array, digest: string }>()
     for (const item of persistencePaths) {
       if (!await sourceResolution.workspace.fs.exists(item.path)) continue
@@ -928,28 +932,31 @@ async function applyCapabilityWorkspaceContributions<
       desired.set(item.path, { content, digest })
       // SAFETY: Capability persistence paths come from normalized materialization paths.
       if (!await baseWorkspace.fs.exists(item.path as never)) {
-        pending.push(item)
+        pending.push({ ...item, ifDigest: null })
         continue
       }
       // SAFETY: Capability persistence paths come from normalized materialization paths.
-      const current = await baseWorkspace.fs.readFile(item.path as never, { encoding: "binary" })
+      const currentStat = await baseWorkspace.fs.stat(item.path as never)
+      if (!currentStat.digest) continue
       // SAFETY: Capability persistence paths come from normalized materialization paths.
-      const metadata = (await baseWorkspace.fs.stat(item.path as never)).metadata?.capabilityWorkspaceContribution
+      const current = await baseWorkspace.fs.readFile(item.path as never, { encoding: "binary" })
+      const metadata = currentStat.metadata?.capabilityWorkspaceContribution
       if (metadata === undefined && await capabilityContributionDigest(current) === digest) {
-        pending.push(item)
+        pending.push({ ...item, ifDigest: currentStat.digest })
         continue
       }
       if (isRuntimeRecord(metadata)
         && metadata.capabilityId === item.capabilityId
         && hasRuntimeType(metadata.digest, "string")
         && await capabilityContributionDigest(current) === metadata.digest
-        && metadata.digest !== digest) pending.push(item)
+        && metadata.digest !== digest) pending.push({ ...item, ifDigest: currentStat.digest })
     }
     if (pending.length) {
-      for (const { capabilityId, path } of pending) {
+      for (const { capabilityId, path, ifDigest } of pending) {
         const stat = await sourceResolution.workspace.fs.stat(path)
         const { content, digest } = desired.get(path)!
         await retainedWorkspace.fs.writeFile(path, content, {
+          ifDigest,
           mediaType: stat.mediaType,
           metadata: { ...stat.metadata, capabilityWorkspaceContribution: { capabilityId, digest, path } },
         })
