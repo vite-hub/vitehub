@@ -26,6 +26,7 @@ import {
 import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
+import ConsoleConnectionState from "./console-connection-state.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -168,6 +169,11 @@ watch(
   },
   { flush: "sync", immediate: true },
 );
+
+const connectionUnavailable = computed(() => {
+  const errors = [agentsError.value, list.error.value, detail.error.value].filter(Boolean);
+  return errors.length > 1 && errors.every(isRetryableConsoleRequestError);
+});
 
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
@@ -880,7 +886,7 @@ onBeforeUnmount(() => {
       </template>
 
       <template #default>
-        <div v-if="errorMessage(agentsError)" class="px-3 pb-3">
+        <div v-if="!connectionUnavailable && errorMessage(agentsError)" class="px-3 pb-3">
           <UAlert
             color="error"
             variant="subtle"
@@ -990,7 +996,7 @@ onBeforeUnmount(() => {
           </UPopover>
         </div>
         <div
-          v-if="errorMessage(list.error.value || list.loadMoreError.value)"
+          v-if="!connectionUnavailable && errorMessage(list.error.value || list.loadMoreError.value)"
           class="px-3"
         >
           <UAlert
@@ -1023,7 +1029,7 @@ onBeforeUnmount(() => {
           />
         </div>
         <div
-          v-if="(agentsLoading || list.isLoading.value) && !invocationItems.length"
+          v-if="!connectionUnavailable && (agentsLoading || list.isLoading.value) && !invocationItems.length"
           class="grid gap-1 px-2"
           aria-label="Loading sessions"
           role="status"
@@ -1137,7 +1143,15 @@ onBeforeUnmount(() => {
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
       <template #body>
-        <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
+        <div class="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-live="polite">
+          <ConsoleConnectionState
+            v-if="connectionUnavailable"
+            :compact="Boolean(invocationView)"
+            :retrying="refreshing"
+            @retry="refresh"
+            @open-sessions="sessionsOpen = true"
+          />
+          <div v-if="!connectionUnavailable || invocationView" class="min-h-0 w-full flex-1 overflow-hidden">
           <div
             v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"
             class="h-full min-h-0 overflow-hidden"
@@ -1200,7 +1214,7 @@ onBeforeUnmount(() => {
                   @toggle-details="detailsOpen = !detailsOpen"
                 />
                 <UAlert
-                  v-if="invocationView && errorMessage(detail.error.value)"
+                  v-if="!connectionUnavailable && invocationView && errorMessage(detail.error.value)"
                   class="m-3 shrink-0"
                   color="error"
                   variant="subtle"
@@ -1358,6 +1372,7 @@ onBeforeUnmount(() => {
                 />
               </template>
             </USlideover>
+          </div>
           </div>
         </div>
       </template>

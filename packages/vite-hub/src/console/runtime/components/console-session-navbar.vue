@@ -36,6 +36,7 @@ defineEmits<{
   <UDashboardNavbar
     class="vitehub-console__session-navbar"
     :title="title"
+    :toggle="false"
     :ui="{ root: 'border-0', title: 'min-w-0 flex-1' }"
   >
     <template #title>
