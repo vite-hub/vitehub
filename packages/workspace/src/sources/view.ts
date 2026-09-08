@@ -323,7 +323,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (pending?.fullSource) {
       try {
         const result = await pending.promise
-        if (source.materialize === "startup" && result.sources.some(item => item.key === sourceKey && item.status === "error")) return result
+        if (source.materialize === "startup" && result.sources.some(item => item.source === sourceKey && item.status === "error")) return result
       }
       catch {
         // A lazy consumer owns its fallback independently from a preparation
