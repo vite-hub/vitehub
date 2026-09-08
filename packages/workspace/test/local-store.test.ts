@@ -488,6 +488,51 @@ describe("local workspace store", () => {
     })
   })
 
+  it("completes a read while a writer holds the cleanup gate", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("file.txt", { path: "file.txt", content: "before" })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let entered!: () => void
+    const writingStarted = new Promise<void>((resolve) => { entered = resolve })
+    let writing: Promise<unknown> | undefined
+    vi.mocked(rm).mockImplementation(async (...args) => {
+      await actual.rm(...args)
+      if (String(args[0]).includes(".readers/") && !writing) {
+        writing = store.writeFileStream!("file.txt", {
+          path: "file.txt",
+          content: (async function* () {
+            entered()
+            await blocked
+            yield new TextEncoder().encode("after")
+          })(),
+        })
+        await writingStarted
+      }
+    })
+    const reading = store.readFile("file.txt")
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      const result = await Promise.race([
+        reading,
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("Read waited for writer cleanup")), 1000)
+        }),
+      ])
+      expect(result).toMatchObject({ content: new TextEncoder().encode("before") })
+    }
+    finally {
+      clearTimeout(timeout)
+      release()
+      await Promise.allSettled([reading, writing])
+      vi.mocked(rm).mockImplementation(actual.rm)
+    }
+    await expect(store.readFile("file.txt")).resolves.toMatchObject({ content: new TextEncoder().encode("after") })
+    await expect(readdir(`${root}/.vitehub/locks`)).resolves.toEqual([])
+  })
+
   it.each(["file.txt", "nested/file.txt"])("preserves overlapping readers while cleaning up locks for %s", async (path) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!

@@ -82,13 +82,13 @@ async function applyMetadataPermissions(path: string, mode: number, gid: number)
   }
 }
 
-async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
+async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
   const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
   const { dirname } = await import("node:path")
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
   await mkdir(dirname(lock), { recursive: true })
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + timeoutMs
   while (true) {
     try {
       await mkdir(lock)
@@ -135,18 +135,18 @@ async function withFilesystemReadLock<T>(lock: string, description: string, oper
   }
   finally {
     await rm(reader, { force: true })
-    // Release our marker before taking the gate so a waiting writer can finish.
-    // Serialize directory cleanup with registration and never remove other readers.
+    // Cleanup must not wait behind a writer or reject an already completed read.
+    // Keep registration serialized; a writer also reclaims empty reader directories.
     await withFilesystemLock(`${lock}.gate`, description, async () => {
       await rmdir(`${lock}.readers`).catch((error: NodeJS.ErrnoException) => {
         if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code ?? "")) throw error
       })
-    })
+    }, 0).catch(() => {})
   }
 }
 
 async function withFilesystemWriteLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
-  const { readdir, rm, stat } = await import("node:fs/promises")
+  const { readdir, rm, rmdir, stat } = await import("node:fs/promises")
   return await withFilesystemLock(`${lock}.gate`, description, async () => {
     const readers = `${lock}.readers`
     const deadline = Date.now() + 10_000
@@ -155,7 +155,10 @@ async function withFilesystemWriteLock<T>(lock: string, description: string, ope
         if (error.code === "ENOENT") return []
         throw error
       })
-      if (active.length === 0) return await operation()
+      if (active.length === 0) {
+        await rmdir(readers).catch(() => {})
+        return await operation()
+      }
       for (const owner of active) {
         const path = `${readers}/${owner}`
         const info = await stat(path).catch(() => undefined)
