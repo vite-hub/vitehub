@@ -3318,6 +3318,58 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledOnce()
   })
 
+  it.each(["readFile", "stat", "exists"] as const)("recovers missing persisted startup paths for %s", async (operation) => {
+    const getKeys = vi.fn(async () => ["ready.md"])
+    const definition = {
+      name: "startup-point-recovery",
+      sources: { docs: custom({ materialize: "startup", getKeys, async getItem(key) { return { key, content: "ready" } } }) },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.rm("docs/ready.md")
+    const view = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+
+    const result = await view[operation]("docs/ready.md")
+    expect(result).toEqual(operation === "readFile" ? "ready" : operation === "exists" ? true : expect.objectContaining({ type: "file" }))
+    expect(getKeys).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(["readFile", "stat", "exists"] as const)("does not refresh unknown startup paths for %s", async (operation) => {
+    const getKeys = vi.fn(async () => ["ready.md"])
+    const definition = {
+      name: "startup-point-unknown",
+      sources: { docs: custom({ materialize: "startup", getKeys, async getItem(key) { return { key, content: "ready" } } }) },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    getKeys.mockResolvedValue(["ready.md", "unknown.md"])
+    const view = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+
+    if (operation === "exists") await expect(view.exists("docs/unknown.md")).resolves.toBe(false)
+    else await expect(view[operation]("docs/unknown.md")).rejects.toThrow("does not exist")
+    expect(getKeys).toHaveBeenCalledOnce()
+  })
+
+  it.each(["readFile", "stat", "exists"] as const)("does not expose overlapping content after failed startup %s recovery", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    const getKeys = vi.fn(async () => ["ready.md"])
+    const definition = {
+      name: "startup-point-failure",
+      sources: { docs: custom({ materialize: "startup", getKeys, async getItem(key) { return { key, content: "higher priority" } } }) },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.rm("docs/ready.md")
+    getKeys.mockImplementation(async () => {
+      await store.writeFile("docs/ready.md", { path: "docs/ready.md", content: "lower priority", metadata: { source: "other" } })
+      throw new Error("provider unavailable")
+    })
+    const view = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+
+    if (operation === "exists") await expect(view.exists("docs/ready.md")).resolves.toBe(false)
+    else await expect(view[operation]("docs/ready.md")).rejects.toThrow("does not exist")
+    expect(getKeys).toHaveBeenCalledTimes(2)
+  })
+
   it("materializes startup Sources before stat and exists trust stored paths", async () => {
     const getKeys = vi.fn(async (): Promise<string[]> => [])
     const definition = {
