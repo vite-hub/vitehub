@@ -188,8 +188,10 @@ function fileAttributesEqual(
 export async function materializedFileMatches(file: Awaited<ReturnType<WorkspaceStore["readFile"]>>, item: LazyMaterializedMetadata) {
   if (!file) return false
   if (item.materializedContentDigest && await sha256(file.content) !== item.materializedContentDigest) return false
-  return !item.materializedAttributes || file.mediaType === item.materializedMediaType
-    && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
+  // Local Stores cannot restore instance-local attributes after reopening. Only
+  // compare attributes the Store can observe; the content digest still applies.
+  return !item.materializedAttributes || (file.mediaType === undefined || file.mediaType === item.materializedMediaType)
+    && (file.metadata === undefined || isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata)))
 }
 
 function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {

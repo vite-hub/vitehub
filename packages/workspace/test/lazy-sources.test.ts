@@ -35,6 +35,31 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each([false, true])("reuses fresh Local Store snapshots after reopening (changed content: %s)", async (changedContent) => {
+    const root = await createRoot()
+    const getKeys = vi.fn(async () => ["guide.md"])
+    const getItem = vi.fn(async (key: string) => ({ key, content: "guide", mediaType: "text/markdown", metadata: { label: "guide" } }))
+    const definition = {
+      name: "reopened-startup-cache",
+      sources: {
+        docs: custom({ materialize: "startup", mount: "docs", cache: { maxAge: 3600 }, getKeys, getItem }),
+      },
+    }
+    await materializeWorkspaceSources(definition, createLocalWorkspaceStore(root))
+    getKeys.mockClear()
+    getItem.mockClear()
+    if (changedContent) await writeFile(join(root, "docs/guide.md"), "changed")
+
+    const reopened = createLocalWorkspaceStore(root)
+    await expect(reopened.readFile("docs/guide.md")).resolves.toMatchObject({ mediaType: undefined, metadata: undefined })
+    const result = await materializeWorkspaceSources(definition, reopened)
+
+    expect(result.sources[0]?.status).toBe("ready")
+    expect(getKeys).toHaveBeenCalledTimes(changedContent ? 1 : 0)
+    expect(getItem).toHaveBeenCalledTimes(changedContent ? 1 : 0)
+    expect(Buffer.from((await reopened.readFile("docs/guide.md"))!.content).toString()).toBe("guide")
+  })
+
   it.each(["memory", "local"])("restores the selected startup Source before point reads on %s", async (storeType) => {
     for (const operation of ["readFile", "stat", "exists"] as const) {
       for (const content of ["second", "first"]) {
