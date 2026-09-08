@@ -40,7 +40,10 @@ describe("title provider inheritance", () => {
   it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2_147_483_648])(
     "rejects unsupported title timeout: %s",
     (timeoutMs) => {
-      expect(() => title({ timeoutMs })).toThrow("must be an integer between 1 and 2147483647 milliseconds");
+      expect(() => title({ timeoutMs })).toThrowError(expect.objectContaining({
+        code: "AGENT_R0922",
+        message: expect.stringContaining("must be an integer between 1 and 2147483647 milliseconds"),
+      }));
     },
   );
 

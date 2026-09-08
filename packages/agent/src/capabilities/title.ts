@@ -1022,7 +1022,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
     // boundary whitespace validation is performed here.
   }
   if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 2_147_483_647)) {
-    throw agentDiagnostics.AGENT_R0486({ message: "[vitehub] title({ timeoutMs }) must be an integer between 1 and 2147483647 milliseconds." })
+    throw agentDiagnostics.AGENT_R0922({ message: "[vitehub] title({ timeoutMs }) must be an integer between 1 and 2147483647 milliseconds." })
   }
   if (options.reasoningEffort !== undefined) {
     if (!hasRuntimeType(options.reasoningEffort, "string") || !options.reasoningEffort.trim()) {
