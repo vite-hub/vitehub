@@ -33,6 +33,10 @@ import { title } from "../src/capabilities.ts";
 import { createMessage, defineAgent, runAgent } from "../src/index.ts";
 
 describe("title provider inheritance", () => {
+  it.each(["", " ", "\t\n"])("rejects empty title reasoning effort: %j", (reasoningEffort) => {
+    expect(() => title({ reasoningEffort })).toThrow("must be a non-empty model-advertised value");
+  });
+
   afterEach(() => {
     mocks.adapters.length = 0;
     mocks.generate.mockClear();
@@ -74,6 +78,7 @@ describe("title provider inheritance", () => {
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: undefined },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap", reasoningEffort: "low" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "low" }, reasoningEffort: "medium" },
+    { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "  low  " }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "low" }, reasoningEffort: undefined },
   ])(
     "reuses the normalized provider configuration with model $expectedModel",

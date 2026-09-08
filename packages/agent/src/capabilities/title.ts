@@ -994,6 +994,12 @@ function titleUiMessageStreamOverride(
 export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: TitleOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
+  if (options.reasoningEffort !== undefined) {
+    if (!hasRuntimeType(options.reasoningEffort, "string") || !options.reasoningEffort.trim()) {
+      throw agentDiagnostics.AGENT_R0484({ message: "[vitehub] title({ reasoningEffort }) must be a non-empty model-advertised value." })
+    }
+    options = { ...options, reasoningEffort: options.reasoningEffort.trim() }
+  }
   const capabilityId = options.id || "title"
   const invocationStarts = new WeakMap<object, () => MaybePromise<void>>()
   const pendingTitles = new WeakMap<object, Promise<void>>()
