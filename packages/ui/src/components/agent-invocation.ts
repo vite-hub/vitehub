@@ -1451,10 +1451,11 @@ function renderInvocationActivities(
 ) {
   const orderedActivities = activities.filter(activity => activity.kind !== "message" || isVisibleMessage(activity));
   const firstUser = promptActivityIndex(orderedActivities);
+  const lastUser = orderedActivities.findLastIndex(activity => activity.kind === "message" && activity.role === "user");
   let lastAssistant = -1;
   for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
     const activity = orderedActivities[index]!;
-    if (index > firstUser && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary") {
+    if (index > lastUser && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary") {
       lastAssistant = index;
       break;
     }

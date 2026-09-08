@@ -2572,6 +2572,36 @@ describe("Agent Invocation UI", () => {
     wrapper.unmount();
   });
 
+  it.each(["running", "failed"] as const)("keeps an unanswered steer after the earlier reply in a %s session", async (status) => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "unanswered-steer",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check this" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "message.id": "first-answer", "message.content": "Earlier answer", "message.role": "assistant" }, name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle" },
+        { attributes: { "input.mode": "steer", "message.id": "steer", "message.content": "Check again", "message.role": "user" }, name: "agent.message.delta", sequence: 3, timestamp, type: "lifecycle" },
+        { attributes: { "tool.id": "check", "tool.input": { command: "pnpm test" }, "tool.name": "shell" }, name: "agent.tool.start", sequence: 4, timestamp, type: "run" },
+      ],
+      status,
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.findAll(".vh-invocation-activities > .vh-invocation-message")).toHaveLength(1);
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    const activities = wrapper.get(".vh-invocation-work__activities");
+    const messages = activities.findAll(".vh-invocation-message");
+    expect(messages).toHaveLength(2);
+    expect(messages[0]!.text()).toContain("Earlier answer");
+    expect(messages[1]!.text()).toContain("Check again");
+    expect(activities.text().indexOf("Check again")).toBeLessThan(activities.text().indexOf("Shell"));
+    wrapper.unmount();
+  });
+
   it("models preparation and channel delivery observations as first-class activities", () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const invocation = {
