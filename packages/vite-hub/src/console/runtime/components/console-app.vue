@@ -23,7 +23,8 @@ import {
   encodeAgentRouteParam,
   resolveConsoleRouteName,
 } from "../console-route";
-import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
+import { requestConsole } from "../client/request";
+import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleConnectionState from "./console-connection-state.vue";
@@ -170,10 +171,10 @@ watch(
   { flush: "sync", immediate: true },
 );
 
-const connectionUnavailable = computed(() => {
-  const errors = [agentsError.value, list.error.value, detail.error.value].filter(Boolean);
-  return errors.length > 1 && errors.every(isRetryableConsoleRequestError);
-});
+const connectionUnavailable = useConsoleConnectionUnavailable(() => ({
+  errors: [agentsError.value, list.error.value, detail.error.value],
+  pending: refreshing.value || agentsLoading.value || list.isLoading.value || detail.isLoading.value,
+}));
 
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
@@ -1322,7 +1323,7 @@ onBeforeUnmount(() => {
             />
             <div v-else-if="invocationView" class="flex min-h-0 flex-1 flex-col">
               <UAlert
-                v-if="errorMessage(detail.error.value)"
+                v-if="!connectionUnavailable && errorMessage(detail.error.value)"
                 class="m-3 shrink-0"
                 color="error"
                 variant="subtle"
