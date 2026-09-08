@@ -5034,7 +5034,10 @@ async function handleChatSdkMessage(
               28_000,
               maximumInvocationDeadline === undefined ? Infinity : maximumInvocationDeadline - Date.now(),
             ))
-            const reconciliation = enforceChatInvocationTimeout(submission, reconciliationTimeout).catch(() => undefined)
+            // Bound the Driver response, but retain host custody through its evidence writes.
+            const reconciliation = enforceChatInvocationTimeout(submitted, reconciliationTimeout)
+              .then(() => submission)
+              .catch(() => undefined)
             state.reconciliationWaitUntil?.(reconciliation)
             return
           }

@@ -16461,10 +16461,10 @@ describe("server helpers", () => {
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true, noHost: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, neverAccepts: true },
-    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, delayedEvidence: true },
     { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, neverAccepts: true },
     { failInvocation: true, lateAcceptance: true },
-  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance, Cloudflare deadline: $cloudflareDeadline, unresolved: $neverAccepts)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost, cloudflareDeadline }) => {
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance, Cloudflare deadline: $cloudflareDeadline, unresolved: $neverAccepts)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost, cloudflareDeadline, delayedEvidence }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -16472,6 +16472,19 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const evidenceStarted = deferred<void>()
+    const evidenceReleased = deferred<void>()
+    let delayEvidenceWrites = false
+    if (delayedEvidence) {
+      const appendToList = state.appendToList.bind(state)
+      vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+        if (delayEvidenceWrites && key.startsWith("deliveries:") && key.endsWith(":events") && typeof value === "object" && value !== null && "type" in value && value.type === "accepted") {
+          evidenceStarted.resolve()
+          await evidenceReleased.promise
+        }
+        return appendToList(key, value, options)
+      })
+    }
     const adapter = createTestChatAdapter()
     let runs = 0
     const acceptance = deferred<void>()
@@ -16582,9 +16595,18 @@ describe("server helpers", () => {
         if (cloudflareDeadline) {
           // Custody expires 30 seconds after request start, not registration.
           expect(Date.now() - followUpStartedAt).toBeLessThan(20_000)
-          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + 26_000 - Date.now())))
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + (delayedEvidence ? 27_500 : 26_000) - Date.now())))
         }
+        delayEvidenceWrites = delayedEvidence === true
         if (!neverAccepts) acceptance.resolve()
+        if (delayedEvidence) {
+          await evidenceStarted.promise
+          let custodySettled = false
+          void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + 29_000 - Date.now())))
+          expect(custodySettled).toBe(false)
+          evidenceReleased.resolve()
+        }
       }
       await expect(followUp).resolves.toMatchObject({ status: 200 })
       if (!failInvocation && !lateAcceptance) {
@@ -16618,6 +16640,7 @@ describe("server helpers", () => {
       expect(runs).toBe(2)
       expect(steeredPrompt).toBe("hello")
     } finally {
+      evidenceReleased.resolve()
       if (!neverAccepts) acceptance.resolve()
       releaseFirst()
       await state.disconnect()
