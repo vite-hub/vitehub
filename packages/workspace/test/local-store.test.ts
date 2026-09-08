@@ -190,7 +190,7 @@ describe("local workspace store", () => {
     }
   })
 
-  it.each([false, true])("succeeds after publication when backup cleanup fails, streamed: %s", async (streamed) => {
+  it.each([false, true])("retries failed backup cleanup after successful publication, streamed: %s", async (streamed) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { source: "original" } })
@@ -215,6 +215,12 @@ describe("local workspace store", () => {
     } finally {
       vi.mocked(rm).mockImplementation(actual.rm)
     }
+    await vi.waitFor(async () => {
+      expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
+    }, { timeout: 2500 })
+    await expect(store.readFile("file.txt")).resolves.toMatchObject({
+      content: new TextEncoder().encode("after"), metadata: { source: "replacement" },
+    })
   })
 
   it.each([

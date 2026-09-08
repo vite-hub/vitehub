@@ -38,6 +38,19 @@ async function backupFile(path: string, backup: string): Promise<boolean> {
   }
 }
 
+async function reclaimBackup(path: string, retryDelay = 1000): Promise<void> {
+  const { rm } = await import("node:fs/promises")
+  try {
+    await rm(path, { force: true })
+  } catch {
+    // Only committed backups enter this retry loop; active rollback files stay intact.
+    // Keep retrying transient failures without keeping the process alive.
+    setTimeout(() => {
+      void reclaimBackup(path, Math.min(retryDelay * 2, 30_000))
+    }, retryDelay).unref()
+  }
+}
+
 function assertTrustedMetadata(path: string, info: import("node:fs").Stats, root: import("node:fs").Stats) {
   const sharedGroup = (root.mode & 0o020) !== 0 && info.gid === root.gid
   const trustedOwner = info.uid === root.uid || info.uid === process.geteuid?.() || sharedGroup
@@ -430,7 +443,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         throw error
       }
       // Publication has committed; backup cleanup must not turn success into failure.
-      await rm(backup, { force: true, recursive: true }).catch(() => undefined)
+      await reclaimBackup(backup)
       return
     }
     catch (error) {
@@ -504,7 +517,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         throw error
       }
       // Publication has committed; backup cleanup must not turn success into failure.
-      await rm(backup, { force: true }).catch(() => undefined)
+      await reclaimBackup(backup)
       return {
         path: normalized,
         type: "file",
