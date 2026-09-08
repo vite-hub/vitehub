@@ -198,9 +198,20 @@ it.each(["API_TOKEN ?= sensitive", "PASSWORD += secret", "PASSWORD := value"]) (
   expect(redactCredentialText(input)).toMatch(/\[REDACTED\]/)
 })
 
-it("redacts whitespace-delimited netrc passwords", () => {
-  expect(redactCredentialText("machine example.com login alice password sensitive-value")).toBe("machine example.com login alice password [REDACTED]")
-  const context = "machine example.com login alice "
+it.each([
+  "machine example.com login alice ",
+  "machine example.com ",
+  "machine example.com account billing login alice ",
+  "machine example.com login alice account billing ",
+  "machine example.com\n  account billing\n  ",
+  "default ",
+  "default login alice ",
+  "default account billing login alice ",
+  'machine example.com login "Alice Smith" account billing ',
+])("redacts whitespace-delimited netrc passwords after %s", (context) => {
+  const suffix = " login next-user\nmachine next.example"
+  expect(redactCredentialText(context + "password sensitive-value" + suffix)).toBe(context + "password [REDACTED]" + suffix)
+  expect(redactCredentialText("password sensitive-value" + suffix, credentialTextLineContext(context))).toBe("password [REDACTED]" + suffix)
   for (let split = 0; split <= "sensitive-value".length; split++) {
     const state = pendingCredentialAssignmentState("password " + "sensitive-value".slice(0, split), context)!
     expect(state).toBeDefined()
@@ -208,6 +219,14 @@ it("redacts whitespace-delimited netrc passwords", () => {
     expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe("\nmachine next.example")
   }
   expect(redactCredentialText("Choose a password with several words")).toBe("Choose a password with several words")
+})
+
+it.each([
+  "The machine needs a password with several words",
+  "Use the default password with several words",
+  "machine example.com documentation mentions password requirements",
+])("preserves non-netrc password prose: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
 })
 
 it.each([

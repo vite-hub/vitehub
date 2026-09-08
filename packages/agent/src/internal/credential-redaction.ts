@@ -12,12 +12,17 @@ function isCredentialKey(key: string): boolean {
     || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
 }
 
+function isNetrcEntryContext(value: string): boolean {
+  const token = String.raw`(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:\\.|[^\s"'\\])+)`
+  return new RegExp(String.raw`(?:^|[\r\n])[\t ]*(?:machine\s+${token}|default)(?:\s+(?:login|account|password)\s+${token})*\s+$`, "i").test(value)
+}
+
 function isCredentialAssignment(key: string, prefix: string, precedingText: string): boolean {
   if (!isCredentialKey(key)) return false
   const cli = prefix.startsWith("--")
   if (cli && /^key$/i.test(key)) return false
   if (!/(?:[:=]|\?=|\+=)\s*$/.test(prefix)) {
-    if (/^password$/i.test(key) && /(?:^|\s)machine\s+\S+(?:\s+\S+)*\s+login\s+\S+\s*$/i.test(precedingText)) return true
+    if (/^password$/i.test(key) && isNetrcEntryContext(precedingText)) return true
     return cli
   }
   if (!prefix.trimEnd().endsWith(":")) return true
@@ -371,6 +376,8 @@ function yamlBlockContext(value: string): { inside: boolean, header?: string, li
 }
 
 export function credentialTextLineContext(value: string): string {
+  // Preserve entry recognition across journal chunks without retaining account values.
+  if (isNetrcEntryContext(value)) return "machine x "
   const block = yamlBlockContext(value)
   if (block.header) {
     return block.header + block.line.match(/^ */)![0] + (block.line.trim() ? "x" : "")
