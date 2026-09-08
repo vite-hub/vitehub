@@ -46,6 +46,32 @@ function inspectableToolCapability() {
 }
 
 describe("Agent Invocations", () => {
+  it.each([
+    ["password: ", "correct horse battery", "\nstatus: ok"],
+    ["api_token: ", "sensitive value", " # public comment\nstatus: ok"],
+    ["config:\n  password: ", "correct horse\n    battery\n\n   staple", "\n  status: ok"],
+    ["  - secret: ", "sensitive value\n      more secret", "\n    status: ok"],
+    ["password: ", 'sensitive#value,with;shell&punctuation<> and "quotes"', "\nstatus: ok"],
+  ])("redacts plain YAML scalars across forced message flushes: %s", async (prefix, credential, suffix) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of [prefix, ...credential + suffix]) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "plain-yaml", "message.content": character } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("plain-yaml-credential"), {})
+    const observations = (await invocations.getByRunId("plain-yaml-credential"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(prefix + "[REDACTED]" + suffix)
+    expect(JSON.stringify(observations)).not.toMatch(/correct|horse|battery|staple|sensitive|more secret/)
+  })
+
   it("flushes interleaved message identities and safe text before tool events", async () => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({

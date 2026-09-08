@@ -136,7 +136,7 @@ export interface CredentialAssignmentState {
   structureClosers?: string[]
   yamlIndent?: number
   yamlProperty?: boolean
-  yaml?: { header: boolean, modifiers: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
+  yaml?: { header: boolean, modifiers: boolean, plain?: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
 }
 
 function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
@@ -183,10 +183,19 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     if (!state.started && state.yamlIndent !== undefined && (character === "|" || character === ">")) {
       state.yaml = { header: true, modifiers: true, line: false, spaces: 0, whitespace: "" }
     }
+    else if (!state.started && state.yamlIndent !== undefined && !/["'{[]/.test(character)) {
+      state.yaml = { header: false, modifiers: false, plain: true, line: false, spaces: 0, whitespace: "" }
+    }
     if (!state.started && (character === "{" || character === "[")) state.structureClosers = []
     state.started = true
     if (state.yaml) {
       const yaml = state.yaml
+      // Plain YAML scalars include spaces and shell punctuation. Only a
+      // separated comment or a dedented line ends the credential value.
+      if (yaml.plain && character === "#" && (yaml.line || yaml.whitespace)) {
+        if (yaml.line) yaml.whitespace += " ".repeat(yaml.spaces)
+        return index
+      }
       if (yaml.header) {
         if (!/[|>+1-9-]/.test(character)) yaml.modifiers = false
         if (yaml.modifiers && /[1-9]/.test(character)) yaml.indent = state.yamlIndent! + Number(character)
@@ -210,10 +219,13 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
             yaml.whitespace += " ".repeat(indent)
             return index
           }
-          yaml.indent ??= indent
+          if (!yaml.plain) yaml.indent ??= indent
           yaml.line = false
           yaml.whitespace = ""
         }
+      }
+      else if (yaml.plain) {
+        yaml.whitespace = /[\t \r]/.test(character) ? yaml.whitespace + character : ""
       }
       continue
     }
