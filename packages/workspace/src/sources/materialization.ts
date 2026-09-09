@@ -74,11 +74,10 @@ function sourceConfigFingerprint(source: SourceConfiguration) {
 
 async function sourceConfigHash(source: SourceConfiguration, store: Pick<WorkspaceStore, "getMeta">) {
   const target = await resolveWorkspaceStoreTarget(store)
-  return await sha256({
-    // Only local files need legacy snapshots replayed to persist ownership.
-    ...(target?.provider === "local" ? { fileMetadataVersion: 1 } : {}),
-    ...sourceConfigFingerprint(source),
-  })
+  const version: { fileMetadataVersion?: number } = {}
+  // Only local files need legacy snapshots replayed to persist ownership.
+  if (target?.provider === "local") version.fileMetadataVersion = 1
+  return await sha256({ ...version, ...sourceConfigFingerprint(source) })
 }
 
 function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: ResolvedWorkspaceSource, configHash: string) {
