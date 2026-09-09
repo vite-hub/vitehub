@@ -84,8 +84,8 @@ describe("lazy sources", () => {
     const result = await materializeWorkspaceSources(definition, reopened)
 
     expect(result.sources[0]?.status).toBe("ready")
-    expect(getKeys).toHaveBeenCalledTimes(changedContent ? 1 : 0)
-    expect(getItem).toHaveBeenCalledTimes(changedContent ? 1 : 0)
+    expect(getKeys).toHaveBeenCalledTimes(1)
+    expect(getItem).toHaveBeenCalledTimes(1)
     expect(Buffer.from((await reopened.readFile("docs/guide.md"))!.content).toString()).toBe("guide")
   })
 
