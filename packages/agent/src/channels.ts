@@ -182,6 +182,7 @@ export type GitHubIssueCommentPayload = {
     number?: unknown
     pull_request?: { html_url?: unknown, url?: unknown }
     title?: unknown
+    user?: { login?: unknown }
   }
   repository?: {
     fork?: unknown
@@ -200,7 +201,7 @@ export type GitHubIssueCommentPayload = {
     title?: unknown
     draft?: unknown
     base?: { ref?: unknown }
-    head?: { ref?: unknown }
+    head?: { ref?: unknown, repo?: { full_name?: unknown } }
     url?: unknown
     user?: { id?: unknown, login?: unknown, type?: unknown }
   }
@@ -2605,20 +2606,23 @@ function githubOpenedPullRequestActivityTarget(input: unknown, payload: unknown)
 
 function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload, input: unknown): GitHubPullRequestFilterContext {
   const pr = isRecord(payload.pull_request) ? payload.pull_request : undefined
+  const issue = isRecord(payload.issue) ? payload.issue : undefined
   const repository = isRecord(payload.repository) ? maybeString(payload.repository.full_name) : undefined
   const actor = isRecord(payload.sender) ? maybeString(payload.sender.login) : undefined
-  const user = pr && isRecord(pr.user) ? pr.user : undefined
-  const labels = pr && Array.isArray(pr.labels) ? pr.labels.flatMap(label => isRecord(label) ? [maybeString(label.name)].filter((v): v is string => Boolean(v)) : []) : undefined
+  const user = pr && isRecord(pr.user) ? pr.user : issue && isRecord(issue.user) ? issue.user : undefined
+  const rawLabels = pr?.labels ?? issue?.labels
+  const labels = Array.isArray(rawLabels) ? rawLabels.flatMap(label => isRecord(label) ? [maybeString(label.name)].filter((v): v is string => Boolean(v)) : []) : undefined
   const base = pr && isRecord(pr.base) ? maybeString(pr.base.ref) : undefined
   const head = pr && isRecord(pr.head) ? maybeString(pr.head.ref) : undefined
   const draft = pr && isRecord(pr) ? pr.draft : undefined
-  const repositoryRecord = isRecord(payload.repository) ? payload.repository : undefined
-  const fork = repositoryRecord?.fork
-  return { repository, actor, author: user && maybeString(user.login), authorAssociation: pr && maybeString(pr.author_association), labels, draft: typeof draft === "boolean" ? draft : undefined, fork: typeof fork === "boolean" ? fork : undefined, base, head, title: pr && maybeString(pr.title), action: maybeString(payload.action) }
+  const headRepo = pr && isRecord(pr.head) && isRecord(pr.head.repo) ? maybeString(pr.head.repo.full_name) : undefined
+  const fork = headRepo && repository ? headRepo !== repository : undefined
+  return { repository, actor, author: user && maybeString(user.login), authorAssociation: pr ? maybeString(pr.author_association) : issue && maybeString(issue.author_association), labels, draft: typeof draft === "boolean" ? draft : undefined, fork: typeof fork === "boolean" ? fork : undefined, base, head, title: pr ? maybeString(pr.title) : issue && maybeString(issue.title), action: maybeString(payload.action) }
 }
 
 function githubPullRequestFilterRule(value: string | boolean | undefined, rule: GitHubPullRequestFilterRules | undefined): boolean {
-  if (!rule || value === undefined) return true
+  if (!rule) return true
+  if (value === undefined) return false
   const text = String(value)
   if (rule.deny?.some(item => item === text)) return false
   return !rule.allow || rule.allow.length === 0 || rule.allow.some(item => item === text)

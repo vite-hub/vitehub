@@ -17,6 +17,7 @@ function githubIssueCommentPayload(body = "/review please", userType = "User") {
       user: { id: 1, login: "mona", type: userType },
     },
     issue: {
+      author_association: "OWNER",
       html_url: "https://github.test/acme/app/issues/42",
       number: 42,
       pull_request: {
@@ -24,6 +25,8 @@ function githubIssueCommentPayload(body = "/review please", userType = "User") {
         url: "https://api.github.test/repos/acme/app/pulls/42",
       },
       title: "Improve app",
+      labels: [{ name: "review" }],
+      user: { login: "mona" },
     },
     installation: { id: 123 },
     repository: {
@@ -1464,12 +1467,12 @@ describe("agent channels", () => {
     const trigger = channel.triggers?.webhook
     if (!trigger) throw new Error("Missing GitHub webhook trigger.")
     const invoke = (payload: unknown) => trigger.invoke({ capabilities: [], channel, trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" } } as never, { payload })
-    const denied = await invoke({ ...githubPullRequestPayload(), pull_request: { ...githubPullRequestPayload().pull_request, user: { login: "blocked" } } })
+    const denied = await invoke({ ...githubIssueCommentPayload(), issue: { ...githubIssueCommentPayload().issue, user: { login: "blocked" } } })
     expect(denied).toBeInstanceOf(Response)
     expect(await (denied as Response).json()).toMatchObject({ accepted: false, reason: "filtered" })
-    const accepted = await invoke(githubPullRequestPayload())
+    const accepted = await invoke(githubIssueCommentPayload())
     expect(accepted).not.toBeInstanceOf(Response)
-    expect(seen[0]).toMatchObject({ repository: "acme/app", author: "mona", actor: "mona", labels: ["review"], base: undefined, head: undefined })
+    expect(seen[0]).toMatchObject({ repository: "acme/app", author: "mona", actor: "mona", labels: ["review"], title: "Improve app" })
   })
 
   it("marks disabled pull request workspaces in invocation context", async () => {
