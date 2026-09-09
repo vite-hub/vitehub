@@ -160,12 +160,12 @@ async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRe
   const now = new Date()
   await store.updateAttempt(attempt.id, {
     completedAt: now,
-    response,
     status: "succeeded",
     updatedAt: now,
   })
   return requireUpdatedRun(await store.updateRun(run.id, {
     completedAt: now,
+    response,
     status: "succeeded",
     updatedAt: now,
   }))
