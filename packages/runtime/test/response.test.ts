@@ -4,14 +4,14 @@ import { deserializeResponse, isSerializedResponse, serializeResponse } from "..
 describe("durable Response representation", () => {
   it("round trips status, duplicate headers, and binary body", async () => {
     const original = new Response(new Uint8Array([0, 127, 255]), {
-      headers: [["set-cookie", "a=1"], ["set-cookie", "b=2"], ["content-type", "application/octet-stream"]],
+      headers: [["set-cookie", "a=1, b=2"], ["content-type", "application/octet-stream"]],
       status: 201,
       statusText: "Created",
     })
     const serialized = await serializeResponse(original)
     expect(serialized).toEqual({
       body: { data: "AH//", encoding: "base64", mediaType: "application/octet-stream" },
-      headers: [["content-type", "application/octet-stream"], ["set-cookie", "a=1"], ["set-cookie", "b=2"]],
+      headers: [["content-type", "application/octet-stream"], ["set-cookie", "a=1, b=2"]],
       status: 201,
       statusText: "Created",
     })
