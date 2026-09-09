@@ -82,6 +82,25 @@ const CHAT_WEBHOOK_DEFAULTS = {
 export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const durableChatErrorFallbackTimeoutMs = 30_000
+
+function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string {
+  // Provider runtimes sometimes wrap quota failures in an internal diagnostic
+  // (for example AGENT_R0726), leaving the useful reset text only on `error`.
+  // Surface that information when it is unambiguously a usage failure; keep
+  // opaque internal errors on the safe generic message.
+  const raw = typeof args.error === "string"
+    ? args.error
+    : (() => {
+        try { return JSON.stringify(args.error) || "" } catch { return "" }
+      })()
+  if (!/usage limit|quota|credit/i.test(raw)) return defaultChatErrorFallbackText
+  const reset = raw.match(/try again at ([^.]+\.)/i)?.[1]?.trim()
+  return [
+    "The AI provider usage limit has been reached.",
+    reset ? `Usage should reset ${reset}` : "Usage will reset when the provider quota renews.",
+    "You can purchase more credits at https://chatgpt.com/codex/settings/usage.",
+  ].join(" ")
+}
 export function isDurableChatErrorFallbackEffect(effect: unknown): boolean {
   // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
   return hasRuntimeType(effect, "function") && (effect as { kind?: string }).kind === "chat.error-fallback"
@@ -118,7 +137,7 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
       ? `${args.publicError.error} Reference: ${args.publicError.requestId}.`
       : args.publicError.error
   }
-  return hasRuntimeType(fallback, "string") ? fallback : defaultChatErrorFallbackText
+  return hasRuntimeType(fallback, "string") ? fallback : defaultInternalChatErrorFallback(args)
 }
 
 export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(
