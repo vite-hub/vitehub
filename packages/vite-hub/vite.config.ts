@@ -66,7 +66,12 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
+      { from: "src/error-diagnostics.ts", to: "dist" },
       { from: ".vitehub/console", to: "dist/console/runtime/public" },
+      {
+        from: "src/console/runtime/components/console-wrap.ts",
+        to: "dist/console/runtime/components",
+      },
       {
         from: "src/console/runtime/components/console-brand.vue",
         to: "dist/console/runtime/components",
@@ -77,6 +82,14 @@ export default defineConfig({
       },
       {
         from: "src/console/runtime/components/console-new-chat.ts",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-connection-state.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-connection.ts",
         to: "dist/console/runtime/components",
       },
       {
@@ -137,6 +150,10 @@ export default defineConfig({
       },
       {
         from: "src/console/runtime/components/console-session-inspector.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-workspace-file.ts",
         to: "dist/console/runtime/components",
       },
       {
@@ -211,6 +228,7 @@ export default defineConfig({
     entry: [
       ...distributionEntries,
       "src/console/runtime/console-route.ts",
+      "src/console/runtime/client/invocation.ts",
       "src/console/runtime/client/request.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/definitions.ts",
@@ -223,6 +241,7 @@ export default defineConfig({
       "src/console/runtime/server/invocation-capabilities.get.ts",
       "src/console/runtime/server/devframe.ts",
       "src/console/runtime/server/invocation.get.ts",
+      "src/console/runtime/server/invocation-workspace.get.ts",
       "src/console/runtime/server/invocations.get.ts",
       "src/console/runtime/server/kv.get.ts",
       "src/console/runtime/server/page.get.ts",
@@ -237,6 +256,7 @@ export default defineConfig({
       customExports(exports) {
         delete exports["./console/runtime/console-route"];
         delete exports["./console/runtime/client/sections"];
+        delete exports["./console/runtime/client/invocation"];
         delete exports["./console/runtime/client/request"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/definitions"];
@@ -252,6 +272,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/invocation-capabilities.get"];
         delete exports["./console/runtime/server/devframe"];
         delete exports["./console/runtime/server/invocation.get"];
+        delete exports["./console/runtime/server/invocation-workspace.get"];
         delete exports["./console/runtime/server/invocations.get"];
         delete exports["./console/runtime/server/kv.get"];
         delete exports["./console/runtime/server/kv"];

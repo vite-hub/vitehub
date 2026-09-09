@@ -25,7 +25,7 @@ describe("chat error fallback", () => {
 
   it("explains wrapped provider usage limits and reset times", async () => {
     const fallback = await resolveChatErrorFallbackText(undefined, {
-      error: "AGENT_R0726: You've hit your usage limit. Try again at Sep 15th, 2026 1:23 AM.",
+      error: "AGENT_R0726: You've hit your usage limit. Try again at Sep 15th, 2026 1:23 AM. See https://chatgpt.com/codex/settings/usage",
       history: [], message: { text: "hello" }, publicError: { code: "INTERNAL", error: "Internal error." },
       run: undefined, thread: {}, toolResults: [],
     } as never)

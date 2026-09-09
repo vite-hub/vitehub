@@ -23,7 +23,6 @@ const props = defineProps<{
 const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
-const sidebarCollapsed = ref(false);
 const definitions = ref<ConsoleDefinitionSummary[]>([]);
 const selectedName = ref<string>();
 const loading = ref(true);
@@ -203,19 +202,17 @@ onBeforeUnmount(() => request?.abort());
 <template>
   <ConsoleFrame>
     <UDashboardSidebar
-      :id="`${section}-definitions`"
+      :id="console-navigation"
       v-model:open="sidebarOpen"
-      v-model:collapsed="sidebarCollapsed"
-      :default-size="21"
+      :default-size="16"
       :collapsed-size="4"
-      :min-size="17"
-      :max-size="28"
+      :min-size="13"
+      :max-size="26"
       :menu="{
         title: `${sectionDetails.label} Definitions`,
         description: sectionDetails.description,
       }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-3 py-2' }"
-      collapsible
+      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'h-11 shrink-0 border-t border-default px-2 py-1.5' }"
       resizable
     >
       <template #header="{ collapsed }">
@@ -223,20 +220,11 @@ onBeforeUnmount(() => request?.abort());
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed" class="flex items-end justify-between px-4 pb-3 pt-5">
-          <div>
-            <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted"
-              >Discovered</span
-            >
-            <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Definitions</h1>
-          </div>
-          <span class="text-xs text-muted">{{ definitions.length }}</span>
-        </div>
-        <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
+        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
           <UDashboardSearchButton
             :collapsed="collapsed"
             block
-            class="w-full bg-transparent ring-default"
+            class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60"
             label="Search console"
           />
         </div>
@@ -305,7 +293,7 @@ onBeforeUnmount(() => request?.abort());
         />
       </template>
 
-      <template #footer="{ collapsed, collapse }">
+      <template #footer="{ collapsed }">
         <ConsolePrimitiveSwitcher
           :active="section"
           :collapsed="collapsed"
@@ -323,16 +311,6 @@ onBeforeUnmount(() => request?.abort());
             @click="loadDefinitions"
           />
         </UTooltip>
-        <UButton
-          class="max-lg:hidden"
-          :class="collapsed ? '' : 'ml-1'"
-          icon="i-ph-sidebar-simple-light"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          :aria-label="collapsed ? 'Show definitions' : 'Hide definitions'"
-          @click="collapse(!collapsed)"
-        />
       </template>
     </UDashboardSidebar>
 

@@ -34,6 +34,8 @@ export interface SqliteAgentStateDriver extends SqliteAgentStateExecutor {
 export interface SqliteAgentStateOptions {
   driver: SqliteAgentStateDriver
   tablePrefix?: string
+  /** Preserve Chat user transcripts, including existing rows, before expiry cleanup. */
+  transcripts?: { retention: "forever" }
 }
 
 export interface LibsqlAgentStateClient {
@@ -124,6 +126,7 @@ async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAdapter {
+  private readonly preserveTranscripts: boolean
   private connected = false
   private connectPromise?: Promise<void>
   private readonly driver: SqliteAgentStateDriver
@@ -135,6 +138,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     if (!options.driver) {
       throw agentDiagnostics.AGENT_R0850({ message: "[vitehub] SQLite Agent State requires a driver." })
     }
+    this.preserveTranscripts = options.transcripts?.retention === "forever"
     this.driver = options.driver
     this.tables = createTables(options.tablePrefix)
   }
@@ -159,7 +163,8 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async appendToList(key: string, value: unknown, options?: { maxLength?: number; ttlMs?: number }): Promise<void> {
     await this.cleanupExpiredStateIfDue()
     const now = Date.now()
-    const expiresAt = options?.ttlMs ? now + options.ttlMs : null
+    const transcript = /^(?:chat:.*:)?transcripts:user:/.test(key)
+    const expiresAt = this.preserveTranscripts && transcript ? null : options?.ttlMs ? now + options.ttlMs : null
     await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.lists} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
       await execute(tx, `INSERT INTO ${this.tables.lists} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
@@ -307,6 +312,10 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     this.connected = true
     try {
       await this.migrate()
+      if (this.preserveTranscripts) {
+        await this.transaction(tx => execute(tx, `UPDATE ${this.tables.lists} SET expires_at = NULL
+          WHERE expires_at IS NOT NULL AND (key GLOB 'chat:*:transcripts:user:*' OR key GLOB 'transcripts:user:*')`))
+      }
       await this.cleanupExpiredState()
     } catch (error) {
       this.connected = false

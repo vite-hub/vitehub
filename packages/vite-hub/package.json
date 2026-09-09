@@ -80,6 +80,7 @@
     "./agent/mcp": "./dist/agent/mcp.js",
     "./agent/runtime/process": "./dist/agent/runtime/process.js",
     "./agent/server": "./dist/agent/server.js",
+    "./agent/server/github": "./dist/agent/server/github.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
     "./agent/vite": "./dist/agent/vite.js",
     "./agent/vue": "./dist/agent/vue.js",
@@ -221,6 +222,7 @@
     "esbuild": "catalog:tooling",
     "google-auth-library": "catalog:storage",
     "h3": "catalog:unjs",
+    "katex": "^0.17.0",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
@@ -252,7 +254,9 @@
     "@nuxt/ui": "^4.11.0",
     "comark-content": "catalog:markdown",
     "evalite": "catalog:ai",
+    "evlog": "^2.28.1",
     "playwright-core": "catalog:browser",
+    "posthog-node": "^5.51.6",
     "reka-ui": "^2.10.4",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
@@ -268,7 +272,13 @@
     "evalite": {
       "optional": true
     },
+    "evlog": {
+      "optional": true
+    },
     "playwright-core": {
+      "optional": true
+    },
+    "posthog-node": {
       "optional": true
     },
     "reka-ui": {

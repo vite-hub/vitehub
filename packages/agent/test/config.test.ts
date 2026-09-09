@@ -1,3 +1,4 @@
+import { validateAgentStaticRoute } from "../src/internal/routes.ts"
 import { describe, expect, it, vi } from "vitest"
 
 import { normalizeAgentOptions } from "../src/config.ts"
@@ -262,4 +263,12 @@ describe("agent config", () => {
     })
   })
 
+})
+
+it("rejects readiness overlaps with static, parameterized, and catch-all handlers", () => {
+  expect(validateAgentStaticRoute("/api/ready", [{ route: "/api/other" }, { route: "/**", middleware: true }])).toBe("/api/ready")
+  for (const route of ["/api/ready", "/api/[name]", "/api/**", "/api/[...path]"]) {
+    expect(() => validateAgentStaticRoute("/api/ready", [{ route }])).toThrow("readiness route conflicts")
+  }
+  expect(() => validateAgentStaticRoute("/api/:agent", [])).toThrow("static route")
 })

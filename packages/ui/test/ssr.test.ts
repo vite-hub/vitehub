@@ -2,12 +2,47 @@ import { createSSRApp, defineComponent, h } from "vue";
 import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it } from "vitest";
 import { AgentChat } from "../src/components/agent-chat.ts";
+import { AgentMarkdown } from "../src/components/agent-markdown.ts";
 import { AgentInvocation, AgentInvocationInspector } from "../src/components/agent-invocation.ts";
 import { AgentInvocationList } from "../src/components/agent-invocation-list.ts";
 import { createViteHubUI } from "../src/config.ts";
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("UI server rendering", () => {
+  it("renders retained Markdown images as accessible previews and permits custom images", async () => {
+    const value = "![chart.png](/files/retained-image)";
+    const app = createSSRApp({ render: () => h(AgentMarkdown, { value }) });
+    app.use(createViteHubUI());
+    const html = await renderToString(app);
+    expect(html).toContain('aria-label="Preview chart.png"');
+    expect(html).toContain('src="/files/retained-image"');
+    expect(html).toContain('alt="chart.png"');
+    expect(html).not.toContain('role="dialog"');
+
+    const custom = createSSRApp({ render: () => h(AgentMarkdown, {
+      components: { img: defineComponent({ setup: () => () => h("span", "Custom image") }) },
+      value,
+    }) });
+    expect(await renderToString(custom)).toContain("Custom image");
+  });
+
+  it("composes custom Markdown plugins with built-in math support", async () => {
+    let customPluginRuns = 0;
+    const app = createSSRApp({
+      render: () => h(AgentMarkdown, {
+        plugins: [{
+          name: "custom",
+          markdownItPlugins: [() => { customPluginRuns++; }],
+        }],
+        value: "Inline $x$",
+      }),
+    });
+
+    const html = await renderToString(app);
+    expect(customPluginRuns).toBe(1);
+    expect(html).toContain("katex");
+  });
+
   it("renders runtime Nuxt UI components through the Vue plugin", async () => {
     const app = createSSRApp({
       render: () =>
@@ -196,7 +231,8 @@ describe("UI server rendering", () => {
     expect(html).toContain("Completed");
     expect(html).toContain("Inspecting the repository.");
     expect(html).toContain("Assistant message");
-    expect(html).not.toContain("12:00 AM");
+    expect(html).toContain('datetime="2026-08-22T00:00:00.100Z"');
+    expect(html.indexOf("vh-invocation-session__timestamp")).toBeLessThan(html.indexOf('aria-label="Session thread"'));
     expect(html).toContain("Ran command");
     expect(html).toContain("git status --short");
     expect(html).toContain(">1,200<");

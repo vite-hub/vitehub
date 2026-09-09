@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { initLogger } from "evlog"
-import { createAgentEvlog, sanitizeAgentLog, type AgentEvlogExporter } from "../src/evlog.ts"
+import { agentEvlogPlugin, createAgentEvlog, filterAgentObservability, sanitizeAgentLog, type AgentEvlogExporter } from "../src/evlog.ts"
 import { defineAgent, runAgent } from "../src/index.ts"
 
 const background: Promise<unknown>[] = []
@@ -85,6 +85,25 @@ it("removes secrets and raw model content from nested log data", () => {
   expect(sanitizeAgentLog(data)).toEqual({ customer: "[EMAIL]", url: "https://example.org/a", nested: { message: "Bearer [REDACTED]" } })
 })
 
+it("filters minimal observability to lifecycle metadata", () => {
+  expect(filterAgentObservability("minimal", {
+    invocation_id: "inv-1", model: "gpt-test", duration_ms: 12,
+    tool_name: "github", tool_input: "private", input_summary: "private",
+    status: "completed", prompt: "private",
+  })).toEqual({ invocation_id: "inv-1", model: "gpt-test", duration_ms: 12, status: "completed" })
+})
+
+it.each(["minimal", "standard", "full"] as const)("applies %s level before exporter delivery", async (level) => {
+  const { telemetry, exporter } = setup({}, { level })
+  telemetry.event("agent.lifecycle", { invocation_id: "i", prompt: "private prompt", output_summary: "safe summary", tool_name: "shell", tool_status: "ok" })
+  await telemetry.flush()
+  const payload = exporter.capture.mock.calls[0]?.[1] || {}
+  if (level !== "full") expect(JSON.stringify(payload)).not.toContain("private prompt")
+  if (level === "minimal") expect(payload).not.toHaveProperty("tool_name")
+  if (level === "standard") expect(payload).toHaveProperty("output_summary", "safe summary")
+  if (level === "full") expect(payload).toHaveProperty("prompt", "private prompt")
+})
+
 it("records a terminal event when a later capability fails to prepare", async () => {
   const { telemetry, exporter } = setup()
   const agent = defineAgent({ capabilities: [telemetry.capability, { id: "broken", prepare() { throw new Error("setup failed") } }], driver: { run: () => "unreachable" } })
@@ -110,4 +129,110 @@ it("exports streamed usage once after the stream ends", async () => {
   const terminal = exporter.capture.mock.calls.filter(([name]) => name === "$ai_trace")
   expect(terminal).toHaveLength(1)
   expect(terminal[0]![1]).toMatchObject({ total_tokens: 4, model: "test-model", status: "completed" })
+})
+
+it("finishes an invocation while retaining slow delivery in the host lifetime", async () => {
+  let release!: () => void
+  const blocked = new Promise<void>(resolve => { release = resolve })
+  const { telemetry, exporter } = setup({ capture: async () => blocked })
+  const agent = defineAgent({ driver: { run: () => "answer" }, capabilities: [telemetry.capability] })
+  try {
+    await runAgent(agent, { runtime: "unknown", memo: vi.fn(), waitUntil }, { prompt: "hello" })
+    expect(telemetry.status().pending).toBeGreaterThan(0)
+    expect(exporter.capture).toHaveBeenCalled()
+  }
+  finally {
+    release()
+    await Promise.allSettled(background.splice(0))
+  }
+})
+
+it("uses the existing evlog drain when no separate exporter is configured", async () => {
+  const drain = vi.fn()
+  initLogger({ drain, pretty: false })
+  const telemetry = createAgentEvlog({ service: "configured-host", environment: "test" })
+  telemetry.event("agent.event", { invocation_id: "one" })
+  await telemetry.flush()
+  expect(drain).toHaveBeenCalledWith(expect.objectContaining({ event: expect.objectContaining({ invocation_id: "one", service: "configured-host" }) }))
+})
+
+it("builds Console links and owns its host lifecycle from the shared configuration", async () => {
+  const { telemetry, exporter } = setup({}, { console: { origin: "https://console.example", base: "/inspect" } })
+  const hooks = new Map<string, Function>()
+  telemetry.plugin({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  const agent = defineAgent({ driver: { run: () => "answer" }, capabilities: [telemetry.capability] })
+  await runAgent(agent, { runtime: "unknown", memo: vi.fn(), waitUntil, agentIdentity: { name: "bot" }, run: { runId: "links" } }, { prompt: "hello" })
+  await Promise.allSettled(background.splice(0))
+  const terminal = exporter.capture.mock.calls.find(([name]) => name === "$ai_trace")
+  expect(terminal?.[1].session_url).toMatch(/^https:\/\/console.example\/inspect\/agents\/bot\/invocations\//)
+  await hooks.get("close")!()
+  expect(telemetry.status().closed).toBe(true)
+})
+
+it("exports only failed HTTP logs by default", async () => {
+  const { telemetry, exporter } = setup()
+  telemetry.drain({ event: { service: "test", environment: "development", level: "info", method: "GET", path: "/health", status: 200, timestamp: new Date().toISOString() }, request: { method: "GET", path: "/health" } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "error", method: "POST", path: "/rpc", status: 500, timestamp: new Date().toISOString() }, request: { method: "POST", path: "/rpc" } })
+  await telemetry.flush()
+  expect(exporter.logs).toHaveBeenCalledTimes(1)
+  expect(exporter.logs.mock.calls[0]?.[0]).toEqual([expect.objectContaining({ path: "/rpc", status: 500 })])
+})
+
+it.each(["failures", "all", false] as const)("preserves application logs with HTTP log policy %s", async (logs) => {
+  const { telemetry, exporter } = setup({}, { logs })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "info", event: "job.finished", timestamp: new Date().toISOString() } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "debug", event: "job.progress", timestamp: new Date().toISOString() } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "info", event: "outbound.finished", method: "GET", path: "/health", status: 200, timestamp: new Date().toISOString() } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "info", method: "GET", path: "/health", status: 200, timestamp: new Date().toISOString() }, request: { method: "GET", path: "/health" } })
+  telemetry.drain({ event: { service: "test", environment: "development", level: "error", method: "POST", path: "/rpc", status: 500, timestamp: new Date().toISOString() }, request: { method: "POST", path: "/rpc" } })
+  await telemetry.flush()
+  expect(exporter.logs).toHaveBeenCalledTimes(1)
+  const records = exporter.logs.mock.calls[0]![0]
+  expect(records.filter(record => record.event).map(record => record.event)).toEqual(["job.finished", "job.progress", "outbound.finished"])
+  expect(records.filter(record => !record.event).map(record => record.status)).toEqual(logs === "all" ? [200, 500] : logs === "failures" ? [500] : [])
+})
+
+it.each(["minimal", "standard", "full"] as const)("logs HTTP 4xx failures with request metadata at %s level", async (level) => {
+  const { telemetry, exporter } = setup({}, { level, logs: false })
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  const req = Object.assign(new Request("https://example.test/missing?token=secret"), { context: { requestId: "req-1" } })
+  hooks.get("error")!(Object.assign(new Error("Not found"), { statusCode: 404 }), { event: { req } })
+  await telemetry.flush()
+  expect(exporter.exception).not.toHaveBeenCalled()
+  expect(exporter.capture).toHaveBeenCalledWith("http.request.failed", expect.objectContaining({ level: "warn", status_code: 404, request_id: "req-1", method: "GET", path: "/missing", operation: "http.request" }), expect.anything())
+})
+
+it("keeps non-request 4xx failures as exceptions", async () => {
+  const { telemetry, exporter } = setup()
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  hooks.get("error")!(Object.assign(new Error("Upstream rejected background task"), { statusCode: 403 }), {})
+  await telemetry.flush()
+  expect(exporter.exception).toHaveBeenCalledTimes(1)
+  expect(exporter.capture).not.toHaveBeenCalled()
+})
+
+it.each([500, 503])( "keeps HTTP %s failures as exceptions", async (statusCode) => {
+  const { telemetry, exporter } = setup()
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  const req = Object.assign(new Request("https://example.test/fail"), { context: { requestId: "req-5xx" } })
+  hooks.get("error")!(Object.assign(new Error("Server error"), { statusCode }), { event: { req } })
+  await telemetry.flush()
+  expect(exporter.exception).toHaveBeenCalledTimes(1)
+})
+
+it.each(["statusCode", "status"])("keeps errors with a throwing %s getter on the exception path", async (property) => {
+  const { telemetry, exporter } = setup()
+  const hooks = new Map<string, Function>()
+  agentEvlogPlugin(telemetry)({ hooks: { hook(name, callback) { hooks.set(name, callback) } } })
+  const error = Object.defineProperty(new Error("Unknown failure"), property, {
+    get() { throw new Error("Cannot inspect status") },
+  })
+  const req = new Request("https://example.test/fail")
+  expect(() => hooks.get("error")!(error, { event: { req } })).not.toThrow()
+  await telemetry.flush()
+  expect(exporter.exception).toHaveBeenCalledTimes(1)
+  expect(exporter.capture).not.toHaveBeenCalled()
 })

@@ -3,6 +3,27 @@ import { describe, expect, it } from "vitest"
 import { createChatMessageTriggerInput, resolveChatSessionId } from "../src/chat-message-input.ts"
 
 describe("chat message trigger input", () => {
+  it.each(["none" as const, { maxMessages: 1, source: "thread" as const }])("retains coalesced queue input with history %j", (triggerHistory) => {
+    const result = createChatMessageTriggerInput({ concurrency: "queue", triggerHistory }, {
+      messages: [
+        { id: "old", parts: [{ type: "text", text: "old history" }], role: "user" },
+        { id: "retained", parts: [{ type: "text", text: "retained input" }], role: "user" },
+        { id: "latest", metadata: { chat: { skippedCount: 1 } }, parts: [{ type: "text", text: "latest input" }], role: "user" },
+      ],
+    })
+    expect(result.input.messages?.map(message => message.id)).toEqual(["retained", "latest"])
+  })
+
+  it.each([null, "1", -1, 0, 1.5, Number.MAX_SAFE_INTEGER + 1])("ignores invalid retained queue counts %j", (skippedCount) => {
+    const result = createChatMessageTriggerInput({ concurrency: "queue", triggerHistory: "none" }, {
+      messages: [
+        { id: "old", parts: [{ type: "text", text: "old history" }], role: "user" },
+        { id: "latest", metadata: { chat: { skippedCount } }, parts: [{ type: "text", text: "latest input" }], role: "user" },
+      ],
+    })
+    expect(result.input.messages?.map(message => message.id)).toEqual(["latest"])
+  })
+
   it("materializes UI data URL attachments for provider agents", () => {
     const result = createChatMessageTriggerInput({}, {
       messages: [{

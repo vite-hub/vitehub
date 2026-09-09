@@ -157,6 +157,10 @@ the stable codes and redaction rules.
 
 Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
 
+Capability setup callbacks (`configure`, `prepare`, `bind`, `input`, `resolve`, `output`) and `close` emit one `agent.capability.<phase>` event when the callback settles. These events measure the callback itself with a monotonic clock, excluding before/after hooks and trace persistence. Read `agent.capability.id`, `agent.capability.phase`, `agent.capability.outcome`, and `agent.capability.durationMs` to distinguish slow integration setup from model execution. Outcomes are `success`, `error`, or `cancelled`; cancellation means the callback failed while the effective invocation input's abort signal was set.
+
+Timing events carry the available invocation, run, and trace identifiers. They contain no callback arguments, results, configuration, or thrown error messages, and follow the normal trace and journal retention policy. A missing event means timing is unavailable, not zero. Emission does not await arbitrary trace sinks: pending or rejected persistence cannot change callback results or prevent cleanup. The host still owns its trace sink's flushing and retention policy.
+
 Attach the `otlp()` Capability to send completed invocation traces to any OTLP/HTTP JSON receiver:
 
 ```ts [server/agents/support.ts]
@@ -204,11 +208,44 @@ export default defineAgent({
 
 Use `invocations.getSummary(id)` to read metadata without observation payloads. It returns `undefined` when the Invocation does not exist. Every `AgentInvocationStore` must implement `getSummary(id)`; `get(id)` returns the full record.
 
+Pass `observationNames` to read only the observations needed for an inspection:
+
+```ts
+const record = await invocations.get(invocationId, {
+  observationNames: ['agent.invocation.finish'],
+})
+```
+
+Names match exactly, and matching observations keep their journal order. Other record fields remain unchanged. An empty array returns no observations; omitting `observationNames` returns all retained observations. Both forms return `undefined` for a missing Invocation. D1 and libSQL filter observation payloads in storage. Custom stores may ignore the optional read options; the Invocations wrapper still filters the returned record.
+
 The SQLite adapter keeps at most 10,000 terminal records from the last 30 days by default. Pending and running invocations remain available until they reach a terminal state. Set `maxAgeMs` or `maxRecords` to `false` to disable that limit. Retention runs after successful creates and terminal transitions, so a journal without either event may retain an expired record.
+
+Use `configuration: 'content'` to retain resolved instructions and tool descriptions/schemas independently of other trace content. The default is `configuration: 'metadata'`. Console journals enable configuration retention for inspection; existing records cannot recover contracts that were not saved. Recorded configuration still uses the journal's observation limits and marks truncated values.
 
 Invocation journals are metadata-only by default. Set `content: 'content'` only when the application must persist prompts, messages, reasoning, tool inputs and outputs, and result text. That opt-in stores sensitive model content in the configured durable store; apply the same access controls, retention policy, and encryption requirements as the source data.
 
 The journal records pending, running, completed, failed, and cancelled states plus bounded invocation metadata and trace observations. Failed records retain bounded `cause` and `AggregateError.errors` trees, common status and code fields, and public ViteHub error details. Use `invocations.list()` for cursor-based summaries, `invocations.get(id)` for a stored record ID, and `invocations.getByRunId(runId, agentName?)` when starting from the source run ID. Always pass the Agent Definition name for a named Definition; the name is part of its durable invocation identity. Journal failures never change the Agent Invocation result.
+
+Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
+
+```ts
+const people = await invocations.listTriggeredBy('support')
+const page = await invocations.list({
+  agentName: 'support',
+  triggeredBy: 'Alex',
+  limit: 50,
+})
+const nextPage = page.cursor
+  ? await invocations.list({
+      agentName: 'support',
+      triggeredBy: 'Alex',
+      limit: 50,
+      cursor: page.cursor,
+    })
+  : undefined
+```
+
+`listTriggeredBy(agentName?)` returns sorted, distinct, non-empty person labels from persisted history, with surrounding whitespace removed. Omit the Agent name to list labels across all Agents. Records without a person label do not match a non-empty `triggeredBy` filter; an empty or whitespace-only filter is ignored. Keep the same filters when following a page cursor. Custom stores can implement `listTriggeredBy()` for a direct lookup; otherwise the Invocations wrapper collects labels by paging through summaries.
 
 Use `observations` to set limits for long traces:
 
@@ -273,7 +310,7 @@ console.log(d1AgentInvocationSchema().join(';\n') + ';')
 
 The adapter does not run schema changes during requests. `tablePrefix` defaults to `vitehub_agent_`; pass the same prefix to the schema function and store to use another table name. These statements create a new ViteHub-owned schema. They do not convert a custom application journal or the libSQL adapter's tables. Keep an existing journal until its records have been migrated explicitly.
 
-D1 batches make creation and retention atomic. Conditional updates retry when another Worker changes the record, so concurrent observations are preserved. Claims use the database clock and fence updates after ownership changes. After 32 concurrent write conflicts, an update rejects instead of overwriting another writer. The store uses the same terminal-record retention defaults and observation deduplication as the libSQL store. It supports Agent, Capability, status, and text filters, and reads summaries without observation payloads.
+D1 batches make creation and retention atomic. Conditional updates retry when another Worker changes the record, so concurrent observations are preserved. Claims use the database clock and fence updates after ownership changes. After 32 concurrent write conflicts, an update rejects instead of overwriting another writer. The store uses the same terminal-record retention defaults and observation deduplication as the libSQL store. It supports Agent, Capability, triggering-person, status, and text filters, lists recorded person labels with `listTriggeredBy()`, and reads summaries without observation payloads. Use `get(id, { observationNames })` to select observation payloads by name.
 
 [D1 limits a row to 2 MB](https://developers.cloudflare.com/d1/platform/limits/). The adapter caps retained observations at 1,000,000 UTF-8 bytes, even when the journal requests a larger limit. Each record exposes this resolved limit in `observationLimits`. It also checks the full row, including repeated summary and search text. If that row is too large, it removes ordinary observations and marks `observationsTruncated` while keeping lifecycle fields and previously appended evidence. If the remaining row still cannot fit, the update rejects before a database write. Use another store when the complete long trace must be retained.
 

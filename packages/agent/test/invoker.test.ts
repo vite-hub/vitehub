@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { agentInvokerLabel, normalizeAgentInvoker, portableResolvedAgentInvokerInput, withResolvedAgentInvokerInput } from "../src/invoker.ts"
+import { sameInlineInvoker } from "../src/internal/inline-invoker.ts"
 
 describe("Agent Invoker", () => {
   it("resolves a human-readable label from the explicit label or metadata name", () => {
@@ -51,6 +52,24 @@ describe("Agent Invoker", () => {
       id: "tenant-1",
       meta: { email: "also invalid", scope: "acme" },
     })
+  })
+
+  it("keeps distinct Proxy metadata separate through repeated invoker normalization", () => {
+    const metadata = [1, 2].map(value => new Proxy({ value }, { get: () => undefined }))
+    expect(JSON.stringify(metadata[0])).toBe(JSON.stringify(metadata[1]))
+    const [left, right] = metadata.map(meta => normalizeAgentInvoker(normalizeAgentInvoker({ id: "user", meta })))
+    expect(left?.meta).toEqual({ value: 1 })
+    expect(right?.meta).toEqual({ value: 2 })
+    expect(sameInlineInvoker(left, right)).toBe(false)
+  })
+
+  it("preserves accessors without reading them during metadata copying", () => {
+    const role = () => { throw new Error("Unexpected metadata getter") }
+    const meta = Object.defineProperty({}, "role", { enumerable: true, get: role })
+    const left = normalizeAgentInvoker({ id: "user", meta })
+    const right = normalizeAgentInvoker({ id: "user", meta })
+    expect(Object.getOwnPropertyDescriptor(left.meta, "role")?.get).toBe(role)
+    expect(sameInlineInvoker(left, right)).toBe(false)
   })
 
   it("removes nonportable resolved invoker metadata from Workflow inputs", () => {

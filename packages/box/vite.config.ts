@@ -2,7 +2,7 @@ import { defineConfig } from "vite-plus"
 
 export default defineConfig({
   pack: {
-    entry: ["src/index.ts", "src/internal/cloudflare.ts", "src/internal/vercel.ts"],
+    entry: ["src/index.ts", "src/ssh.ts", "src/internal/cloudflare.ts", "src/internal/vercel.ts"],
     exports: {
       customExports(exports) {
         return Object.fromEntries(

@@ -95,11 +95,12 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
       })()
   if (!/usage limit|quota|credit/i.test(raw)) return defaultChatErrorFallbackText
   const reset = raw.match(/try again at ([^.]+\.)/i)?.[1]?.trim()
+  const usageLink = raw.match(/https?:\/\/[^\s)]+(?:usage|credits?)[^\s)]*/i)?.[0]
   return [
     "The AI provider usage limit has been reached.",
     reset ? `Usage should reset ${reset}` : "Usage will reset when the provider quota renews.",
-    "You can purchase more credits at https://chatgpt.com/codex/settings/usage.",
-  ].join(" ")
+    usageLink ? `You can purchase more credits at ${usageLink}.` : "",
+  ].filter(Boolean).join(" ")
 }
 export function isDurableChatErrorFallbackEffect(effect: unknown): boolean {
   // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.

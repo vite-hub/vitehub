@@ -1,6 +1,9 @@
 ---
 title: Provider status
 description: Inspect provider authentication and subscription quota without running an Agent.
+navigation.title: Provider status
+navigation.order: 70
+navigation.group: Verify
 ---
 
 Agent Definitions expose `status(context, { abortSignal })` for provider inspection. Built-in Codex and Claude Code Drivers reuse T3's account and quota probes. Inspection does not create an Agent Invocation, send a model prompt, or open a conversation.

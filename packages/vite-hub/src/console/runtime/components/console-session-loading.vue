@@ -19,7 +19,7 @@ const emit = defineEmits<{
 <template>
   <div
     :aria-label="props.error ? 'Session load failed' : 'Loading session'"
-    class="h-full overflow-hidden"
+    class="h-full w-full min-w-0 overflow-hidden"
     :role="props.error ? 'alert' : 'status'"
   >
     <template v-if="surface === 'inspector'">

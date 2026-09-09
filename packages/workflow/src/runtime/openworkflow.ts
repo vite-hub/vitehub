@@ -290,10 +290,12 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   payload: TPayload | undefined,
   definition: WorkflowDefinition<TPayload, TResult>,
   options: WorkflowDeferOptions,
+  onDispatch?: () => void,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   // SAFETY: Registration preserves this Workflow Definition's payload and result contract in the provider runnable.
   const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
+  onDispatch?.()
   let firstAcknowledgementUnknown = false
   const handle = await runWorkflowProviderOperation("openworkflow", "run", async () => {
     const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)
