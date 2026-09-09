@@ -97,24 +97,31 @@ async function withConfigurationFingerprint(
   }
 }
 
-function redactConfigurationValue(value: unknown, seen = new WeakMap<object, unknown>(), key = ""): unknown {
+function redactConfigurationValue(
+  value: unknown,
+  seen = { public: new WeakMap<object, unknown>(), secret: new WeakMap<object, unknown>() },
+  key = "",
+  secretAncestor = false,
+): unknown {
+  const secret = secretAncestor || secretMetadataKey(key)
   if (hasRuntimeType(value, "string")) {
-    if (secretMetadataKey(key)) return "[redacted]"
+    if (secret) return "[redacted]"
     if (key === "repo" || key === "repository") return value
     return redactCredentialText(value)
   }
   if (!value || !hasRuntimeType(value, "object")) return value
-  const existing = seen.get(value)
+  const visited = secret ? seen.secret : seen.public
+  const existing = visited.get(value)
   if (existing) return existing
   if (Array.isArray(value)) {
     const result: unknown[] = []
-    seen.set(value, result)
-    for (const child of value) result.push(redactConfigurationValue(child, seen))
+    visited.set(value, result)
+    for (const child of value) result.push(redactConfigurationValue(child, seen, "", secret))
     return result
   }
   const result: Record<string, unknown> = {}
-  seen.set(value, result)
-  for (const [childKey, child] of Object.entries(value)) result[childKey] = redactConfigurationValue(child, seen, childKey)
+  visited.set(value, result)
+  for (const [childKey, child] of Object.entries(value)) result[childKey] = redactConfigurationValue(child, seen, childKey, secret)
   return result
 }
 

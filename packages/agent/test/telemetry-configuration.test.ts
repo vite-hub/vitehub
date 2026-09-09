@@ -30,3 +30,30 @@ it("preserves raw configuration fingerprints and public redaction across updates
     expect(JSON.stringify(value)).not.toContain("instruction-secret")
   }
 })
+
+
+it("redacts secret schema descendants without changing ordinary shared defaults", async () => {
+  const context = createAgentInvocationContextStore()
+  const shared = { default: "opaque-value", examples: ["opaque-example"], nested: { repository: "opaque-repository" } }
+  const configuration = {
+    driver: { kind: "provider" as const },
+    runtime: { name: "node" },
+    tools: [{ name: "configure", inputSchema: { properties: {
+      ordinary: shared,
+      apiKey: shared,
+      password: { default: "opaque-password" },
+    } } }],
+  }
+  await setAgentTelemetryConfiguration(context, configuration)
+  const initial = getAgentTelemetryConfiguration(context)!.value
+  expect(initial.tools?.[0]?.inputSchema).toEqual({ properties: {
+    ordinary: shared,
+    apiKey: { default: "[redacted]", examples: ["[redacted]"], nested: { repository: "[redacted]" } },
+    password: { default: "[redacted]" },
+  } })
+  expect(JSON.stringify(initial)).not.toContain("opaque-password")
+  expect(shared.default).toBe("opaque-value")
+  expect(initial.fingerprint).toBe(await agentTelemetryConfigurationFingerprint(configuration))
+  await updateAgentTelemetryConfiguration(context, {})
+  expect(getAgentTelemetryConfiguration(context)!.value).toEqual(initial)
+})
