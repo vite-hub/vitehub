@@ -574,7 +574,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function materializeRootSourceForPath(path: string) {
     const rootSources = sources.filter(source => !source.mountPath)
-    if (!rootSources.length) await materializeStartupSourcesInPrecedenceOrder([])
+    // Reconcile removed startup Sources before probing any remaining lazy roots.
+    // Otherwise an unrelated lazy Source can mask stale files from a prior startup definition.
+    await materializeStartupSourcesInPrecedenceOrder([])
     for (const source of rootSources) {
       await ensurePrepared(source.key)
       await ensureMaterialized(source.key)
