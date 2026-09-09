@@ -9,6 +9,7 @@ import type {
 
 interface AgentTelemetryConfigurationState {
   value: AgentTelemetryConfiguration
+  source: AgentTelemetryConfiguration
 }
 
 function compareCodeUnits(left: string, right: string): number {
@@ -127,7 +128,7 @@ export async function setAgentTelemetryConfiguration(
   value: AgentTelemetryConfiguration,
 ): Promise<void> {
   const fingerprinted = await withConfigurationFingerprint(value)
-  configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted) })
+  configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: value })
 }
 
 export async function updateAgentTelemetryConfiguration(
@@ -139,20 +140,21 @@ export async function updateAgentTelemetryConfiguration(
   const current = configurationByContext.get(context)
   if (!current) return
   const { driver, ...valuePatch } = patch
+  const source = current.source
   if (valuePatch.tools) {
-    const owners = new Map(current.value.tools?.map(tool => [tool.name, tool.capabilityId]))
+    const owners = new Map(source.tools?.map(tool => [tool.name, tool.capabilityId]))
     valuePatch.tools = valuePatch.tools.map(tool => {
       const capabilityId = tool.capabilityId ?? owners.get(tool.name)
       return capabilityId ? { ...tool, capabilityId } : tool
     })
   }
   const next = {
-    ...current.value,
+    ...source,
     ...valuePatch,
     ...(driver
       ? {
           driver: {
-            ...current.value.driver,
+            ...source.driver,
             ...driver,
             kind: driver.kind ?? current.value.driver.kind,
             ...(driver.model
@@ -162,7 +164,7 @@ export async function updateAgentTelemetryConfiguration(
         }
       : {}),
   }
-  configurationByContext.set(context, { value: await withConfigurationFingerprint(redactTelemetryConfiguration(next)) })
+  configurationByContext.set(context, { value: await withConfigurationFingerprint(redactTelemetryConfiguration(next)), source: next })
   await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
 }
 

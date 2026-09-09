@@ -1792,6 +1792,7 @@ interface ProviderInvocationUsageAccumulator {
   outputTokens: number
   partitionComplete: boolean
   previousTotalProcessedTokens?: number
+  lastUsageEvent?: object
   reasoningOutputTokens: number
   reasoningOutputTokensComplete: boolean
   observedPartition: boolean
@@ -1812,7 +1813,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const cumulative = usage.totalProcessedTokens
   const changed = cumulative !== undefined
     ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
-    : signature !== options.accumulator.lastSignature
+    : event !== options.accumulator.lastUsageEvent
   const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed
   if (options.provider === "codex" && changed && partitionTotal === undefined) {
     options.accumulator.partitionComplete = false
@@ -1848,6 +1849,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   }
   options.accumulator.previousTotalProcessedTokens = cumulative
   options.accumulator.lastSignature = signature
+  options.accumulator.lastUsageEvent = event
   const accumulatedPartition = options.provider === "codex" && options.accumulator.observedPartition && options.accumulator.partitionComplete
   const totalTokens = accumulatedPartition
     ? options.accumulator.inputTokens + options.accumulator.outputTokens
