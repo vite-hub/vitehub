@@ -1799,8 +1799,6 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const usage = event.payload.usage
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
-  const omitPartition = usage.totalProcessedTokens !== undefined
-    && (inputTokens === undefined || outputTokens === undefined || inputTokens + outputTokens !== usage.totalProcessedTokens)
   return {
     type: "usage",
     usageRecord: {
@@ -1808,12 +1806,12 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       raw: usage,
       usage: {
         details: {
-          ...(omitPartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(omitPartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-          ...(omitPartition || usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
         },
-        inputTokens: omitPartition ? undefined : inputTokens,
-        outputTokens: omitPartition ? undefined : outputTokens,
+        inputTokens,
+        outputTokens,
         totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
       },
     },
