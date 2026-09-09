@@ -95,7 +95,18 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
       })()
   if (!/usage limit|quota|credit/i.test(raw)) return defaultChatErrorFallbackText
   const reset = raw.match(/try again at ([^.]+\.)/i)?.[1]?.trim()
-  const usageLink = raw.match(/https:\/\/[^\s)]+/i)?.[0]?.replace(/[.,]+$/, "")
+  // Never surface arbitrary URLs embedded in serialized diagnostics. Providers
+  // may opt in by supplying an explicitly named usage link on the error object.
+  const usageLink = (() => {
+    if (!args.error || typeof args.error !== "object") return undefined
+    const value = args.error as Record<string, unknown>
+    const candidate = value.usageUrl ?? value.usageURL ?? value.usageLink
+    if (typeof candidate !== "string") return undefined
+    try {
+      const url = new URL(candidate)
+      return url.protocol === "https:" ? url.toString() : undefined
+    } catch { return undefined }
+  })()
   return [
     "The AI provider usage limit has been reached.",
     reset ? `Usage should reset ${reset}` : "Usage will reset when the provider quota renews.",
