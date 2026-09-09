@@ -1,8 +1,13 @@
+import { readAgentErrorProperty } from "./agent-error.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
 import { withExportDeadline } from "./internal/export-deadline.ts"
 import { defineCapability, eagerFinishExtensionSymbol } from "./capability-runtime.ts"
+import { createPapercutReporter, type PapercutReporterOptions } from "./papercut-reporter.ts"
+import { papercuts } from "./capabilities/papercuts.ts"
+import { diagnostics } from "./capabilities/diagnostics.ts"
+import { agentInvocationId } from "./invocations.ts"
 import { sanitizeAgentLog } from "./evlog/privacy.ts"
 import type { AgentCapabilityDefinition, AgentFinishEvent, ResolvedAgentRuntimeContext } from "./types.ts"
 import type { RuntimeDiagnosticReporter } from "@vite-hub/runtime"
@@ -17,25 +22,33 @@ export interface AgentEvlogExporter {
 }
 
 export interface AgentEvlogOptions {
-  /** Service name defaults to the enclosing agent name when available. */
-  service?: string
-  /** Runtime environment defaults to NODE_ENV (or development). */
-  environment?: string
+  service: string
+  environment: string
   metadata?: Record<string, unknown>
   exporter?: AgentEvlogExporter
   maxPending?: number
   deliveryTimeoutMs?: number
   trustedErrorCodes?: readonly string[]
+  level?: "minimal" | "standard" | "full"
+  /** HTTP request logs sent through the exporter. Defaults to failures only. */
+  logs?: "all" | "failures" | false
   sessionUrl?: (invocation: { agentName: string, id: string }) => string
+  /** Build Console links for all events and reports from one origin. */
+  console?: { origin: string | ((agent: string) => string), base?: string }
+  /** Enable resource diagnostics on the same drain. */
+  resources?: NonNullable<Parameters<typeof diagnostics>[0]>["resources"]
+  /** Durable papercut delivery shares the exporter and its shutdown lifecycle. */
+  papercuts?: Omit<PapercutReporterOptions, "send" | "sessionUrl">
 }
 
 export type AgentObservabilityOptions = AgentEvlogOptions & {
-  preset?: "evlog"
+  preset: "evlog"
   level?: "minimal" | "standard" | "full"
 }
 
 export interface AgentEvlog {
   capability: AgentCapabilityDefinition
+  plugin: (host: AgentEvlogHost) => void
   capture(event: string, properties: Record<string, unknown>, delivery?: { uuid?: string, timestamp?: Date }): Promise<void>
   diagnostics: RuntimeDiagnosticReporter
   event(name: string, properties?: Record<string, unknown>): void
@@ -45,7 +58,7 @@ export interface AgentEvlog {
   flush(): Promise<void>
 }
 
-const minimalKeys = /^(?:agent_name|environment|service|run_id|invocation_id|thread_id|trace_id|parent_trace_id|\$ai_trace_id|session_url|model|provider|provider_name|status|level|severity|duration_ms|timestamp|started_at|ended_at|input_tokens|output_tokens|total_tokens|cost_usd|cost_estimated|cost_source|tool_steps|retry|attempt|reason|code|diagnostic_code|diagnostic_status|warning|error|message)$/i
+const minimalKeys = /^(?:agent_name|environment|service|run_id|invocation_id|thread_id|trace_id|parent_trace_id|\$ai_trace_id|session_url|model|provider|provider_name|status_code|request_id|method|path|operation|status|level|severity|duration_ms|timestamp|started_at|ended_at|input_tokens|output_tokens|total_tokens|cost_usd|cost_estimated|cost_source|tool_steps|retry|attempt|reason|code|diagnostic_code|diagnostic_status|warning|error|message)$/i
 const contentKeys = /(?:prompt|message|input|output|instruction|tool|argument|result|body|context|header|cookie|token|secret|credential)/i
 
 /** Apply the configured observability level before exporter delivery. */
@@ -60,21 +73,26 @@ export function filterAgentObservability(level: NonNullable<AgentObservabilityOp
 }
 
 export function observability(options: AgentObservabilityOptions): AgentCapabilityDefinition {
-  if (options.preset && options.preset !== "evlog") throw new TypeError("[vitehub] Unsupported observability preset.")
+  if (options.preset !== "evlog") throw new TypeError("[vitehub] Unsupported observability preset.")
   return createAgentEvlog(options).capability
 }
 
 /** One shared exporter per host. Capability invocations keep their metadata separate. */
 export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
-  const service = options.service?.trim() || "vitehub-agent"
-  const environment = options.environment?.trim() || (typeof process !== "undefined" && process.env.NODE_ENV) || "development"
+  if (!options.service?.trim() || !options.environment?.trim()) throw new TypeError("[vitehub] evlog requires service and environment.")
   const maxPending = options.maxPending ?? 1000
   if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw new TypeError("[vitehub] evlog maxPending must be a positive integer.")
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new TypeError("[vitehub] evlog deliveryTimeoutMs must be a positive timer duration.")
+  const sessionUrl = options.sessionUrl ?? (options.console ? ({ agentName, id }: { agentName: string, id: string }) => {
+    const origin = hasRuntimeType(options.console!.origin, "function") ? options.console!.origin(agentName) : options.console!.origin
+    const base = (options.console!.base ?? "/_vitehub").replace(/\/$/, "")
+    return new URL(`${base}/agents/${encodeURIComponent(agentName)}/invocations/${encodeURIComponent(id)}`, origin).href
+  } : undefined)
   const exporter = options.exporter
-  const level = (options as AgentObservabilityOptions).level ?? "standard"
-  const metadata = { ...options.metadata, service, environment }
+  const level = options.level ?? "standard"
+  const exportedLogs = options.logs ?? "failures"
+  const metadata = { ...options.metadata, service: options.service, environment: options.environment }
   const pending = new Set<Promise<unknown>>()
   const counts = { accepted: 0, failed: 0, dropped: 0 }
   let closing = false
@@ -109,8 +127,8 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   function emit(event: string, properties: Record<string, unknown>, error?: Error) {
     const filtered = filterAgentObservability(level, { ...properties, ...metadata, event })
     const safe = sanitizeAgentLog(filtered, { allowContent: level === "full" })
-    // The integration owns delivery; avoid also sending through a global Nitro drain.
-    const logger = createLogger(safe, { _deferDrain: true })
+    // Reuse the configured evlog drain unless this integration owns an explicit exporter.
+    const logger = createLogger(safe, { _deferDrain: Boolean(exporter) })
     if (error) logger.error(error)
     else if (safe.level === "info" || safe.level === "warn" || safe.level === "error" || safe.level === "debug") logger.setLevel(safe.level)
     const emitted = logger.emit()
@@ -151,12 +169,12 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
 
   async function invocationMetadata(runtime: Pick<ResolvedAgentRuntimeContext, "agentIdentity" | "run" | "trace">, run = runtime.run) {
     const agentName = runtime.agentIdentity?.name
-    const id = run?.runId
+    const id = agentName && run?.runId ? await agentInvocationId(run.runId, agentName) : undefined
     return {
       agent_name: agentName, run_id: run?.runId, invocation_id: id, thread_id: run?.threadId,
       trace_id: runtime.trace?.id, parent_trace_id: runtime.trace?.parentId,
       $ai_trace_id: runtime.trace?.id || id,
-      session_url: agentName && id ? options.sessionUrl?.({ agentName, id }) : undefined,
+      session_url: agentName && id ? sessionUrl?.({ agentName, id }) : undefined,
     }
   }
 
@@ -164,7 +182,6 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const capability: AgentCapabilityDefinition = defineCapability({
     id: "evlog",
     instructionCoverage: false,
-    async input(context) { event("agent_run_started", await invocationMetadata(context)) },
     finish(result: AgentFinishEvent) {
       summaries.set(result.runtime, { usage: result.invocation.usage, error: result.error, cancelled: result.input.abortSignal?.aborted === true, toolSteps: result.toolResults.length })
     },
@@ -189,14 +206,15 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
           duration_ms: durationMs, tool_steps: summary?.toolSteps,
           status: cancelled ? "cancelled" : failed ? "failed" : "completed",
         })
-        await Promise.allSettled(pending)
+        // Keep telemetry delivery off the response path, and retain it on serverless hosts.
+        context.runtime.waitUntil?.(Promise.allSettled([...pending]))
       },
     },
   })
   // Collect usage even without a user finish hook. Only the terminal trace exports it.
   Object.defineProperty(capability, eagerFinishExtensionSymbol, { value: true })
 
-  const diagnostics: RuntimeDiagnosticReporter = (diagnostic) => {
+  const reportDiagnostics: RuntimeDiagnosticReporter = (diagnostic) => {
     if (!["agent.resource.snapshot", "agent.resource.peak", "agent.resource.inspect.failed"].includes(diagnostic.name)) return
     event(diagnostic.name, {
       component: diagnostic.component, level: diagnostic.level, observed_at: diagnostic.timestamp,
@@ -206,13 +224,30 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
     })
   }
 
-  return {
-    capability, capture, diagnostics, event, exception,
+  const reporter = options.papercuts ? createPapercutReporter({
+    ...options.papercuts,
+    sessionUrl,
+    send: delivery => capture("papercut_reported", delivery.properties, { timestamp: new Date(delivery.timestamp), uuid: delivery.uuid }),
+    onError: options.papercuts.onError ?? (() => event("papercut.replay.failed", { level: "error" })),
+  }) : undefined
+  capability.capabilities = [
+    ...(options.resources ? [diagnostics({ resources: options.resources, reporter: reportDiagnostics })] : []),
+    ...(reporter ? [papercuts({ report: reporter.report })] : []),
+  ]
+  const telemetry: AgentEvlog = {
+    capability, capture, diagnostics: reportDiagnostics, event, exception,
+    plugin: host => agentEvlogPlugin(telemetry, reporter ? [reporter] : [])(host),
     drain(context: DrainContext) {
       if (closing || !exporter) return
+      const httpRequest = context.request !== undefined
+      if (httpRequest && exportedLogs === false) return
+      if (httpRequest && exportedLogs === "failures"
+        && context.event.level !== "warn"
+        && context.event.level !== "error"
+        && !(hasRuntimeType(context.event.status, "number") && context.event.status >= 400)) return
       const safe = sanitizeAgentLog(filterAgentObservability(level, { ...context.event, ...metadata }), { allowContent: level === "full" })
       if (safe.error) safe.error = { message: "Request failed; inspect the correlated exception." }
-      logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service, environment })
+      logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service: options.service, environment: options.environment })
     },
     status: () => ({ configured: Boolean(exporter), ...counts, pending: pending.size + logs.pending, closed: closing }),
     flush() {
@@ -224,5 +259,51 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
       }
       return flush
     },
+  }
+  return telemetry
+}
+
+/** Install shared telemetry on a Nitro host. Reporters stop before the exporter drains. */
+export interface AgentEvlogHost {
+  hooks: {
+    hook(name: "request", callback: (event: { req: Request & { context?: { requestId?: string } } }) => void): unknown
+    hook(name: "evlog:drain", callback: (context: DrainContext) => void): unknown
+    hook(name: "error", callback: (error: unknown, context: { event?: { req: Request & { context?: { requestId?: string } } } }) => void): unknown
+    hook(name: "close", callback: () => Promise<void>): unknown
+  }
+}
+
+export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { start(): void; stop(): Promise<void> }[] = []): (host: AgentEvlogHost) => void {
+  const statusCodeOf = (error: unknown) => {
+    const value = readAgentErrorProperty(error, "statusCode") ?? readAgentErrorProperty(error, "status")
+    return hasRuntimeType(value, "number") && Number.isInteger(value) ? value : undefined
+  }
+  return (host) => {
+    host.hooks.hook("request", event => {
+      event.req.context ||= {}
+      event.req.context.requestId ||= crypto.randomUUID()
+    })
+    host.hooks.hook("evlog:drain", telemetry.drain)
+    host.hooks.hook("error", (error, context) => {
+      const request = context.event?.req
+      const status = statusCodeOf(error)
+      const properties = {
+        operation: "http.request",
+        method: request?.method,
+        path: request ? new URL(request.url).pathname : undefined,
+        request_id: request?.context?.requestId,
+        status_code: status,
+      }
+      // Client errors are expected request outcomes. Keep them visible as warning
+      // events without creating PostHog exception noise or fake failures.
+      if (request && status !== undefined && status >= 400 && status < 500) {
+        telemetry.event("http.request.failed", { ...properties, level: "warn" })
+      } else telemetry.exception(error, properties)
+    })
+    if (telemetry.status().configured) for (const reporter of reporters) reporter.start()
+    host.hooks.hook("close", async () => {
+      try { await Promise.all(reporters.map(reporter => reporter.stop())) }
+      finally { await telemetry.flush() }
+    })
   }
 }
