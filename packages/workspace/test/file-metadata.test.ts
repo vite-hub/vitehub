@@ -1,0 +1,60 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { createWorkspace } from "../src/core/workspace.ts"
+import { createLocalWorkspaceStore } from "../src/storage/local.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+
+const roots: string[] = []
+afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+
+const cycle: Record<string, unknown> = {}
+cycle.self = cycle
+const invalid = [1n, cycle, { nested: undefined }, NaN, Infinity, -0, new Date(), () => {}, Symbol(), [undefined], Array(1)]
+
+describe("portable file metadata", () => {
+  it.each(["local", "memory"])("rejects lossy %s metadata without replacing content or attributes", async (provider) => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-metadata-"))
+    roots.push(root)
+    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    await store.writeFile("file", { path: "file", content: "original", metadata: { owner: "original" } })
+    for (const value of invalid) {
+      await expect(store.writeFile("file", { path: "file", content: "replacement", metadata: { value } })).rejects.toThrow("JSON-safe")
+      await expect(store.writeFileConditional!("file", { path: "file", content: "replacement", metadata: { value } }, (await store.stat("file"))!.digest!)).rejects.toThrow("JSON-safe")
+    }
+    const saved = await store.readFile("file")
+    expect(saved?.metadata).toEqual({ owner: "original" })
+    expect(typeof saved?.content === "string" ? saved.content : new TextDecoder().decode(saved?.content as Uint8Array)).toBe("original")
+  })
+
+  it("rejects streamed metadata before consuming the stream", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-metadata-"))
+    roots.push(root)
+    const store = createLocalWorkspaceStore(root)
+    const consumed = vi.fn()
+    async function* content() { consumed(); yield new TextEncoder().encode("replacement") }
+    await expect(store.writeFileStream!("file", { path: "file", content: content(), metadata: { revision: 1n } })).rejects.toThrow("JSON-safe")
+    expect(consumed).not.toHaveBeenCalled()
+    expect(await store.stat("file")).toBeUndefined()
+  })
+
+  it("preserves nested values after restart and accepts repeated noncyclic references", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-metadata-"))
+    roots.push(root)
+    const shared = { values: [null, true, 12, "text"] }
+    const metadata = { first: shared, second: shared }
+    await createLocalWorkspaceStore(root).writeFile("file", { path: "file", content: "content", metadata })
+    expect((await createLocalWorkspaceStore(root).readFile("file"))?.metadata).toEqual(metadata)
+  })
+
+  it("rejects invalid values before dispatching to a custom provider", async () => {
+    const store = createMemoryWorkspaceStore()
+    const write = vi.spyOn(store, "writeFile")
+    const workspace = createWorkspace({ name: "test", store })
+    await expect(workspace.writeFile("file", "content", { metadata: { nested: { value: undefined } } })).rejects.toThrow("JSON-safe")
+    expect(write).not.toHaveBeenCalled()
+  })
+})

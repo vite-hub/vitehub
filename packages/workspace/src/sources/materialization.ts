@@ -824,7 +824,7 @@ function createLazyMaterializedMetadata(
   upstreamMeta: Record<string, unknown> | undefined,
 ): LazyMaterializedMetadata {
   const now = new Date().toISOString()
-  return {
+  const metadata: LazyMaterializedMetadata = {
     source: resolution.sourceKey,
     sourcePath: resolution.sourcePath,
     materializedAt: now,
@@ -834,6 +834,10 @@ function createLazyMaterializedMetadata(
     digest: readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest"),
     ref: readStringMeta(upstreamMeta, "ref"),
   }
+  for (const key of ["validatedAt", "etag", "sha", "digest", "ref"] as const) {
+    if (metadata[key] === undefined) delete metadata[key]
+  }
+  return metadata
 }
 
 function hasSourceMetaChanged(current: LazyMaterializedMetadata, upstreamMeta: Record<string, unknown>) {

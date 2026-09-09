@@ -343,3 +343,5 @@ By default, the publisher treats `root` as an exact mirror and deletes remote pa
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
+
+File metadata must be a JSON-safe plain object containing only plain objects, dense arrays, strings, booleans, null, and finite numbers except negative zero. Omit optional properties instead of assigning `undefined`. Bigints, cycles, class instances, accessors, symbols, and functions are rejected. Workspace writes validate this contract before provider dispatch; direct local and memory Store writes also validate before changing file content. This keeps accepted metadata values consistent after a local Store restart.

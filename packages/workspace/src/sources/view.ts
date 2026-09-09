@@ -1,4 +1,5 @@
 import { workspaceError } from "../core/errors.ts"
+import { assertJsonFileMetadata } from "../core/file-metadata.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
@@ -561,6 +562,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return decodeFile(file.content, options)
     },
     async writeFile(path, content, options) {
+      assertJsonFileMetadata(path, options?.metadata)
       const resolution = await assertWritablePath(path)
       const input = await writePolicy.before({
         content,
@@ -576,6 +578,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${resolution.workspacePath} -> ${input.path}.`)
         }
         const file = { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: input.metadata }
+        assertJsonFileMetadata(input.path, file.metadata)
         if (options?.ifDigest !== undefined) {
           if (!store.writeFileConditional) throw workspaceError("[vitehub] This Workspace Store does not support conditional writes.")
           await store.writeFileConditional(input.path, file, options.ifDigest)

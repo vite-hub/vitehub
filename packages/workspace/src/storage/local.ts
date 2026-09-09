@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { check, fallback, literal, object, optional, pipe, record, safeParse, string, unknown } from "valibot"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
+import { assertJsonFileMetadata } from "../core/file-metadata.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
 
@@ -31,6 +32,7 @@ const fileMetadataSchema = optional(pipe(unknown(), check(value => !Array.isArra
 })))
 
 function assertFileMetadata(path: string, metadata: WorkspaceFile["metadata"]) {
+  assertJsonFileMetadata(path, metadata)
   if (!safeParse(fileMetadataSchema, metadata).success) {
     throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. metadata.source must be a string when provided.`)
   }
