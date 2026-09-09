@@ -72,8 +72,15 @@ async function restoreBackup(backup: string, path: string, foreignUid: number | 
 }
 
 async function reclaimBackup(path: string, retryDelay = 1000, attempts = 0): Promise<void> {
-  const { rm } = await import("node:fs/promises")
+  const { rename, rm } = await import("node:fs/promises")
   try {
+    if (!path.endsWith(".committed.bak")) {
+      const committed = path.replace(/\.bak$/, ".committed.bak")
+      await rename(path, committed).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error
+      })
+      path = committed
+    }
     await rm(path, { force: true })
   } catch {
     if (attempts >= 5) return
@@ -83,6 +90,15 @@ async function reclaimBackup(path: string, retryDelay = 1000, attempts = 0): Pro
       void reclaimBackup(path, Math.min(retryDelay * 2, 30_000), attempts + 1)
     }, retryDelay).unref()
   }
+}
+
+async function reclaimCommittedBackups(root: string): Promise<void> {
+  const { readdir } = await import("node:fs/promises")
+  // Only the post-publication rename makes a backup eligible for a later sweep.
+  // Plain .bak files may still be needed by active writers or failed rollbacks.
+  const entries = await readdir(root).catch(() => [])
+  await Promise.all(entries.filter(name => /^[0-9a-f-]{36}\.committed\.bak$/.test(name))
+    .map(name => reclaimBackup(`${root}/${name}`)))
 }
 
 function assertTrustedMetadata(path: string, info: import("node:fs").Stats, root: import("node:fs").Stats) {
@@ -550,6 +566,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
     const backup = `${tempRoot}/${randomUUID()}.bak`
+    await reclaimCommittedBackups(tempRoot)
     const normalized = normalizeWorkspacePath(path)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
@@ -607,6 +624,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
     const backup = `${tempRoot}/${randomUUID()}.bak`
+    await reclaimCommittedBackups(tempRoot)
     const hash = createHash("sha256")
     let size = 0
 

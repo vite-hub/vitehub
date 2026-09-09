@@ -503,6 +503,41 @@ describe("local workspace store", () => {
     })
   })
 
+  it.each([false, true])("reclaims committed backups after restart without touching recovery files, streamed: %s", async (streamed) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("file.txt", { path: "file.txt", content: "before" })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const retryCallbacks: (() => void)[] = []
+    const timeout = vi.spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+      retryCallbacks.push(callback)
+      return { unref() {} }
+    }) as unknown as typeof setTimeout)
+    vi.mocked(rm).mockImplementation(async (target, options) => {
+      if (String(target).endsWith(".bak")) throw Object.assign(new Error("cleanup failed"), { code: "EIO" })
+      await actual.rm(target, options)
+    })
+    try {
+      await store.writeFile("file.txt", { path: "file.txt", content: "after" })
+      // Simulate process exit: the scheduled retry is never executed.
+      expect(retryCallbacks).toHaveLength(1)
+    } finally {
+      timeout.mockRestore()
+      vi.mocked(rm).mockImplementation(actual.rm)
+    }
+    const temp = join(root, ".vitehub/tmp")
+    expect((await readdir(temp))[0]).toMatch(/\.committed\.bak$/)
+    const recovery = join(temp, "00000000-0000-0000-0000-000000000000.bak")
+    await writeFile(recovery, "rollback content")
+    const restarted = createLocalWorkspaceStore(root)
+    await (streamed
+      ? restarted.writeFileStream!("file.txt", { path: "file.txt", content: new Blob(["after"]).stream() })
+      : restarted.writeFile("file.txt", { path: "file.txt", content: "after" }))
+    expect(await readdir(temp)).toEqual(["00000000-0000-0000-0000-000000000000.bak"])
+    expect(await readFile(recovery, "utf8")).toBe("rollback content")
+    expect(await readFile(join(root, "file.txt"), "utf8")).toBe("after")
+  })
+
   it.each([
     { copied: false, streamed: false },
     { copied: false, streamed: true },
