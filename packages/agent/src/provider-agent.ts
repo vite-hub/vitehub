@@ -1797,19 +1797,25 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
-  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
-  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  const rawInputTokens = usage.inputTokens ?? usage.lastInputTokens
+  const rawOutputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  const cumulativeTokens = usage.totalProcessedTokens ?? usage.usedTokens
+  const hasMatchingPartition = cumulativeTokens === undefined
+    || (rawInputTokens !== undefined && rawOutputTokens !== undefined && rawInputTokens + rawOutputTokens === cumulativeTokens)
+  const inputTokens = hasMatchingPartition ? rawInputTokens : undefined
+  const outputTokens = hasMatchingPartition ? rawOutputTokens : undefined
+  const details = hasMatchingPartition ? {
+    ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+    ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+    ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+  } : {}
   return {
     type: "usage",
     usageRecord: {
       ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
       raw: usage,
       usage: {
-        details: {
-          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-          ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
-        },
+        details,
         inputTokens,
         outputTokens,
         totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
