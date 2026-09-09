@@ -820,3 +820,14 @@ it.each(["bearer", "basic", "bEaReR", "bAsIc"])("redacts completed alphabetic st
       .toBe(`launcher failed\n  ${scheme} [REDACTED]${suffix}`)
   }
 })
+
+// An authorization value can resemble a shell assignment before its next delta.
+it.each(["Authorization: ", "Proxy-Authorization: "])("retains %s context for token-shaped compound operators", (prefix) => {
+  const partial = `${prefix}raw-token+`
+  expect(pendingCredentialTextSuffix(partial)).toBe(partial)
+  const complete = `${pendingCredentialTextSuffix(partial)}/`
+  const state = pendingAuthorizationState(complete)
+  expect(state).toBeDefined()
+  expect(redactCredentialText(complete)).toBe(`${prefix}[REDACTED]`)
+  expect(consumeAuthorization("=\nstatus=ok", state!)).toBe(1)
+})

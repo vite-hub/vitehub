@@ -76,10 +76,10 @@ function pendingCompoundCredentialOperator(value: string): string | undefined {
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
   return pendingBareCredentialScheme(value)
+    ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
     ?? pendingCompoundCredentialOperator(value)
     ?? /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
     ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
-    ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
     ?? pendingAuthorizationHeader(value)
     ?? /(?<![A-Za-z0-9_-])_+$/.exec(tail)?.[0]
     ?? /(?:--)?["']?\b_*[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
