@@ -17,11 +17,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     chown: vi.fn(actual.chown),
     lstat: vi.fn(actual.lstat),
     mkdir: vi.fn(actual.mkdir),
-    stat: async (...args: Parameters<typeof actual.stat>) => {
+    stat: vi.fn(async (...args: Parameters<typeof actual.stat>) => {
       const info = await actual.stat(...args)
       if (String(args[0]) === permissionsFixture.root) Reflect.set(info, "gid", Number(info.gid) + 1)
       return info
-    },
+    }),
     copyFile: vi.fn(actual.copyFile),
     link: vi.fn(actual.link),
     readFile: vi.fn(actual.readFile),
@@ -368,6 +368,61 @@ describe("local workspace store", () => {
       expect(observed).toBe(true)
       expect(await readFile(path, "utf8")).toBe("after")
     } finally {
+      vi.mocked(rename).mockImplementation(actual.rename)
+    }
+  })
+
+  it.skipIf(process.platform === "win32").each([
+    { streamed: false, rollback: false },
+    { streamed: true, rollback: false },
+    { streamed: false, rollback: true },
+    { streamed: true, rollback: true },
+  ])("replaces another group member's file without changing backup ownership: %j", async ({ streamed, rollback }) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = join(root, "file.txt")
+    await store.writeFile("file.txt", { path: "file.txt", content: "before", metadata: { source: "original" } })
+    await chmod(path, 0o660)
+    await utimes(path, 1_000, 2_000)
+    const before = await stat(path)
+    const foreignUid = before.uid + 1
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const originalStat = vi.mocked(stat).getMockImplementation()!
+    const failure = new Error("sidecar publication failed")
+    vi.mocked(stat).mockImplementation(async (...args) => {
+      const info = await originalStat(...args)
+      if (String(args[0]) === path) Reflect.set(info, "uid", foreignUid)
+      return info
+    })
+    vi.mocked(chown).mockImplementation(async (target, uid, gid) => {
+      if (uid === foreignUid) throw Object.assign(new Error("owner change denied"), { code: "EPERM" })
+      await actual.chown(target, uid, gid)
+    })
+    vi.mocked(link).mockRejectedValueOnce(Object.assign(new Error("protected hard link"), { code: "EPERM" }))
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (rollback && String(to).endsWith("/metadata.json")) throw failure
+      await actual.rename(from, to)
+    })
+    try {
+      const file = { path: "file.txt", metadata: { source: "replacement" } }
+      const writing = streamed
+        ? store.writeFileStream!("file.txt", { ...file, content: new Blob(["after"]).stream() })
+        : store.writeFile("file.txt", { ...file, content: "after" })
+      if (rollback) await expect(writing).rejects.toThrow(failure)
+      else await writing
+      await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({
+        content: new TextEncoder().encode(rollback ? "before" : "after"),
+        metadata: { source: rollback ? "original" : "replacement" },
+      })
+      if (rollback) {
+        const restored = await actual.stat(path)
+        for (const key of ["mode", "gid", "mtimeMs"] as const) expect(restored[key]).toBe(before[key])
+      }
+      expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
+      expect(chown).not.toHaveBeenCalledWith(expect.anything(), foreignUid, expect.anything())
+    } finally {
+      vi.mocked(stat).mockImplementation(originalStat)
+      vi.mocked(chown).mockImplementation(actual.chown)
       vi.mocked(rename).mockImplementation(actual.rename)
     }
   })

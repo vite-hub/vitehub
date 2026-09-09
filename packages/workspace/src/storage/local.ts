@@ -47,10 +47,12 @@ async function backupFile(path: string, backup: string): Promise<void> {
     try {
       await copyFile(path, backup, constants.COPYFILE_EXCL)
       const copied = await stat(backup)
-      if (process.platform !== "win32" && (copied.uid !== original.uid || copied.gid !== original.gid)) {
-        await chown(backup, original.uid, original.gid)
+      if (process.platform !== "win32" && copied.gid !== original.gid) {
+        // A group-authorized writer cannot assume another user's UID. Keep the
+        // copy owned by this writer, as an ordinary replacement would be.
+        await chown(backup, copied.uid, original.gid)
       }
-      await chmod(backup, original.mode & 0o7777)
+      await chmod(backup, original.mode & (copied.uid === original.uid ? 0o7777 : 0o777))
       await utimes(backup, original.atime, original.mtime)
     } catch (error) {
       await rm(backup, { force: true }).catch(() => undefined)
