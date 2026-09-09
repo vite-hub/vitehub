@@ -892,8 +892,9 @@ describe("Agent Invocation UI", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const invocation = {
-      annotations: { triggeredBy: "Maxi", "channel.sentAt": "2026-08-22T14:34:00.000Z" },
+      annotations: { triggeredBy: "Maxi", "channel.sentAt": "2026-08-22T14:34:00.000Z", "github.url": "https://github.com/vite-hub/vite-hub/issues/18807" },
       createdAt: timestamp,
+      agentName: "support-agent",
       id: "message-meta",
       observations: [
         {
@@ -935,7 +936,7 @@ describe("Agent Invocation UI", () => {
     expect(prompt.get(".vh-invocation-message__meta time").attributes("datetime")).toBe("2026-08-22T14:34:00.000Z");
     await prompt.get('button[aria-label="Copy message"]').trigger("click");
     await nextTick();
-    expect(writeText).toHaveBeenCalledWith("Check item 18807.");
+    expect(writeText).toHaveBeenCalledWith("Check item 18807.\n\nInvocation ID: message-meta\nTrace ID: trace\nAgent: support-agent\nURL: https://github.com/vite-hub/vite-hub/issues/18807");
     expect(prompt.get('button[aria-label="Copied"]').text()).toBe("Copied");
   });
 
