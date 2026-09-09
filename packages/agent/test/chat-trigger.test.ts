@@ -45,4 +45,17 @@ describe("chat error fallback", () => {
     expect(fallback).toBe("Sorry, I couldn't process that message.")
     expect(fallback).not.toContain("private database details")
   })
+
+  it("lets developers choose details for any execution error", async () => {
+    const fallback = await resolveChatErrorFallbackText({
+      errorFallbackText: ({ error, publicError }) => `debug: ${publicError.code} ${String(error)}`,
+    } as never, {
+      error: new Error("private execution details"),
+      history: [], message: { text: "hello" }, publicError: { code: "INTERNAL", error: "Internal error." },
+      run: undefined, thread: {}, toolResults: [],
+    } as never)
+
+    expect(fallback).toContain("INTERNAL")
+    expect(fallback).toContain("private execution details")
+  })
 })
