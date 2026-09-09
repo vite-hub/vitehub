@@ -12646,6 +12646,61 @@ describe("server helpers", () => {
     }
   })
 
+  it.each([false, true])("settles every coalesced direct-message receipt with failure=%s", async (failInvocation) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { readAgentChannelDeliveries, resumeAgentChannelDeliveryMessage } = await import("../src/internal/channel-delivery.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-queue-receipts-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ messages }) => {
+      if (failInvocation && messages.at(-1)?.parts.some((part: { type?: string; text?: string }) => part.type === "text" && part.text === "B")) throw new Error("coalesced invocation failed")
+      return "ok"
+    })
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { concurrency: "queue", lockScope: "thread", state, stream: false, triggerHistory: "none" },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    try {
+      await state.connect()
+      const lock = await state.acquireLock("telegram:456", 60_000)
+      if (!lock) throw new Error("Expected the test lock to be acquired.")
+      for (const [id, text] of [[91_040, "A"], [91_041, "B"]] as const) {
+        await expect(handler(chatWebhookRequest(id, 456, text), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      }
+      expect(run).not.toHaveBeenCalled()
+      await state.releaseLock(lock)
+      const drained = handler(chatWebhookRequest(91_042, 456, "C"), "telegram", { agentName: "support" })
+      if (failInvocation) await expect(drained).rejects.toThrow("coalesced invocation failed")
+      else await expect(drained).resolves.toMatchObject({ status: 200 })
+      expect(run).toHaveBeenCalledTimes(2)
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({
+        messages: ["A", "B"].map(text => expect.objectContaining({
+          parts: expect.arrayContaining([expect.objectContaining({ type: "text", text })]),
+        })),
+      }))
+      const deliveries = await readAgentChannelDeliveries(state)
+      for (const messageId of ["91040", "91041"]) {
+        const delivery = await resumeAgentChannelDeliveryMessage(state, "telegram", "telegram:456", messageId)
+        expect(deliveries.find(item => item.id === delivery?.delivery.id)?.status).toBe(failInvocation ? "failed" : "completed")
+      }
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it.each([["serial", false], ["queue", false], ["queue", true]] as const)("requires mentions throughout %s batches with failure=%s", async (concurrency, failInvocation) => {
     const { defineAgent } = await import("../src/index.ts")
     const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
