@@ -29,13 +29,22 @@ describe("chat error fallback", () => {
         message: "AGENT_R0726: You've hit your usage limit. Try again at Sep 15th, 2026 1:23 AM.",
         usageUrl: "https://chatgpt.com/codex/settings/usage",
       },
-      history: [], message: { text: "hello" }, publicError: { code: "INTERNAL", error: "Internal error." },
+      history: [], message: { text: "hello" }, publicError: { code: "PROVIDER_QUOTA_EXHAUSTED", error: "AI provider quota is exhausted." },
       run: undefined, thread: {}, toolResults: [],
     } as never)
 
     expect(fallback).toContain("AI provider usage limit")
     expect(fallback).toContain("Sep 15th, 2026 1:23 AM.")
     expect(fallback).toContain("chatgpt.com/codex/settings/usage")
+  })
+
+  it("keeps unrelated quota wording on the generic fallback", async () => {
+    const fallback = await resolveChatErrorFallbackText(undefined, {
+      error: "Workspace storage quota exceeded",
+      publicError: { code: "INTERNAL", error: "Internal error." },
+    } as never)
+
+    expect(fallback).toBe("Sorry, I couldn't process that message.")
   })
 
   it("does not emit links embedded only in diagnostic text", async () => {

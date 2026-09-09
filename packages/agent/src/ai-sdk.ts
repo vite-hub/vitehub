@@ -21,6 +21,7 @@ import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { getModelCallSettings } from "./internal/model-call-settings.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import {
   applyAgentToolPolicies,
@@ -1307,16 +1308,18 @@ async function createAgent(
   const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && hasRuntimeType(model, "object") ? model as { modelId?: unknown, provider?: unknown } : undefined
-  await updateAgentTelemetryConfiguration(context.context, {
-    driver: {
-      model: {
-        ...(hasRuntimeType(telemetryModel?.modelId, "string") ? { id: telemetryModel.modelId } : {}),
-        ...(hasRuntimeType(telemetryModel?.provider, "string") ? { provider: telemetryModel.provider } : {}),
+  if (!isAuxiliaryAgentAdapterContext(context)) {
+    await updateAgentTelemetryConfiguration(context.context, {
+      driver: {
+        model: {
+          ...(hasRuntimeType(telemetryModel?.modelId, "string") ? { id: telemetryModel.modelId } : {}),
+          ...(hasRuntimeType(telemetryModel?.provider, "string") ? { provider: telemetryModel.provider } : {}),
+        },
       },
-    },
-    ...(instructions ? { instructions: [instructions] } : {}),
-    ...(inspectedTools ? { tools: inspectedTools } : {}),
-  })
+      ...(instructions ? { instructions: [instructions] } : {}),
+      ...(inspectedTools ? { tools: inspectedTools } : {}),
+    })
+  }
   const {
     instructions: _instructions,
     execution: _execution,

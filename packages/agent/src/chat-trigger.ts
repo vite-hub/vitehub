@@ -93,7 +93,7 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
     : (() => {
         try { return JSON.stringify(args.error) || "" } catch { return "" }
       })()
-  if (!/usage limit|quota|credit/i.test(raw)) return defaultChatErrorFallbackText
+  if (args.publicError.code !== "PROVIDER_QUOTA_EXHAUSTED") return defaultChatErrorFallbackText
   const reset = raw.match(/try again at ([^.]+\.)/i)?.[1]?.trim()
   // Never surface arbitrary URLs embedded in serialized diagnostics. Providers
   // may opt in by supplying an explicitly named usage link on the error object.

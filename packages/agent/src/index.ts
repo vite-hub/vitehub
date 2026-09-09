@@ -1,3 +1,4 @@
+import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
@@ -3239,7 +3240,7 @@ class AgentTelemetryCapabilityError extends Diagnostic {
     super({
       cause,
       code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
+      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors",
       why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
     }, AgentTelemetryCapabilityError)
     this.name = "AgentTelemetryCapabilityError"
@@ -3489,18 +3490,25 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
-    const readinessController = new AbortController()
-    const readinessSignal = input.abortSignal ? AbortSignal.any([input.abortSignal, readinessController.signal]) : readinessController.signal
-    const readinessTimer = driverKind === "provider" ? setTimeout(() => readinessController.abort(), 3_000) : undefined
-    const readiness = driverKind === "provider" && definition?.status
-      ? Promise.race([
+    const resolveReadiness = async () => {
+      if (driverKind !== "provider" || !definition?.status) return undefined
+      const readinessController = new AbortController()
+      const readinessSignal = input.abortSignal ? AbortSignal.any([input.abortSignal, readinessController.signal]) : readinessController.signal
+      const readinessTimer = setTimeout(() => readinessController.abort(), 3_000)
+      try {
+        return await Promise.race([
           Promise.resolve().then(() => definition.status!(context, { abortSignal: readinessSignal })).catch(() => undefined),
           new Promise<undefined>(resolve => {
             if (readinessSignal.aborted) resolve(undefined)
             else readinessSignal.addEventListener("abort", () => resolve(undefined), { once: true })
           }),
-        ]).finally(() => { clearTimeout(readinessTimer); readinessController.abort() })
-      : Promise.resolve(undefined)
+        ])
+      }
+      finally {
+        clearTimeout(readinessTimer)
+        readinessController.abort()
+      }
+    }
 
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
@@ -3620,19 +3628,19 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
-    const knownUnavailable = readiness.then(status => {
+    const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
       if (status?.readiness === "unavailable" && !status.stale) {
         const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
         preparationController.abort(error)
-        // Setup may already own resources. Its scope closes on failure; a late successful
-        // setup must also close even though the invocation has already reported the error.
-        const cleanup = preparingCapabilities.then(capabilities => capabilities.close(), () => undefined)
+        // Input preparation owns resources even when provider preflight fails.
+        const cleanup = capabilities.close()
         context.waitUntil?.(cleanup)
         void cleanup.catch(() => undefined)
         throw error
       }
     })
-    const [capabilities] = await Promise.all([preparingCapabilities, knownUnavailable])
+    const capabilities = await preparingCapabilities
+    if (!capabilities.response) await knownUnavailable(capabilities)
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {
@@ -5287,6 +5295,7 @@ async function finishAgentInvocation<
       catch {
         // Invocation data must not change Agent output or mask the original failure.
       }
+      usage = invocationUsageWithAuxiliaryCalls(context.context, usage)
     }
     if (hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined
@@ -5447,7 +5456,8 @@ async function finishAgentInvocation<
     if (!failed) {
       await runFinishActivity(teardownActivity, async () => await commitWorkspaceChanges(context))
     }
-    if (outcomeCancelled) {
+    const status = outcomeCancelled || (failed && context.input.abortSignal?.aborted) ? "cancelled" : failed ? "failed" : "completed"
+    if (status === "cancelled") {
       await traceAgentInvocationCancelled(toTraceContext(context))
     }
     else if (!failed) {
@@ -5463,7 +5473,6 @@ async function finishAgentInvocation<
       if (outcomeFailed) await traceFinishError(error, "outcome")
       if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     }
-    const status = outcomeCancelled || (failed && context.input.abortSignal?.aborted) ? "cancelled" : failed ? "failed" : "completed"
     await context.activity?.update(status, error, text)
     await context.invocationJournal?.finish(status, error)
     if (closeError !== undefined) {
@@ -5475,7 +5484,10 @@ async function finishAgentInvocation<
     if (outcomeFailed) await traceFinishError(error, "outcome")
     if (closeError !== undefined) await traceFinishError(closeError, "teardown", teardownActivity)
     if (!throwingCloseError) await traceFinishError(finishError, "finish", finishFailureActivity)
-    const status = failed && context.input.abortSignal?.aborted ? "cancelled" : "failed"
+    const status = outcomeCancelled || (failed && context.input.abortSignal?.aborted) ? "cancelled" : "failed"
+    if (status === "cancelled") {
+      await traceAgentInvocationCancelled(toTraceContext(context))
+    }
     await context.activity?.update(status, failed ? error : finishError)
     await context.invocationJournal?.finish(status, failed ? error : finishError)
     if (closeError !== undefined && !throwingCloseError) {
