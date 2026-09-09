@@ -260,7 +260,7 @@ Public HTTP errors keep the `ViteHubError` mapping. An unrecognized diagnostic
 maps to the generic `INTERNAL` response. Approval and cancellation behavior does
 not change.
 
-See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics)
+See [Errors and diagnostics](https://vitehub.dev/docs/reference/diagnostics)
 for the code format and an application catalog example.
 
 ## Chat state
