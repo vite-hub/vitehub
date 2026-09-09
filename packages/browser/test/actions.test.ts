@@ -72,10 +72,10 @@ describe("Browser Run actions", () => {
       const response = new Response(new ReadableStream({ cancel, start() {} }))
       runtime.__env__ = { BROWSER: { quickAction: async () => response } }
 
-      const content = runBrowserContent("https://example.com")
+      const content = expect(runBrowserContent("https://example.com")).rejects.toThrow()
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await expect(content).rejects.toThrow()
+      await content
       expect(cancel).toHaveBeenCalledOnce()
     }
     finally {
@@ -86,18 +86,20 @@ describe("Browser Run actions", () => {
   it("does not wait for or leak rejecting response cancellation", async () => {
     vi.useFakeTimers()
     try {
+      const cancel = vi.fn(async () => {
+        throw new Error("cancel failed")
+      })
       const response = new Response(new ReadableStream({
-        cancel: async () => {
-          throw new Error("cancel failed")
-        },
+        cancel,
         start() {},
       }))
       runtime.__env__ = { BROWSER: { quickAction: async () => response } }
 
-      const content = runBrowserContent("https://example.com")
+      const content = expect(runBrowserContent("https://example.com")).rejects.toThrow()
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await expect(content).resolves.toMatchObject([{ code: "BROWSER_PROVIDER_ERROR" }, undefined])
+      await content
+      expect(cancel).toHaveBeenCalledOnce()
       await vi.runAllTimersAsync()
     }
     finally {

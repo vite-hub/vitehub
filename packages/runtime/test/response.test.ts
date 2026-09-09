@@ -11,7 +11,7 @@ describe("durable Response representation", () => {
     const serialized = await serializeResponse(original)
     expect(serialized).toEqual({
       body: { data: "AH//", encoding: "base64", mediaType: "application/octet-stream" },
-      headers: [["content-type", "application/octet-stream"], ["set-cookie", "a=1, b=2"]],
+      headers: [["content-type", "application/octet-stream"], ["set-cookie", "a=1"], ["set-cookie", "b=2"]],
       status: 201,
       statusText: "Created",
     })

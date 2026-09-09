@@ -59,15 +59,13 @@ import { runBrowser } from 'vite-hub/browser'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ url: string }>(event)
-  const [error, html] = await runBrowser('page-html', input)
-  if (error) throw error
-  return html
+  return await runBrowser('page-html', input)
 })
 ```
 
 ::
 
-The generated Browser registry infers each definition's input and result types. `runBrowser()` returns an error-first tuple.
+The generated Browser registry infers each definition's input type. `runBrowser()` returns a native `Response`, including non-2xx JSON responses for discovery and provider failures.
 
 ## Runtime API
 
@@ -82,7 +80,7 @@ The generated Browser registry infers each definition's input and result types. 
 | `session.page.press(key)` | Dispatches a keyboard key to the page. |
 | `session.inspect()` | Returns the provider-neutral session identifier, state, features, and expiry. |
 | `session.close()` | Releases the controller and provider session; concurrent calls share cleanup. |
-| `runBrowser(name, input)` | Runs a discovered definition and returns `[error, result]` with inferred types. |
+| `runBrowser(name, input)` | Runs a discovered definition with inferred input and returns a native `Response`. |
 
 ## Configuration
 
