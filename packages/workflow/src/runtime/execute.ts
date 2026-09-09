@@ -1,4 +1,5 @@
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
+import { toResponse } from "@vite-hub/runtime"
 
 const defaultStepOptions = {
   retries: {
@@ -57,12 +58,5 @@ export async function runWorkflowHandler<TPayload, TResult>(
     ? await run()
     : await runProviderStep(context.step, context.name, run)
 
-  if (value instanceof Response) return value
-  if (value === undefined) return new Response(null, { status: 204 })
-  if (typeof value === "string" || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
-    return new Response(value as BodyInit)
-  }
-  return new Response(JSON.stringify(value), {
-    headers: { "content-type": "application/json; charset=utf-8" },
-  })
+  return toResponse(value)
 }

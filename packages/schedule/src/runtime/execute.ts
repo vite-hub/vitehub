@@ -1,5 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
-import { serializeResponse } from "@vite-hub/runtime"
+import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
 import { isRuntimeScheduleDue } from "./due.ts"
@@ -211,10 +211,7 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   try {
     const value = await options.definition.handler(toHandlerContext(run, attempt, options.input, waitUntil))
     if (!options.waitUntil) await localWaitUntil.flush()
-    const response = await serializeResponse(value instanceof Response ? value : new Response(
-      value === undefined ? null : typeof value === "string" ? value : JSON.stringify(value),
-      typeof value === "string" ? undefined : { headers: { "content-type": "application/json; charset=utf-8" } },
-    ))
+    const response = await serializeResponse(toResponse(value))
     return await completeRun(run, attempt, response, runStore)
   }
   catch (error) {

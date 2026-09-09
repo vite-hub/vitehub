@@ -1296,5 +1296,6 @@ export {
   deserializeResponse,
   isSerializedResponse,
   serializeResponse,
+  toResponse,
   type SerializedResponse,
 } from "./response.ts"

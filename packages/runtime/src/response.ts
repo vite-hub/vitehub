@@ -11,6 +11,18 @@ export interface SerializedResponse {
   readonly statusText: string
 }
 
+/** Normalize a primitive value into the native Web Response contract. */
+export function toResponse(value: unknown): Response {
+  if (value instanceof Response) return value
+  if (value === undefined) return new Response(null, { status: 204 })
+  if (typeof value === "string" || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    return new Response(value as BodyInit)
+  }
+  return new Response(JSON.stringify(value), {
+    headers: { "content-type": "application/json; charset=utf-8" },
+  })
+}
+
 /** Convert a native Response into a JSON-safe record. The body is fully buffered. */
 export async function serializeResponse(response: Response): Promise<SerializedResponse> {
   const bytes = new Uint8Array(await response.arrayBuffer())

@@ -1,17 +1,7 @@
-import type { ViteHubError } from '@vite-hub/runtime'
+import { toResponse, type ViteHubError } from '@vite-hub/runtime'
 
 /** Convert a sandbox value to the native Web Response contract. */
-export async function ok(value: unknown): Promise<Response> {
-  if (value instanceof Response)
-    return value
-  if (value === undefined)
-    return new Response(null, { status: 204 })
-  if (typeof value === 'string' || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value))
-    return new Response(value as BodyInit)
-  return new Response(JSON.stringify(value), {
-    headers: { 'content-type': 'application/json; charset=utf-8' },
-  })
-}
+export async function ok(value: unknown): Promise<Response> { return toResponse(value) }
 
 function statusFor(error: ViteHubError<`SANDBOX_${string}`>) {
   const details = error.details as Record<string, unknown> | undefined
