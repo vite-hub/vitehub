@@ -5,7 +5,7 @@ export {
 
 export type {
   AgentHealthHandlerOptions,
-  AgentHealthReport as AgentDefinitionHealthReport,
+  AgentHealthReport,
   AgentHealthStatus,
 } from "./health.ts"
 
@@ -85,6 +85,3 @@ export type { AgentConsoleDelivery } from './server/console-delivery.ts'
 export { createAgentStatusReader } from './server/provider-status.ts'
 export { createAgentHealth } from './server/health.ts'
 export type { AgentHealthDiagnostic, AgentHealthOptions, AgentHealthReport } from './server/health.ts'
-
-export { agentHostWorkspaceRoute, getAgentHostWorkspaceInspector, registerAgentHostWorkspaceInspector } from "./server/host-workspace.ts"
-export type { AgentHostWorkspaceInspector } from "./server/host-workspace.ts"

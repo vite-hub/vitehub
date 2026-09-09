@@ -62,7 +62,13 @@ export interface RuntimeScheduleMetadata {
   updatedAt: Date
 }
 
+export interface ScheduleConsoleOptions {
+  enabled?: boolean
+  dispatch?: boolean
+}
+
 export interface RuntimeScheduleRecord<TInput = unknown> extends RuntimeScheduleMetadata {
+  console?: ScheduleConsoleOptions
   cron: string
   enabled: boolean
   id: string
@@ -73,10 +79,12 @@ export interface RuntimeScheduleRecord<TInput = unknown> extends RuntimeSchedule
 
 export interface RuntimeScheduleWake {
   scheduleId: string
+  response?: ScheduleRunResponse
   scheduledAt: Date
 }
 
 export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
+  console?: ScheduleConsoleOptions
   cron: string
   enabled?: boolean
   id?: string
@@ -86,6 +94,7 @@ export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName =
 }
 
 export interface RuntimeScheduleUpdateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
+  console?: ScheduleConsoleOptions
   cron?: string
   enabled?: boolean
   input?: TInput
@@ -111,6 +120,13 @@ export interface ScheduleRunError {
   stack?: string
 }
 
+export interface ScheduleRunResponse {
+  status: number
+  statusText: string
+  headers: Record<string, string>
+  body?: string
+}
+
 export interface ScheduleRunRecord {
   attemptCount: number
   completedAt?: Date
@@ -118,6 +134,7 @@ export interface ScheduleRunRecord {
   error?: ScheduleRunError
   id: string
   scheduleId: string
+  response?: ScheduleRunResponse
   scheduledAt: Date
   startedAt?: Date
   status: ScheduleRunStatus
@@ -144,7 +161,7 @@ export interface ScheduleRunStore {
   listAttempts: (runId: string) => Promise<ScheduleRunAttemptRecord[]> | ScheduleRunAttemptRecord[]
   listRuns: () => Promise<ScheduleRunRecord[]> | ScheduleRunRecord[]
   updateAttempt: (id: string, patch: Partial<Pick<ScheduleRunAttemptRecord, "completedAt" | "error" | "status">> & { updatedAt: Date }) => Promise<ScheduleRunAttemptRecord | undefined> | ScheduleRunAttemptRecord | undefined
-  updateRun: (id: string, patch: Partial<Pick<ScheduleRunRecord, "attemptCount" | "completedAt" | "error" | "startedAt" | "status">> & { updatedAt: Date }) => Promise<ScheduleRunRecord | undefined> | ScheduleRunRecord | undefined
+  updateRun: (id: string, patch: Partial<Pick<ScheduleRunRecord, "attemptCount" | "completedAt" | "error" | "response" | "startedAt" | "status">> & { updatedAt: Date }) => Promise<ScheduleRunRecord | undefined> | ScheduleRunRecord | undefined
 }
 
 export interface DiscoveredScheduleDefinition {
