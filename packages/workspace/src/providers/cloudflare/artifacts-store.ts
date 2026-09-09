@@ -53,6 +53,7 @@ interface ArtifactsBinding {
 
 const dir = "/workspace"
 const fileMetadataPath = ".vitehub/files.json"
+const fileMetadataJournalPath = ".vitehub/files.pending.json"
 const tokenRefreshWindow = 60_000
 
 type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
@@ -422,12 +423,14 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    await this.#fs!.promises.writeFile(this.#internalAbsolute(fileMetadataJournalPath), JSON.stringify({ path, metadata: { mediaType: file.mediaType, metadata: file.metadata } }))
     await this.#fs!.promises.writeFile(this.#absolute(path), contentToBytes(file.content))
     if (file.mediaType !== undefined || file.metadata !== undefined) {
       this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
     }
     else this.#files.delete(path)
     await this.#writeFileMetadata()
+    this.#fs!.deleteTree(this.#internalAbsolute(fileMetadataJournalPath))
   }
 
   #absolute(path: string) {
@@ -445,9 +448,21 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
 
   async #loadFileMetadata(): Promise<void> {
     const content = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataPath)).catch(() => undefined)
-    if (!content) return
-    const files = JSON.parse(new TextDecoder().decode(content as Uint8Array)) as Record<string, FileMetadata>
-    this.#files = new Map(Object.entries(files))
+    if (content) {
+      const files = JSON.parse(new TextDecoder().decode(content as Uint8Array)) as Record<string, FileMetadata>
+      this.#files = new Map(Object.entries(files))
+    }
+    const pending = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataJournalPath)).catch(() => undefined)
+    if (!pending) return
+    try {
+      const journal = JSON.parse(new TextDecoder().decode(pending as Uint8Array)) as { path?: string, metadata?: FileMetadata }
+      if (journal.path && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
+        if (journal.metadata && (journal.metadata.mediaType !== undefined || journal.metadata.metadata !== undefined)) this.#files.set(journal.path, journal.metadata)
+        else this.#files.delete(journal.path)
+        await this.#writeFileMetadata()
+      }
+    }
+    finally { this.#fs!.deleteTree(this.#internalAbsolute(fileMetadataJournalPath)) }
   }
 
   async #writeFileMetadata(): Promise<void> {
