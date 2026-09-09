@@ -16471,6 +16471,7 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { ownedAgentInvocationControlId } = await import("../src/internal/agent-invocation-response-owner.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-steer-"))
@@ -16505,8 +16506,9 @@ describe("server helpers", () => {
       driver: {
         async run(context) {
           runs += 1
-          const runId = context.run?.runId
-          if (!runId) throw new Error("Expected an invocation run ID")
+          const runId = ownedAgentInvocationControlId(context)
+          if (!runId) throw new Error("Expected a Channel-owned invocation control ID")
+          expect(runId).toBe(context.run?.runId)
           const unregister = registerAgentInvocationInputHandler(runId, {
             async sendInput(input, options) {
               if (options.mode !== "steer") return "unsupported"

@@ -31,6 +31,7 @@ import {
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
+import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { agentInvocationId } from "../invocations.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -5689,6 +5690,7 @@ async function handleChatSdkMessage(
       detachAgentChannelDelivery(delivery)
       return
     }
+    const inlineRunContext = run?.runId ? withAgentInvocationResponseOwner(runContext, run.runId) : runContext
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && isRuntimeString(thinkingFallback)) {
       const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
@@ -5742,11 +5744,11 @@ async function handleChatSdkMessage(
         (async () => {
           const result = manualDelivery
             ? // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-              await streamAgent(agent as never, runContext as never, invocationInput as never, {
+              await streamAgent(agent as never, inlineRunContext as never, invocationInput as never, {
                 output: "events",
               })
             : // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-              await runAgentInline(agent as never, runContext as never, invocationInput as never)
+              await runAgentInline(agent as never, inlineRunContext as never, invocationInput as never)
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           const text = await collectAgentOutput(result, progress?.update, (toolResult) => toolResults.push(toolResult))
           if (!manualDelivery && text) {
@@ -5787,7 +5789,7 @@ async function handleChatSdkMessage(
       await enforceChatInvocationTimeout(
         (async () => {
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
+          const result = streamAgent(agent as never, inlineRunContext as never, invocationInput as never, {
             output: "events",
           })
           try {
