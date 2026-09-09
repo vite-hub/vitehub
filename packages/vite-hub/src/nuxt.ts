@@ -1,4 +1,4 @@
-import { withDataDir } from "./storage-config.ts"
+import { consoleDatabaseUrl, withDataDir } from "./storage-config.ts"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -1167,7 +1167,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleInvokeEnabled && !resolvedConsoleFixture,
         options.console === true ? undefined : options.console.observations,
         () => !consoleInvocationRootState.closed,
-        options.console === true ? undefined : options.console.databaseUrl,
+        consoleDatabaseUrl(options),
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
@@ -1241,7 +1241,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.workspace ?? options.workspace),
       },
-      options.console === true ? undefined : options.console.databaseUrl,
+      consoleDatabaseUrl(options),
     )
   }
 }

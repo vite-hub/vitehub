@@ -34,13 +34,20 @@ export function withDataDir(options: ViteHubOptions): ViteHubOptions {
     ...(agent && state !== false && (!state?.provider || ["auto", "sqlite", "libsql"].includes(state.provider)) ? {
       agent: { ...agent, providers: { ...agent.providers, state: { ...state, provider: state?.provider ?? "libsql", url: state?.url ?? file("agent-state.sqlite") } } },
     } : {}),
-    ...(options.console ? { console: {
-      ...(options.console === true ? { access: "auth" as const } : options.console),
-      databaseUrl: (options.console === true ? undefined : options.console.databaseUrl) ?? file("console.sqlite"),
+    ...(options.console && options.console !== true ? { console: {
+      ...options.console,
+      databaseUrl: options.console.databaseUrl ?? file("console.sqlite"),
     } } : {}),
     ...(options.workspace ? { workspace: {
       ...(options.workspace === true ? {} : options.workspace),
       root: (options.workspace === true ? undefined : options.workspace.root) ?? join(root, "workspaces"),
     } } : {}),
   }
+}
+
+/** Resolve the journal path without changing the development-only Console shorthand. */
+export function consoleDatabaseUrl(options: ViteHubOptions): string | undefined {
+  if (!options.console) return undefined
+  return (options.console === true ? undefined : options.console.databaseUrl)
+    ?? (options.dataDir ? pathToFileURL(resolve(options.dataDir, "console.sqlite")).href : undefined)
 }

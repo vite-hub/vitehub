@@ -1,5 +1,8 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
+import type { Plugin } from "vite"
 import { describe, expect, it } from "vitest"
 import { withDataDir } from "../src/storage-config.ts"
 import { vitehub } from "../src/index.ts"
@@ -9,11 +12,36 @@ describe("Node storage defaults", () => {
     const dataDir = "/var/lib/app data"
     expect(withDataDir({ preset: "node", dataDir, agent: true, console: true, kv: true, blob: true, workspace: true })).toMatchObject({
       agent: { providers: { state: { provider: "libsql", url: pathToFileURL(join(dataDir, "agent-state.sqlite")).href } } },
-      console: { databaseUrl: pathToFileURL(join(dataDir, "console.sqlite")).href },
+      console: true,
       kv: { driver: "fs-lite", base: join(dataDir, "kv") },
       blob: { driver: "fs", base: join(dataDir, "blob") },
       workspace: { root: join(dataDir, "workspaces") },
     })
+  })
+
+  it.each(["serve", "build"] as const)("preserves Vite Console shorthand with dataDir during %s", async (command) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-storage-console-"))
+    try {
+      const dataDir = join(root, "persistent data")
+      const plugin = vitehub({ preset: "node", dataDir, agent: true, console: true })
+        .find((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "vite-hub/console")
+      const hook = plugin?.config
+      if (!hook) throw new TypeError("Expected a Console config hook.")
+      const handler = "handler" in hook ? hook.handler : hook
+      const configure = Reflect.apply(handler, {}, [{ root }, { command, mode: command === "build" ? "production" : "development" }])
+      if (command === "build") {
+        await expect(configure).rejects.toThrow("console: true is development-only")
+      }
+      else {
+        await configure
+        const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+        expect(generated).toContain("invoke: true")
+        expect(generated).toContain(`databaseUrl: ${JSON.stringify(pathToFileURL(join(dataDir, "console.sqlite")).href)}`)
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("preserves explicit storage and disabled Agents", () => {

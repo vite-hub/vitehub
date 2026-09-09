@@ -618,6 +618,20 @@ describe("ViteHub Nuxt integration", () => {
     await application.runCloseHook()
   })
 
+  it("preserves Console shorthand invocation with a Node data directory", async () => {
+    const application = createNuxt(true)
+    await viteHubNuxtModule({
+      preset: "node",
+      dataDir: "/tmp/vitehub-nuxt/persistent data",
+      agent: true,
+      console: true,
+    }, application.nuxt)
+    const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).toContain("invoke: true")
+    expect(generated).toContain('databaseUrl: "file:///tmp/vitehub-nuxt/persistent%20data/console.sqlite"')
+    await application.runCloseHook()
+  })
+
   it("installs only KV navigation and metadata for a KV-only Console", async () => {
     const development = createNuxt(true)
 
@@ -1589,10 +1603,10 @@ describe("ViteHub Nuxt integration", () => {
     expect(generated).toContain(`observations: ${JSON.stringify(observations)}`)
   })
 
-  it("rejects bare production Console enablement", async () => {
+  it.each([undefined, "/tmp/vitehub-nuxt/persistent data"])("rejects bare production Console enablement with dataDir %s", async (dataDir) => {
     const production = createNuxt(false)
 
-    await expect(viteHubNuxtModule({ console: true, preset: "node" }, production.nuxt))
+    await expect(viteHubNuxtModule({ console: true, preset: "node", dataDir }, production.nuxt))
       .rejects.toThrow("console: true is development-only")
   })
 

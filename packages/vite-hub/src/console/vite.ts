@@ -61,6 +61,7 @@ export type ConsoleOptions = (
 interface ConsoleVitePluginOptions {
   blobStores?: readonly string[]
   console?: true | ConsoleOptions
+  databaseUrl?: string
   databaseDiscoveryRoot?: string
   kvStores?: readonly string[]
   preset?: string
@@ -298,7 +299,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         fixture = resolve(projectRoot, configuredFixture)
         readConsoleFixture(fixture)
       }
-      databaseUrl = configured === true ? undefined : configured.databaseUrl
+      databaseUrl = (configured === true ? undefined : configured.databaseUrl) ?? options.databaseUrl
       observations = configured === true ? undefined : configured.observations
       invoke = !fixture && (configured === true || configured.invoke === true)
       generatedPlugin = resolveGeneratedConsolePlugin(root, fixture, options.invocationRootState)
