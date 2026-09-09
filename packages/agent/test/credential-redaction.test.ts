@@ -831,3 +831,9 @@ it.each(["Authorization: ", "Proxy-Authorization: "])("retains %s context for to
   expect(redactCredentialText(complete)).toBe(`${prefix}[REDACTED]`)
   expect(consumeAuthorization("=\nstatus=ok", state!)).toBe(1)
 })
+it.each(["Authorization: ", "Proxy-Authorization: "]) ("retains authorization context for question suffixes", (prefix) => {
+  const partial = `${prefix}raw-token?`
+  expect(pendingCredentialTextSuffix(partial)).toBe(partial)
+  expect(redactCredentialText(`${partial}/`)).toBe(`${prefix}[REDACTED]`)
+})
+

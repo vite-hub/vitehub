@@ -76,7 +76,7 @@ function pendingCompoundCredentialOperator(value: string): string | undefined {
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
   return pendingBareCredentialScheme(value)
-    ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
+    ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~?A-Za-z0-9-]*$/i.exec(tail)?.[0]
     ?? pendingCompoundCredentialOperator(value)
     ?? /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
     ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
@@ -431,7 +431,7 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
   if (pendingCompoundCredentialOperator(value)) return true
   if (pendingAuthorizationState(value)) return true
   if (/(?<![A-Za-z0-9_-])_+$/.test(value)) return true
-  if (/\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.test(value)) return true
+  if (/\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*["']?[!#$%&'*+.^_`|~?A-Za-z0-9-]*$/i.test(value)) return true
   if (/(?<![A-Za-z0-9_-])--?$/.test(value)) return true
   if (pendingAuthorizationHeader(value)) return true
   if (pendingCredentialQuote(value, precedingText)) return true
