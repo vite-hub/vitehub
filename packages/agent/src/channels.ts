@@ -2608,8 +2608,7 @@ function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload, inpu
   const pr = isRecord(payload.pull_request) ? payload.pull_request : undefined
   const issue = isRecord(payload.issue) ? payload.issue : undefined
   const repository = isRecord(payload.repository) ? maybeString(payload.repository.full_name) : undefined
-  const trigger = isRecord(input) && isRecord(input.trigger) ? input.trigger : undefined
-  const actor = isRecord(payload.sender) ? maybeString(payload.sender.login) : trigger && isRecord(trigger.actor) ? maybeString(trigger.actor.login) : undefined
+  const actor = maybeString(payload.sender?.login) ?? maybeString(payload.comment?.user?.login)
   const user = pr && isRecord(pr.user) ? pr.user : issue && isRecord(issue.user) ? issue.user : undefined
   const rawLabels = pr?.labels ?? issue?.labels
   const labels = Array.isArray(rawLabels) ? rawLabels.flatMap(label => isRecord(label) ? [maybeString(label.name)].filter((v): v is string => Boolean(v)) : []) : undefined
@@ -2618,7 +2617,7 @@ function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload, inpu
   const draft = pr && isRecord(pr) ? pr.draft : undefined
   const headRepo = pr && isRecord(pr.head) && isRecord(pr.head.repo) ? maybeString(pr.head.repo.full_name) : undefined
   const fork = headRepo && repository ? headRepo !== repository : undefined
-  return { repository, actor, author: user && maybeString(user.login), authorAssociation: pr ? maybeString(pr.author_association) : issue && maybeString(issue.author_association), labels, draft: typeof draft === "boolean" ? draft : undefined, fork: typeof fork === "boolean" ? fork : undefined, base, head, title: pr ? maybeString(pr.title) : issue && maybeString(issue.title), action: maybeString(payload.action) }
+  return { repository, actor, author: user && maybeString(user.login), authorAssociation: pr ? maybeString(pr.author_association) : issue && maybeString(issue.author_association), labels, draft: draft === true || draft === false ? draft : undefined, fork, base, head, title: pr ? maybeString(pr.title) : issue && maybeString(issue.title), action: maybeString(payload.action) }
 }
 
 function githubPullRequestFilterRule(value: string | boolean | undefined, rule: GitHubPullRequestFilterRules | undefined): boolean {
