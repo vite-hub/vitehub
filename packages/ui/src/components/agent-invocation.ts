@@ -1670,7 +1670,14 @@ export const AgentInvocation = defineComponent({
     async function copyMessage(activity: InvocationActivity) {
       try {
         if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-        await navigator.clipboard.writeText(activity.body ?? "");
+        const url = agentInvocationExternalUrl(props.invocation);
+        const metadata = [
+          `Invocation ID: ${props.invocation.id}`,
+          `Trace ID: ${props.invocation.traceId}`,
+          props.invocation.agentName ? `Agent: ${props.invocation.agentName}` : undefined,
+          url ? `URL: ${url}` : undefined,
+        ].filter((value): value is string => value !== undefined);
+        await navigator.clipboard.writeText(`${activity.body ?? ""}\n\n${metadata.join("\n")}`);
         messageCopy.value = { id: activity.id, status: "copied" };
       }
       catch {
