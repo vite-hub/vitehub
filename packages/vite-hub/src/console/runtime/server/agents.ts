@@ -17,7 +17,7 @@ export type ConsoleAgentDefinitionEntry = {
 
 export type ConsoleAgentDefinitionInstallation =
   | { invocations: AgentInvocations, projectRoot?: never }
-  | { invocations?: never, invoke?: boolean, observations?: AgentInvocationsOptions["observations"], projectRoot: string }
+  | { invocations?: never, invoke?: boolean, databaseUrl?: string, observations?: AgentInvocationsOptions["observations"], projectRoot: string }
 
 type ConsoleAgentInvocations = AgentInvocations & {
   [consoleAgentDefinitionsKey]?: ReadonlyMap<string, AgentInput>
@@ -80,7 +80,7 @@ function resolveConsoleAgentInvocations(
   if (configured.length > 1) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0047({ message: "[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions." })
   }
-  return installConsoleInvocations(installation.projectRoot, configured[0], installation.observations)
+  return installConsoleInvocations(installation.projectRoot, configured[0], installation.observations, installation.databaseUrl)
 }
 
 export function installConsoleAgents(

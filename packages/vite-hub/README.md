@@ -28,6 +28,10 @@ export default defineConfig({
 
 This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation).
 
+On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Console, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
+
+Explicit store paths, remote URLs, and disabled services remain authoritative. Set `console.databaseUrl` to preserve an existing journal location; `VITEHUB_CONSOLE_DATABASE_URL` remains a runtime override. Changing paths does not migrate existing data.
+
 ## Run a complete first result
 
 Choose the result that matches the application you are building:
