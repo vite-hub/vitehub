@@ -1453,6 +1453,25 @@ describe("agent channels", () => {
     }
   })
 
+  it("filters issue comment and pull request deliveries before invocation", async () => {
+    const { github } = await import("../src/channels.ts")
+    const seen: unknown[] = []
+    const channel = github({ pullRequest: {
+      filter: { repository: { allow: ["acme/app"] }, author: { deny: ["blocked"] }, labels: { allow: ["review"] } },
+      when: async (context) => { seen.push(context); return context.action === "opened" },
+      ignored: reason => Response.json({ accepted: false, reason }),
+    } })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const invoke = (payload: unknown) => trigger.invoke({ capabilities: [], channel, trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" } } as never, { payload })
+    const denied = await invoke({ ...githubPullRequestPayload(), pull_request: { ...githubPullRequestPayload().pull_request, user: { login: "blocked" } } })
+    expect(denied).toBeInstanceOf(Response)
+    expect(await (denied as Response).json()).toMatchObject({ accepted: false, reason: "filtered" })
+    const accepted = await invoke(githubPullRequestPayload())
+    expect(accepted).not.toBeInstanceOf(Response)
+    expect(seen[0]).toMatchObject({ repository: "acme/app", author: "mona", actor: "mona", labels: ["review"], base: undefined, head: undefined })
+  })
+
   it("marks disabled pull request workspaces in invocation context", async () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({
