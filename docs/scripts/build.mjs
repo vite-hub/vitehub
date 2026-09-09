@@ -59,6 +59,16 @@ export const buildWarningBudget = Object.freeze([
     maximum: 1,
     text: '"H3Event" is imported from external module',
   },
+  {
+    name: "esbuild BigInt target warning",
+    maximum: 3,
+    text: "Big integer literals are not available in the configured target environment",
+  },
+  {
+    name: "esbuild duplicate provider warning",
+    maximum: 1,
+    text: 'Duplicate key "provider" in object literal',
+  },
 ]);
 
 export function assertBuildWarningBudget(output) {
