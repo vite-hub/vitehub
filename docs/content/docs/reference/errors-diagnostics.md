@@ -1,8 +1,8 @@
 ---
 title: Errors and diagnostics
 description: Reference ViteHub error codes and the local proof path for each primitive.
-navigation.order: 58
-navigation.group: Runtime and output
+navigation.order: 1
+navigation.group: Diagnostics
 icon: i-lucide-circle-alert
 ---
 
