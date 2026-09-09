@@ -3240,7 +3240,7 @@ class AgentTelemetryCapabilityError extends Diagnostic {
     super({
       cause,
       code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/reference/diagnostics#agent-diagnostics",
+      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors",
       why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
     }, AgentTelemetryCapabilityError)
     this.name = "AgentTelemetryCapabilityError"

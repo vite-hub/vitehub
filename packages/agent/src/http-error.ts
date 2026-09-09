@@ -13,7 +13,7 @@ export class AgentHttpError extends Diagnostic {
   readonly statusCode: number
 
   constructor(statusCode: number, message: string) {
-    super({ code: "AGENT_R0891", docs: "https://vitehub.dev/docs/reference/diagnostics#agent-diagnostics", why: message }, AgentHttpError)
+    super({ code: "AGENT_R0891", docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors", why: message }, AgentHttpError)
     this.name = "AgentHttpError"
     this.status = statusCode
     this.statusCode = statusCode
