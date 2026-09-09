@@ -121,11 +121,10 @@ Use a Browser action directly when the operation does not need a persistent sess
 ```ts [server/render-og.ts]
 import { runBrowserContent } from 'vite-hub/browser/actions'
 
-const [error, html] = await runBrowserContent('https://example.com')
-if (error) throw error
+const html = await runBrowserContent('https://example.com')
 ```
 
-`runBrowserAction(action, input)` returns the raw `Response` for binary actions such as screenshots or PDFs. `runBrowserContent(input)` reads the `content` action response as text. Cloudflare's `quickAction()` name stays inside the provider adapter.
+`runBrowserAction(action, input)` returns the raw `Response` for actions such as screenshots, PDFs, and downloads. Non-2xx provider failures are returned as JSON responses. `runBrowserContent(input)` reads the `content` action response as text and throws when the response is not successful. Cloudflare's `quickAction()` name stays inside the provider adapter.
 
 Browser Definitions can use the same path through the definition context:
 

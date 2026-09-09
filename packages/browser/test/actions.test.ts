@@ -18,10 +18,8 @@ afterEach(() => {
 describe("Browser Run actions", () => {
   it("rejects actions when Browser is not configured", async () => {
     runtimeConfig.provider = undefined
-    const [error, response] = await runBrowserAction("content", "https://example.com")
-
-    expect(error?.code).toBe("BROWSER_RUNTIME_NOT_CONFIGURED")
-    expect(response).toBeUndefined()
+    const response = await runBrowserAction("content", "https://example.com")
+    expect(response.status).toBe(500)
   })
 
   it("runs Cloudflare Browser quick actions through the configured binding", async () => {
@@ -29,9 +27,7 @@ describe("Browser Run actions", () => {
     const binding = { quickAction }
     runtime.__env__ = { BROWSER: binding }
 
-    const [error, content] = await runBrowserContent("https://example.com")
-
-    expect(error).toBeNull()
+    const content = await runBrowserContent("https://example.com")
     expect(content).toBe("<html><title>ok</title></html>")
     expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
   })
@@ -43,9 +39,7 @@ describe("Browser Run actions", () => {
     const binding = { quickAction: vi.fn(async () => response) }
     runtime.__env__ = { BROWSER: binding }
 
-    const [error, result] = await runBrowserAction("screenshot", { url: "https://example.com" })
-
-    expect(error).toBeNull()
+    const result = await runBrowserAction("screenshot", { url: "https://example.com" })
     expect(result).toBe(response)
   })
 
@@ -53,10 +47,7 @@ describe("Browser Run actions", () => {
     const binding = { quickAction: vi.fn(async () => new Response("nope", { status: 500 })) }
     runtime.__env__ = { BROWSER: binding }
 
-    const [error, content] = await runBrowserContent("https://example.com")
-
-    expect(error?.code).toBe("BROWSER_PROVIDER_ERROR")
-    expect(content).toBeUndefined()
+    await expect(runBrowserContent("https://example.com")).rejects.toThrow()
   })
 
   it("bounds stalled Browser Run actions", async () => {
@@ -67,7 +58,7 @@ describe("Browser Run actions", () => {
       const action = runBrowserAction("content", "https://example.com")
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await expect(action).resolves.toMatchObject([{ code: "BROWSER_PROVIDER_ERROR" }, undefined])
+      await expect(action).resolves.toMatchObject({ status: 500 })
     }
     finally {
       vi.useRealTimers()
@@ -84,7 +75,7 @@ describe("Browser Run actions", () => {
       const content = runBrowserContent("https://example.com")
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await expect(content).resolves.toMatchObject([{ code: "BROWSER_PROVIDER_ERROR" }, undefined])
+      await expect(content).rejects.toThrow()
       expect(cancel).toHaveBeenCalledOnce()
     }
     finally {
