@@ -311,6 +311,31 @@ function dataTraceEvent(event: StreamEvent): TraceEvent | undefined {
       type: "run",
     }
   }
+  if (kind === "input.message" && hasRuntimeType(value?.message, "string") && value.message.trim()) {
+    return {
+      attributes: {
+        "input.mode": hasRuntimeType(value.mode, "string") ? value.mode : undefined,
+        "message.content": value.message.slice(0, MAX_TRACE_TEXT_EVENT_LENGTH),
+        "message.id": event.id,
+        "message.role": "user",
+        ...(value.message.length > MAX_TRACE_TEXT_EVENT_LENGTH ? { "vitehub.observation.truncated": true } : {}),
+      },
+      name: "agent.input.message",
+      type: "run",
+    }
+  }
+  if (kind === "input.steered") {
+    return {
+      attributes: {
+        "input.mode": hasRuntimeType(value?.mode, "string") ? value.mode : "steer",
+        "vitehub.action.name": "input.steered",
+        "vitehub.activity.kind": "action",
+        "vitehub.activity.title": "Steered active session",
+      },
+      name: "agent.input.steered",
+      type: "run",
+    }
+  }
   if (kind?.startsWith("task.")) {
     const status = hasRuntimeType(value?.status, "string") ? value.status : undefined
     const outcome = kind === "task.completed"

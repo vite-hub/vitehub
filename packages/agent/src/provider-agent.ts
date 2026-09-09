@@ -1,3 +1,4 @@
+import { getMessageText } from "./messages.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -2044,6 +2045,8 @@ async function* runProvider<
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
+  const pendingSteering = new Set<Promise<void>>()
+  let steeringEvidenceClosed = false
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
   const capabilityApprovalIds = new Set<string>()
   let notifyToolEvent: (() => void) | undefined
@@ -2393,9 +2396,47 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
     const invocationId = ownedAgentInvocationControlId(context.runtime)
+    const turn = await waitForProviderOperation(
+      runtime.sendTurn({ attachments, input: prompt, threadId }),
+      effectiveSignal,
+      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
+      deferRuntimeCleanup,
+      () => finalizeDeferredRuntime(threadId),
+    )
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
+          if (inputOptions.mode === "steer") {
+            const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
+            if (messages.some(message => message.parts.some(part => part.type !== "text"))) return "unsupported"
+            const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
+            if (!text.trim()) return "unsupported"
+            let resolveSteering!: () => void
+            const settled = new Promise<void>(resolve => { resolveSteering = resolve })
+            pendingSteering.add(settled)
+            try {
+              const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
+              if (steeredTurn.turnId !== turn.turnId) {
+                await activeRuntime.interruptTurn(threadId, steeredTurn.turnId)
+                return "unsupported"
+              }
+              if (steeringEvidenceClosed) return "invalid-state"
+              if (hasRuntimeType(input.prompt, "string") || hasRuntimeType(input.message, "string")) {
+                emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
+              } else {
+                for (const message of messages) {
+                  emitToolEvent({ type: "data-agent-event", id: message.id, data: { kind: "input.message", value: { message: getMessageText(message), mode: "steer" } } })
+                }
+              }
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
+              return "accepted"
+            } catch {
+              return "invalid-state"
+            } finally {
+              pendingSteering.delete(settled)
+              resolveSteering()
+            }
+          }
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
             const messages = input.messages || (hasRuntimeType(input.message, "object") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
@@ -2405,16 +2446,9 @@ async function* runProvider<
             return "unavailable"
           }
         },
-        support: { respond: true },
+        support: { respond: true, steer: true },
       })
     }
-    const turn = await waitForProviderOperation(
-      runtime.sendTurn({ attachments, input: prompt, threadId }),
-      effectiveSignal,
-      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
-      deferRuntimeCleanup,
-      () => finalizeDeferredRuntime(threadId),
-    )
     if (turn.resumeCursor !== undefined) pendingResumeCursor = turn.resumeCursor
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
@@ -2444,7 +2478,8 @@ async function* runProvider<
       }
       const current = raced.provider
       if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
-      if (current.value.threadId && current.value.threadId !== threadId) {
+      if ((current.value.threadId && current.value.threadId !== threadId)
+        || (current.value.turnId && current.value.turnId !== turn.turnId)) {
         nextEvent = events.next()
         continue
       }
@@ -2475,15 +2510,34 @@ async function* runProvider<
           : agentDiagnostics.AGENT_R0722({ message: `[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
         if (effectiveSignal?.aborted) throw caught
       }
-      if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
+      if (isTerminalEvent(current.value, turn.turnId)) {
+        unregister?.()
+        unregister = undefined
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const steeringDrain = Promise.all(pendingSteering)
+        const drainTimeout = new Promise<"timeout">(resolve => {
+          timeout = setTimeout(() => resolve("timeout"), providerCleanupTimeoutMs)
+        })
+        const drained = await Promise.race([steeringDrain.then(() => "drained" as const), drainTimeout, aborted])
+        if (timeout) clearTimeout(timeout)
+        steeringEvidenceClosed = true
+        if (drained === "timeout") {
+          caught = agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver steering submission cleanup timed out." })
+        }
+        if (!caught) completed = true
+      }
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
-      for (const event of normalized) yield event
+      for (const event of normalized) {
+        if (caught && event.type === "finish") continue
+        yield event
+      }
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
       nextEvent = events.next()
     }
   }
   catch (error) {
+    steeringEvidenceClosed = true
     const launchFailure = await providerLaunchFailure(
       providerLaunchDiagnosticPath,
       providerRuntimeEnvironment,
@@ -2494,6 +2548,7 @@ async function* runProvider<
     throw caught
   }
   finally {
+    steeringEvidenceClosed = true
     unregister?.()
     clearActiveWorkspaceCommands?.()
     clearActiveWorkspaceFiles?.()

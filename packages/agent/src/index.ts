@@ -58,7 +58,7 @@ import {
   telegram as builtInTelegram,
   webChat as builtInWebChat,
 } from "./channels.ts"
-import { registerMessageChannelDeferredReplyTrace, setChatFinishDirectReplyTrace } from "./internal/chat-finish-delivery.ts"
+import { registerMessageChannelDeferredReplyTrace, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { bindAgentInvocations, type AgentInvocationJournal } from "./invocations.ts"
@@ -2920,6 +2920,10 @@ function withAgentTelemetryContentAttributes(
 ): Record<string, unknown> {
   const { "content.omitted": _omitted, ...safeAttributes } = safe || {}
   const allowedEntries = Object.entries(full || {}).flatMap(([key, value]) => {
+    if (key === "message.content" && full?.["message.role"] !== undefined) {
+      const contentClass = agentTelemetryMessageContentClass({ role: full?.["message.role"] })
+      return contentClass !== undefined && policy[contentClass] === true ? [[key, value] as const] : []
+    }
     const selected = agentTelemetryAttributeForContent(key, value, policy)
     return selected ? [[key, selected.value] as const] : []
   })
@@ -5354,6 +5358,17 @@ async function finishAgentInvocation<
         const finishEvent = { ...eventBase, extensions }
         const chatFinish = extensions.get("chat")
         if (chatFinish && isRuntimeObject(chatFinish)) {
+          setChatFinishPrimaryReplyTrace(chatFinish, async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), {
+              kind: "reply",
+              payload: undefined,
+            }, {
+              "channel.effect.primary": true,
+              "channel.effect.supported": true,
+              ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
+            })
+          })
           setChatFinishDirectReplyTrace(chatFinish, message => async (capture) => {
             await traceAgentChannelDeliveryEffect(toTraceContext(context), {
               kind: "reply",

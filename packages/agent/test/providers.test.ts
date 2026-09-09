@@ -7,7 +7,7 @@ import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { Message } from "chat"
+import { Chat, Message } from "chat"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { mergeConfig, build as viteBuild } from "vite"
@@ -5642,7 +5642,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "accepted" })
   })
 
-  it("classifies direct, mention, and subscribed deliveries for message filters", async () => {
+  it("defaults message filters to direct and mentioned deliveries", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -5689,7 +5689,159 @@ describe("server helpers", () => {
     await groupHandler(request(2012, 789), "telegram")
     await groupHandler(request(2013, 789, true), "telegram")
 
-    expect(deliveryKinds).toEqual(["direct", "mention", "subscribed", "mention"])
+    expect(deliveryKinds).toEqual(["direct", "mention", "mention"])
+  })
+
+  it.each(["serial", "steer"] as const)("ignores unmentioned group messages with %s concurrency", async (concurrency) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "unexpected")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { concurrency, stream: false, triggerHistory: "none" },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    const request = (messageId: number, isMention = false) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          message: {
+            chat: { id: 789, type: "group" },
+            from: { id: 123, username: "maxi" },
+            isMention,
+            message_id: messageId,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      })
+
+    await expect(handler(request(2020, true), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+    run.mockClear()
+    adapter.postMessage.mockClear()
+    adapter.startTyping.mockClear()
+
+    await expect(handler(request(2021), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+    expect(run).not.toHaveBeenCalled()
+    expect(adapter.postMessage).not.toHaveBeenCalled()
+    expect(adapter.startTyping).not.toHaveBeenCalled()
+  })
+
+  it("settles ignored serial messages without rejecting the active request", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-ignored-serial-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const run = vi.fn(async () => {
+      if (run.mock.calls.length === 1) {
+        started.resolve()
+        await release.promise
+      }
+      return "ok"
+    })
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { concurrency: "serial", state, stream: false, triggerHistory: "none" },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    const request = (id: number, isMention: boolean) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ update_id: id, message: {
+        chat: { id: 789, type: "group" },
+        from: { id: 123, username: "maxi" },
+        isMention,
+        message_id: id,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const options = { agentName: "support" }
+    try {
+      await state.connect()
+      const first = handler(request(2030, true), "telegram", options)
+      await started.promise
+      await expect(handler(request(2031, false), "telegram", options)).resolves.toMatchObject({ status: 200 })
+      await expect(handler(request(2032, true), "telegram", options)).resolves.toMatchObject({ status: 200 })
+      release.resolve()
+      await expect(first).resolves.toMatchObject({ status: 200 })
+      await expect(handler(request(2033, false), "telegram", options)).resolves.toMatchObject({ status: 200 })
+      expect(run).toHaveBeenCalledTimes(2)
+      const deliveries = await handler.deliveries(request(2033, false), "telegram", options)
+      for (const id of ["2031", "2033"]) {
+        const delivery = deliveries.find(delivery => delivery.sourceId === id)
+        expect(delivery?.status).toBe("rejected")
+        expect(delivery?.events.filter(event => ["rejected", "completed", "failed"].includes(event.type)).map(event => event.type)).toEqual(["rejected"])
+      }
+      for (const id of ["2030", "2032"]) {
+        const delivery = deliveries.find(delivery => delivery.sourceId === id)
+        expect(delivery?.status).toBe("completed")
+        expect(delivery?.events.some(event => event.type === "rejected")).toBe(false)
+      }
+    } finally {
+      release.resolve()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("accepts an unmentioned direct message", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ isDM: true })
+    const run = vi.fn(() => "accepted")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { stream: false, triggerHistory: "none" },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+
+    await expect(handler(
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          message: {
+            chat: { id: 456, type: "private" },
+            from: { id: 123, username: "maxi" },
+            message_id: 2022,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }),
+      "telegram",
+      { agentName: "support" },
+    )).resolves.toMatchObject({ status: 200 })
+    expect(run).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "accepted" })
   })
 
   it("defaults adapter-backed Channels to final-only delivery", async () => {
@@ -7680,6 +7832,122 @@ describe("server helpers", () => {
     expect(triggerOnlyAdapter.initialize).not.toHaveBeenCalled()
   })
 
+  it.each(["serial", "steer", "queue"] as const)("records rejected polling listener messages with %s concurrency", async (concurrency) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createTelegramPollingRouteHandler } = await import("../src/server.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-polling-rejection-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: The fixture implements the Adapter methods exercised by this listener.
+          adapter: () => adapter as never,
+          mode: "polling",
+          messages: { concurrency, delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: { run },
+    })
+    const request = (messageId: number, isMention: boolean) => new Request("https://example.com/listener", {
+      body: JSON.stringify({ message: {
+        chat: { id: 456, type: "group" },
+        from: { id: 123, username: "maxi" },
+        isMention,
+        message_id: messageId,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+
+    try {
+      const response = await createTelegramPollingRouteHandler(agent as never)(
+        new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"),
+        { agentName: "support" },
+      )
+      expect(response.status).toBe(200)
+      // Dispatch through the initialized listener, without a webhook request delivery tracker.
+      await adapter.handleWebhook(request(91_140, true))
+      await adapter.handleWebhook(request(91_141, false))
+
+      expect(run).toHaveBeenCalledOnce()
+      const deliveries = await readAgentChannelDeliveries(state)
+      const rejected = deliveries.filter(delivery => delivery.sourceId === "91141")
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]).toMatchObject({ agentName: "support", channelId: "telegram", provider: "telegram", status: "rejected" })
+      expect(rejected[0]?.events.filter(event => event.type === "rejected")).toHaveLength(1)
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+    } finally {
+      const chat = adapter._chatInstance()
+      if (chat instanceof Chat) await chat.shutdown()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["steer", "queue"] as const)("ignores unmentioned polling listener messages when evidence State fails with %s concurrency", async (concurrency) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createTelegramPollingRouteHandler } = await import("../src/server.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-polling-rejection-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: The fixture implements the Adapter methods exercised by this listener.
+          adapter: () => adapter as never,
+          mode: "polling",
+          messages: { concurrency, delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: { run },
+    })
+    const request = (messageId: number, isMention: boolean) => new Request("https://example.com/listener", {
+      body: JSON.stringify({ message: {
+        chat: { id: 456, type: "group" },
+        from: { id: 123, username: "maxi" },
+        isMention,
+        message_id: messageId,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+
+    try {
+      const response = await createTelegramPollingRouteHandler(agent as never)(
+        new Request("https://example.com/api/_vitehub/agents/support/telegram/polling"),
+        { agentName: "support" },
+      )
+      expect(response.status).toBe(200)
+      // Dispatch through the initialized listener, without a webhook request delivery tracker.
+      await adapter.handleWebhook(request(91_140, true))
+      const setIfNotExists = state.setIfNotExists.bind(state)
+      const rejectEvidence = vi.fn(() => { throw new Error("Delivery State unavailable") })
+      const openEvidence = vi.spyOn(state, "setIfNotExists").mockImplementation((key, value, ttl) => {
+        if (key.startsWith("deliveries:source:")) return rejectEvidence()
+        return setIfNotExists(key, value, ttl)
+      })
+      await expect(adapter.handleWebhook(request(91_141, false))).resolves.toBeDefined()
+      expect(rejectEvidence).toHaveBeenCalledOnce()
+      openEvidence.mockRestore()
+
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+    } finally {
+      const chat = adapter._chatInstance()
+      if (chat instanceof Chat) await chat.shutdown()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
   it("rejects generated GitHub webhooks without configured secrets", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
@@ -8672,7 +8940,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("steers an active queued webhook invocation once and queues when control rejects or closes", async () => {
+  it.each([true, false])("steers an active queued webhook invocation once and quarantines ambiguous input (completion succeeds: %s)", async (completionSucceeds) => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { agentInvocationControlId, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -8681,6 +8949,8 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
+    const completeWebhookDelivery = state.completeWebhookDelivery.bind(state)
+    const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
     const rehydrate = vi.fn((deliveryId: string) => ({
       input: { prompt: `fresh ${deliveryId}` },
       run: { runId: deliveryId },
@@ -8705,6 +8975,7 @@ describe("server helpers", () => {
       releaseSteer = resolve
     })
     let rejectSteer = false
+    let ambiguousSteer = false
     let failFlush = false
     let completedRuns = 0
     const run = vi.fn(async (context: { run?: { runId?: string }; waitUntil: (task: Promise<unknown>) => void }) => {
@@ -8716,6 +8987,7 @@ describe("server helpers", () => {
       const closeControl = registerAgentInvocationInputHandler(controlId, {
         async sendInput(input, options) {
           expect(options).toEqual({ mode: "steer" })
+          if (ambiguousSteer) return "invalid-state"
           if (rejectSteer) throw new Error("closed")
           steeredInputs.push(input)
           await steerAccepted
@@ -8839,6 +9111,27 @@ describe("server helpers", () => {
       })
       expect(steeredInputs).toHaveLength(1)
 
+      ambiguousSteer = true
+      const retriesBeforeAmbiguous = retryDelivery.mock.calls.length
+      let ambiguousCompletionFailed = false
+      completeDelivery.mockImplementation((scope, deliveryId, leaseToken) => {
+        if (!completionSucceeds && deliveryId === "delivery-ambiguous" && !ambiguousCompletionFailed) {
+          ambiguousCompletionFailed = true
+          return Promise.resolve(false)
+        }
+        return completeWebhookDelivery(scope, deliveryId, leaseToken)
+      })
+      const ambiguous = await handler(request("delivery-ambiguous"), "github", options)
+      await expect(ambiguous.json()).resolves.toEqual({ accepted: false, ok: false, outcome: "invalid-state" })
+      expect(completeDelivery.mock.calls.filter(([, id]) => id === "delivery-ambiguous")).toHaveLength(0)
+      await expect(state.get("webhook:review:github:github:steer:delivery-ambiguous")).resolves.toBe("invalid-state")
+      ambiguousSteer = false
+      const ambiguousReplay = await handler(request("delivery-ambiguous"), "github", options)
+      await expect(ambiguousReplay.json()).resolves.toEqual({ accepted: false, duplicate: true, ok: false, outcome: "invalid-state" })
+      expect(retryDelivery).toHaveBeenCalledTimes(retriesBeforeAmbiguous)
+      expect(steeredInputs).toHaveLength(1)
+      expect(run).toHaveBeenCalledOnce()
+
       rejectSteer = true
       const rejected = await handler(request("delivery-3"), "github", options)
       await expect(rejected.json()).resolves.toEqual({
@@ -8907,6 +9200,12 @@ describe("server helpers", () => {
       releases.shift()!()
       await withDeadline(runCompleted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not finish.")
       expect(completedRuns).toBe(5)
+      await vi.waitFor(() => {
+        expect(completeDelivery.mock.calls.filter(([, id]) => id === "delivery-ambiguous")).toHaveLength(completionSucceeds ? 1 : 2)
+      }, { timeout: 3_000 })
+      const completionIndex = completeDelivery.mock.calls.findLastIndex(([, id]) => id === "delivery-ambiguous")
+      await expect(completeDelivery.mock.results[completionIndex]?.value).resolves.toBe(true)
+      expect(run.mock.calls.some(([context]) => context.run?.runId === "delivery-ambiguous")).toBe(false)
     } finally {
       const stopping = stop()
       releaseSteer()
@@ -12044,7 +12343,7 @@ describe("server helpers", () => {
     ["drop", "drop"],
     ["queue", "queue"],
     ["serial", "queue"],
-    ["steer", "queue"],
+    ["steer", "concurrent"],
   ] as const)("maps ViteHub %s message concurrency to Chat SDK %s", async (concurrency, expectedConcurrency) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -12164,7 +12463,7 @@ describe("server helpers", () => {
       await expect(firstResponse).resolves.toMatchObject({ status: 200 })
       expect(order).toEqual(["A", "B", "C", "D"])
       expect(run).toHaveBeenCalledTimes(4)
-      expect(histories).toEqual([["A"], ["B"], ["C"], ["D"]])
+      expect(histories).toEqual([["A"], ["A", "B"], ["B", "C"], ["C", "D"]])
       const deliveries = await handler.deliveries(await serialRequest(91_013, "D"), "telegram", {
         agentName: "support",
       })
@@ -12305,7 +12604,7 @@ describe("server helpers", () => {
     })
     const run = vi.fn(async ({ messages }) => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+      const text = messages.at(-1)?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       order.push(text?.text || "")
       if (text?.text === "A") {
         firstStarted()
@@ -12347,18 +12646,79 @@ describe("server helpers", () => {
     }
   })
 
-  it("preserves mention and subscription eligibility for serial batches", async () => {
+  it.each([false, true])("settles every coalesced direct-message receipt with failure=%s", async (failInvocation) => {
     const { defineAgent } = await import("../src/index.ts")
+    const { readAgentChannelDeliveries, resumeAgentChannelDeliveryMessage } = await import("../src/internal/channel-delivery.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-queue-receipts-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ messages }) => {
+      if (failInvocation && messages.at(-1)?.parts.some((part: { type?: string; text?: string }) => part.type === "text" && part.text === "B")) throw new Error("coalesced invocation failed")
+      return "ok"
+    })
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { concurrency: "queue", lockScope: "thread", state, stream: false, triggerHistory: "none" },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    try {
+      await state.connect()
+      const lock = await state.acquireLock("telegram:456", 60_000)
+      if (!lock) throw new Error("Expected the test lock to be acquired.")
+      for (const [id, text] of [[91_040, "A"], [91_041, "B"]] as const) {
+        await expect(handler(chatWebhookRequest(id, 456, text), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      }
+      expect(run).not.toHaveBeenCalled()
+      await state.releaseLock(lock)
+      const drained = handler(chatWebhookRequest(91_042, 456, "C"), "telegram", { agentName: "support" })
+      if (failInvocation) await expect(drained).rejects.toThrow("coalesced invocation failed")
+      else await expect(drained).resolves.toMatchObject({ status: 200 })
+      expect(run).toHaveBeenCalledTimes(2)
+      expect(run).toHaveBeenCalledWith(expect.objectContaining({
+        messages: ["A", "B"].map(text => expect.objectContaining({
+          parts: expect.arrayContaining([expect.objectContaining({ type: "text", text })]),
+        })),
+      }))
+      const deliveries = await readAgentChannelDeliveries(state)
+      for (const messageId of ["91040", "91041"]) {
+        const delivery = await resumeAgentChannelDeliveryMessage(state, "telegram", "telegram:456", messageId)
+        expect(deliveries.find(item => item.id === delivery?.delivery.id)?.status).toBe(failInvocation ? "failed" : "completed")
+      }
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([["serial", false], ["queue", false], ["queue", true]] as const)("requires mentions throughout %s batches with failure=%s", async (concurrency, failInvocation) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-serial-routing-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => {
+      if (failInvocation) throw new Error("coalesced invocation failed")
+      return "ok"
+    })
     const routed: Array<{ deliveryKind: string; text: string }> = []
     const request = (messageId: number, text: string, isMention = false) =>
       new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
+          update_id: messageId,
           message: {
             chat: { id: 456, type: "group" },
             from: { id: 123, username: "maxi" },
@@ -12377,7 +12737,7 @@ describe("server helpers", () => {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
             adapter: () => adapter as never,
             messages: {
-              concurrency: "serial",
+              concurrency,
               filter: ({ deliveryKind, message }) => {
                 const text = message.parts.find((part) => part.type === "text")
                 routed.push({ deliveryKind, text: text?.type === "text" ? text.text : "" })
@@ -12390,7 +12750,7 @@ describe("server helpers", () => {
             },
           }),
         },
-        driver: { run: () => "ok" },
+        driver: { run },
       }) as never,
     )
 
@@ -12401,15 +12761,37 @@ describe("server helpers", () => {
       await expect(handler(request(91_030, "before mention"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       await expect(handler(request(91_031, "mention", true), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       await expect(handler(request(91_032, "after mention"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      await expect(handler(request(91_034, "second mention", true), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
       expect(routed).toEqual([])
 
+      const pending = await readAgentChannelDeliveries(state)
+      expect(pending.find(delivery => delivery.sourceId === "91031")?.status).toBe("accepted")
       await state.releaseLock(lock)
-      await expect(handler(request(91_033, "drain"), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      const drained = handler(request(91_033, "drain"), "telegram", { agentName: "support" })
+      if (failInvocation) await expect(drained).rejects.toThrow("coalesced invocation failed")
+      else await expect(drained).resolves.toMatchObject({ status: 200 })
 
-      expect(routed).toEqual([
+      expect(routed).toEqual(concurrency === "serial" ? [
         { deliveryKind: "mention", text: "mention" },
-        { deliveryKind: "subscribed", text: "after mention" },
-      ])
+        { deliveryKind: "mention", text: "second mention" },
+      ] : [{ deliveryKind: "mention", text: "second mention" }])
+      expect(run).toHaveBeenCalledTimes(concurrency === "serial" ? 2 : 1)
+      if (concurrency === "queue") {
+        expect(run).toHaveBeenCalledWith(expect.objectContaining({
+          messages: [
+            expect.objectContaining({ parts: expect.arrayContaining([expect.objectContaining({ type: "text", text: "mention" })]) }),
+            expect.objectContaining({ parts: expect.arrayContaining([expect.objectContaining({ type: "text", text: "second mention" })]) }),
+          ],
+        }))
+      }
+      const deliveries = await readAgentChannelDeliveries(state)
+      expect(deliveries.find(delivery => delivery.sourceId === "91031")?.status).toBe(failInvocation ? "failed" : "completed")
+      expect(deliveries.find(delivery => delivery.sourceId === "91034")?.status).toBe(failInvocation ? "failed" : "completed")
+      expect(deliveries.find(delivery => delivery.sourceId === "91032")?.status).toBe("rejected")
+      expect(deliveries.filter(delivery => delivery.status === "received" || delivery.status === "running")).toEqual([])
+      expect(deliveries.filter(delivery => delivery.status === "rejected").every(delivery =>
+        delivery.events.filter(event => event.type === "completed" || event.type === "failed" || event.type === "rejected").length === 1,
+      )).toBe(true)
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
@@ -12447,6 +12829,52 @@ describe("server helpers", () => {
       markdown: "Explicit reply",
     })
     expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("records one primary reply receipt after successful automatic delivery", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { delivery: "automatic", stream: false },
+        }),
+      },
+      driver: { run: () => "Agent output" },
+      invocations,
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = () => chatWebhookRequest(91_038)
+
+    await expect(handler(request(), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(), "telegram")).resolves.toMatchObject({ status: 200 })
+
+    await vi.waitFor(async () => {
+      const { invocations: records } = await invocations.list()
+      expect(records).toHaveLength(1)
+      const record = records[0] && await invocations.get(records[0].id)
+      expect(record?.observations.filter(observation =>
+        observation.name === "agent.channel.delivery.effect"
+        && observation.attributes?.["channel.effect.primary"] === true,
+      )).toEqual([
+        expect.objectContaining({
+          attributes: expect.objectContaining({
+            "channel.delivery.provider": "telegram",
+            "channel.effect.kind": "reply",
+            "channel.effect.primary": true,
+            "channel.effect.supported": true,
+          }),
+        }),
+      ])
+    })
+    expect(adapter.postMessage).toHaveBeenCalledOnce()
   })
 
   it("streams queued finish replies after the primary response without eager buffering", async () => {
@@ -12583,6 +13011,20 @@ describe("server helpers", () => {
           "channel.effect.skipped": "Skipped before queued reply delivery: primary post failed",
         }),
         name: "agent.channel.delivery.effect",
+      }))
+      expect(record?.observations).toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.kind": "reply",
+          "channel.effect.primary": true,
+          "error.message": "primary post failed",
+        }),
+        name: "agent.channel.delivery.effect",
+      }))
+      expect(record?.observations).not.toContainEqual(expect.objectContaining({
+        attributes: expect.objectContaining({
+          "channel.effect.primary": true,
+          "channel.effect.content": "Agent output",
+        }),
       }))
     })
   })
@@ -12939,7 +13381,7 @@ describe("server helpers", () => {
       expect(ownershipKey).toBeDefined()
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
       const deliveries = await handler.deliveries(chatWebhookRequest(91_167), "telegram", { agentIdentity: { name: "calories" } })
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91167"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91167"]')))
       expect(delivery?.events.some((event) => event.type === "queued")).toBe(true)
       expect(delivery?.events.some((event) => event.type === "failed")).toBe(false)
     } finally {
@@ -13172,7 +13614,7 @@ describe("server helpers", () => {
       ).resolves.toBe("completed")
       expect(sideEffect).toHaveBeenCalledTimes(2)
       const deliveries = await handler.deliveries(request(91_154, "https://first.example"), "telegram", runtime)
-      const overlapping = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91155"))
+      const overlapping = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91155"]')))
       expect(overlapping?.events.some((event) => event.type === "failed")).toBe(false)
       expect(overlapping?.status).toBe("completed")
     } finally {
@@ -13651,8 +14093,8 @@ describe("server helpers", () => {
         ),
       ).resolves.toBe("completed")
       const deliveries = await handler.deliveries(request(91_135, "alpha", "https://original.example"), "telegram", runtime)
-      for (const runId of ["telegram:91135", "telegram:91137"]) {
-        const recovered = deliveries.find((delivery) => delivery.events.some((event) => event.runId === runId))
+      for (const messageId of ["91135", "91137"]) {
+        const recovered = deliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(`,"telegram:456","telegram:${messageId}"]`)))
         expect(recovered?.events.filter((event) => event.type === "invocation.completed")).toHaveLength(1)
         expect(recovered?.events.filter((event) => event.type === "completed")).toHaveLength(1)
       }
@@ -13739,7 +14181,7 @@ describe("server helpers", () => {
       expect(sideEffect).not.toHaveBeenCalled()
       expect(createBatch).toHaveBeenCalledTimes(5)
       const handedOffDeliveries = await handler.deliveries(chatWebhookRequest(91_165), "telegram", runtime)
-      const handedOffDelivery = handedOffDeliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91165"))
+      const handedOffDelivery = handedOffDeliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91165"]')))
       expect(handedOffDelivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "completed" })]))
 
       if (persistentOutage) {
@@ -13913,7 +14355,8 @@ describe("server helpers", () => {
       ).resolves.toBeUndefined()
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
       expect(workflowIds[1]).not.toBe(workflowIds[0])
-      expect(workflowPayloads[1]?.run?.runId).toBe("telegram:91151")
+      const recoveredRunId = workflowPayloads[1]?.run?.runId
+      expect(recoveredRunId).toEqual(expect.stringMatching(/,"telegram:456","telegram:91151"\]$/))
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91150", "91151"])
       const recoveredRunIds: Array<string | undefined> = []
       const executionError = new Error("restored primary failed")
@@ -13922,7 +14365,7 @@ describe("server helpers", () => {
       const appendToList = vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
         // SAFETY: Delivery journal writes use this event record shape at the State boundary.
         const event = value as { runId?: string; type?: string }
-        if (rejectPrimaryTerminal && key.startsWith("deliveries:") && key.endsWith(":events") && event.type === settlementStatus && event.runId === "telegram:91151") {
+        if (rejectPrimaryTerminal && key.startsWith("deliveries:") && key.endsWith(":events") && event.type === settlementStatus && event.runId === recoveredRunId) {
           rejectPrimaryTerminal = false
           throw new Error("primary terminal journal unavailable")
         }
@@ -13946,7 +14389,7 @@ describe("server helpers", () => {
       )
       await expect(execution).rejects.toThrow("primary terminal journal unavailable")
       expect(rejectPrimaryTerminal).toBe(false)
-      expect(recoveredRunIds).toEqual(["telegram:91151"])
+      expect(recoveredRunIds).toEqual([recoveredRunId])
       // SAFETY: The pending queue contains the normalized durable steer entry created by this fixture.
       const pending = (await state.queuePeek(`${ownershipKey}:queue:pending`)) as { message?: { settlementStatus?: string } } | null
       expect(pending?.message?.settlementStatus).toBe(settlementStatus)
@@ -13968,11 +14411,11 @@ describe("server helpers", () => {
           },
         ),
       ).resolves.toBeUndefined()
-      expect(recoveredRunIds).toEqual(["telegram:91151"])
+      expect(recoveredRunIds).toEqual([recoveredRunId])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_151), "telegram", runtime)
-      for (const runId of ["telegram:91150", "telegram:91151"]) {
-        const delivery = deliveries.find((item) => item.events.some((event) => event.runId === runId))
+      for (const messageId of ["91150", "91151"]) {
+        const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(`,"telegram:456","telegram:${messageId}"]`)))
         expect(delivery?.events.filter((event) => event.type === `invocation.${settlementStatus}`)).toHaveLength(1)
         expect(delivery?.events.filter((event) => event.type === settlementStatus)).toHaveLength(1)
       }
@@ -14096,7 +14539,7 @@ describe("server helpers", () => {
       expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91153"])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_152), "telegram", runtime)
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91152"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91152"]')))
       expect(delivery?.events.filter((event) => event.type === `invocation.${settlementStatus}`)).toHaveLength(1)
       expect(delivery?.events.filter((event) => event.type === settlementStatus)).toHaveLength(1)
       queuePeek.mockRestore()
@@ -14201,7 +14644,7 @@ describe("server helpers", () => {
       if (reacquired) await state.releaseLock(reacquired)
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_156), "telegram", runtime)
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91156"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91156"]')))
       expect(delivery?.events.filter((event) => event.type === "invocation.completed")).toHaveLength(1)
       expect(delivery?.events.filter((event) => event.type === "completed")).toHaveLength(1)
     } finally {
@@ -14363,7 +14806,7 @@ describe("server helpers", () => {
       expect(workflowPayloads[4]?.input?.messages?.map((message) => message.id)).toEqual(["91160"])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_157), "telegram", runtime)
-      const merged = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91158"))
+      const merged = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91158"]')))
       expect(merged?.events.filter((event) => event.type === "invocation.completed")).toHaveLength(1)
       expect(merged?.events.filter((event) => event.type === "completed")).toHaveLength(1)
       queuePeek.mockRestore()
@@ -14513,12 +14956,12 @@ describe("server helpers", () => {
           expect.arrayContaining([
             {
               capabilities: { blob: false },
-              runId: "telegram:91146",
+              runId: expect.stringMatching(/,"telegram:456","telegram:91146"\]$/),
               url: "https://recovered.example/api/agent/calories/channels/telegram",
             },
             {
               capabilities: { email: false },
-              runId: "telegram:91147",
+              runId: expect.stringMatching(/,"telegram:456","telegram:91147"\]$/),
               url: "https://reclaimer.example/api/agent/calories/channels/telegram",
             },
           ]),
@@ -14555,8 +14998,8 @@ describe("server helpers", () => {
         ).toHaveLength(persistentProgressFailure ? 4 : 3)
 
         const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", reclaimerRuntime)
-        for (const runId of ["telegram:91146", "telegram:91147"]) {
-          const delivery = deliveries.find((item) => item.events.some((event) => event.runId === runId))
+        for (const messageId of ["91146", "91147"]) {
+          const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(`,"telegram:456","telegram:${messageId}"]`)))
           expect(delivery).toMatchObject({ status: "failed" })
           expect(delivery?.events.filter((event) => event.type === "invocation.failed")).toHaveLength(1)
           expect(delivery?.events.filter((event) => event.type === "failed")).toHaveLength(1)
@@ -14691,7 +15134,7 @@ describe("server helpers", () => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(false)
       const deliveries = await handler.deliveries(chatWebhookRequest(91_164), "telegram", runtime)
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91164"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91164"]')))
       expect(delivery).toMatchObject({ status: "failed" })
       expect(delivery?.events.filter((event) => event.type === "invocation.failed")).toHaveLength(1)
       expect(delivery?.events.filter((event) => event.type === "failed")).toHaveLength(1)
@@ -14957,8 +15400,8 @@ describe("server helpers", () => {
       await ownership!.settle("failed")
 
       const deliveries = await handler.deliveries(request(91_138, "alpha"), "telegram", runtime)
-      for (const runId of ["telegram:91138", "telegram:91139"]) {
-        const merged = deliveries.find((delivery) => delivery.events.some((event) => event.runId === runId))
+      for (const messageId of ["91138", "91139"]) {
+        const merged = deliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(`,"telegram:456","telegram:${messageId}"]`)))
         expect(merged?.events).not.toEqual(
           expect.arrayContaining([expect.objectContaining({ type: "invocation.failed" }), expect.objectContaining({ type: "failed" })]),
         )
@@ -15445,7 +15888,7 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
       })
       // SAFETY: this assertion narrows the matched delivery before its events are inspected below.
-      const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91141"))
+      const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91141"]')))
       expect(successor).toMatchObject({ status: "failed" })
       expect(successor?.events).toEqual(
         expect.arrayContaining([
@@ -15641,7 +16084,7 @@ describe("server helpers", () => {
       expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_142), "telegram", { agentIdentity: { name: "calories" } })
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91142"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91142"]')))
       expect(delivery).not.toMatchObject({ status: "failed" })
       expect(delivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "failed" })]))
     } finally {
@@ -15749,7 +16192,7 @@ describe("server helpers", () => {
       const deliveries = await handler.deliveries(chatWebhookRequest(91_144), "telegram", {
         agentIdentity: { name: "calories" },
       })
-      const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91144"))
+      const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91144"]')))
       expect(successor).toMatchObject({ status: "queued" })
     } finally {
       get.mockRestore()
@@ -15983,6 +16426,1163 @@ describe("server helpers", () => {
       })
     } finally {
       resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["transient", "expired", "lost", "pending"] as const)("handles %s inline Channel owner lease renewal", async (outcome) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-lease-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const released = deferred<void>()
+    const renewal = deferred<boolean>()
+    let signal: AbortSignal | undefined
+    let ownerRenewals = 0
+    const originalExtendLock = state.extendLock.bind(state)
+    vi.spyOn(state, "extendLock").mockImplementation(async (lock, ttlMs) => {
+      if (lock.threadId.endsWith(":owner")) {
+        ownerRenewals += 1
+        if (outcome === "pending") return await renewal.promise
+        if (outcome === "lost") return false
+        if (outcome === "expired" || ownerRenewals === 1) throw new Error("State temporarily unavailable")
+      }
+      return await originalExtendLock(lock, ttlMs)
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state, timeout: 60_000 },
+        }),
+      },
+      driver: {
+        async run(context) {
+          signal = context.input.abortSignal
+          await released.promise
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent definition expected by the route.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    let pending: Promise<unknown> | undefined
+    try {
+      await state.connect()
+      vi.useFakeTimers()
+      pending = handler(chatWebhookRequest(91_100), "telegram", { agentIdentity: { name: "calories" } }).catch(error => error)
+      await vi.waitFor(() => expect(signal).toBeDefined())
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(ownerRenewals).toBe(1)
+      expect(signal?.aborted).toBe(outcome === "lost")
+      if (outcome === "pending") {
+        await vi.advanceTimersByTimeAsync(15_000)
+        expect(signal?.aborted).toBe(true)
+        expect(ownerRenewals).toBe(1)
+        renewal.resolve(true)
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(signal?.aborted).toBe(true)
+        expect(ownerRenewals).toBe(1)
+      } else if (outcome !== "lost") {
+        await vi.advanceTimersByTimeAsync(outcome === "expired" ? 15_000 : 250)
+        expect(ownerRenewals).toBeGreaterThan(1)
+        expect(signal?.aborted).toBe(outcome === "expired")
+      }
+      released.resolve()
+      await pending
+      const renewalsAtFinish = ownerRenewals
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(ownerRenewals).toBe(renewalsAtFinish)
+    } finally {
+      renewal.resolve(true)
+      released.resolve()
+      await pending
+      vi.useRealTimers()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { failInvocation: false, lateAcceptance: false },
+    { failInvocation: true, lateAcceptance: false },
+    { failInvocation: false, lateAcceptance: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, lateResult: "unsupported" as const },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, lateResult: "unavailable" as const },
+    { failInvocation: true, lateAcceptance: true, timeoutAcceptance: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, nonStreaming: true, noHost: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, neverAccepts: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, afterReconciliationDeadline: true, delayedEvidence: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, delayedEvidence: true },
+    { failInvocation: false, lateAcceptance: true, timeoutAcceptance: true, cloudflareDeadline: true, neverAccepts: true },
+    { failInvocation: true, lateAcceptance: true },
+  ])("steers a follow-up into the active inline Channel invocation (failure: $failInvocation, late acceptance: $lateAcceptance, Cloudflare deadline: $cloudflareDeadline, unresolved: $neverAccepts, late result: $lateResult)", async ({ failInvocation, lateAcceptance, timeoutAcceptance, neverAccepts, nonStreaming, noHost, cloudflareDeadline, delayedEvidence, afterReconciliationDeadline, lateResult }) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { ownedAgentInvocationControlId } = await import("../src/internal/agent-invocation-response-owner.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-steer-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const evidenceStarted = deferred<void>()
+    const evidenceReleased = deferred<void>()
+    let delayEvidenceWrites = false
+    if (delayedEvidence) {
+      const appendToList = state.appendToList.bind(state)
+      vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+        if (delayEvidenceWrites && key.startsWith("deliveries:") && key.endsWith(":events") && typeof value === "object" && value !== null && "type" in value && value.type === "accepted") {
+          evidenceStarted.resolve()
+          await evidenceReleased.promise
+        }
+        return appendToList(key, value, options)
+      })
+    }
+    const adapter = createTestChatAdapter()
+    let runs = 0
+    const acceptance = deferred<void>()
+    let steeredPrompt: string | undefined
+    let releaseFirst!: () => void
+    const firstReleased = new Promise<void>(resolve => { releaseFirst = resolve })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: cloudflareDeadline ? 30_000 : 500, ...(nonStreaming ? { stream: false } : {}) },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = ownedAgentInvocationControlId(context)
+          if (!runId) throw new Error("Expected a Channel-owned invocation control ID")
+          expect(runId).toBe(context.run?.runId)
+          const unregister = registerAgentInvocationInputHandler(runId, {
+            async sendInput(input, options) {
+              if (options.mode !== "steer") return "unsupported"
+              steeredPrompt = input.messages?.map(message => message.parts.find(part => typeof part === "string" || part.type === "text") && message.parts.map(part => typeof part === "string" ? part : "text" in part ? part.text : "").join("")).join("\n")
+              if (failInvocation || lateAcceptance) releaseFirst()
+              if (lateAcceptance) await acceptance.promise
+              return lateResult ?? "accepted"
+            },
+            support: { steer: true },
+          })
+          try {
+            await firstReleased
+            if (failInvocation && runs === 1) throw new Error("steered invocation failed")
+            return "Steered reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+      hooks: { "agent:finish": event => event.reply("Steered reply") },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (messageId: number, threadId = 456) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+      body: JSON.stringify({
+        update_id: messageId,
+        message: {
+          chat: { id: threadId, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: messageId,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
+
+    try {
+      await state.connect()
+      const remoteOwner = await state.acquireLock("chat:calories:telegram:inline-steer:agent:owner", 60_000)
+      if (!remoteOwner) throw new Error("Expected a simulated remote inline owner lock")
+      const first = handler(request(91_106), "telegram", { agentIdentity: { name: "calories" } })
+      const firstResult = failInvocation
+        ? expect(first).rejects.toThrow("steered invocation failed")
+        : expect(first).resolves.toMatchObject({ status: 200 })
+      await new Promise(resolve => setTimeout(resolve, 75))
+      expect(runs).toBe(0)
+      await state.releaseLock(remoteOwner)
+      await vi.waitFor(() => expect(runs).toBe(1))
+      const otherInvoker = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+        body: JSON.stringify({ update_id: 91_108, message: {
+          chat: { id: 458, type: "private" },
+          from: { id: 456, username: "other" },
+          message_id: 91_108,
+          text: "do not steer another user",
+        } }),
+        method: "POST",
+      }), "telegram", { agentIdentity: { name: "calories" } })
+      await new Promise(resolve => setTimeout(resolve, 75))
+      expect(runs).toBe(1)
+      expect(steeredPrompt).toBeUndefined()
+      const reconciliationTasks: Promise<unknown>[] = []
+      const followUpStartedAt = Date.now()
+      const followUp = handler(request(91_107, 457), "telegram", {
+        agentIdentity: { name: "calories" },
+        ...(cloudflareDeadline ? { runtime: "cloudflare-agents" as const, cloudflare: { env: {} } } : {}),
+        ...(noHost ? {} : { waitUntil: (task: Promise<unknown>) => { reconciliationTasks.push(task) } }),
+      })
+      if (lateAcceptance) {
+        // Completion and owner release must not wait for the in-flight handler.
+        await firstResult
+        await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
+        expect(steeredPrompt).toBe("hello")
+        if (timeoutAcceptance) {
+          // The response finishes while the host retains reconciliation custody.
+          await expect(followUp).resolves.toMatchObject({ status: 200 })
+          const timedOut = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+          expect(timedOut.find(delivery => delivery.sourceId === "91107")?.status).toBe("failed")
+          if (noHost) {
+            // A local non-streaming flush must not include the second 500 ms wait.
+            expect(Date.now() - followUpStartedAt).toBeLessThan(900)
+            expect(reconciliationTasks).toHaveLength(0)
+          } else {
+            expect(reconciliationTasks.length).toBeGreaterThan(0)
+            let custodySettled = false
+            void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+            await new Promise(resolve => setTimeout(resolve, 0))
+            expect(custodySettled).toBe(false)
+          }
+        }
+        if (cloudflareDeadline) {
+          // Custody expires 30 seconds after request start, not registration.
+          expect(Date.now() - followUpStartedAt).toBeLessThan(20_000)
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + (delayedEvidence ? 27_500 : 26_000) - Date.now())))
+        }
+        if (afterReconciliationDeadline) {
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + 1_200 - Date.now())))
+          let custodySettled = false
+          void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+          await new Promise(resolve => setTimeout(resolve, 0))
+          expect(custodySettled).toBe(false)
+        }
+        delayEvidenceWrites = delayedEvidence === true
+        if (!neverAccepts) acceptance.resolve()
+        if (delayedEvidence) {
+          await evidenceStarted.promise
+          let custodySettled = false
+          void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, followUpStartedAt + (cloudflareDeadline ? 29_000 : 1_250) - Date.now())))
+          expect(custodySettled).toBe(false)
+          evidenceReleased.resolve()
+        }
+      }
+      await expect(followUp).resolves.toMatchObject({ status: 200 })
+      if (!failInvocation && !lateAcceptance) {
+        const pending = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+        const followUpDelivery = pending.find(delivery => delivery.sourceId === "91107")
+        expect(followUpDelivery).toBeDefined()
+        expect(followUpDelivery?.status).toBe("running")
+        expect(followUpDelivery?.events.some(event => ["completed", "failed", "invocation.completed", "invocation.failed"].includes(event.type))).toBe(false)
+        releaseFirst()
+      }
+      await firstResult
+      await expect(otherInvoker).resolves.toMatchObject({ status: 200 })
+
+      if (neverAccepts) {
+        let custodySettled = false
+        void Promise.all(reconciliationTasks).then(() => { custodySettled = true })
+        await new Promise(resolve => setTimeout(resolve, cloudflareDeadline ? 0 : 600))
+        expect(custodySettled).toBe(false)
+        // Simulate the Driver terminating without acceptance to release test custody.
+        acceptance.reject(new Error("Driver stopped before confirmation"))
+      }
+      if (timeoutAcceptance) await Promise.all(reconciliationTasks)
+      if (cloudflareDeadline) expect(Date.now() - followUpStartedAt).toBeLessThan(30_000)
+      if (neverAccepts) {
+        expect(runs).toBe(2)
+        return
+      }
+      if (lateAcceptance) await vi.waitFor(async () => {
+        const settled = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+        expect(settled.find(delivery => delivery.sourceId === "91107")?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual(timeoutAcceptance ? ["failed", failInvocation ? "failed" : "completed"] : [failInvocation ? "failed" : "completed"])
+      })
+      const deliveries = await handler.deliveries(request(91_107, 457), "telegram", { agentIdentity: { name: "calories" } })
+      const followUpDelivery = deliveries.find(delivery => delivery.sourceId === "91107")
+      const outcome = failInvocation ? "failed" : "completed"
+      expect(followUpDelivery?.status).toBe(outcome)
+      expect(followUpDelivery?.events.filter(event => event.type.startsWith("invocation.")).map(event => event.type)).toEqual(["invocation.started", `invocation.${outcome}`])
+      expect(followUpDelivery?.events.filter(event => event.type === "invocation.completed" || event.type === "invocation.failed").map(event => event.type)).toEqual([`invocation.${outcome}`])
+      expect(followUpDelivery?.events.filter(event => event.type === "completed" || event.type === "failed").map(event => event.type)).toEqual(timeoutAcceptance ? ["failed", outcome] : [outcome])
+      expect(runs).toBe(lateResult ? 3 : 2)
+      expect(steeredPrompt).toBe("hello")
+    } finally {
+      evidenceReleased.resolve()
+      if (!neverAccepts) acceptance.resolve()
+      releaseFirst()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  }, 40_000)
+
+  it("serializes overlapping inline steering submissions", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-serial-steer-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const acceptance = deferred<void>()
+    const released = deferred<void>()
+    let runs = 0
+    const sendInput = vi.fn(async () => {
+      await acceptance.promise
+      return "accepted" as const
+    })
+    const admitted = vi.fn(() => true)
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, filter: admitted, lockScope: "agent", state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          try {
+            await released.promise
+            return "Steered reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    }) as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_120), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      pending.push(handler(chatWebhookRequest(91_121), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      pending.push(handler(chatWebhookRequest(91_122), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(admitted).toHaveBeenCalledTimes(3))
+      expect(sendInput).toHaveBeenCalledTimes(1)
+      acceptance.resolve()
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(2))
+      await Promise.all(pending.slice(1))
+      expect(runs).toBe(1)
+      released.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200])
+    } finally {
+      acceptance.resolve()
+      released.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["unsupported", "unavailable"] as const)("coalesces duplicate late %s steering fallbacks", async (result) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-serial-steer-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const acceptance = deferred<void>()
+    const released = deferred<void>()
+    let runs = 0
+    const sendInput = vi.fn(async () => {
+      await acceptance.promise
+      return result
+    })
+    const admitted = vi.fn(() => true)
+    const handler = createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, filter: admitted, lockScope: "agent", state, timeout: 500, dedupeTtlMs: 1 },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          try {
+            await released.promise
+            return "Steered reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    }) as never)
+    const request = (messageId: number) => {
+      const request = chatWebhookRequest(messageId)
+      request.headers.set("x-vitehub-delivery-id", String(messageId))
+      return request
+    }
+    const pending: Promise<Response>[] = []
+    const reconciliation: Promise<unknown>[] = []
+    const context = {
+      agentIdentity: { name: "calories" },
+      waitUntil: (task: Promise<unknown>) => { reconciliation.push(task) },
+    }
+    try {
+      await state.connect()
+      pending.push(handler(request(91_120), "telegram", context))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      pending.push(handler(request(91_121), "telegram", context))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      pending.push(handler(request(91_121), "telegram", context))
+      await vi.waitFor(() => expect(admitted).toHaveBeenCalledTimes(3))
+      expect(sendInput).toHaveBeenCalledTimes(1)
+      await Promise.all(pending.slice(1))
+      expect(runs).toBe(1)
+      acceptance.resolve()
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(2))
+      released.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200])
+      await Promise.all(reconciliation)
+      expect(runs).toBe(2)
+      const deliveries = await handler.deliveries(request(91_121), "telegram", context)
+      const followUp = deliveries.find(delivery => delivery.sourceId === "91121")
+      expect(followUp?.status).toBe("completed")
+      expect(followUp?.events.filter(event => event.type.startsWith("invocation.")).map(event => event.type)).toEqual(["invocation.started", "invocation.completed"])
+    } finally {
+      acceptance.resolve()
+      released.resolve()
+      await Promise.allSettled(pending)
+      await Promise.allSettled(reconciliation)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("isolates inline steering across independent State backends", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-backends-"))
+    const states = ["first", "second"].map(name => createLibsqlAgentState({ url: `file:${join(stateDir, `${name}.sqlite`)}` }))
+    const sendInput = vi.fn(() => "accepted" as const)
+    const released = deferred<void>()
+    let runs = 0
+    const handlers = states.map(state => createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          try {
+            await released.promise
+            return "Independent reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    }) as never))
+    const request = (messageId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+      body: JSON.stringify({ update_id: messageId, message: {
+        chat: { id: 456, type: "private" },
+        from: { id: 123, username: "maxi" },
+        message_id: messageId,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const pending: Promise<Response>[] = []
+    try {
+      await Promise.all(states.map(state => state.connect()))
+      pending.push(handlers[0]!(request(91_110), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      pending.push(handlers[1]!(request(91_111), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(2))
+      expect(sendInput).not.toHaveBeenCalled()
+      released.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200])
+    } finally {
+      released.resolve()
+      await Promise.allSettled(pending)
+      await Promise.all(states.map(state => state.disconnect()))
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([456, 457])("isolates repeated message IDs across inline owners (second chat: %s)", async (secondChatId) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-backends-"))
+    const states = ["first", "second"].map(name => createLibsqlAgentState({ url: `file:${join(stateDir, `${name}.sqlite`)}` }))
+    const sendInputs = [vi.fn(() => "accepted" as const), vi.fn(() => "accepted" as const)]
+    const runIds: string[] = []
+    const released = deferred<void>()
+    let runs = 0
+    const handlers = states.map((state, index) => createChannelWebhookRouteHandler(defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "thread", state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          runIds.push(runId)
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput: sendInputs[index]!, support: { steer: true } })
+          try {
+            await released.promise
+            return "Independent reply"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    }) as never))
+    const request = (messageId: number, chatId: number) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/channel", {
+      body: JSON.stringify({ update_id: messageId * 1000 + chatId, message: {
+        chat: { id: chatId, type: "private" },
+        from: { id: 123, username: "maxi" },
+        message_id: messageId,
+        text: "hello",
+      } }),
+      method: "POST",
+    })
+    const pending: Promise<Response>[] = []
+    try {
+      await Promise.all(states.map(state => state.connect()))
+      pending.push(handlers[0]!(request(91_110, 456), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(1))
+      pending.push(handlers[1]!(request(91_110, secondChatId), "telegram", { agentIdentity: { name: "calories" } }))
+      await vi.waitFor(() => expect(runs).toBe(2))
+      expect(new Set(runIds).size).toBe(2)
+      for (const [index, chatId] of [456, secondChatId].entries()) {
+        const followUp = handlers[index]!(request(91_111, chatId), "telegram", { agentIdentity: { name: "calories" } })
+        pending.push(followUp)
+        await followUp
+        expect(sendInputs[index]).toHaveBeenCalledTimes(1)
+      }
+      expect(runs).toBe(2)
+      released.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200, 200])
+    } finally {
+      released.resolve()
+      await Promise.allSettled(pending)
+      await Promise.all(states.map(state => state.disconnect()))
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["agent", "channel"] as const)("isolates repeated message IDs on one backend with %s lock scope", async (lockScope) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-shared-backend-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    vi.mocked(adapter.channelIdFromThreadId).mockReturnValue("shared-channel")
+    const runIds: string[] = []
+    const invocationIds: string[] = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope, state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          runIds.push(runId)
+          invocationIds.push(await agentInvocationId(runId, context.agentIdentity?.name))
+          return "Independent reply"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    try {
+      await state.connect()
+      for (const chatId of [456, 457]) {
+        // Simulate a later delivery after the provider message dedupe window expires.
+        await state.delete("dedupe:telegram:91119")
+        const response = await handler(chatWebhookRequest(91_119, chatId), "telegram", { agentIdentity: { name: "calories" } })
+        expect(response.status).toBe(200)
+      }
+      expect(runIds).toHaveLength(2)
+      expect(new Set(runIds).size).toBe(2)
+      expect(new Set(invocationIds).size).toBe(2)
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves inline invocation identity when a failed delivery is reconstructed", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-retry-"))
+    const url = `file:${join(stateDir, "state.sqlite")}`
+    const runIds: string[] = []
+    const invocationIds: string[] = []
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const state = createLibsqlAgentState({ url })
+        await state.connect()
+        // Simulate replay after the Chat SDK deduplication window expires.
+        if (attempt > 0) await state.delete("dedupe:telegram:91118")
+        const agent = defineAgent({
+          channels: {
+            telegram: testTelegram(telegram, {
+              // SAFETY: This fixture constructs the Chat adapter contract for the test.
+              adapter: () => createTestChatAdapter() as never,
+              messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+            }),
+          },
+          driver: {
+            async run(context) {
+              const runId = context.run?.runId
+              if (!runId) throw new Error("Expected an invocation run ID")
+              runIds.push(runId)
+              invocationIds.push(await agentInvocationId(runId, context.agentIdentity?.name))
+              if (attempt === 0) throw new Error("Retry this delivery")
+              return "Retried reply"
+            },
+          },
+        })
+        // SAFETY: This fixture constructs the Agent contract for the test.
+        const handler = createChannelWebhookRouteHandler(agent as never)
+        try {
+          const response = handler(chatWebhookRequest(91_118, 456, "hello"), "telegram", { agentIdentity: { name: "calories" } })
+          if (attempt === 0) await expect(response).rejects.toThrow("Retry this delivery")
+          else expect((await response).status).toBe(200)
+        } finally {
+          await state.disconnect()
+        }
+      }
+      expect(runIds).toHaveLength(2)
+      expect(new Set(runIds).size).toBe(1)
+      expect(new Set(invocationIds).size).toBe(1)
+    } finally {
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["bigint", "circular"])("steers overlapping messages with equivalent %s invoker metadata", async (kind) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-meta-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "accepted" as const)
+    let runs = 0
+    const agent = defineAgent({
+      invoker: { resolve: () => {
+        const nested: Record<string, unknown> = {}
+        nested.value = kind === "bigint" ? 1n : nested
+        return { id: "user", meta: nested }
+      } },
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs++
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          started.resolve()
+          try {
+            await release.promise
+            return "done"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_119, 456, "hello"), "telegram"))
+      await started.promise
+      pending.push(handler(chatWebhookRequest(91_120, 456, "follow-up"), "telegram"))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      expect(runs).toBe(1)
+      release.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200])
+    } finally {
+      release.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["undefined", "function", "symbol", "toJSON", "proxy"])("does not steer across lossy %s invoker metadata", async (kind) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-identity-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "accepted" as const)
+    let resolutions = 0
+    let runs = 0
+    const metadata = kind === "proxy"
+      ? [1, 2].map(value => new Proxy({ value }, { get: () => undefined }))
+      : kind === "toJSON"
+      ? [{ value: 1, toJSON: () => ({}) }, { value: 2, toJSON: () => ({}) }]
+      : [{}, { value: kind === "function" ? () => {} : kind === "symbol" ? Symbol("other") : undefined }]
+    expect(JSON.stringify(metadata[0])).toBe(JSON.stringify(metadata[1]))
+    const agent = defineAgent({
+      invoker: { resolve: () => ({ id: "user", meta: metadata[resolutions++]! }) },
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => createTestChatAdapter() as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs++
+          if (runs === 1) {
+            const runId = context.run?.runId
+            if (!runId) throw new Error("Expected an invocation run ID")
+            const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+            started.resolve()
+            try {
+              await release.promise
+            } finally {
+              unregister()
+            }
+          }
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_130, 456, "first"), "telegram"))
+      await started.promise
+      pending.push(handler(chatWebhookRequest(91_131, 456, "second"), "telegram"))
+      await vi.waitFor(() => expect(resolutions).toBe(2))
+      await new Promise(resolve => setTimeout(resolve, 75))
+      expect(runs).toBe(1)
+      expect(sendInput).not.toHaveBeenCalled()
+      release.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200])
+      expect(runs).toBe(2)
+      expect(sendInput).not.toHaveBeenCalled()
+    } finally {
+      release.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["unsupported", "remote-owner"] as const)("bounds inline steering fallback waits by messages.timeout (%s)", async (mode) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-wait-timeout-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "unsupported" as const)
+    let runs = 0
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 100 },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+          started.resolve()
+          try {
+            await release.promise
+            return "done"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    let remoteOwner: Awaited<ReturnType<typeof state.acquireLock>> | undefined
+    try {
+      await state.connect()
+      if (mode === "remote-owner") {
+        remoteOwner = await state.acquireLock("chat:calories:telegram:inline-steer:agent:owner", 60_000)
+        expect(remoteOwner).toBeTruthy()
+      } else {
+        pending.push(handler(chatWebhookRequest(91_140, 456, "first"), "telegram", { agentIdentity: { name: "calories" } }))
+        await started.promise
+      }
+      const followUp = handler(chatWebhookRequest(91_141, 456, "second"), "telegram", { agentIdentity: { name: "calories" } })
+      pending.push(followUp)
+      await expect(followUp).rejects.toThrow("timed out while waiting to steer")
+      expect(runs).toBe(mode === "unsupported" ? 1 : 0)
+      expect(sendInput).toHaveBeenCalledTimes(mode === "unsupported" ? 1 : 0)
+    } finally {
+      release.resolve()
+      if (remoteOwner) await state.releaseLock(remoteOwner)
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each([false, true])("preserves first-read steering history before the incoming message is indexed with durable history %s", async (durableHistory) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-initial-history-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ persistThreadHistory: durableHistory })
+    adapter.fetchMessages.mockResolvedValue({
+      messages: [new Message({
+        attachments: [],
+        author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+        formatted: { children: [], type: "root" },
+        id: "91119",
+        metadata: { dateSent: new Date("2026-06-10T11:30:00.000Z"), edited: false },
+        raw: {}, text: "earlier context", threadId: "telegram:456",
+      })],
+    })
+    const histories: string[][] = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "steer", delivery: "manual", durable: false, state,
+            triggerHistory: { maxMessages: 3, source: "thread" },
+          },
+        }),
+      },
+      driver: {
+        run(context) {
+          histories.push(context.messages.map(message => message.parts.find(part => part.type === "text")?.text || ""))
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    try {
+      await state.connect()
+      if (durableHistory) {
+        await state.appendToList("msg-history:telegram:456", new Message({
+          attachments: [],
+          author: { fullName: "Maxi", isBot: false, isMe: false, userId: "123", userName: "maxi" },
+          formatted: { children: [], type: "root" },
+          id: "91121",
+          metadata: { dateSent: new Date("2026-06-12T12:00:00.000Z"), edited: false },
+          raw: {}, text: "future context", threadId: "telegram:456",
+        }).toJSON(), { maxLength: 25 })
+        const appendToList = state.appendToList.bind(state)
+        vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+          // Simulate the incoming message not yet appearing in the durable history window.
+          if (key === "msg-history:telegram:456") return
+          await appendToList(key, value, options)
+        })
+      }
+      const response = await handler(chatWebhookRequest(91_120, 456, "current"), "telegram")
+      expect(response.status).toBe(200)
+      expect(histories).toEqual([["earlier context", "current"]])
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("limits refreshed inline steering history to each waiting message", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-history-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "unsupported" as const)
+    const histories: string[][] = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "steer", delivery: "manual", durable: false, state,
+            triggerHistory: { maxMessages: 2, source: "thread" },
+          },
+        }),
+      },
+      driver: {
+        async run(context) {
+          histories.push(context.messages.map(message => message.parts.find(part => part.type === "text")?.text || ""))
+          if (histories.length === 1) {
+            const runId = context.run?.runId
+            if (!runId) throw new Error("Expected an invocation run ID")
+            const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+            started.resolve()
+            try {
+              await release.promise
+            } finally {
+              unregister()
+            }
+          }
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_120, 456, "A"), "telegram"))
+      await started.promise
+      pending.push(handler(chatWebhookRequest(91_121, 456, "B"), "telegram"))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      const laterMessages = ["C", "D", "E"]
+      for (const [index, text] of laterMessages.entries()) {
+        pending.push(handler(chatWebhookRequest(91_122 + index, 456, text), "telegram"))
+        await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(index + 2))
+      }
+      release.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200, 200, 200, 200])
+      expect(histories.map(history => history.at(-1)).sort()).toEqual(["A", "B", "C", "D", "E"])
+      expect(histories.find(history => history.at(-1) === "B")).toEqual(["A", "B"])
+    } finally {
+      release.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["missing", "unavailable"] as const)("preserves inline steering history when refreshed history is %s", async (historyMode) => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-history-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ persistThreadHistory: false })
+    const started = deferred<void>()
+    const release = deferred<void>()
+    const sendInput = vi.fn(() => "unsupported" as const)
+    const histories: string[][] = []
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: {
+            concurrency: "steer", delivery: "manual", durable: false, state,
+            triggerHistory: { maxMessages: 2, source: "thread" },
+          },
+        }),
+      },
+      driver: {
+        async run(context) {
+          histories.push(context.messages.map(message => message.parts.find(part => part.type === "text")?.text || ""))
+          if (histories.length === 1) {
+            const runId = context.run?.runId
+            if (!runId) throw new Error("Expected an invocation run ID")
+            const unregister = registerAgentInvocationInputHandler(runId, { sendInput, support: { steer: true } })
+            started.resolve()
+            try {
+              await release.promise
+            } finally {
+              unregister()
+            }
+          }
+          return "done"
+        },
+      },
+    })
+    // SAFETY: This fixture constructs the Agent contract for the test.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_120, 456, "A"), "telegram"))
+      await started.promise
+      const beforeWaiting = await adapter.fetchMessages("telegram:456")
+      const firstMessage = beforeWaiting.messages[0]!
+      adapter.fetchMessages.mockResolvedValue({
+        messages: [...beforeWaiting.messages, ...["B", "C"].map((text, index) => new Message({
+          attachments: [], author: firstMessage.author, formatted: { children: [], type: "root" },
+          id: String(91_121 + index), metadata: firstMessage.metadata, raw: {}, text, threadId: "telegram:456",
+        }))],
+      })
+      pending.push(handler(chatWebhookRequest(91_121, 456, "B"), "telegram"))
+      await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
+      const initialHistory = await adapter.fetchMessages("telegram:456")
+      if (historyMode === "missing") {
+        adapter.fetchMessages.mockResolvedValue({ messages: initialHistory.messages.filter(message => message.id !== "91121") })
+      } else {
+        adapter.fetchMessages.mockRejectedValue(new Error("History temporarily unavailable"))
+      }
+      release.resolve()
+      expect((await Promise.all(pending)).map(response => response.status)).toEqual([200, 200])
+      expect(histories.map(history => history.at(-1)).sort()).toEqual(["A", "B"])
+      expect(histories.find(history => history.at(-1) === "B")).toEqual(["A", "B"])
+    } finally {
+      release.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("does not steer an unmentioned group follow-up into an active invocation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-inline-steer-mention-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const sendInput = vi.fn(() => "accepted" as const)
+    let runs = 0
+    let releaseFirst!: () => void
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture intentionally constructs the exact asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: {
+        async run(context) {
+          runs += 1
+          const runId = context.run?.runId
+          if (!runId) throw new Error("Expected an invocation run ID")
+          const unregister = registerAgentInvocationInputHandler(runId, {
+            sendInput,
+            support: { steer: true },
+          })
+          try {
+            await firstReleased
+            return "done"
+          } finally {
+            unregister()
+          }
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (messageId: number, isMention = false) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          message: {
+            chat: { id: 456, type: "group" },
+            from: { id: 123, username: "maxi" },
+            isMention,
+            message_id: messageId,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      })
+
+    try {
+      await state.connect()
+      const first = handler(request(91_108, true), "telegram", { agentIdentity: { name: "calories" } })
+      await vi.waitFor(() => expect(runs).toBe(1))
+      adapter.startTyping.mockClear()
+      adapter.postMessage.mockClear()
+
+      await expect(handler(request(91_109), "telegram", { agentIdentity: { name: "calories" } }))
+        .resolves.toMatchObject({ status: 200 })
+      expect(sendInput).not.toHaveBeenCalled()
+      expect(runs).toBe(1)
+      expect(adapter.startTyping).not.toHaveBeenCalled()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+
+      releaseFirst()
+      await expect(first).resolves.toMatchObject({ status: 200 })
+    } finally {
+      releaseFirst()
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
