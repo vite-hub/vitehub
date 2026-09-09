@@ -300,6 +300,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     if (Object.keys(remainingSkills).length) {
       Object.defineProperty(decoratedAgent, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })
     } else {
+      // SAFETY: The decorated agent is a mutable record, and this symbol is removed only when no skills remain.
       delete (decoratedAgent as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]
     }
   }
