@@ -156,15 +156,16 @@ export async function updateAgentTelemetryConfiguration(
           driver: {
             ...source.driver,
             ...driver,
-            kind: driver.kind ?? current.value.driver.kind,
+            kind: driver.kind ?? source.driver.kind,
             ...(driver.model
-              ? { model: { ...current.value.driver.model, ...driver.model } }
+              ? { model: { ...source.driver.model, ...driver.model } }
               : {}),
           },
         }
       : {}),
   }
-  configurationByContext.set(context, { value: await withConfigurationFingerprint(redactTelemetryConfiguration(next)), source: next })
+  const fingerprinted = await withConfigurationFingerprint(next)
+  configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
   await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
 }
 
