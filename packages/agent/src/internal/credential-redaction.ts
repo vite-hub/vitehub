@@ -156,7 +156,11 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
     const length = consumeCredentialAssignment(content, state)
     if (!length) continue
     const quote = /^["']/.exec(content)?.[0] ?? ""
-    result += value.slice(offset, start) + quote + "[REDACTED]" + (quote && !state.quote ? quote : "")
+    const flowWhitespace = !quote && match[1]!.trimEnd().endsWith(":") && /^[ \t]+/.test(content)
+      && /\{[^\r\n]*$/.test(precedingText + value.slice(0, match.index))
+      ? /^[ \t]+/.exec(content)?.[0] ?? ""
+      : ""
+    result += value.slice(offset, start) + flowWhitespace + quote + "[REDACTED]" + (quote && !state.quote ? quote : "")
     if (state.yaml && length < content.length) result += state.yaml.whitespace
     offset = start + length
   }
