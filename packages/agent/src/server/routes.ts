@@ -6007,7 +6007,7 @@ async function createChannelChat(
       registration,
       thread,
       message,
-      (queuedMessage) => (queuedMessage.isMention ? "mention" : "subscribed"),
+      (queuedMessage) => (queuedMessage.isMention ? "mention" : undefined),
       options,
       state,
       adapter,
