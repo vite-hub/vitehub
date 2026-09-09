@@ -285,7 +285,10 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
   }
   if (!signal) return preparation
   return new Promise((resolve, reject) => {
-    const onAbort = () => reject(signal.reason)
+    const onAbort = () => {
+      if (preparations.get(key) === preparation) preparations.delete(key)
+      reject(signal.reason)
+    }
     signal.addEventListener("abort", onAbort, { once: true })
     preparation.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort))
   })
