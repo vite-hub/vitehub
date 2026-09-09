@@ -96,8 +96,12 @@ async function withConfigurationFingerprint(
   }
 }
 
-function redactConfigurationValue(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
-  if (hasRuntimeType(value, "string")) return redactCredentialText(value)
+function redactConfigurationValue(value: unknown, seen = new WeakMap<object, unknown>(), key = ""): unknown {
+  if (hasRuntimeType(value, "string")) {
+    if (secretMetadataKey(key)) return "[redacted]"
+    if (key === "repo" || key === "repository") return value
+    return redactCredentialText(value)
+  }
   if (!value || !hasRuntimeType(value, "object")) return value
   const existing = seen.get(value)
   if (existing) return existing
@@ -109,7 +113,7 @@ function redactConfigurationValue(value: unknown, seen = new WeakMap<object, unk
   }
   const result: Record<string, unknown> = {}
   seen.set(value, result)
-  for (const [key, child] of Object.entries(value)) result[key] = redactConfigurationValue(child, seen)
+  for (const [childKey, child] of Object.entries(value)) result[childKey] = redactConfigurationValue(child, seen, childKey)
   return result
 }
 
@@ -122,7 +126,8 @@ export async function setAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   value: AgentTelemetryConfiguration,
 ): Promise<void> {
-  configurationByContext.set(context, { value: await withConfigurationFingerprint(redactTelemetryConfiguration(value)) })
+  const fingerprinted = await withConfigurationFingerprint(value)
+  configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted) })
 }
 
 export async function updateAgentTelemetryConfiguration(
