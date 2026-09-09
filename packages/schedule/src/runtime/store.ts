@@ -109,14 +109,17 @@ function deserializeRuntimeSchedule(record: StoredRuntimeScheduleRecord): Runtim
 }
 
 function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleUpdateInput {
-  return {
-    ...(Object.hasOwn(patch, "console") ? { console: patch.console ? { ...patch.console } : patch.console } : {}),
+  const result: RuntimeScheduleUpdateInput = {
     ...(patch.cron !== undefined ? { cron: patch.cron } : {}),
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
     ...(Object.hasOwn(patch, "input") ? { input: structuredClone(patch.input) } : {}),
     ...(patch.target !== undefined ? { target: patch.target } : {}),
     ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
   }
+  if (Object.hasOwn(patch, "console")) {
+    result.console = patch.console ? { ...patch.console } : patch.console
+  }
+  return result
 }
 
 const keyLocks = new Map<string, Promise<void>>()
