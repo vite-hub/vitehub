@@ -1147,7 +1147,14 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
         ])
       : null,
     configuration.workspace?.sources?.length
-      ? inspectorCollection("Sources", configuration.workspace.sources)
+      ? inspectorCollection(
+          "Sources",
+          configuration.workspace.sources.map((source) =>
+            typeof source === "string"
+              ? source
+              : source.repository ? `${source.id} · ${source.repository}` : source.id,
+          ),
+        )
       : null,
     configuration.channels?.length
       ? inspectorCollection(

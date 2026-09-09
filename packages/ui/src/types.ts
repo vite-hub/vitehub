@@ -77,7 +77,7 @@ export interface AgentInvocationConfiguration {
   workspace?: {
     mode?: string;
     name?: string;
-    sources?: readonly string[];
+    sources?: readonly (string | { id: string; repository?: string })[];
   };
 }
 

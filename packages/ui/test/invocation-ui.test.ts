@@ -2711,6 +2711,23 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('[role="note"]').text()).toContain("Some setup values were shortened");
   });
 
+  it("renders structured workspace sources alongside historical source strings", () => {
+    const invocation: AgentInvocationView = {
+      id: "sources", traceId: "sources", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
+      status: "completed", observations: [],
+      configuration: { workspace: { sources: [
+        { id: "docs", repository: "vite-hub/vitehub" },
+        { id: "local" },
+        "github:legacy/repo",
+      ] } },
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    const sources = wrapper.findAll(".vh-invocation-inspector__group").find(group => group.find("strong").exists() && group.find("strong").text() === "Sources");
+    expect(sources?.findAll("code").map(code => code.text())).toEqual([
+      "docs · vite-hub/vitehub", "local", "github:legacy/repo",
+    ]);
+  });
+
   it("groups recorded Agent Definition details as captured setup", () => {
     const invocation: AgentInvocationView = {
       configuration: {
