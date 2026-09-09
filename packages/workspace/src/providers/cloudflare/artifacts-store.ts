@@ -1,4 +1,5 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { boolean, object, optional, parse, record, string, unknown } from "valibot"
 
 import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts"
 import { contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
@@ -57,6 +58,21 @@ const fileMetadataJournalPath = ".vitehub/files.pending.json"
 const tokenRefreshWindow = 60_000
 
 type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
+
+const fileMetadataSchema = object({
+  mediaType: optional(string()),
+  metadata: optional(record(string(), unknown())),
+})
+const fileMetadataFilesSchema = record(string(), fileMetadataSchema)
+const fileMetadataJournalSchema = object({
+  path: string(),
+  existed: boolean(),
+  metadata: fileMetadataSchema,
+})
+
+function parseJson(content: Uint8Array): unknown {
+  return JSON.parse(new TextDecoder().decode(content))
+}
 
 function sameSnapshotEntry(
   left: WorkspaceSnapshot["entries"][string] | undefined,
@@ -450,13 +466,13 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async #loadFileMetadata(): Promise<void> {
     const content = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataPath)).catch(() => undefined)
     if (content) {
-      const files = JSON.parse(new TextDecoder().decode(content as Uint8Array)) as Record<string, FileMetadata>
+      const files = parse(fileMetadataFilesSchema, parseJson(contentToBytes(content)))
       this.#files = new Map(Object.entries(files))
     }
     const pending = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataJournalPath)).catch(() => undefined)
     if (!pending) return
     try {
-      const journal = JSON.parse(new TextDecoder().decode(pending as Uint8Array)) as { path?: string, existed?: boolean, metadata?: FileMetadata }
+      const journal = parse(fileMetadataJournalSchema, parseJson(contentToBytes(pending)))
       if (journal.path && journal.existed === false && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
         if (journal.metadata && (journal.metadata.mediaType !== undefined || journal.metadata.metadata !== undefined)) this.#files.set(journal.path, journal.metadata)
         else this.#files.delete(journal.path)
