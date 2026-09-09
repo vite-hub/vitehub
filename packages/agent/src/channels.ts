@@ -2608,7 +2608,8 @@ function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload, inpu
   const pr = isRecord(payload.pull_request) ? payload.pull_request : undefined
   const issue = isRecord(payload.issue) ? payload.issue : undefined
   const repository = isRecord(payload.repository) ? maybeString(payload.repository.full_name) : undefined
-  const actor = isRecord(payload.sender) ? maybeString(payload.sender.login) : undefined
+  const trigger = isRecord(input) && isRecord(input.trigger) ? input.trigger : undefined
+  const actor = isRecord(payload.sender) ? maybeString(payload.sender.login) : trigger && isRecord(trigger.actor) ? maybeString(trigger.actor.login) : undefined
   const user = pr && isRecord(pr.user) ? pr.user : issue && isRecord(issue.user) ? issue.user : undefined
   const rawLabels = pr?.labels ?? issue?.labels
   const labels = Array.isArray(rawLabels) ? rawLabels.flatMap(label => isRecord(label) ? [maybeString(label.name)].filter((v): v is string => Boolean(v)) : []) : undefined
