@@ -145,6 +145,9 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
+  if (args.publicError.code === "PROVIDER_QUOTA_EXHAUSTED") {
+    return defaultInternalChatErrorFallback(args)
+  }
   if (args.publicError.code !== "INTERNAL") {
     return args.publicError.requestId
       ? `${args.publicError.error} Reference: ${args.publicError.requestId}.`
