@@ -45,7 +45,7 @@ export async function serializeResponse(response: Response): Promise<SerializedR
 export function deserializeResponse(value: SerializedResponse): Response {
   if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
   const bytes = base64ToBytes(value.body.data)
-  return new Response(bytes as unknown as BodyInit, {
+  return new Response(bytes, {
     headers: value.headers.map(([name, headerValue]) => [name, headerValue]),
     status: value.status,
     statusText: value.statusText,
@@ -73,7 +73,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
-function base64ToBytes(value: string): Uint8Array {
+function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
