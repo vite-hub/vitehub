@@ -181,7 +181,7 @@ async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle
 }
 
 async function withFilesystemLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
-  const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
+  const { mkdir, open, readFile, rm } = await import("node:fs/promises")
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
   let lease: import("node:fs/promises").FileHandle | undefined
@@ -202,18 +202,9 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
     catch (error) {
       if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
       await validateLockDirectory(lock)
-      // The owner file is renewed while the operation holds the gate. A directory
-      // without an owner can still be reclaimed after an interrupted acquisition.
-      const info = await stat(ownerPath).catch(() => stat(lock).catch(() => undefined))
-      if (info && Date.now() - info.mtimeMs > 300_000) {
-        const stale = `${lock}.stale-${randomUUID()}`
-        const reclaimed = await rename(lock, stale).then(() => true, (renameError: NodeJS.ErrnoException) => {
-          if (renameError.code === "ENOENT") return false
-          throw renameError
-        })
-        if (reclaimed) await rm(stale, { force: true, recursive: true })
-      }
-      else if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
+      // Marker age cannot distinguish a crashed owner from active I/O whose
+      // heartbeat failed or was delayed. Only the owner may release its gate.
+      if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
       else await delay(25)
     }
   }
@@ -250,7 +241,7 @@ async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import(
 }
 
 async function withFilesystemWriteLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
-  const { readdir, rm, rmdir, stat } = await import("node:fs/promises")
+  const { readdir, rmdir } = await import("node:fs/promises")
   return await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
     const readers = `${lock}.readers`
     const deadline = Date.now() + 10_000
@@ -264,11 +255,8 @@ async function withFilesystemWriteLock<T>(lock: string, permissions: Pick<import
         await rmdir(readers).catch(() => {})
         return await operation()
       }
-      for (const owner of active) {
-        const path = `${readers}/${owner}`
-        const info = await stat(path).catch(() => undefined)
-        if (info && Date.now() - info.mtimeMs > 300_000) await rm(path, { force: true })
-      }
+      // Reader markers also remain authoritative until their owners release
+      // them; a failed heartbeat must never permit a concurrent writer.
       if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
       await delay(25)
     }

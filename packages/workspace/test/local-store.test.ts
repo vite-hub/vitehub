@@ -830,7 +830,7 @@ describe("local workspace store", () => {
     })
   })
 
-  it("retains a writer lease after heartbeat failure until its stream settles", async () => {
+  it.each(["reader", "writer"])("retains a %s lease beyond expiry after heartbeat failure until its operation settles", async (kind) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     const path = "file.txt"
@@ -841,37 +841,57 @@ describe("local workspace store", () => {
     const heartbeatError = new Error("heartbeat failed")
     vi.mocked(open).mockImplementation(async (...args) => {
       const file = await actual.open(...args)
-      if (String(args[0]) === owner) vi.spyOn(file, "utimes").mockRejectedValue(heartbeatError)
+      if (kind === "writer" ? String(args[0]) === owner : String(args[0]).startsWith(`${root}/.vitehub/locks/${key}.readers/`)) {
+        vi.spyOn(file, "utimes").mockRejectedValue(heartbeatError)
+      }
       return file
     })
     let release!: () => void
     const blocked = new Promise<void>((resolve) => { release = resolve })
     let entered!: () => void
     const started = new Promise<void>((resolve) => { entered = resolve })
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+    if (kind === "reader") {
+      vi.mocked(readFile).mockImplementation(async (...args) => {
+        const content = await actual.readFile(...args)
+        if (String(args[0]) === join(root, path)) {
+          entered()
+          await blocked
+        }
+        return content
+      })
+    }
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] })
     let settled = false
-    const active = store.writeFileStream!(path, {
+    const active = (kind === "reader" ? store.readFile(path) : store.writeFileStream!(path, {
       path,
       content: (async function* () {
         entered()
         await blocked
         yield new TextEncoder().encode("after")
       })(),
-    }).catch(error => error).finally(() => { settled = true })
+    })).catch(error => error).finally(() => { settled = true })
     let contender: Promise<unknown> | undefined
     try {
       await started
       await vi.advanceTimersByTimeAsync(30_000)
       expect(settled).toBe(false)
-      await expect(stat(owner)).resolves.toBeDefined()
+      // Expire the marker without a successful renewal, while leaving I/O
+      // and contention polling real. Neither gate nor reader may be stolen.
+      vi.setSystemTime(Date.now() + 360_000)
+      if (kind === "writer") await expect(stat(owner)).resolves.toBeDefined()
       let completed = false
-      contender = createLocalWorkspaceStore(root).readFile(path)
+      contender = (kind === "writer"
+        ? createLocalWorkspaceStore(root).readFile(path)
+        : createLocalWorkspaceStore(root).writeFile(path, { path, content: "replacement" }))
         .then(result => { completed = true; return result })
       await new Promise(resolve => setTimeout(resolve, 100))
       expect(completed).toBe(false)
       release()
       expect(await active).toBe(heartbeatError)
-      await expect(contender).resolves.toMatchObject({ content: new TextEncoder().encode("after") })
+      await contender
+      await expect(store.readFile(path)).resolves.toMatchObject({
+        content: new TextEncoder().encode(kind === "writer" ? "after" : "replacement"),
+      })
       await expect(readdir(`${root}/.vitehub/locks`)).resolves.toEqual([])
       expect(vi.getTimerCount()).toBe(0)
     }
@@ -880,6 +900,7 @@ describe("local workspace store", () => {
       await Promise.allSettled([active, contender])
       vi.useRealTimers()
       vi.mocked(open).mockImplementation(actual.open)
+      vi.mocked(readFile).mockImplementation(actual.readFile)
     }
   })
 

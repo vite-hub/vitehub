@@ -21,6 +21,8 @@ Use `skipLibCheck: true` in app TypeScript configs while ViteHub depends on runt
 
 The local Store persists file metadata inside `.vitehub` under the Workspace root. If file removal stops before metadata cleanup completes, reads reject with `Interrupted Workspace removal` so a restored file cannot reuse deleted ownership. Retry removal of the reported path with `force: true` and, for directories, `recursive: true` before restoring files.
 
+Lock markers are not reclaimed based on age because a slow operation or failed heartbeat may still own them. If a process crashes and operations report `Timed out waiting to write Workspace`, stop every process using that Workspace, remove `.vitehub/locks` inside its root, then restart them. Never clear that directory while a Workspace operation may still be running.
+
 ```text
 server/
   workspaces/
