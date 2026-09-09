@@ -371,7 +371,7 @@ export interface AgentTelemetryConfiguration {
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
-    sources?: string[]
+    sources?: Array<string | { id: string, repository?: string }>
   }
 }
 
@@ -640,7 +640,7 @@ export interface AgentTriggerDefinition<
   TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
   health?: AgentHealthDescriptor
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
   webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
@@ -655,7 +655,7 @@ export interface ResolvedAgentTriggerDefinition<
   channelId?: string
   definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
   id: `${string}.${string}`
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
@@ -1813,7 +1813,7 @@ export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
 
 export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | "serial" | "steer" | (string & {})
 
-export type AgentMessageDeliveryKind = "direct" | "mention" | "subscribed"
+export type AgentMessageDeliveryKind = "direct" | "mention"
 
 export type AgentMessageLockScope = "agent" | "channel" | "thread" | (string & {})
 

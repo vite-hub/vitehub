@@ -27,7 +27,7 @@ import {
 } from "./delivery-effects.ts"
 import { createExecutionContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
-import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { agentResultKind, agentStreamErrorSymbol, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -2920,6 +2920,10 @@ function withAgentTelemetryContentAttributes(
 ): Record<string, unknown> {
   const { "content.omitted": _omitted, ...safeAttributes } = safe || {}
   const allowedEntries = Object.entries(full || {}).flatMap(([key, value]) => {
+    if (key === "message.content" && full?.["message.role"] !== undefined) {
+      const contentClass = agentTelemetryMessageContentClass({ role: full?.["message.role"] })
+      return contentClass !== undefined && policy[contentClass] === true ? [[key, value] as const] : []
+    }
     const selected = agentTelemetryAttributeForContent(key, value, policy)
     return selected ? [[key, selected.value] as const] : []
   })
@@ -3235,7 +3239,7 @@ class AgentTelemetryCapabilityError extends Diagnostic {
     super({
       cause,
       code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
+      docs: "https://vitehub.dev/docs/reference/diagnostics#agent-diagnostics",
       why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
     }, AgentTelemetryCapabilityError)
     this.name = "AgentTelemetryCapabilityError"
@@ -3743,7 +3747,7 @@ async function createAgentInvocationContext<
             workspace: {
               mode: workspaceMode,
               ...(activeWorkspaceDefinition.name ? { name: activeWorkspaceDefinition.name } : {}),
-              ...(activeWorkspaceDefinition.sources ? { sources: Object.keys(activeWorkspaceDefinition.sources).sort() } : {}),
+              ...(activeWorkspaceDefinition.sources ? { sources: agentTelemetryWorkspaceSources(activeWorkspaceDefinition.sources) } : {}),
             },
           }
         : {}),

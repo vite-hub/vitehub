@@ -1,7 +1,7 @@
 import { h } from "vue";
 
-// Built-in channel kinds use Phosphor's MIT-licensed marks in both navigation and receipts.
-const channelMarks: Record<string, { label: string; body: string }> = {
+// MIT-licensed marks from Phosphor, with GitHub's official Octicons mark.
+const channelMarks: Record<string, { label: string; body: string; viewBox?: string }> = {
   "teams": {
     "label": "Microsoft Teams",
     "body": "<path fill=\"currentColor\" d=\"M112 104a8 8 0 0 1-8 8h-8v40a8 8 0 0 1-16 0v-40h-8a8 8 0 0 1 0-16h32a8 8 0 0 1 8 8m120-11.26V152a40 40 0 0 1-36.63 39.85a64 64 0 0 1-118.7.15H40a16 16 0 0 1-16-16V80a16 16 0 0 1 16-16h56.81a40 40 0 0 1 73.31-28.85A32 32 0 0 1 211.69 80h7.57A12.76 12.76 0 0 1 232 92.74M112 56a23.8 23.8 0 0 0 1.38 8H136a16 16 0 0 1 15.07 10.68A24 24 0 1 0 112 56m24 120V80H40v96zm48-80h-32v80a16 16 0 0 1-16 16H94.44A48 48 0 0 0 184 168Zm16-32a16 16 0 0 0-24.4-13.6A39.9 39.9 0 0 1 168 80h16a16 16 0 0 0 16-16m16 32h-16v72a63 63 0 0 1-.36 6.75A24 24 0 0 0 216 152Z\"/>"
@@ -20,7 +20,8 @@ const channelMarks: Record<string, { label: string; body: string }> = {
   },
   "github": {
     "label": "GitHub",
-    "body": "<path fill=\"currentColor\" d=\"M208.31 75.68A59.78 59.78 0 0 0 202.93 28a8 8 0 0 0-6.93-4a59.75 59.75 0 0 0-48 24h-24a59.75 59.75 0 0 0-48-24a8 8 0 0 0-6.93 4a59.78 59.78 0 0 0-5.38 47.68A58.14 58.14 0 0 0 56 104v8a56.06 56.06 0 0 0 48.44 55.47A39.8 39.8 0 0 0 96 192v8H72a24 24 0 0 1-24-24a40 40 0 0 0-40-40a8 8 0 0 0 0 16a24 24 0 0 1 24 24a40 40 0 0 0 40 40h24v16a8 8 0 0 0 16 0v-40a24 24 0 0 1 48 0v40a8 8 0 0 0 16 0v-40a39.8 39.8 0 0 0-8.44-24.53A56.06 56.06 0 0 0 216 112v-8a58.14 58.14 0 0 0-7.69-28.32M200 112a40 40 0 0 1-40 40h-48a40 40 0 0 1-40-40v-8a41.74 41.74 0 0 1 6.9-22.48a8 8 0 0 0 1.1-7.69a43.8 43.8 0 0 1 .79-33.58a43.88 43.88 0 0 1 32.32 20.06a8 8 0 0 0 6.71 3.69h32.35a8 8 0 0 0 6.74-3.69a43.87 43.87 0 0 1 32.32-20.06a43.8 43.8 0 0 1 .77 33.58a8.09 8.09 0 0 0 1 7.65a41.7 41.7 0 0 1 7 22.52Z\"/>"
+    "viewBox": "0 0 16 16",
+    "body": "<path fill=\"currentColor\" d=\"M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656 0-.781.281-1.625.75-2.188-.203-.515-.172-1.609.063-2.062.625-.078 1.468.25 1.968.703.594-.187 1.219-.281 1.985-.281.765 0 1.39.094 1.953.265.484-.437 1.344-.765 1.969-.687.218.422.25 1.515.046 2.047.5.593.766 1.39.766 2.203 0 1.922-1.453 3.375-3.547 3.64.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03 16 3.61 12.406 0 7.984 0 3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156-1.031 0-1.64-.562-2.078-1.609-.172-.422-.36-.672-.719-.719-.187-.015-.25-.093-.25-.187 0-.188.313-.328.625-.328.453 0 .844.281 1.25.86.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656\"/>"
   },
   "web-chat": {
     "label": "Web chat",
@@ -36,12 +37,15 @@ const channelMarks: Record<string, { label: string; body: string }> = {
 const genericChannelMark = { body: "<path fill=\"currentColor\" d=\"M128 88a40 40 0 1 0 40 40a40 40 0 0 0-40-40m0 64a24 24 0 1 1 24-24a24 24 0 0 1-24 24m73.71 7.14a80 80 0 0 1-14.08 22.2a8 8 0 0 1-11.92-10.67a63.95 63.95 0 0 0 0-85.33a8 8 0 1 1 11.92-10.67a80.08 80.08 0 0 1 14.08 84.47M69 103.09a64 64 0 0 0 11.26 67.58a8 8 0 0 1-11.92 10.67a79.93 79.93 0 0 1 0-106.67a8 8 0 1 1 11.95 10.67A63.8 63.8 0 0 0 69 103.09M248 128a119.58 119.58 0 0 1-34.29 84a8 8 0 1 1-11.42-11.2a103.9 103.9 0 0 0 0-145.56A8 8 0 1 1 213.71 44A119.58 119.58 0 0 1 248 128M53.71 200.78A8 8 0 1 1 42.29 212a119.87 119.87 0 0 1 0-168a8 8 0 1 1 11.42 11.2a103.9 103.9 0 0 0 0 145.56Z\"/>" };
 
 export function channelIcon(channel: string) {
-  const normalized = channel.toLowerCase().replace(/^microsoft[ ._-]?/, "").replace(/^github-pull-request(?:-comment)?$/, "github");
+  const normalized = channel.toLowerCase()
+    .replace(/^msteams$/, "teams")
+    .replace(/^microsoft[ ._-]?/, "")
+    .replace(/^github-pull-request(?:-comment)?$/, "github");
   const knownMark = Object.hasOwn(channelMarks, normalized) ? channelMarks[normalized] : undefined;
   const mark = knownMark ?? genericChannelMark;
   const label = knownMark?.label ?? channel;
   return h("span", { class: "vh-channel-icon vh-invocation-list__channel", title: label, "aria-label": label }, [
     // Only bundled SVG constants enter innerHTML; channel labels never become markup.
-    h("svg", { width: "1em", height: "1em", viewBox: "0 0 256 256", fill: "currentColor", "aria-hidden": "true", innerHTML: mark.body }),
+    h("svg", { width: "1em", height: "1em", viewBox: knownMark?.viewBox ?? "0 0 256 256", fill: "currentColor", "aria-hidden": "true", innerHTML: mark.body }),
   ]);
 }

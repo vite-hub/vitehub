@@ -21,7 +21,7 @@ export interface RuntimeStorage {
 
 export class KVStoreConfigurationError extends Diagnostic {
   constructor(message: string, options?: ErrorOptions, code = "KV_R0013") {
-    super({ cause: options?.cause, code, docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, KVStoreConfigurationError)
+    super({ cause: options?.cause, code, docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, KVStoreConfigurationError)
     this.name = "KVStoreConfigurationError"
   }
 }

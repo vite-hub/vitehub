@@ -25,6 +25,11 @@ interface InvocationCommand {
   output?: string;
 }
 
+interface InvocationSkillRead {
+  name: string;
+  path: string;
+}
+
 export interface InvocationActivity {
   attributes: Record<string, unknown>;
   body?: string;
@@ -40,6 +45,8 @@ export interface InvocationActivity {
   reasoningTokens?: number;
   role?: "assistant" | "system" | "tool" | "user";
   sequence: number;
+  skill?: InvocationSkillRead;
+  skills?: readonly InvocationSkillRead[];
   startedAt?: string;
   status: "running" | "completed" | "failed";
   totalTokens?: number;
@@ -183,6 +190,35 @@ function commandDetails(
     ...(hasRuntimeType(output?.exitCode, "number") ? { exitCode: output.exitCode } : hasRuntimeType(input?.exitCode, "number") ? { exitCode: input.exitCode } : {}),
     ...(outputText !== undefined ? { output: outputText } : {}),
   };
+}
+
+function skillReadDetails(attributes: Record<string, unknown>): InvocationSkillRead[] {
+  const reads: InvocationSkillRead[] = [];
+  const add = (path: string) => {
+    if (path.includes("\\") || path.includes("//")) return;
+    const match = /^\.agents\/skills\/([^/.][^/]*)\/SKILL\.md$/.exec(path);
+    if (match?.[1] && !reads.some(read => read.path === path)) reads.push({ name: match[1], path });
+  };
+  for (const key of ["tool.output", "tool.input"]) {
+    const payload = record(attributes[key]);
+    const item = record(payload?.item) ?? payload;
+    if (!item || !Array.isArray(item.commandActions)) continue;
+    for (const value of item.commandActions) {
+      const action = record(value);
+      const cwd = hasRuntimeType(item.cwd, "string") ? item.cwd.replace(/\/+$/, "") : undefined;
+      if (action?.type === "read" && hasRuntimeType(action.path, "string")) {
+        add(cwd && action.path.startsWith(`${cwd}/`)
+          ? action.path.slice(cwd.length + 1)
+          : action.path.replace(/^\.\//, ""));
+        continue;
+      }
+      if (action?.type !== "unknown" || !hasRuntimeType(action.command, "string")) continue;
+      const tokens = action.command.trim().split(/\s+/);
+      if (tokens[0] !== "cat" || tokens.length < 2 || tokens.slice(1).some(token => token.startsWith("-") || /[\\'"`$;&|<>(){}\[\]*?!]/.test(token))) continue;
+      for (const token of tokens.slice(1)) add(token.replace(/^\.\//, ""));
+    }
+  }
+  return reads;
 }
 
 export function stringAttribute(attributes: Record<string, unknown>, ...keys: string[]): string | undefined {
@@ -343,6 +379,36 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
     else groups.set(key, [groupedObservation]);
   }
 
+  // A finish record can truncate usage metadata while preserving the whole response.
+  // Only suppress its message warning when an untruncated assistant turn proves it intact.
+  const completeAssistantTexts = new Set<string>();
+  let latestMessageSequence = -Infinity;
+  for (const observations of groups.values()) {
+    const sequence = Math.max(...observations.map(item => item.sequence));
+    if (sequence > latestMessageSequence && observations.every(item => item.name.startsWith("agent.message")
+      || item.name === "agent.input.message")) latestMessageSequence = sequence;
+  }
+  for (const observations of groups.values()) {
+    if (Math.max(...observations.map(item => item.sequence)) !== latestMessageSequence) continue;
+    if (observations.some(item => item.attributes?.["vitehub.observation.truncated"] === true)) continue;
+    if (!observations.every(item => item.name.startsWith("agent.message")
+      && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
+      && item.attributes?.["message.phase"] !== "commentary")) continue;
+    const text = observations.map(item => {
+      const content = item.attributes?.["message.content"];
+      return hasRuntimeType(content, "string") ? content : "";
+    }).join("").trim();
+    if (!text) continue;
+    completeAssistantTexts.add(text);
+    try {
+      const response = record(JSON.parse(text));
+      const responseText = response && stringAttribute(response, "text");
+      if (responseText) completeAssistantTexts.add(responseText);
+    } catch {
+      // Plain text and incomplete JSON cannot verify a structured response's text field.
+    }
+  }
+
   const activities = [...groups.entries()]
     .map(([id, observations]): InvocationActivity => {
       const sorted = observations.slice().sort((left, right) => left.sequence - right.sequence);
@@ -355,7 +421,8 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
       const { patches, paths } = fileChanges(attributes);
       const kind = activityKind(first, attributes, paths.length ? paths : patches);
       const failed = sorted.some(item => item.type === "error" || /\.(error|failed)$/.test(item.name))
-        || (kind === "delivery" && Boolean(stringAttribute(attributes, "error.message")));
+        || (kind === "delivery" && Boolean(stringAttribute(attributes, "error.message")))
+        || attributes["agent.capability.outcome"] === "error";
       const approvalDenied = attributes["approval.approved"] === false;
       const completed = sorted.some(item => /\.(abort|cancelled|completed|decision|error|failed|finish|recorded)$/.test(item.name));
       const explicitRole = messageRole(attributes["message.role"]);
@@ -365,6 +432,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
           ? "user"
           : undefined);
       const command = commandDetails(attributes, sorted);
+      const skills = skillReadDetails(attributes);
       const observedEndedAt = sorted.at(-1)?.timestamp;
       const invocationEndedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt;
       const started = /\.(request|start|started)$/.test(first.name);
@@ -397,6 +465,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         patches,
         paths,
         sequence: first.sequence,
+        ...(skills.length ? { skill: skills[0], skills } : {}),
         startedAt: terminalStartedAt ?? first.timestamp,
         ...(numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") !== undefined
           ? { reasoningTokens: numericAttribute(attributes, "usage.reasoningTokens", "usage.reasoningOutputTokens") }
@@ -404,6 +473,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ...(role ? { role } : {}),
         status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
         ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
+          && !(first.name === "agent.invocation.finish" && completeAssistantTexts.has(stringAttribute(attributes, "result.text") ?? ""))
           ? { truncated: true }
           : {}),
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
@@ -446,6 +516,7 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (hasRuntimeType(explicit, "string") && explicit.trim()) return explicit.trim();
   if (activity.name === "vitehub.observation.truncated") return "Trace content was truncated";
   if (activity.name === "vitehub.agent.configured") return "Agent configured";
+  if (activity.skill) return `Read ${activity.skill.name} skill`;
   if (activity.kind === "preparation") return "Prepared session";
   if (activity.kind === "system") return "System configuration";
   if (activity.kind === "delivery") return channelDeliveryTitle(activity);
