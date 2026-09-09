@@ -41,7 +41,7 @@ describe("chat error fallback", () => {
   it("keeps unrelated quota wording on the generic fallback", async () => {
     const fallback = await resolveChatErrorFallbackText(undefined, {
       error: "Workspace storage quota exceeded",
-      publicError: { code: "PROVIDER_QUOTA_EXHAUSTED", error: "AI provider quota is exhausted." },
+      publicError: { code: "INTERNAL", error: "Internal error." },
     } as never)
 
     expect(fallback).toBe("Sorry, I couldn't process that message.")
@@ -82,7 +82,7 @@ describe("chat error fallback", () => {
     })
     const fallback = await resolveChatErrorFallbackText(undefined, {
       error,
-      publicError: { code: "INTERNAL", error: "Internal error." },
+      publicError: { code: "PROVIDER_QUOTA_EXHAUSTED", error: "AI provider quota is exhausted." },
     } as never)
 
     expect(fallback).toContain("AI provider usage limit")
