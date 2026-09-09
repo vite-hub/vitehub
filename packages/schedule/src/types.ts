@@ -111,6 +111,9 @@ export interface ScheduleRunError {
   stack?: string
 }
 
+/** Serializable representation of a schedule invocation response. */
+export type ScheduleRunResponse = SerializedResponse
+
 export interface ScheduleRunRecord {
   attemptCount: number
   completedAt?: Date
@@ -121,6 +124,7 @@ export interface ScheduleRunRecord {
   scheduledAt: Date
   startedAt?: Date
   status: ScheduleRunStatus
+  response?: ScheduleRunResponse
   target: ScheduleTargetName
   updatedAt: Date
 }
@@ -154,3 +158,4 @@ export interface DiscoveredScheduleDefinition {
   runtimeOnly?: boolean
   source?: "server-schedules" | "vite-suffix"
 }
+import type { SerializedResponse } from "@vite-hub/runtime"

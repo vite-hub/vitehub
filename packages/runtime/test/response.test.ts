@@ -1,0 +1,29 @@
+import { describe, expect, it } from "vitest"
+import { deserializeResponse, isSerializedResponse, serializeResponse } from "../src/response.ts"
+
+describe("durable Response representation", () => {
+  it("round trips status, duplicate headers, and binary body", async () => {
+    const original = new Response(new Uint8Array([0, 127, 255]), {
+      headers: [["set-cookie", "a=1"], ["set-cookie", "b=2"], ["content-type", "application/octet-stream"]],
+      status: 201,
+      statusText: "Created",
+    })
+    const serialized = await serializeResponse(original)
+    expect(serialized).toEqual({
+      body: { data: "AH//", encoding: "base64", mediaType: "application/octet-stream" },
+      headers: [["content-type", "application/octet-stream"], ["set-cookie", "a=1, b=2"]],
+      status: 201,
+      statusText: "Created",
+    })
+    expect(isSerializedResponse(serialized)).toBe(true)
+    const restored = deserializeResponse(serialized)
+    expect(restored.status).toBe(201)
+    expect(restored.statusText).toBe("Created")
+    expect(new Uint8Array(await restored.arrayBuffer())).toEqual(new Uint8Array([0, 127, 255]))
+  })
+
+  it("rejects malformed records", () => {
+    expect(isSerializedResponse({})).toBe(false)
+    expect(() => deserializeResponse({} as never)).toThrow(TypeError)
+  })
+})

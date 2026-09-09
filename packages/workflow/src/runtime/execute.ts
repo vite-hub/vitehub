@@ -51,11 +51,18 @@ export function createWorkflowSteps(
 export async function runWorkflowHandler<TPayload, TResult>(
   context: WorkflowExecutionContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
-): Promise<TResult> {
+): Promise<Response> {
   const run = () => definition.handler(context)
-  if (definition.options?.rootStep === false) {
-    return await run()
-  }
+  const value = definition.options?.rootStep === false
+    ? await run()
+    : await runProviderStep(context.step, context.name, run)
 
-  return await runProviderStep(context.step, context.name, run)
+  if (value instanceof Response) return value
+  if (value === undefined) return new Response(null, { status: 204 })
+  if (typeof value === "string" || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    return new Response(value as BodyInit)
+  }
+  return new Response(JSON.stringify(value), {
+    headers: { "content-type": "application/json; charset=utf-8" },
+  })
 }

@@ -1,4 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { serializeResponse } from "@vite-hub/runtime"
 
 import { assertRuntimeScheduleId, invalidScheduleValueDetails, createScheduleError } from "../errors.ts"
 import { isRuntimeScheduleDue } from "./due.ts"
@@ -156,7 +157,7 @@ function toHandlerContext(
   }
 }
 
-async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, store: ScheduleRunStore = getScheduleRunStore()): Promise<ScheduleRunRecord> {
+async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, response: ScheduleRunRecord["response"], store: ScheduleRunStore = getScheduleRunStore()): Promise<ScheduleRunRecord> {
   const now = new Date()
   await store.updateAttempt(attempt.id, {
     completedAt: now,
@@ -165,6 +166,7 @@ async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRe
   })
   return requireUpdatedRun(await store.updateRun(run.id, {
     completedAt: now,
+    response,
     status: "succeeded",
     updatedAt: now,
   }))
@@ -207,9 +209,13 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const localWaitUntil = createLocalWaitUntil()
   const waitUntil = options.waitUntil ?? localWaitUntil.waitUntil
   try {
-    await options.definition.handler(toHandlerContext(run, attempt, options.input, waitUntil))
+    const value = await options.definition.handler(toHandlerContext(run, attempt, options.input, waitUntil))
     if (!options.waitUntil) await localWaitUntil.flush()
-    return await completeRun(run, attempt, runStore)
+    const response = await serializeResponse(value instanceof Response ? value : new Response(
+      value === undefined ? null : typeof value === "string" ? value : JSON.stringify(value),
+      typeof value === "string" ? undefined : { headers: { "content-type": "application/json; charset=utf-8" } },
+    ))
+    return await completeRun(run, attempt, response, runStore)
   }
   catch (error) {
     if (!options.waitUntil) {

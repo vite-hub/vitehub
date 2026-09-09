@@ -207,10 +207,10 @@ export async function runSandboxRuntime<TPayload = unknown, TResult = unknown>(
   name?: string,
   payload?: TPayload,
   options?: SandboxExecutionOptions,
-): Promise<SandboxRunResult<TResult>> {
+): Promise<SandboxRunResult> {
   try {
     const sandbox = await resolveSandboxRunner<TPayload, TResult>(name)
-    return ok(await sandbox.run(payload, options))
+    return await ok(await sandbox.run(payload, options))
   }
   catch (error) {
     return err(toSandboxError(error))
