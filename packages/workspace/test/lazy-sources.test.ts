@@ -3606,11 +3606,33 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledOnce()
   })
 
+  it.each(["stat", "exists", "list", "glob", "search"] as const)("recovers missing empty cached startup mounts for %s", async (operation) => {
+    const getKeys = vi.fn(async () => [])
+    const definition = {
+      name: "startup-empty-mount-recovery",
+      sources: { docs: custom({ materialize: "startup", cache: { maxAge: 3600 }, getKeys, async getItem(key) { return { key, content: "" } } }) },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.rm("docs")
+    const view = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+
+    if (operation === "search") await view.search({ pattern: "ready" })
+    else if (operation === "glob") await view.glob("**/*")
+    else if (operation === "list") await view.list()
+    else {
+      const result = await view[operation]("docs")
+      expect(result).toEqual(operation === "exists" ? true : expect.objectContaining({ type: "directory" }))
+    }
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    expect(getKeys).toHaveBeenCalledTimes(2)
+  })
+
   it.each(["readFile", "stat", "exists"] as const)("recovers missing persisted startup paths for %s", async (operation) => {
     const getKeys = vi.fn(async () => ["ready.md"])
     const definition = {
       name: "startup-point-recovery",
-      sources: { docs: custom({ materialize: "startup", getKeys, async getItem(key) { return { key, content: "ready" } } }) },
+      sources: { docs: custom({ materialize: "startup", cache: { maxAge: 3600 }, getKeys, async getItem(key) { return { key, content: "ready" } } }) },
     }
     const store = createMemoryWorkspaceStore()
     await createWorkspaceSourceView(definition, store).materializeSources()

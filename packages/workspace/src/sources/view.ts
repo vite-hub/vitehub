@@ -359,7 +359,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (entry && (entry.type !== "file" || !item || await materializedFileMatches(await store.readFile(path), item))) return true
 
     const indexed = Object.keys(snapshot?.items || {}).some(item => item === path || item.startsWith(`${path}/`))
-    if (!indexed) return false
+    if (!indexed && !(path === source.mountPath && snapshot?.ownsMount)) return false
 
     // Missing or overwritten persisted files need recovery, bypassing completion
     // and refresh:false reuse. Unknown paths must not refresh a complete snapshot.
@@ -385,6 +385,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       for (const source of items) {
         const snapshot = await readCurrentSourceSnapshot(store, source)
         if (snapshot?.status !== "ready") continue
+        if (source.mountPath && (await store.stat(source.mountPath))?.type !== "directory") {
+          incomplete.add(source.key)
+          continue
+        }
         const files: WorkspaceFile[] = []
         for (const path of Object.keys(snapshot.items || {})) {
           const file = await store.readFile(path)

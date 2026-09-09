@@ -679,6 +679,7 @@ async function materializeWorkspaceSourcesInternal(
     }
     const completeSource = materializesCompleteSource(source, options)
     let cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
+    if (cacheHit && source.mountPath && (await store.stat(source.mountPath))?.type !== "directory") cacheHit = false
     // A scoped refresh of another Source can overwrite these files while the
     // snapshot remains fresh. Recheck its content and attributes before accepting it.
     if (cacheHit) {
