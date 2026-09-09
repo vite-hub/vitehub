@@ -1458,7 +1458,7 @@ describe("agent channels", () => {
     const seen: unknown[] = []
     const channel = github({ pullRequest: {
       filter: { repository: { allow: ["acme/app"] }, author: { deny: ["blocked"] }, labels: { allow: ["review"] } },
-      when: async (context) => { seen.push(context); return context.action === "opened" },
+      when: async (context) => { seen.push(context); return true },
       ignored: reason => Response.json({ accepted: false, reason }),
     } })
     const trigger = channel.triggers?.webhook

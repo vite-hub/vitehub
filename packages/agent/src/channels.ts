@@ -2611,7 +2611,10 @@ function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload, inpu
   const labels = pr && Array.isArray(pr.labels) ? pr.labels.flatMap(label => isRecord(label) ? [maybeString(label.name)].filter((v): v is string => Boolean(v)) : []) : undefined
   const base = pr && isRecord(pr.base) ? maybeString(pr.base.ref) : undefined
   const head = pr && isRecord(pr.head) ? maybeString(pr.head.ref) : undefined
-  return { repository, actor, author: user && maybeString(user.login), authorAssociation: pr && maybeString(pr.author_association), labels, draft: pr && typeof pr.draft === "boolean" ? pr.draft : undefined, fork: isRecord(payload.repository) && typeof payload.repository.fork === "boolean" ? payload.repository.fork : undefined, base, head, title: pr && maybeString(pr.title), action: maybeString(payload.action), ...(!pr && input ? {} : {}) }
+  const draft = pr && isRecord(pr) ? pr.draft : undefined
+  const repositoryRecord = isRecord(payload.repository) ? payload.repository : undefined
+  const fork = repositoryRecord?.fork
+  return { repository, actor, author: user && maybeString(user.login), authorAssociation: pr && maybeString(pr.author_association), labels, draft: typeof draft === "boolean" ? draft : undefined, fork: typeof fork === "boolean" ? fork : undefined, base, head, title: pr && maybeString(pr.title), action: maybeString(payload.action) }
 }
 
 function githubPullRequestFilterRule(value: string | boolean | undefined, rule: GitHubPullRequestFilterRules | undefined): boolean {
