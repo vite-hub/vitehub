@@ -22,6 +22,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       if (String(args[0]) === permissionsFixture.root) Reflect.set(info, "gid", Number(info.gid) + 1)
       return info
     }),
+    open: vi.fn(actual.open),
     copyFile: vi.fn(actual.copyFile),
     link: vi.fn(actual.link),
     readFile: vi.fn(actual.readFile),
@@ -792,6 +793,59 @@ describe("local workspace store", () => {
     await expect(store.readFile("directory/child.txt")).resolves.toMatchObject({
       content: new TextEncoder().encode("preserved"),
     })
+  })
+
+  it("retains a writer lease after heartbeat failure until its stream settles", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = "file.txt"
+    await store.writeFile(path, { path, content: "before" })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    const key = createHash("sha256").update(path).digest("hex")
+    const owner = `${root}/.vitehub/locks/${key}.gate/owner`
+    const heartbeatError = new Error("heartbeat failed")
+    vi.mocked(open).mockImplementation(async (...args) => {
+      const file = await actual.open(...args)
+      if (String(args[0]) === owner) vi.spyOn(file, "utimes").mockRejectedValue(heartbeatError)
+      return file
+    })
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => { entered = resolve })
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+    let settled = false
+    const active = store.writeFileStream!(path, {
+      path,
+      content: (async function* () {
+        entered()
+        await blocked
+        yield new TextEncoder().encode("after")
+      })(),
+    }).catch(error => error).finally(() => { settled = true })
+    let contender: Promise<unknown> | undefined
+    try {
+      await started
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(settled).toBe(false)
+      await expect(stat(owner)).resolves.toBeDefined()
+      let completed = false
+      contender = createLocalWorkspaceStore(root).readFile(path)
+        .then(result => { completed = true; return result })
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(completed).toBe(false)
+      release()
+      expect(await active).toBe(heartbeatError)
+      await expect(contender).resolves.toMatchObject({ content: new TextEncoder().encode("after") })
+      await expect(readdir(`${root}/.vitehub/locks`)).resolves.toEqual([])
+      expect(vi.getTimerCount()).toBe(0)
+    }
+    finally {
+      release()
+      await Promise.allSettled([active, contender])
+      vi.useRealTimers()
+      vi.mocked(open).mockImplementation(actual.open)
+    }
   })
 
   it.each(["reader", "writer"])("renews a live %s lease beyond five minutes", async (kind) => {

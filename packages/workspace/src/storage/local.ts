@@ -147,8 +147,15 @@ async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle
     renewal.catch(rejectHeartbeat)
   }, 30_000)
   timer.unref()
+  const active = Promise.resolve().then(operation)
   try {
-    return await Promise.race([operation(), heartbeatFailure])
+    return await Promise.race([active, heartbeatFailure])
+  }
+  catch (error) {
+    // A failed heartbeat cannot cancel filesystem I/O. Keep the lease until
+    // the protected operation settles before its caller releases the lock.
+    await active.catch(() => undefined)
+    throw error
   }
   finally {
     clearInterval(timer)
