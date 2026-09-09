@@ -21,12 +21,13 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
+import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
-import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
@@ -925,6 +926,7 @@ function providerMetadataContext<
     fs: context.workspace?.fs,
     invoker: context.invoker,
     workspace: context.workspace,
+    ...providerCallbackMetadata(context),
   } as AgentAdapterMetadataContext<TRuntimeConfig>
 }
 
@@ -1796,23 +1798,28 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
-  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
-  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
-  const omitPartition = usage.totalProcessedTokens !== undefined
-    && (inputTokens === undefined || outputTokens === undefined || inputTokens + outputTokens !== usage.totalProcessedTokens)
+  const rawInputTokens = usage.inputTokens ?? usage.lastInputTokens
+  const rawOutputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  // Cumulative thread totals and latest-turn partitions have different scopes.
+  const hasMatchingPartition = (usage.totalProcessedTokens === undefined && usage.usedTokens === undefined)
+    || (rawInputTokens !== undefined && rawOutputTokens !== undefined
+      && (usage.usedTokens === undefined || rawInputTokens + rawOutputTokens === usage.usedTokens))
+  const inputTokens = hasMatchingPartition ? rawInputTokens : undefined
+  const outputTokens = hasMatchingPartition ? rawOutputTokens : undefined
+  const details = hasMatchingPartition ? {
+    ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+    ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+    ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+  } : {}
   return {
     type: "usage",
     usageRecord: {
       ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
       raw: usage,
       usage: {
-        details: {
-          ...(omitPartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(omitPartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-          ...(omitPartition || usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
-        },
-        inputTokens: omitPartition ? undefined : inputTokens,
-        outputTokens: omitPartition ? undefined : outputTokens,
+        details,
+        inputTokens,
+        outputTokens,
         totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
       },
     },
@@ -1997,7 +2004,13 @@ async function* runProvider<
   const effectiveSignal = context.input.abortSignal && timeoutSignal
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
     : context.input.abortSignal || timeoutSignal
-  context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+  if (effectiveSignal !== context.input.abortSignal) {
+    const originalContext = context
+    context = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+    if (isAuxiliaryAgentAdapterContext(originalContext)) markAuxiliaryMessageChannelInstructionContext(context)
+    const metadata = providerCallbackMetadata(originalContext)
+    if (metadata) withProviderCallbackMetadata(context, metadata)
+  }
   effectiveSignal?.throwIfAborted()
   if (options.provider === "codex") {
     await waitForProviderOperation(runCodexCredentialHomeScavenger(), effectiveSignal)
@@ -2191,15 +2204,17 @@ async function* runProvider<
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
     }
-    const inspectedTools = inspectAgentTools(context.tools)
-    await updateAgentTelemetryConfiguration(context.context, {
-      driver: {
-        ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
-        provider: options.provider,
-      },
-      ...(instructions ? { instructions: [instructions] } : {}),
-      ...(inspectedTools ? { tools: inspectedTools } : {}),
-    })
+    if (!auxiliary) {
+      const inspectedTools = inspectAgentTools(context.tools)
+      await updateAgentTelemetryConfiguration(context.context, {
+        driver: {
+          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          provider: options.provider,
+        },
+        ...(instructions ? { instructions: [instructions] } : {}),
+        ...(inspectedTools ? { tools: inspectedTools } : {}),
+      })
+    }
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
@@ -2325,11 +2340,20 @@ async function* runProvider<
     // Deliver instructions through AGENTS.md, keeping documents out of argv and
     // preserving explicit caller developer_instructions configuration.
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
+    const auxiliaryLaunchArgs = auxiliary && options.provider === "codex"
+      ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
+      : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
+      auxiliaryLaunchArgs,
       generatedLaunchArgs,
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
+    // The runtime prefers environment arguments over settings, so auxiliary
+    // overrides must carry the inherited settings and managed credential flags.
+    if (auxiliaryLaunchArgs !== undefined && launchArgs !== undefined) {
+      providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
+    }
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
       binaryPath: providerLauncher || providerExecutable,

@@ -7,6 +7,7 @@ const providerErrorEnvelopeSchema = v.object({
 })
 
 const agentTypeDiagnosticCodes = new Set([
+  "AGENT_R0922",
   "AGENT_R0921",
   "AGENT_R0920",
   "AGENT_R0919",
@@ -470,6 +471,7 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0919: dynamicError,
     AGENT_R0920: dynamicError,
     AGENT_R0921: dynamicError,
+    AGENT_R0922: dynamicError,
     AGENT_R0905: dynamicError,
     AGENT_R0906: dynamicError,
     AGENT_R0903: dynamicError,
