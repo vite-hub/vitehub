@@ -27,7 +27,7 @@ import type {
 } from "../core/types.ts"
 
 const fileMetadataSchema = optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
-  return value.source === undefined || typeof value.source === "string"
+  return safeParse(optional(string()), value.source).success
 })))
 
 function assertFileMetadata(path: string, metadata: WorkspaceFile["metadata"]) {
