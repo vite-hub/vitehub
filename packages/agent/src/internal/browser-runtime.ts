@@ -142,7 +142,7 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
   }
   const release = await lock(root, {
     realpath: false,
-    retries: { retries: Infinity, minTimeout: 250, maxTimeout: 1_000 },
+    retries: { retries: 1, forever: true, minTimeout: 1_000, maxTimeout: 1_000 },
     stale: 60_000,
     update: 10_000,
     onCompromised(error) { lockError = error },
