@@ -36,7 +36,7 @@ function assertFileMetadata(path: string, metadata: WorkspaceFile["metadata"]) {
   }
 }
 
-async function backupFile(path: string, backup: string): Promise<void> {
+async function backupFile(path: string, backup: string): Promise<number | undefined> {
   const { chmod, chown, copyFile, link, rm, stat, utimes } = await import("node:fs/promises")
   try {
     await link(path, backup)
@@ -54,11 +54,21 @@ async function backupFile(path: string, backup: string): Promise<void> {
       }
       await chmod(backup, original.mode & (copied.uid === original.uid ? 0o7777 : 0o777))
       await utimes(backup, original.atime, original.mtime)
+      if (process.platform !== "win32" && copied.uid !== original.uid) return original.uid
     } catch (error) {
       await rm(backup, { force: true }).catch(() => undefined)
       throw error
     }
   }
+}
+
+async function restoreBackup(backup: string, path: string, foreignUid: number | undefined, publicationError: unknown): Promise<void> {
+  if (foreignUid !== undefined) {
+    // Keep the recovery copy, but never claim to restore a different owner's file.
+    throw new AggregateError([publicationError], `[vitehub] Cannot roll back ${path} without changing owner UID ${foreignUid}. Recovery content remains at ${backup}.`)
+  }
+  const { rename } = await import("node:fs/promises")
+  await rename(backup, path)
 }
 
 async function reclaimBackup(path: string, retryDelay = 1000, attempts = 0): Promise<void> {
@@ -553,7 +563,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await writeFile(temp, bytes)
       // Prefer a hard link so the live file remains readable during publication.
       const hadExisting = existing?.type === "file"
-      if (hadExisting) await backupFile(absolute, backup)
+      const foreignUid = hadExisting ? await backupFile(absolute, backup) : undefined
       await rename(temp, absolute).catch(async (error) => {
         await rm(backup, { force: true })
         throw error
@@ -562,7 +572,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
       } catch (error) {
         if (hadExisting) {
-          await rename(backup, absolute)
+          await restoreBackup(backup, absolute, foreignUid, error)
         }
         else await rm(absolute, { force: true })
         throw error
@@ -629,7 +639,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
 
       const hadExisting = existing?.type === "file"
-      if (hadExisting) await backupFile(absolute, backup)
+      const foreignUid = hadExisting ? await backupFile(absolute, backup) : undefined
       await rename(temp, absolute).catch(async (error) => {
         await rm(backup, { force: true })
         throw error
@@ -637,7 +647,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       try {
         await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
       } catch (error) {
-        if (hadExisting) await rename(backup, absolute)
+        if (hadExisting) await restoreBackup(backup, absolute, foreignUid, error)
         else await rm(absolute, { force: true })
         throw error
       }

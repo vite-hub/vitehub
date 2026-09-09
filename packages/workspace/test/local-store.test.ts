@@ -377,7 +377,7 @@ describe("local workspace store", () => {
     { streamed: true, rollback: false },
     { streamed: false, rollback: true },
     { streamed: true, rollback: true },
-  ])("replaces another group member's file without changing backup ownership: %j", async ({ streamed, rollback }) => {
+  ])("rejects foreign-owner rollback while allowing shared replacement: %j", async ({ streamed, rollback }) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     const path = join(root, "file.txt")
@@ -391,7 +391,7 @@ describe("local workspace store", () => {
     const failure = new Error("sidecar publication failed")
     vi.mocked(stat).mockImplementation(async (...args) => {
       const info = await originalStat(...args)
-      if (String(args[0]) === path) Reflect.set(info, "uid", foreignUid)
+      if (String(args[0]) === path && info.ino === before.ino) Reflect.set(info, "uid", foreignUid)
       return info
     })
     vi.mocked(chown).mockImplementation(async (target, uid, gid) => {
@@ -408,17 +408,29 @@ describe("local workspace store", () => {
       const writing = streamed
         ? store.writeFileStream!("file.txt", { ...file, content: new Blob(["after"]).stream() })
         : store.writeFile("file.txt", { ...file, content: "after" })
-      if (rollback) await expect(writing).rejects.toThrow(failure)
-      else await writing
-      await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({
-        content: new TextEncoder().encode(rollback ? "before" : "after"),
-        metadata: { source: rollback ? "original" : "replacement" },
-      })
       if (rollback) {
-        const restored = await actual.stat(path)
-        for (const key of ["mode", "gid", "mtimeMs"] as const) expect(restored[key]).toBe(before[key])
+        await expect(writing).rejects.toMatchObject({
+          message: expect.stringContaining(`without changing owner UID ${foreignUid}`),
+          errors: [failure],
+        })
+        const backups = await readdir(join(root, ".vitehub/tmp"))
+        expect(backups).toHaveLength(1)
+        const backup = join(root, ".vitehub/tmp", backups[0]!)
+        expect(await readFile(backup, "utf8")).toBe("before")
+        expect((await actual.stat(backup)).uid).toBe(before.uid)
+        expect(rename).not.toHaveBeenCalledWith(backup, path)
+        expect((await actual.stat(path)).uid).toBe(before.uid)
+        expect((await actual.stat(path)).uid).not.toBe(foreignUid)
       }
-      expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
+      else {
+        await writing
+        expect(await readdir(join(root, ".vitehub/tmp"))).toEqual([])
+        await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({
+          content: new TextEncoder().encode("after"),
+          metadata: { source: "replacement" },
+        })
+      }
+      expect(await readFile(path, "utf8")).toBe("after")
       expect(chown).not.toHaveBeenCalledWith(expect.anything(), foreignUid, expect.anything())
     } finally {
       vi.mocked(stat).mockImplementation(originalStat)
