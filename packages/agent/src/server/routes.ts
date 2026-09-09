@@ -4795,6 +4795,7 @@ async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number
 }
 
 interface InlineChatTurn {
+  fallbacks?: Map<string, Promise<void>>
   steering?: Promise<void>
   done: Promise<void>
   finish: () => Promise<void>
@@ -5033,15 +5034,24 @@ async function handleChatSdkMessage(
             // Use the host hook directly so a webhook flush does not delay its response.
             const reconciliation = submission.then(async (result) => {
               if (result !== "unsupported" && result !== "unavailable") return
-              // The Driver confirmed it did not accept this input. Wait for the
-              // original turn before starting the follow-up under the same host budget.
-              try {
-                await waitForInlineChatTurn(active, maximumInvocationDeadline)
-              } catch (error) {
-                await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed" })
-                return
+              const fallbacks = active.fallbacks ??= new Map<string, Promise<void>>()
+              const deliveryId = delivery.delivery.id
+              let fallback = fallbacks.get(deliveryId)
+              if (!fallback) {
+                // Retain the claim on this turn so late duplicate continuations
+                // observe the same result even after the successor has finished.
+                fallback = (async () => {
+                  try {
+                    await waitForInlineChatTurn(active, maximumInvocationDeadline)
+                  } catch (error) {
+                    await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed" })
+                    return
+                  }
+                  await handleChatSdkMessage(agent, context, registration, sourceThread, message, deliveryKind, options, state, messageContext, maximumInvocationDeadline, true, durableSteerScope)
+                })()
+                fallbacks.set(deliveryId, fallback)
               }
-              await handleChatSdkMessage(agent, context, registration, sourceThread, message, deliveryKind, options, state, messageContext, maximumInvocationDeadline, true, durableSteerScope)
+              await fallback
             }).catch(() => undefined)
             state.reconciliationWaitUntil?.(reconciliation)
             return
