@@ -1799,9 +1799,10 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const usage = event.payload.usage
   const rawInputTokens = usage.inputTokens ?? usage.lastInputTokens
   const rawOutputTokens = usage.outputTokens ?? usage.lastOutputTokens
-  const cumulativeTokens = usage.totalProcessedTokens ?? usage.usedTokens
-  const hasMatchingPartition = cumulativeTokens === undefined
-    || (rawInputTokens !== undefined && rawOutputTokens !== undefined && rawInputTokens + rawOutputTokens === cumulativeTokens)
+  // Cumulative thread totals and latest-turn partitions have different scopes.
+  const hasMatchingPartition = (usage.totalProcessedTokens === undefined && usage.usedTokens === undefined)
+    || (rawInputTokens !== undefined && rawOutputTokens !== undefined
+      && (usage.usedTokens === undefined || rawInputTokens + rawOutputTokens === usage.usedTokens))
   const inputTokens = hasMatchingPartition ? rawInputTokens : undefined
   const outputTokens = hasMatchingPartition ? rawOutputTokens : undefined
   const details = hasMatchingPartition ? {

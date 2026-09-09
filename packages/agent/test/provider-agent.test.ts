@@ -2104,9 +2104,11 @@ cli_auth_credentials_store = "keyring"
   })
 
   it.each([
+    { inputTokens: 7, outputTokens: 5, usedTokens: 12 },
     { inputTokens: 7, outputTokens: 5 },
+    { lastInputTokens: 7, lastOutputTokens: 5, usedTokens: 12 },
     { lastInputTokens: 7, lastOutputTokens: 5 },
-  ])("omits latest-response partitions that do not match the cumulative total: %j", async (partition) => {
+  ])("preserves latest-response partitions independently of the cumulative total: %j", async (partition) => {
     const threadId = "thread-cumulative-usage"
     runtime(threadId, [
       event("thread.token-usage.updated", threadId, { usage: {
@@ -2115,7 +2117,6 @@ cli_auth_credentials_store = "keyring"
         reasoningOutputTokens: 3,
         toolUses: 1,
         totalProcessedTokens: 100,
-        usedTokens: 12,
       } }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
@@ -2124,11 +2125,11 @@ cli_auth_credentials_store = "keyring"
     expect(events.find(item => item.type === "usage")).toEqual({
       type: "usage",
       usageRecord: {
-        raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
+        raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100 },
         usage: {
-          details: {},
-          inputTokens: undefined,
-          outputTokens: undefined,
+          details: { cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1 },
+          inputTokens: 7,
+          outputTokens: 5,
           totalTokens: 100,
         },
       },
