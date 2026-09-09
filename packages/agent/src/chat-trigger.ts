@@ -1,7 +1,7 @@
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
-import { toAgentPublicError } from "./agent-error.ts"
+import { readAgentErrorProperty, toAgentPublicError } from "./agent-error.ts"
 import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { agentInvokerLabel } from "./invoker.ts"
@@ -99,8 +99,9 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
   // may opt in by supplying an explicitly named usage link on the error object.
   const usageLink = (() => {
     if (!args.error || typeof args.error !== "object") return undefined
-    const value = args.error as Record<string, unknown>
-    const candidate = value.usageUrl ?? value.usageURL ?? value.usageLink
+    const candidate = readAgentErrorProperty(args.error, "usageUrl")
+      ?? readAgentErrorProperty(args.error, "usageURL")
+      ?? readAgentErrorProperty(args.error, "usageLink")
     if (typeof candidate !== "string") return undefined
     try {
       const url = new URL(candidate)

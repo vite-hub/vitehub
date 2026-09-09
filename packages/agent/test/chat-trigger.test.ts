@@ -25,7 +25,10 @@ describe("chat error fallback", () => {
 
   it("explains wrapped provider usage limits and reset times", async () => {
     const fallback = await resolveChatErrorFallbackText(undefined, {
-      error: "AGENT_R0726: You've hit your usage limit. Try again at Sep 15th, 2026 1:23 AM. See https://chatgpt.com/codex/settings/usage",
+      error: {
+        message: "AGENT_R0726: You've hit your usage limit. Try again at Sep 15th, 2026 1:23 AM.",
+        usageUrl: "https://chatgpt.com/codex/settings/usage",
+      },
       history: [], message: { text: "hello" }, publicError: { code: "INTERNAL", error: "Internal error." },
       run: undefined, thread: {}, toolResults: [],
     } as never)
@@ -33,6 +36,48 @@ describe("chat error fallback", () => {
     expect(fallback).toContain("AI provider usage limit")
     expect(fallback).toContain("Sep 15th, 2026 1:23 AM.")
     expect(fallback).toContain("chatgpt.com/codex/settings/usage")
+  })
+
+  it("does not emit links embedded only in diagnostic text", async () => {
+    const fallback = await resolveChatErrorFallbackText(undefined, {
+      error: "Usage limit reached. See https://example.com/usage?secret=private",
+      publicError: { code: "INTERNAL", error: "Internal error." },
+    } as never)
+
+    expect(fallback).toContain("AI provider usage limit")
+    expect(fallback).not.toContain("https://")
+    expect(fallback).not.toContain("private")
+  })
+
+  it.each(["usageUrl", "usageURL", "usageLink"])("tolerates a throwing %s getter", async (property) => {
+    const error = Object.defineProperty({ message: "Usage limit reached" }, property, {
+      get() { throw new Error("private getter failure") },
+    })
+    const fallback = await resolveChatErrorFallbackText(undefined, {
+      error,
+      publicError: { code: "INTERNAL", error: "Internal error." },
+    } as never)
+
+    expect(fallback).toContain("AI provider usage limit")
+    expect(fallback).not.toContain("private")
+  })
+
+  it("tolerates proxy traps when reading usage links", async () => {
+    const error = new Proxy({ message: "Usage limit reached" }, {
+      get(target, property, receiver) {
+        if (["usageUrl", "usageURL", "usageLink"].includes(String(property))) {
+          throw new Error("private proxy failure")
+        }
+        return Reflect.get(target, property, receiver)
+      },
+    })
+    const fallback = await resolveChatErrorFallbackText(undefined, {
+      error,
+      publicError: { code: "INTERNAL", error: "Internal error." },
+    } as never)
+
+    expect(fallback).toContain("AI provider usage limit")
+    expect(fallback).not.toContain("private")
   })
 
   it("keeps opaque internal errors private by default", async () => {
