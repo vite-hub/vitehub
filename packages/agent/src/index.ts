@@ -3490,18 +3490,25 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
-    const readinessController = new AbortController()
-    const readinessSignal = input.abortSignal ? AbortSignal.any([input.abortSignal, readinessController.signal]) : readinessController.signal
-    const readinessTimer = driverKind === "provider" ? setTimeout(() => readinessController.abort(), 3_000) : undefined
-    const readiness = driverKind === "provider" && definition?.status
-      ? Promise.race([
+    const resolveReadiness = async () => {
+      if (driverKind !== "provider" || !definition?.status) return undefined
+      const readinessController = new AbortController()
+      const readinessSignal = input.abortSignal ? AbortSignal.any([input.abortSignal, readinessController.signal]) : readinessController.signal
+      const readinessTimer = setTimeout(() => readinessController.abort(), 3_000)
+      try {
+        return await Promise.race([
           Promise.resolve().then(() => definition.status!(context, { abortSignal: readinessSignal })).catch(() => undefined),
           new Promise<undefined>(resolve => {
             if (readinessSignal.aborted) resolve(undefined)
             else readinessSignal.addEventListener("abort", () => resolve(undefined), { once: true })
           }),
-        ]).finally(() => { clearTimeout(readinessTimer); readinessController.abort() })
-      : Promise.resolve(undefined)
+        ])
+      }
+      finally {
+        clearTimeout(readinessTimer)
+        readinessController.abort()
+      }
+    }
 
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
@@ -3621,19 +3628,19 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
-    const knownUnavailable = readiness.then(status => {
+    const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
       if (status?.readiness === "unavailable" && !status.stale) {
         const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
         preparationController.abort(error)
-        // Setup may already own resources. Its scope closes on failure; a late successful
-        // setup must also close even though the invocation has already reported the error.
-        const cleanup = preparingCapabilities.then(capabilities => capabilities.close(), () => undefined)
+        // Input preparation owns resources even when provider preflight fails.
+        const cleanup = capabilities.close()
         context.waitUntil?.(cleanup)
         void cleanup.catch(() => undefined)
         throw error
       }
     })
-    const [capabilities] = await Promise.all([preparingCapabilities, knownUnavailable])
+    const capabilities = await preparingCapabilities
+    if (!capabilities.response) await knownUnavailable(capabilities)
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {
