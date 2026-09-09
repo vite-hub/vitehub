@@ -12463,7 +12463,7 @@ describe("server helpers", () => {
       await expect(firstResponse).resolves.toMatchObject({ status: 200 })
       expect(order).toEqual(["A", "B", "C", "D"])
       expect(run).toHaveBeenCalledTimes(4)
-      expect(histories).toEqual([["A"], ["B"], ["C"], ["D"]])
+      expect(histories).toEqual([["A"], ["A", "B"], ["B", "C"], ["C", "D"]])
       const deliveries = await handler.deliveries(await serialRequest(91_013, "D"), "telegram", {
         agentName: "support",
       })
@@ -13326,7 +13326,7 @@ describe("server helpers", () => {
       expect(ownershipKey).toBeDefined()
       expect(await state.queueDepth(`${ownershipKey}:queue:pending`)).toBe(1)
       const deliveries = await handler.deliveries(chatWebhookRequest(91_167), "telegram", { agentIdentity: { name: "calories" } })
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91167"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91167"]')))
       expect(delivery?.events.some((event) => event.type === "queued")).toBe(true)
       expect(delivery?.events.some((event) => event.type === "failed")).toBe(false)
     } finally {
@@ -13559,7 +13559,7 @@ describe("server helpers", () => {
       ).resolves.toBe("completed")
       expect(sideEffect).toHaveBeenCalledTimes(2)
       const deliveries = await handler.deliveries(request(91_154, "https://first.example"), "telegram", runtime)
-      const overlapping = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91155"))
+      const overlapping = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91155"]')))
       expect(overlapping?.events.some((event) => event.type === "failed")).toBe(false)
       expect(overlapping?.status).toBe("completed")
     } finally {
@@ -14038,8 +14038,8 @@ describe("server helpers", () => {
         ),
       ).resolves.toBe("completed")
       const deliveries = await handler.deliveries(request(91_135, "alpha", "https://original.example"), "telegram", runtime)
-      for (const runId of ["telegram:91135", "telegram:91137"]) {
-        const recovered = deliveries.find((delivery) => delivery.events.some((event) => event.runId === runId))
+      for (const messageId of ["91135", "91137"]) {
+        const recovered = deliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(`,"telegram:456","telegram:${messageId}"]`)))
         expect(recovered?.events.filter((event) => event.type === "invocation.completed")).toHaveLength(1)
         expect(recovered?.events.filter((event) => event.type === "completed")).toHaveLength(1)
       }
@@ -14126,7 +14126,7 @@ describe("server helpers", () => {
       expect(sideEffect).not.toHaveBeenCalled()
       expect(createBatch).toHaveBeenCalledTimes(5)
       const handedOffDeliveries = await handler.deliveries(chatWebhookRequest(91_165), "telegram", runtime)
-      const handedOffDelivery = handedOffDeliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91165"))
+      const handedOffDelivery = handedOffDeliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91165"]')))
       expect(handedOffDelivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "completed" })]))
 
       if (persistentOutage) {
@@ -14300,7 +14300,8 @@ describe("server helpers", () => {
       ).resolves.toBeUndefined()
       await vi.waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
       expect(workflowIds[1]).not.toBe(workflowIds[0])
-      expect(workflowPayloads[1]?.run?.runId).toBe("telegram:91151")
+      const recoveredRunId = workflowPayloads[1]?.run?.runId
+      expect(recoveredRunId).toEqual(expect.stringMatching(/,"telegram:456","telegram:91151"\]$/))
       expect(workflowPayloads[1]?.input?.messages?.map((message) => message.id)).toEqual(["91150", "91151"])
       const recoveredRunIds: Array<string | undefined> = []
       const executionError = new Error("restored primary failed")
@@ -14309,7 +14310,7 @@ describe("server helpers", () => {
       const appendToList = vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
         // SAFETY: Delivery journal writes use this event record shape at the State boundary.
         const event = value as { runId?: string; type?: string }
-        if (rejectPrimaryTerminal && key.startsWith("deliveries:") && key.endsWith(":events") && event.type === settlementStatus && event.runId === "telegram:91151") {
+        if (rejectPrimaryTerminal && key.startsWith("deliveries:") && key.endsWith(":events") && event.type === settlementStatus && event.runId === recoveredRunId) {
           rejectPrimaryTerminal = false
           throw new Error("primary terminal journal unavailable")
         }
@@ -14333,7 +14334,7 @@ describe("server helpers", () => {
       )
       await expect(execution).rejects.toThrow("primary terminal journal unavailable")
       expect(rejectPrimaryTerminal).toBe(false)
-      expect(recoveredRunIds).toEqual(["telegram:91151"])
+      expect(recoveredRunIds).toEqual([recoveredRunId])
       // SAFETY: The pending queue contains the normalized durable steer entry created by this fixture.
       const pending = (await state.queuePeek(`${ownershipKey}:queue:pending`)) as { message?: { settlementStatus?: string } } | null
       expect(pending?.message?.settlementStatus).toBe(settlementStatus)
@@ -14355,11 +14356,11 @@ describe("server helpers", () => {
           },
         ),
       ).resolves.toBeUndefined()
-      expect(recoveredRunIds).toEqual(["telegram:91151"])
+      expect(recoveredRunIds).toEqual([recoveredRunId])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_151), "telegram", runtime)
-      for (const runId of ["telegram:91150", "telegram:91151"]) {
-        const delivery = deliveries.find((item) => item.events.some((event) => event.runId === runId))
+      for (const messageId of ["91150", "91151"]) {
+        const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(`,"telegram:456","telegram:${messageId}"]`)))
         expect(delivery?.events.filter((event) => event.type === `invocation.${settlementStatus}`)).toHaveLength(1)
         expect(delivery?.events.filter((event) => event.type === settlementStatus)).toHaveLength(1)
       }
@@ -14483,7 +14484,7 @@ describe("server helpers", () => {
       expect(workflowPayloads[2]?.input?.messages?.map((message) => message.id)).toEqual(["91153"])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_152), "telegram", runtime)
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91152"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91152"]')))
       expect(delivery?.events.filter((event) => event.type === `invocation.${settlementStatus}`)).toHaveLength(1)
       expect(delivery?.events.filter((event) => event.type === settlementStatus)).toHaveLength(1)
       queuePeek.mockRestore()
@@ -14588,7 +14589,7 @@ describe("server helpers", () => {
       if (reacquired) await state.releaseLock(reacquired)
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_156), "telegram", runtime)
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91156"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91156"]')))
       expect(delivery?.events.filter((event) => event.type === "invocation.completed")).toHaveLength(1)
       expect(delivery?.events.filter((event) => event.type === "completed")).toHaveLength(1)
     } finally {
@@ -14750,7 +14751,7 @@ describe("server helpers", () => {
       expect(workflowPayloads[4]?.input?.messages?.map((message) => message.id)).toEqual(["91160"])
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_157), "telegram", runtime)
-      const merged = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91158"))
+      const merged = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91158"]')))
       expect(merged?.events.filter((event) => event.type === "invocation.completed")).toHaveLength(1)
       expect(merged?.events.filter((event) => event.type === "completed")).toHaveLength(1)
       queuePeek.mockRestore()
@@ -14900,12 +14901,12 @@ describe("server helpers", () => {
           expect.arrayContaining([
             {
               capabilities: { blob: false },
-              runId: "telegram:91146",
+              runId: expect.stringMatching(/,"telegram:456","telegram:91146"\]$/),
               url: "https://recovered.example/api/agent/calories/channels/telegram",
             },
             {
               capabilities: { email: false },
-              runId: "telegram:91147",
+              runId: expect.stringMatching(/,"telegram:456","telegram:91147"\]$/),
               url: "https://reclaimer.example/api/agent/calories/channels/telegram",
             },
           ]),
@@ -14942,8 +14943,8 @@ describe("server helpers", () => {
         ).toHaveLength(persistentProgressFailure ? 4 : 3)
 
         const deliveries = await handler.deliveries(request(91_147, "beta"), "telegram", reclaimerRuntime)
-        for (const runId of ["telegram:91146", "telegram:91147"]) {
-          const delivery = deliveries.find((item) => item.events.some((event) => event.runId === runId))
+        for (const messageId of ["91146", "91147"]) {
+          const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(`,"telegram:456","telegram:${messageId}"]`)))
           expect(delivery).toMatchObject({ status: "failed" })
           expect(delivery?.events.filter((event) => event.type === "invocation.failed")).toHaveLength(1)
           expect(delivery?.events.filter((event) => event.type === "failed")).toHaveLength(1)
@@ -15078,7 +15079,7 @@ describe("server helpers", () => {
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       expect(await state.extendLock(binding!.steer!.lock as never, binding!.steer!.ttlMs)).toBe(false)
       const deliveries = await handler.deliveries(chatWebhookRequest(91_164), "telegram", runtime)
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91164"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91164"]')))
       expect(delivery).toMatchObject({ status: "failed" })
       expect(delivery?.events.filter((event) => event.type === "invocation.failed")).toHaveLength(1)
       expect(delivery?.events.filter((event) => event.type === "failed")).toHaveLength(1)
@@ -15344,8 +15345,8 @@ describe("server helpers", () => {
       await ownership!.settle("failed")
 
       const deliveries = await handler.deliveries(request(91_138, "alpha"), "telegram", runtime)
-      for (const runId of ["telegram:91138", "telegram:91139"]) {
-        const merged = deliveries.find((delivery) => delivery.events.some((event) => event.runId === runId))
+      for (const messageId of ["91138", "91139"]) {
+        const merged = deliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(`,"telegram:456","telegram:${messageId}"]`)))
         expect(merged?.events).not.toEqual(
           expect.arrayContaining([expect.objectContaining({ type: "invocation.failed" }), expect.objectContaining({ type: "failed" })]),
         )
@@ -15832,7 +15833,7 @@ describe("server helpers", () => {
         agentIdentity: { name: "calories" },
       })
       // SAFETY: this assertion narrows the matched delivery before its events are inspected below.
-      const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91141"))
+      const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91141"]')))
       expect(successor).toMatchObject({ status: "failed" })
       expect(successor?.events).toEqual(
         expect.arrayContaining([
@@ -16028,7 +16029,7 @@ describe("server helpers", () => {
       expect(await state.queueDepth(binding!.steer!.queue)).toBe(1)
 
       const deliveries = await handler.deliveries(chatWebhookRequest(91_142), "telegram", { agentIdentity: { name: "calories" } })
-      const delivery = deliveries.find((item) => item.events.some((event) => event.runId === "telegram:91142"))
+      const delivery = deliveries.find((item) => item.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91142"]')))
       expect(delivery).not.toMatchObject({ status: "failed" })
       expect(delivery?.events).not.toEqual(expect.arrayContaining([expect.objectContaining({ type: "failed" })]))
     } finally {
@@ -16136,7 +16137,7 @@ describe("server helpers", () => {
       const deliveries = await handler.deliveries(chatWebhookRequest(91_144), "telegram", {
         agentIdentity: { name: "calories" },
       })
-      const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId === "telegram:91144"))
+      const successor = deliveries.find((delivery) => delivery.events.some((event) => event.runId?.endsWith(',"telegram:456","telegram:91144"]')))
       expect(successor).toMatchObject({ status: "queued" })
     } finally {
       get.mockRestore()
