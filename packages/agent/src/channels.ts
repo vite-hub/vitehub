@@ -197,6 +197,9 @@ export type GitHubIssueCommentPayload = {
     labels?: unknown
     number?: unknown
     title?: unknown
+    draft?: unknown
+    base?: { ref?: unknown }
+    head?: { ref?: unknown }
     url?: unknown
     user?: { id?: unknown, login?: unknown, type?: unknown }
   }
@@ -377,6 +380,8 @@ export const pullRequest = {
 
 export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   ignored?: (reason: string) => Response
+  filter?: GitHubPullRequestFilter
+  when?: (context: GitHubPullRequestFilterContext) => MaybePromise<boolean>
   maxBodyLength?: number
   maxCommentBodyLength?: number
   maxComments?: number
@@ -392,6 +397,39 @@ export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends Age
   workspace?: boolean | {
     mount?: string
   }
+}
+
+export interface GitHubPullRequestFilterContext {
+  repository?: string
+  author?: string
+  actor?: string
+  authorAssociation?: string
+  labels?: readonly string[]
+  draft?: boolean
+  fork?: boolean
+  base?: string
+  head?: string
+  title?: string
+  action?: string
+}
+
+export interface GitHubPullRequestFilterRules {
+  allow?: readonly string[]
+  deny?: readonly string[]
+}
+
+export interface GitHubPullRequestFilter {
+  repository?: GitHubPullRequestFilterRules
+  author?: GitHubPullRequestFilterRules
+  actor?: GitHubPullRequestFilterRules
+  authorAssociation?: GitHubPullRequestFilterRules
+  labels?: GitHubPullRequestFilterRules
+  draft?: GitHubPullRequestFilterRules
+  fork?: GitHubPullRequestFilterRules
+  base?: GitHubPullRequestFilterRules
+  head?: GitHubPullRequestFilterRules
+  title?: GitHubPullRequestFilterRules
+  action?: GitHubPullRequestFilterRules
 }
 
 export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
@@ -2564,6 +2602,41 @@ function githubOpenedPullRequestActivityTarget(input: unknown, payload: unknown)
   return { repository, issue, ...(deliveryId ? { deliveryId } : {}), ...(installationId ? { installationId } : {}) }
 }
 
+function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload, input: unknown): GitHubPullRequestFilterContext {
+  const pr = isRecord(payload.pull_request) ? payload.pull_request : undefined
+  const repository = isRecord(payload.repository) ? maybeString(payload.repository.full_name) : undefined
+  const actor = isRecord(payload.sender) ? maybeString(payload.sender.login) : undefined
+  const user = pr && isRecord(pr.user) ? pr.user : undefined
+  const labels = pr && Array.isArray(pr.labels) ? pr.labels.flatMap(label => isRecord(label) ? [maybeString(label.name)].filter((v): v is string => Boolean(v)) : []) : undefined
+  const base = pr && isRecord(pr.base) ? maybeString(pr.base.ref) : undefined
+  const head = pr && isRecord(pr.head) ? maybeString(pr.head.ref) : undefined
+  return { repository, actor, author: user && maybeString(user.login), authorAssociation: pr && maybeString(pr.author_association), labels, draft: pr && typeof pr.draft === "boolean" ? pr.draft : undefined, fork: user && maybeString(user.type) === "Bot" ? undefined : undefined, base, head, title: pr && maybeString(pr.title), action: maybeString(payload.action), ...(!pr && input ? {} : {}) }
+}
+
+function githubPullRequestFilterRule(value: string | boolean | undefined, rule: GitHubPullRequestFilterRules | undefined): boolean {
+  if (!rule || value === undefined) return true
+  const text = String(value)
+  if (rule.deny?.some(item => item === text)) return false
+  return !rule.allow || rule.allow.length === 0 || rule.allow.some(item => item === text)
+}
+
+async function githubPullRequestMatchesFilter(options: GitHubPullRequestCommentEventOptions, payload: GitHubIssueCommentPayload, input: unknown): Promise<boolean> {
+  const filter = options.filter
+  if (!filter && !options.when) return true
+  const value = githubPullRequestFilterContext(payload, input)
+  const checks: [string | boolean | undefined, GitHubPullRequestFilterRules | undefined][] = [
+    [value.repository, filter?.repository], [value.author, filter?.author], [value.actor, filter?.actor], [value.authorAssociation, filter?.authorAssociation],
+    [value.base, filter?.base], [value.head, filter?.head], [value.title, filter?.title], [value.action, filter?.action], [value.draft, filter?.draft], [value.fork, filter?.fork],
+  ]
+  if (checks.some(([v, rule]) => !githubPullRequestFilterRule(v, rule))) return false
+  if (filter?.labels) {
+    const labels = value.labels || []
+    if (filter.labels.deny?.some(label => labels.includes(label))) return false
+    if (filter.labels.allow && !filter.labels.allow.some(label => labels.includes(label))) return false
+  }
+  return options.when ? await options.when(value) : true
+}
+
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   pullRequest: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig> | undefined,
   app?: true | GitHubAppOptions<TRuntimeConfig>,
@@ -2575,6 +2648,10 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
     webhook: {
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         let payload = inputPayloadOrBody(input)
+        if (payload && pullRequest) {
+          const optionsForFilter = pullRequest === true ? {} : pullRequest
+          if (!await githubPullRequestMatchesFilter(optionsForFilter, payload, input)) return optionsForFilter.ignored?.("filtered") || ignored("filtered")
+        }
         const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
         if (activity && activityTarget) {
           const update = Promise.resolve(activity.update({
