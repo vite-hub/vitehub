@@ -69,7 +69,7 @@ export function createAgentHealthHandler(agent: AgentInput, defaults: AgentHealt
   return async (request: Request, options: AgentHealthHandlerOptions = {}): Promise<Response> => {
     if (request.method !== "GET" && request.method !== "HEAD") return Response.json({ status: 405, message: "Method not allowed." }, { status: 405 })
     const report = await resolveAgentHealth(agent, { ...defaults, ...options })
-    return Response.json(report, { status: report.ok ? 200 : 503, headers: { "cache-control": "no-store" } })
+    const response = Response.json(report, { status: report.ok ? 200 : 503, headers: { "cache-control": "no-store" } })
+    return request.method === "HEAD" ? new Response(null, response) : response
   }
 }
-
