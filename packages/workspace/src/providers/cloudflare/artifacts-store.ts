@@ -423,7 +423,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    await this.#fs!.promises.writeFile(this.#internalAbsolute(fileMetadataJournalPath), JSON.stringify({ path, metadata: { mediaType: file.mediaType, metadata: file.metadata } }))
+    const existed = await this.#fs!.promises.stat(this.#absolute(path)).then(stat => stat.isFile()).catch(() => false)
+    await this.#fs!.promises.writeFile(this.#internalAbsolute(fileMetadataJournalPath), JSON.stringify({ path, existed, metadata: { mediaType: file.mediaType, metadata: file.metadata } }))
     await this.#fs!.promises.writeFile(this.#absolute(path), contentToBytes(file.content))
     if (file.mediaType !== undefined || file.metadata !== undefined) {
       this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
@@ -455,8 +456,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const pending = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataJournalPath)).catch(() => undefined)
     if (!pending) return
     try {
-      const journal = JSON.parse(new TextDecoder().decode(pending as Uint8Array)) as { path?: string, metadata?: FileMetadata }
-      if (journal.path && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
+      const journal = JSON.parse(new TextDecoder().decode(pending as Uint8Array)) as { path?: string, existed?: boolean, metadata?: FileMetadata }
+      if (journal.path && journal.existed === false && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
         if (journal.metadata && (journal.metadata.mediaType !== undefined || journal.metadata.metadata !== undefined)) this.#files.set(journal.path, journal.metadata)
         else this.#files.delete(journal.path)
         await this.#writeFileMetadata()
