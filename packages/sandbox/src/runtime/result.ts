@@ -4,9 +4,9 @@ import { toResponse, type ViteHubError } from '@vite-hub/runtime'
 export async function ok(value: unknown): Promise<Response> { return toResponse(value) }
 
 function statusFor(error: ViteHubError<`SANDBOX_${string}`>) {
-  const details = error.details as Record<string, unknown> | undefined
-  if (typeof details?.httpStatus === 'number' && details.httpStatus >= 400 && details.httpStatus <= 599)
-    return details.httpStatus
+  const status = error.details?.httpStatus
+  if (Number.isInteger(status) && Number(status) >= 400 && Number(status) <= 599)
+    return Number(status)
   if (error.code.includes('TIMEOUT')) return 504
   if (error.code.includes('NOT_FOUND')) return 404
   if (error.code.includes('VALIDATION')) return 400

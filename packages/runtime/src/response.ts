@@ -11,12 +11,15 @@ export interface SerializedResponse {
   readonly statusText: string
 }
 
+import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
+
 /** Normalize a primitive value into the native Web Response contract. */
 export function toResponse(value: unknown): Response {
   if (value instanceof Response) return value
   if (value === undefined) return new Response(null, { status: 204 })
-  if (typeof value === "string" || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
-    return new Response(value as BodyInit)
+  if (hasRuntimeType(value, "string") || value instanceof Blob || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+    // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
+    return new Response(value as ConstructorParameters<typeof Response>[0])
   }
   return new Response(JSON.stringify(value), {
     headers: { "content-type": "application/json; charset=utf-8" },
@@ -43,21 +46,23 @@ export function deserializeResponse(value: SerializedResponse): Response {
   if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
   const bytes = base64ToBytes(value.body.data)
   return new Response(bytes, {
-    headers: value.headers,
+    headers: value.headers.map(([name, headerValue]) => [name, headerValue]),
     status: value.status,
     statusText: value.statusText,
   })
 }
 
 export function isSerializedResponse(value: unknown): value is SerializedResponse {
-  if (!value || typeof value !== "object") return false
+  if (!isRuntimeObject(value)) return false
+  // SAFETY: isRuntimeObject establishes an object record for property inspection.
   const record = value as Record<string, unknown>
-  if (!record.body || typeof record.body !== "object") return false
+  if (!isRuntimeObject(record.body)) return false
+  // SAFETY: isRuntimeObject establishes an object record for property inspection.
   const body = record.body as Record<string, unknown>
-  if (typeof body.data !== "string" || body.encoding !== "base64" || typeof body.mediaType !== "string") return false
-  if (!Number.isInteger(record.status) || (record.status as number) < 200 || (record.status as number) > 599) return false
-  if (typeof record.statusText !== "string" || !Array.isArray(record.headers)) return false
-  return record.headers.every((entry) => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string" && typeof entry[1] === "string")
+  if (!hasRuntimeType(body.data, "string") || body.encoding !== "base64" || !hasRuntimeType(body.mediaType, "string")) return false
+  if (!hasRuntimeType(record.status, "number") || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
+  if (!hasRuntimeType(record.statusText, "string") || !Array.isArray(record.headers)) return false
+  return record.headers.every((entry) => Array.isArray(entry) && entry.length === 2 && hasRuntimeType(entry[0], "string") && hasRuntimeType(entry[1], "string"))
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
