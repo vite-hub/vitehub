@@ -471,8 +471,16 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     }
     const pending = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataJournalPath)).catch(() => undefined)
     if (!pending) return
+    let journal
     try {
-      const journal = parse(fileMetadataJournalSchema, parseJson(contentToBytes(pending)))
+      journal = parse(fileMetadataJournalSchema, parseJson(contentToBytes(pending)))
+    }
+    catch {
+      // Interrupted journal writes cannot safely supply recovery metadata.
+      this.#fs!.deleteTree(this.#internalAbsolute(fileMetadataJournalPath))
+      return
+    }
+    try {
       if (journal.path && journal.existed === false && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
         if (journal.metadata && (journal.metadata.mediaType !== undefined || journal.metadata.metadata !== undefined)) this.#files.set(journal.path, journal.metadata)
         else this.#files.delete(journal.path)
