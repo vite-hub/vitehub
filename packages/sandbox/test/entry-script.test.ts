@@ -73,6 +73,18 @@ describe("package entry result transport", () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(empty ? [] : [0, 127, 255]))
   })
 
+  it.each(["Response.error()", "new Response(null)", "new Response(new Uint8Array())"])("preserves %s across the child process", async (expression) => {
+    const execution = await executePackageEntry(`export default () => ${expression}`)
+    expect(execution.code).toBe(0)
+    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
+    const response = await decodeSandboxValue(sandbox, execution.output.result, "", "result")
+    if (!(response instanceof Response)) throw new TypeError("Expected Response")
+    expect(response.type).toBe(expression === "Response.error()" ? "error" : "default")
+    expect(response.status).toBe(expression === "Response.error()" ? 0 : 200)
+    expect(response.body === null).toBe(expression !== "new Response(new Uint8Array())")
+    expect(await response.text()).toBe("")
+  })
+
   it("calls the default function with payload and context", async () => {
     const execution = await executePackageEntry(
       "export default async function (payload, context) { return { payload, context } }\n",

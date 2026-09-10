@@ -4,11 +4,13 @@ export interface SerializedResponse {
     readonly data: string
     readonly encoding: "base64"
     readonly mediaType: string
+    readonly isNull?: boolean
   }
   /** Header entries are kept as pairs so repeated headers are preserved. */
   readonly headers: readonly (readonly [string, string])[]
   readonly status: number
   readonly statusText: string
+  readonly type?: "error"
 }
 
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
@@ -28,24 +30,28 @@ export function toResponse(value: unknown): Response {
 
 /** Convert a native Response into a JSON-safe record. The body is fully buffered. */
 export async function serializeResponse(response: Response): Promise<SerializedResponse> {
+  const isNull = response.body === null
   const bytes = new Uint8Array(await response.arrayBuffer())
   return {
     body: {
       data: bytesToBase64(bytes),
+      isNull,
       encoding: "base64",
       mediaType: response.headers.get("content-type") || "application/octet-stream",
     },
     headers: Array.from(response.headers, ([name, value]) => [name, value] as const),
     status: response.status,
     statusText: response.statusText,
+    ...(response.type === "error" ? { type: "error" as const } : {}),
   }
 }
 
 /** Reconstruct a native Response from a durable response record. */
 export function deserializeResponse(value: SerializedResponse): Response {
   if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
+  if (value.type === "error") return Response.error()
   const bytes = base64ToBytes(value.body.data)
-  const body = [204, 205, 304].includes(value.status) && bytes.length === 0 ? null : bytes
+  const body = value.body.isNull === true || ([204, 205, 304].includes(value.status) && bytes.length === 0) ? null : bytes
   return new Response(body, {
     headers: value.headers.map(([name, headerValue]): [string, string] => [name, headerValue]),
     status: value.status,
@@ -61,6 +67,13 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
   // SAFETY: isRuntimeObject establishes an object record for property inspection.
   const body = record.body as Record<string, unknown>
   if (!hasRuntimeType(body.data, "string") || body.encoding !== "base64" || !hasRuntimeType(body.mediaType, "string")) return false
+  if (body.isNull !== undefined && !hasRuntimeType(body.isNull, "boolean")) return false
+  if (body.isNull === true && body.data !== "") return false
+  if (record.type !== undefined && record.type !== "error") return false
+  if (record.type === "error") {
+    return record.status === 0 && record.statusText === "" && Array.isArray(record.headers)
+      && record.headers.length === 0 && body.isNull === true && body.data === ""
+  }
   if (!hasRuntimeType(record.status, "number") || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
   if (!hasRuntimeType(record.statusText, "string") || !Array.isArray(record.headers)) return false
   return record.headers.every((entry) => Array.isArray(entry) && entry.length === 2 && hasRuntimeType(entry[0], "string") && hasRuntimeType(entry[1], "string"))
