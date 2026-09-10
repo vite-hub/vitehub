@@ -1,3 +1,4 @@
+export { AgentCapabilityInspector } from "./components/agent-capability-inspector.ts";
 export * from "./components/agent-chat.ts";
 export * from "./components/agent-chat-message.ts";
 export * from "./components/agent-chat-prompt.ts";

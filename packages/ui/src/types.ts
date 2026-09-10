@@ -45,6 +45,7 @@ export interface AgentToolInspection {
   description?: string;
   inputSchema?: AgentInspectionValue;
   name: string;
+  mcp?: { server: string; name: string };
   outputSchema?: AgentInspectionValue;
 }
 
@@ -55,6 +56,12 @@ export interface AgentInvocationConfiguration {
   };
   capabilities?: readonly {
     id: string;
+    inspection?: {
+      label: string;
+      truncated?: boolean;
+      view?: import("@json-render/core").Spec;
+      state?: Readonly<Record<string, AgentInspectionValue>>;
+    };
     metadata?: Readonly<Record<string, AgentInspectionValue>>;
   }[];
   channels?: readonly {

@@ -109,13 +109,17 @@ function deserializeRuntimeSchedule(record: StoredRuntimeScheduleRecord): Runtim
 }
 
 function omitUndefinedPatch(patch: RuntimeScheduleUpdateInput): RuntimeScheduleUpdateInput {
-  return {
+  const result: RuntimeScheduleUpdateInput = {
     ...(patch.cron !== undefined ? { cron: patch.cron } : {}),
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
     ...(Object.hasOwn(patch, "input") ? { input: structuredClone(patch.input) } : {}),
     ...(patch.target !== undefined ? { target: patch.target } : {}),
     ...(patch.timeZone !== undefined ? { timeZone: patch.timeZone } : {}),
   }
+  if (Object.hasOwn(patch, "console")) {
+    result.console = patch.console ? { ...patch.console } : patch.console
+  }
+  return result
 }
 
 const keyLocks = new Map<string, Promise<void>>()
@@ -249,6 +253,7 @@ function cloneScheduleRun(record: ScheduleRunRecord): ScheduleRunRecord {
     createdAt: new Date(record.createdAt),
     scheduledAt: new Date(record.scheduledAt),
     error: record.error ? { ...record.error } : undefined,
+    response: record.response ? { ...record.response, headers: { ...record.response.headers } } : undefined,
     startedAt: record.startedAt ? new Date(record.startedAt) : undefined,
     updatedAt: new Date(record.updatedAt),
   }
@@ -271,6 +276,7 @@ function serializeScheduleRun(record: ScheduleRunRecord): StoredScheduleRunRecor
     completedAt: record.completedAt?.toISOString(),
     createdAt: record.createdAt.toISOString(),
     error: record.error ? { ...record.error } : undefined,
+    response: record.response ? { ...record.response, headers: { ...record.response.headers } } : undefined,
     scheduledAt: record.scheduledAt.toISOString(),
     startedAt: record.startedAt?.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -283,6 +289,7 @@ function deserializeScheduleRun(record: StoredScheduleRunRecord): ScheduleRunRec
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
     createdAt: new Date(record.createdAt),
     error: record.error ? { ...record.error } : undefined,
+    response: record.response ? { ...record.response, headers: { ...record.response.headers } } : undefined,
     scheduledAt: new Date(record.scheduledAt),
     startedAt: record.startedAt ? new Date(record.startedAt) : undefined,
     updatedAt: new Date(record.updatedAt),

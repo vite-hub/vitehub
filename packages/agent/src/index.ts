@@ -287,6 +287,11 @@ export type {
   AgentCapabilityHandle,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentCapabilityInspection,
+  AgentCapabilityInspectionDefinition,
+  AgentCapabilityInspectionBinding,
+  AgentCapabilityInspectionElement,
+  AgentCapabilityInspectionView,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
   AgentCapabilityCliCommand,
@@ -2902,13 +2907,14 @@ function agentTelemetryConfigurationForContent(
   const { instructions, tools, ...metadata } = configuration
   return {
     ...metadata,
-    capabilities: configuration.capabilities?.map(capability => capability.metadata
-      ? {
-          ...capability,
+    capabilities: configuration.capabilities?.map(({ inspection, ...capability }) => ({
+      ...capability,
+      ...(inspection ? { inspection: policy.instructions === true && policy.inputs === true && policy.outputs === true ? inspection : { label: inspection.label } } : {}),
+      ...(capability.metadata ? {
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           metadata: agentTelemetryMetadataForContent(capability.metadata, policy) as Record<string, AgentInspectionValue>,
-        }
-      : capability),
+        } : {}),
+    })),
     ...(policy.instructions === true && instructions ? { instructions } : {}),
     ...(tools ? { tools: policy.instructions === true ? tools : tools.map(({ name, capabilityId }) => ({ name, ...(capabilityId ? { capabilityId } : {}) })) } : {}),
   }
@@ -3453,6 +3459,7 @@ async function createAgentInvocationContext<
   }
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
+  let capabilityPreparationPending = true
   let failureTelemetry = initialTelemetry
   let failureActivity: TraceActivityContext = { owner: "vitehub", phase: "setup" }
   let failureTraced = false
@@ -3611,6 +3618,38 @@ async function createAgentInvocationContext<
     if (!telemetryContentTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))) {
       runtimeContext = { ...runtimeContext, traceLog: agentContentTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId, runtimeContext.trace) }
     }
+    if (failureTelemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
+      agent: definition?.name ? { name: definition.name } : {},
+      capabilities: resolvedCapabilityDefinitions.map(capability => ({
+        id: capability.id,
+        ...(capability.inspection ? { inspection: capability.inspection } : {}),
+      })),
+      driver: { kind: driverKind },
+      runtime: { name: runtimeContext.runtime },
+    })
+    if (invocationJournal) {
+      const traceConfiguration = async () => {
+        if (capabilityPreparationPending) return
+        const configuration = getAgentTelemetryConfiguration(invocationContext)?.value
+        if (!configuration) return
+        const journalTraceLog = invocationJournal.context.traceLog
+        const persistedConfiguration = invocationJournal.configuration === "content" || (journalTraceLog
+          && agentInvocationJournalContentTraceLogSymbol in journalTraceLog)
+          ? configuration
+          : agentTelemetryConfigurationForContent(configuration, {})
+        await runtimeContext.traceLog?.append({
+          activity: { owner: "vitehub", phase: "setup" },
+          attributes: {
+            "vitehub.agent.configuration": persistedConfiguration,
+            ...(persistedConfiguration.fingerprint ? { "vitehub.agent.configuration.fingerprint": persistedConfiguration.fingerprint } : {}),
+          },
+          name: "vitehub.agent.configured",
+          ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),
+          type: "run",
+        })
+      }
+      invocationContext.set(agentInvocationConfigurationUpdatedContextKey, traceConfiguration, { overwrite: true })
+    }
     callbackContext = createAgentCallbackContext(runtimeContext)
     const preparationController = new AbortController()
     if (driverKind === "provider" && definition?.status) {
@@ -3680,7 +3719,16 @@ async function createAgentInvocationContext<
         throw error
       }
     }
-    const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const transformed = await applyCapabilityToolTransforms(capabilities.tools, resolveCapabilityCli ? [] : capabilities.toolTransforms).catch(async (error) => {
+      try {
+        await capabilities.close()
+      }
+      catch (closeError) {
+        throw new AggregateError([error, closeError], "[vitehub] Agent tool transform failed and cleanup also failed.")
+      }
+      throw error
+    })
+    const transformedTools = transformed.tools
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(preparedTools, toolStepReporter)
@@ -3722,17 +3770,20 @@ async function createAgentInvocationContext<
     const toolOwners = new Map(capabilities.driverContributions
       .filter(contribution => contribution.kind === "Capability tools")
       .flatMap(contribution => (contribution.names || []).map(name => [name, contribution.capabilityId] as const)))
-    const inspectedTools = inspectAgentTools(tools)?.map(tool => ({
-      ...tool,
-      ...(toolOwners.has(tool.name) ? { capabilityId: toolOwners.get(tool.name) } : {}),
-    }))
+    const inspectedTools = inspectAgentTools(tools)?.map(tool => {
+      const owner = toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name)
+      return { ...tool, ...(owner ? { capabilityId: owner } : {}) }
+    })
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),
         ...(definition?.version ? { version: definition.version } : {}),
       },
       capabilities: [...capabilityTelemetryMetadata.entries()]
-        .map(([id, metadata]) => ({ id, ...(Object.keys(metadata).length ? { metadata } : {}) }))
+        .map(([id, metadata]) => {
+          const inspection = resolvedCapabilityDefinitions.find(capability => capability.id === id)?.inspection
+          return { id, ...(inspection ? { inspection } : {}), ...(Object.keys(metadata).length ? { metadata } : {}) }
+        })
         .sort((left, right) => left.id.localeCompare(right.id)),
       ...(definition?.channels
         ? {
@@ -3826,29 +3877,8 @@ async function createAgentInvocationContext<
     }
     invocationContext.set("agent.errorHook", Boolean(invocation.errorHook), { overwrite: true })
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
-    if (invocationJournal) {
-      const traceConfiguration = async () => {
-        const configuration = getAgentTelemetryConfiguration(invocationContext)?.value
-        if (!configuration) return
-        const journalTraceLog = invocationJournal.context.traceLog
-        const persistedConfiguration = invocationJournal.configuration === "content" || (journalTraceLog
-          && agentInvocationJournalContentTraceLogSymbol in journalTraceLog)
-          ? configuration
-          : agentTelemetryConfigurationForContent(configuration, {})
-        await runtimeContext.traceLog?.append({
-          activity: { owner: "vitehub", phase: "setup" },
-          attributes: {
-            "vitehub.agent.configuration": persistedConfiguration,
-            ...(persistedConfiguration.fingerprint ? { "vitehub.agent.configuration.fingerprint": persistedConfiguration.fingerprint } : {}),
-          },
-          name: "vitehub.agent.configured",
-          ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),
-          type: "run",
-        })
-      }
-      invocationContext.set(agentInvocationConfigurationUpdatedContextKey, traceConfiguration, { overwrite: true })
-      await traceConfiguration()
-    }
+    capabilityPreparationPending = false
+    await invocationContext.get(agentInvocationConfigurationUpdatedContextKey)?.()
     await traceAgentInvocationStart(toTraceContext(invocation))
     try {
       await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
@@ -3881,6 +3911,8 @@ async function createAgentInvocationContext<
     return invocation
   }
   catch (error) {
+    capabilityPreparationPending = false
+    await invocationContext.get(agentInvocationConfigurationUpdatedContextKey)?.()
     if (!failureTraced) {
       await traceAgentInvocationError({
         context: invocationContext,
