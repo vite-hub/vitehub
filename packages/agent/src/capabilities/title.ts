@@ -132,6 +132,7 @@ export interface TitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   instructions?: string
   maxLength?: number
   model?: AgentModelResolver<TRuntimeConfig>
+  /** Reasoning effort override for an inherited Codex provider. */
   reasoningEffort?: string
   template?: TitleTemplate
   timeoutMs?: number
@@ -1028,6 +1029,12 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       await pendingTitles.get(context.context)
     },
     output(context) {
+      // SAFETY: The invocation runtime supplies the normalized enclosing driver.
+      const driver = context.agentDriver as NormalizedAgentDriver | undefined
+      if (!options.execute && !options.driver && (options.model === undefined || hasRuntimeType(options.model, "string"))
+        && driver?.kind === "provider" && driver.provider !== "codex" && options.reasoningEffort !== undefined) {
+        throw agentDiagnostics.AGENT_R0923({ message: "[vitehub] title({ reasoningEffort }) requires an inherited Codex provider." })
+      }
       let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
       const getChannelDeliveryAttempt = () => {
         const state = context.context.get(messageChannelStateContextKey)

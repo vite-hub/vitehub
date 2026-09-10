@@ -97,6 +97,17 @@ describe("title provider inheritance", () => {
     if (resolver) expect(resolveModel).toHaveBeenCalled();
   });
 
+  it.each([undefined, "claude-title"])("rejects reasoning overrides for inherited Claude with model %s", async (model) => {
+    const agent = defineAgent({
+      capabilities: [title({ model, reasoningEffort: "high" })],
+      driver: { kind: "claude", model: "claude-main" },
+    });
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain model routing" })],
+    })).rejects.toThrow("requires an inherited Codex provider");
+    expect(mocks.adapters.every(adapter => adapter.model === "claude-main")).toBe(true);
+  });
+
   it.each([
     { expectedModel: "gpt-main", titleOptions: {}, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { instructions: "Use a short subject title" }, reasoningEffort: "medium" },
