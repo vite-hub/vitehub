@@ -43,6 +43,19 @@ describe("UI server rendering", () => {
     expect(html).toContain("katex");
   });
 
+  it("does not render raw HTML from Agent messages", async () => {
+    const app = createSSRApp({
+      render: () => h(AgentMarkdown, {
+        value: '<script>globalThis.__vitehubXss = true</script>\n\n<div onmouseover="globalThis.__vitehubXss = true">message</div>',
+      }),
+    });
+
+    const html = await renderToString(app);
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain('onmouseover="');
+    expect(html).toContain("message");
+  });
+
   it("renders runtime Nuxt UI components through the Vue plugin", async () => {
     const app = createSSRApp({
       render: () =>
