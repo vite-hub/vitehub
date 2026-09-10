@@ -1,10 +1,11 @@
-import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { spawn } from "node:child_process"
 import { lock } from "proper-lockfile"
 
 import type { AgentInvocationContextStore } from "../types.ts"
+import { assertTrustedBrowserCache } from "./browser-cache.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
@@ -135,7 +136,9 @@ async function smokeChrome(executablePath: string, env: NodeJS.ProcessEnv, prefe
 }
 
 async function provision(root: string, npmCommand = "npm", platform: NodeJS.Platform = process.platform): Promise<PreparedBrowserRuntime> {
-  await mkdir(dirname(root), { recursive: true })
+  await mkdir(dirname(root), { recursive: true, mode: 0o700 })
+  root = join(await realpath(dirname(root)), basename(root))
+  await assertTrustedBrowserCache(root)
   let lockError: Error | undefined
   const assertLock = () => {
     if (lockError) throw lockError
@@ -160,6 +163,7 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
 async function provisionLocked(root: string, npmCommand: string, platform: NodeJS.Platform, assertLock: () => void): Promise<PreparedBrowserRuntime> {
   if (platform !== "linux" && platform !== "darwin") throw new Error("[vitehub] Managed browser() supports Linux and macOS. Use runtime: external for a prepared browser runtime.")
   if (platform === "linux" && process.arch !== "x64") throw new Error("[vitehub] Managed browser() currently requires Linux x64. Use runtime: external for other architectures.")
+  await assertTrustedBrowserCache(root)
   const stagingPrefix = `${basename(root)}.install-`
   for (const entry of await readdir(dirname(root))) {
     if (!entry.startsWith(stagingPrefix)) continue
@@ -216,7 +220,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
 
   const staging = `${root}.install-${process.pid}-${crypto.randomUUID()}`
   await rm(staging, { force: true, recursive: true })
-  await mkdir(staging, { recursive: true })
+  await mkdir(staging, { recursive: true, mode: 0o700 })
   const stagingPackage = join(staging, "package")
   const stagingBin = join(stagingPackage, "node_modules", ".bin")
   const stagingCommand = join(stagingBin, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
@@ -227,12 +231,12 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     AGENT_BROWSER_SOCKET_DIR: socketRoot,
   }
   try {
-    await mkdir(stagingPackage, { recursive: true })
+    await mkdir(stagingPackage, { recursive: true, mode: 0o700 })
     const linuxBundle = platform === "linux"
     await run(npmCommand, ["install", "--prefix", stagingPackage, "--no-audit", "--no-fund", "--ignore-scripts", `agent-browser@${agentBrowserVersion}`, linuxBundle ? `@sparticuz/chromium@${chromiumBundleVersion}` : `@puppeteer/browsers@${puppeteerBrowsersVersion}`], { env: installEnv })
     let stagingChrome: string | undefined
     if (linuxBundle) {
-      await mkdir(stagingBrowserCache, { recursive: true })
+      await mkdir(stagingBrowserCache, { recursive: true, mode: 0o700 })
       await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache } })
       stagingChrome = join(stagingBrowserCache, "chromium")
     }
@@ -247,10 +251,10 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     }, false, linuxBundle)
     const officialSkill = await readFile(join(stagingPackage, "node_modules", "agent-browser", "skills", "agent-browser", "SKILL.md"), "utf8")
     const skillContent = `${officialSkill.replace(/^hidden:\s*true\s*$/m, "").replace(/^Install:.*$/m, "").trim()}\n\n## ViteHub screenshots\n\nSave screenshots under \`screenshots/\`. To attach one to the final reply, add \`![Description](screenshots/name.png)\` on its own line.\n`
-    await writeFile(join(staging, "core.SKILL.md"), skillContent)
+    await writeFile(join(staging, "core.SKILL.md"), skillContent, { mode: 0o600 })
     const chrome = stagingChrome.slice(staging.length + 1)
-    await writeFile(join(staging, "ready.json"), JSON.stringify({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion }))
-    await mkdir(dirname(root), { recursive: true })
+    await writeFile(join(staging, "ready.json"), JSON.stringify({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion }), { mode: 0o600 })
+    await mkdir(dirname(root), { recursive: true, mode: 0o700 })
     assertLock()
     if (invalidCache) await rm(root, { force: true, recursive: true })
     try {
