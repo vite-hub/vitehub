@@ -247,7 +247,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       if (character === state.quote) delete state.quote
     }
     else if (character === '"' || character === "'") state.quote = character
-    else if (/[\s,;&{}<>]/.test(character)) return index
+    else if ((state.yamlIndent === undefined ? /[\s,;&{}<>]/ : /[\r\n,;&{}<>]/).test(character)) return index
   }
   return value.length
 }
