@@ -280,6 +280,18 @@ describe("local workspace store", () => {
     await expect(createLocalWorkspaceStore(root).readFile("file.txt")).resolves.toMatchObject({ metadata: { source: "docs" } })
   })
 
+  it.each([".VITEHUB", ".ViteHub"])("hides the private metadata tree named %s", async (directory) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await mkdir(join(root, directory, "file-metadata", "file.txt"), { recursive: true })
+    await writeFile(join(root, directory, "file-metadata", "file.txt", "metadata.json"), "{}")
+    await store.writeFile("file.txt", { path: "file.txt", content: "hello" })
+
+    expect((await store.list("", { recursive: true })).map(entry => entry.path)).toEqual(["file.txt"])
+    expect((await store.glob("**/*")).map(entry => entry.path)).toEqual(["file.txt"])
+    expect(Object.keys((await store.snapshot()).entries)).toEqual(["file.txt"])
+  })
+
   it("ignores a directory in place of a metadata sidecar", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!

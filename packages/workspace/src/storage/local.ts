@@ -341,7 +341,7 @@ async function walk(
     const absolute = `${current}/${dirent.name}`
     if (privatePaths.some(path => !relative(path, absolute))) continue
     const path = normalizeWorkspacePath(relative(root, absolute))
-    if (path === ".vitehub" || path.startsWith(".vitehub/")) continue
+    if (path.split("/")[0]?.toLowerCase() === ".vitehub") continue
     if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
