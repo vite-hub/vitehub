@@ -2654,18 +2654,24 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
     const number = maybeNumber(payload.issue.number)
     if (repository && number) {
       const appOptions = app ? githubAppOptions(app) || {} : {}
-      const token = await githubPullRequestMetadataToken(app, context, maybeNumber(payload.installation?.id), repository).catch(() => undefined)
-      const pullRequest = await githubApiJson(
-        appOptions.fetch || fetch,
-        `${appOptions.apiBaseUrl || "https://api.github.com"}/repos/${repository}/pulls/${number}`,
-        githubApiHeaders(token, appOptions.userAgent),
-      )
-      if (isRecord(pullRequest)) {
-        const hydrated = githubPullRequestFilterContext({ ...payload, pull_request: pullRequest })
-        value.base = hydrated.base
-        value.head = hydrated.head
-        value.draft = hydrated.draft
-        value.fork = hydrated.fork
+      try {
+        const token = await githubPullRequestMetadataToken(app, context, maybeNumber(payload.installation?.id), repository)
+        const pullRequest = await githubApiJson(
+          appOptions.fetch || fetch,
+          `${appOptions.apiBaseUrl || "https://api.github.com"}/repos/${repository}/pulls/${number}`,
+          githubApiHeaders(token, appOptions.userAgent),
+        )
+        if (isRecord(pullRequest)) {
+          const hydrated = githubPullRequestFilterContext({ ...payload, pull_request: pullRequest })
+          value.base = hydrated.base
+          value.head = hydrated.head
+          value.draft = hydrated.draft
+          value.fork = hydrated.fork
+        }
+      }
+      catch {
+        // Missing metadata fails configured PR-only rules below. Callbacks still
+        // receive webhook-native fields, with unavailable PR-only fields undefined.
       }
     }
   }

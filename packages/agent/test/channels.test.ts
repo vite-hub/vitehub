@@ -1481,7 +1481,7 @@ describe("agent channels", () => {
     const fetcher = vi.fn(async () => Response.json(pr))
     const when = vi.fn(async () => false)
     const channel = github({
-      app: { fetch: fetcher },
+      app: { fetch: fetcher, token: "metadata-token" },
       pullRequest: {
         filter: { base: { allow: ["main"] }, head: { allow: ["feature"] }, draft: { allow: ["false"] }, fork: { allow: ["true"] } },
         when,
@@ -1495,6 +1495,40 @@ describe("agent channels", () => {
     expect(when).toHaveBeenCalledWith(expect.objectContaining({ base: "main", head: "feature", draft: false, fork: true }))
     expect(fetcher).toHaveBeenCalledTimes(event === "issue_comment" ? 1 : 0)
     expect(await (result as Response).json()).toEqual({ reason: "filtered" })
+  })
+
+  it.each(["token", "http", "network"])("handles unavailable filter metadata after %s failure", async (failure) => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async () => {
+      if (failure === "network") throw new Error("Network unavailable")
+      return Response.json({ message: "Forbidden" }, { status: 403 })
+    })
+    const token = () => {
+      if (failure === "token") throw new Error("Token unavailable")
+      return "metadata-token"
+    }
+    for (const field of ["base", "head", "draft", "fork", undefined] as const) {
+      const when = vi.fn(async () => false)
+      const channel = github({
+        app: { fetch: fetcher, token },
+        pullRequest: {
+          filter: field ? { [field]: { deny: ["blocked"] } } : undefined,
+          when,
+          ignored: reason => Response.json({ reason }),
+        },
+      })
+      const trigger = channel.triggers?.webhook
+      if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+      // SAFETY: This fixture supplies the callback context used by filtering.
+      const result = await trigger.invoke({ capabilities: [], channel } as never, { payload: githubIssueCommentPayload() })
+      expect(result).toBeInstanceOf(Response)
+      expect(await (result as Response).json()).toEqual({ reason: "filtered" })
+      if (field) expect(when).not.toHaveBeenCalled()
+      else expect(when).toHaveBeenCalledWith(expect.objectContaining({
+        repository: "acme/app", base: undefined, head: undefined, draft: undefined, fork: undefined,
+      }))
+    }
+    expect(fetcher).toHaveBeenCalledTimes(failure === "token" ? 0 : 5)
   })
 
   it("marks disabled pull request workspaces in invocation context", async () => {
