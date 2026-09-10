@@ -469,6 +469,7 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0920: dynamicError,
     AGENT_R0921: dynamicError,
     AGENT_R0922: dynamicError,
+    AGENT_R0924: dynamicError,
     AGENT_R0923: {
       why: ({ names }: { names: string[] }) => `[vitehub] A tool transform removed MCP tools and introduced ${names.map(name => JSON.stringify(name)).join(", ")} without MCP provenance.`,
       fix: "Preserve metadata.mcpServer and metadata.originalName when renaming MCP tools. Use context.tools.add() to contribute unrelated tools and a transform to remove MCP tools.",
