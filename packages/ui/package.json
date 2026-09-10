@@ -60,7 +60,9 @@
     "@types/node": "catalog:tooling",
     "nostics": "catalog:runtime",
     "@vueuse/core": "catalog:ui",
-    "katex": "^0.17.0"
+    "katex": "^0.17.0",
+    "@json-render/vue": "0.20.0",
+    "@json-render/core": "0.20.0"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",
@@ -80,7 +82,8 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
-    "@types/markdown-it": "^14.1.2"
+    "@types/markdown-it": "^14.1.2",
+    "@vite-hub/agent": "workspace:*"
   },
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",

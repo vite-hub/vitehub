@@ -1033,10 +1033,60 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   const capabilityId = options.id || "title"
   const invocationStarts = new WeakMap<object, () => MaybePromise<void>>()
   const pendingTitles = new WeakMap<object, Promise<void>>()
+  const inspectionState = (status: string, value?: string) => ({
+    status,
+    title: value ?? null,
+    generation: options.execute ? "Custom execute" : options.driver ? "Driver" : "Model",
+    model: hasRuntimeType(options.model, "string") ? options.model : "Inherited or resolved at runtime",
+    maxLength: options.maxLength ?? 39,
+    timeoutMs: options.timeoutMs ?? 20_000,
+    trigger: options.trigger ?? "Any trigger",
+    channelDelivery: options.channelDelivery ?? "once-per-thread",
+  })
+  const inspectionStates = new WeakMap<object, ReturnType<typeof inspectionState>>()
+  const inspectionWrites = new WeakMap<object, Promise<void>[]>()
+  const publishInspection = (context: AgentCapabilityRuntimeContext<TRuntimeConfig>, status: string, value?: string) => {
+    const state = inspectionState(status, value)
+    inspectionStates.set(context.context, state)
+    const write = context.inspection.set(state)
+    let writes = inspectionWrites.get(context.context)
+    if (!writes) inspectionWrites.set(context.context, writes = [])
+    writes.push(write)
+    // Capture must not delay title generation or delivery. Cleanup joins these writes.
+    void write.catch(() => {})
+  }
   return Object.assign(defineCapability({
     id: capabilityId,
+    inspection: {
+      label: "Title",
+      view: {
+        root: "title",
+        elements: {
+          title: { type: "Stack", props: {}, children: ["status", "result", "generation", "model", "maxLength", "timeout", "trigger", "delivery"] },
+          status: { type: "KeyValue", props: { label: "Generation", value: { $state: "/status" } } },
+          result: { type: "KeyValue", props: { label: "Title", value: { $state: "/title" } } },
+          generation: { type: "KeyValue", props: { label: "Method", value: { $state: "/generation" } } },
+          model: { type: "KeyValue", props: { label: "Model", value: { $state: "/model" } } },
+          maxLength: { type: "KeyValue", props: { label: "Maximum characters", value: { $state: "/maxLength" } } },
+          timeout: { type: "KeyValue", props: { label: "Timeout (ms)", value: { $state: "/timeoutMs" } } },
+          trigger: { type: "KeyValue", props: { label: "Trigger", value: { $state: "/trigger" } } },
+          delivery: { type: "KeyValue", props: { label: "Channel delivery", value: { $state: "/channelDelivery" } } },
+        },
+      },
+    },
+    configure(context) {
+      publishInspection(context, "Waiting")
+    },
     async close(context) {
       await pendingTitles.get(context.context)
+      if (inspectionStates.get(context.context)?.status === "Waiting") publishInspection(context, "No title generated")
+      try {
+        await Promise.all(inspectionWrites.get(context.context) ?? [])
+      }
+      finally {
+        inspectionWrites.delete(context.context)
+        inspectionStates.delete(context.context)
+      }
     },
     output(context) {
       let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
@@ -1105,12 +1155,17 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         title = (async () => {
           const pendingAttempt = getChannelDeliveryAttempt()
           const attempt = pendingAttempt instanceof Promise ? await pendingAttempt : pendingAttempt
-          if (!attempt.deliver) return skippedTitleDelivery
+          if (!attempt.deliver) {
+            publishInspection(context, "Skipped: already delivered")
+            return skippedTitleDelivery
+          }
           titleClaimed = true
           try {
+            publishInspection(context, "Generating")
             // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
             const resolvedTitle = await generateTitle(context, options as TitleOptions, input)
             if (resolvedTitle === skippedTitleGeneration) {
+              publishInspection(context, "Skipped")
               titleSkipped = true
               await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
               return
@@ -1118,9 +1173,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             if (!resolvedTitle) {
               await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
             }
+            publishInspection(context, resolvedTitle ? "Completed" : "No title", resolvedTitle)
             return resolvedTitle
           }
           catch {
+            publishInspection(context, context.input.get().abortSignal?.aborted ? "Cancelled" : "Failed")
             await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
             return undefined
           }
@@ -1130,7 +1187,10 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 
       const startTitle = async () => {
         if (!firstUserMessage(context.input.messages(), context.input.get())) return
-        if (!shouldRunForTrigger(options.trigger, agentTriggerId(context))) return
+        if (!shouldRunForTrigger(options.trigger, agentTriggerId(context))) {
+          publishInspection(context, "Skipped: trigger")
+          return
+        }
         if (!preparedTitleInput()) {
           context.context.set(responseTitleFallbackContextKey, true)
           return

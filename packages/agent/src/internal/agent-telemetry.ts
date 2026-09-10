@@ -3,6 +3,7 @@ import type { WorkspaceDefinition } from "@vite-hub/workspace"
 import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {
   AgentInspectionValue,
+  AgentCapabilityInspection,
   AgentInvocationContextStore,
   AgentTelemetryConfiguration,
 } from "../types.ts"
@@ -16,6 +17,40 @@ function compareCodeUnits(left: string, right: string): number {
 }
 
 const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTelemetryConfigurationState>()
+const configurationUpdates = new WeakMap<AgentInvocationContextStore, Promise<void>>()
+const inspectionsByContext = new WeakMap<AgentInvocationContextStore, Map<string, AgentCapabilityInspection>>()
+
+export async function setAgentCapabilityInspection(
+  context: AgentInvocationContextStore,
+  id: string,
+  inspection: AgentCapabilityInspection,
+): Promise<void> {
+  const budget = { maxDepth: 64, truncated: false }
+  const state = inspection.state ? safeAgentTelemetryMetadata(inspection.state, budget) ?? {} : undefined
+  const snapshot = {
+    ...inspection,
+    ...(state ? { state } : {}),
+    ...(budget.truncated ? { truncated: true } : {}),
+  }
+  await queueConfigurationUpdate(context, async () => {
+    let inspections = inspectionsByContext.get(context)
+    if (!inspections) inspectionsByContext.set(context, inspections = new Map())
+    inspections.set(id, snapshot)
+    await applyConfigurationUpdate(context, {})
+  })
+}
+
+function withCapabilityInspections(context: AgentInvocationContextStore, configuration: AgentTelemetryConfiguration): AgentTelemetryConfiguration {
+  const inspections = inspectionsByContext.get(context)
+  if (!inspections?.size) return configuration
+  return {
+    ...configuration,
+    capabilities: configuration.capabilities?.map(capability => ({
+      ...capability,
+      ...(inspections.has(capability.id) ? { inspection: inspections.get(capability.id) } : {}),
+    })),
+  }
+}
 
 export function agentTelemetryWorkspaceSources(
   sources: NonNullable<WorkspaceDefinition["sources"]>,
@@ -56,30 +91,38 @@ function safeMetadataValue(
   key = "",
   depth = 0,
   seen = new WeakSet<object>(),
+  budget?: { maxDepth: number, truncated: boolean },
 ): AgentInspectionValue | undefined {
   if (secretMetadataKey(key)) return "[redacted]"
   if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "string")) return value
-  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
-  if (!value || !hasRuntimeType(value, "object") || depth >= 8 || seen.has(value)) return
+  if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
+  if (!value || !hasRuntimeType(value, "object") || depth >= (budget?.maxDepth ?? 8) || seen.has(value)) {
+    if (budget) budget.truncated = true
+    return
+  }
 
   seen.add(value)
   try {
     if (Array.isArray(value)) {
       return value.flatMap((item) => {
-        const child = safeMetadataValue(item, "", depth + 1, seen)
+        const child = safeMetadataValue(item, "", depth + 1, seen, budget)
         return child === undefined ? [] : [child]
       })
     }
     const prototype = Object.getPrototypeOf(value)
-    if (prototype !== Object.prototype && prototype !== null) return
+    if (prototype !== Object.prototype && prototype !== null) {
+      if (budget) budget.truncated = true
+      return
+    }
     return Object.fromEntries(Object.entries(value)
       .sort(([left], [right]) => compareCodeUnits(left, right))
       .flatMap(([childKey, item]) => {
-        const child = safeMetadataValue(item, childKey, depth + 1, seen)
+        const child = safeMetadataValue(item, childKey, depth + 1, seen, budget)
         return child === undefined ? [] : [[childKey, child]]
       }))
   }
   catch {
+    if (budget) budget.truncated = true
     return
   }
   finally {
@@ -87,8 +130,8 @@ function safeMetadataValue(
   }
 }
 
-export function safeAgentTelemetryMetadata(value: unknown): Record<string, AgentInspectionValue> | undefined {
-  const safe = safeMetadataValue(value)
+export function safeAgentTelemetryMetadata(value: unknown, budget?: { maxDepth: number, truncated: boolean }): Record<string, AgentInspectionValue> | undefined {
+  const safe = safeMetadataValue(value, "", 0, new WeakSet(), budget)
   return safe && !Array.isArray(safe) && hasRuntimeType(safe, "object") && Object.keys(safe).length
     ? safe
     : undefined
@@ -107,6 +150,8 @@ export async function agentTelemetryConfigurationFingerprint(
   configuration: AgentTelemetryConfiguration,
 ): Promise<string> {
   const { fingerprint: _fingerprint, ...value } = configuration
+  // Inspection state and presentation do not change the Agent's execution contract.
+  if (value.capabilities) value.capabilities = value.capabilities.map(({ inspection: _inspection, ...capability }) => capability)
   const bytes = new TextEncoder().encode(JSON.stringify(canonicalConfigurationValue(value)))
   const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes)
   return `sha256_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
@@ -125,14 +170,29 @@ export async function setAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   value: AgentTelemetryConfiguration,
 ): Promise<void> {
-  configurationByContext.set(context, { value: await withConfigurationFingerprint(value) })
+  await queueConfigurationUpdate(context, async () => {
+    configurationByContext.set(context, { value: await withConfigurationFingerprint(withCapabilityInspections(context, value)) })
+  })
 }
 
-export async function updateAgentTelemetryConfiguration(
+function queueConfigurationUpdate(context: AgentInvocationContextStore, update: () => Promise<void>): Promise<void> {
+  const task = (configurationUpdates.get(context) ?? Promise.resolve()).then(update)
+  configurationUpdates.set(context, task.catch(() => {}))
+  return task
+}
+
+export function updateAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   patch: Partial<Pick<AgentTelemetryConfiguration, "instructions" | "tools">> & {
     driver?: Partial<AgentTelemetryConfiguration["driver"]>
   },
+): Promise<void> {
+  return queueConfigurationUpdate(context, () => applyConfigurationUpdate(context, patch))
+}
+
+async function applyConfigurationUpdate(
+  context: AgentInvocationContextStore,
+  patch: Parameters<typeof updateAgentTelemetryConfiguration>[1],
 ): Promise<void> {
   const current = configurationByContext.get(context)
   if (!current) return
@@ -160,7 +220,7 @@ export async function updateAgentTelemetryConfiguration(
         }
       : {}),
   }
-  configurationByContext.set(context, { value: await withConfigurationFingerprint(next) })
+  configurationByContext.set(context, { value: await withConfigurationFingerprint(withCapabilityInspections(context, next)) })
   await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
 }
 
