@@ -1,7 +1,7 @@
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
-import { normalizeSourceFileMetadata } from "./file-metadata.ts"
+import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath } from "./source-items.ts"
 import {
@@ -142,9 +142,17 @@ async function planSourceSync(
     }
     const content = await contentFromItem(item)
     const digest = await sha256(content)
+    const metadata = normalizeSourceFileMetadata({
+      ...normalizeSourceFileMetadata(item.metadata || {}),
+      source: source.key,
+      sourcePath,
+    })
     const existing = await store.readFile(path)
     const existingDigest = existing ? await sha256(existing.content) : undefined
-    const status: WorkspaceSourceSyncPathResult["status"] = existing ? existingDigest === digest ? "unchanged" : "updated" : "added"
+    const unchanged = existingDigest === digest
+      && existing?.mediaType === item.mediaType
+      && JSON.stringify(normalizeMetadataValue(existing?.metadata)) === JSON.stringify(normalizeMetadataValue(metadata))
+    const status: WorkspaceSourceSyncPathResult["status"] = existing ? unchanged ? "unchanged" : "updated" : "added"
     countPath(counts, status)
     paths.push({ path, sourcePath, status })
     nextPaths[path] = {
@@ -156,11 +164,7 @@ async function planSourceSync(
       path,
       content,
       mediaType: item.mediaType,
-      metadata: normalizeSourceFileMetadata({
-        ...normalizeSourceFileMetadata(item.metadata || {}),
-        source: source.key,
-        sourcePath,
-      }),
+      metadata,
     })
   }
 

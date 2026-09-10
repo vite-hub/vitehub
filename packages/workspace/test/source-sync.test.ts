@@ -320,6 +320,38 @@ describe("Workspace Source Sync", () => {
     await expect(workspace.exists("docs/stale")).resolves.toBe(false)
   })
 
+  it.each(["memory", "local"] as const)("reports metadata-only Source updates: %s", async (provider) => {
+    const store = provider === "local" ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    let metadata: Record<string, unknown> = { title: "Original", nested: { first: 1, second: 2 } }
+    let mediaType = "text/plain"
+    registerWorkspace("metadata-sync", defineWorkspace({
+      store,
+      sources: {
+        docs: {
+          sync: true,
+          async getKeys() { return ["README.md"] },
+          async getItem(key: string) { return { key, content: "same bytes", metadata, mediaType } },
+        },
+      },
+    }))
+    const workspace = await useRegisteredWorkspace("metadata-sync")
+    const sync = () => workspace.sync({ details: "paths", sources: ["docs"] })
+    await sync()
+    metadata = { title: "Updated", nested: { first: 1, second: 2 } }
+    const updated = await sync()
+    expect(updated.sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    expect(updated.sources[0]?.paths).toContainEqual({ path: "docs/README.md", sourcePath: "README.md", status: "updated" })
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({ metadata: { title: "Updated" } })
+
+    metadata = { nested: { second: 2, first: 1 }, title: "Updated", absent: undefined }
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 0, unchanged: 1 })
+    mediaType = "text/markdown"
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    metadata = {}
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 0, unchanged: 1 })
+  })
+
   it("does not rewrite sync state for unchanged no-op source syncs", async () => {
     const base = createMemoryWorkspaceStore()
     let setMetaCalls = 0
