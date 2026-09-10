@@ -268,3 +268,69 @@ it.each([3600, 0])("converges scoped legacy materialization ownership with cache
       .map(path => rm(path, { recursive: true, force: true })))
   }
 })
+
+it.each(["enumeration", "item"])("retains legacy ownership after failed %s and restart", async (failure) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-migration-retry-"))
+  let unavailable = false
+  let keys = ["kept.txt", "removed.txt"]
+  const getItem = vi.fn(async (key: string) => {
+    if (unavailable && failure === "item") throw new Error("Source unavailable")
+    return { key, content: "original" }
+  })
+  const definition = {
+    name: "migration-retry",
+    sources: {
+      docs: {
+        mount: { path: "" },
+        materialize: "startup" as const,
+        async getKeys() {
+          if (unavailable && failure === "enumeration") throw new Error("Source unavailable")
+          return keys
+        },
+        async getMeta() { return { etag: "unchanged" } },
+        getItem,
+      },
+    },
+  }
+  try {
+    const store = createLocalWorkspaceStore(root)
+    await materializeWorkspaceSources(definition, store)
+    const source = normalizeWorkspaceSources(definition.sources)[0]!
+    const configHash = await sha256({
+      cache: source.cache, key: source.key, materialize: source.materialize,
+      mountPath: source.mountPath, source: source.source.fingerprint,
+    })
+    const snapshotKey = sourceSnapshotMetaKey(source.key)
+    const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
+    await store.setMeta!(snapshotKey, { ...snapshot, configHash })
+    await rm(join(root, ".vitehub/file-metadata"), { recursive: true })
+    unavailable = true
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const restarted = createLocalWorkspaceStore(root)
+      const result = await materializeWorkspaceSources(definition, restarted)
+      expect(result.sources[0]?.status).toBe("error")
+      await expect(readCurrentSourceSnapshot(restarted, source)).resolves.toMatchObject({
+        items: {
+          "kept.txt": { migrationPending: true },
+          "removed.txt": { migrationPending: true },
+        },
+      })
+      const view = createWorkspaceSourceView(definition, restarted)
+      await expect(view.writeFile("kept.txt", "overwrite")).rejects.toThrow("read-only")
+      await expect(view.rm("removed.txt")).rejects.toThrow("read-only")
+    }
+    unavailable = false
+    keys = ["kept.txt"]
+    const restarted = createLocalWorkspaceStore(root)
+    const result = await materializeWorkspaceSources(definition, restarted)
+    expect(result.sources[0]?.status).toBe("ready")
+    await expect(restarted.readFile("kept.txt")).resolves.toMatchObject({ metadata: { source: "docs" } })
+    await expect(restarted.readFile("removed.txt")).resolves.toBeUndefined()
+    const ready = await readCurrentSourceSnapshot(restarted, source)
+    expect(ready?.items?.["kept.txt"]).not.toHaveProperty("migrationPending")
+    expect(ready?.items).not.toHaveProperty("removed.txt")
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

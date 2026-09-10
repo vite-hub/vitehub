@@ -39,6 +39,7 @@ export interface LazyMaterializedMetadata {
   sha?: string
   digest?: string
   ref?: string
+  migrationPending?: true
   materializedAttributes?: true
   materializedBytes?: number
   materializedMediaType?: string
@@ -130,7 +131,8 @@ function materializedItemMeta(
 ) {
   if (!snapshot || snapshot.configHash !== configHash) return undefined
   if (snapshot.status !== "ready" && snapshot.status !== "updating" && snapshot.status !== "error") return undefined
-  return snapshot.items?.[path]
+  const item = snapshot.items?.[path]
+  return item?.migrationPending ? undefined : item
 }
 
 function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
@@ -465,7 +467,8 @@ export async function materializeWorkspaceSources(
     let revision = existing?.revision
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
       ? { ...existing.items }
-      : {}
+      : Object.fromEntries(Object.entries(existing?.items || {}).map(([path, metadata]) =>
+        [path, { ...metadata, migrationPending: true as const }]))
     if (completeSource) {
       assertCurrent()
       await control.mutate(() => writeSourceSnapshotMetadata(store, {
@@ -612,8 +615,7 @@ export async function materializeWorkspaceSources(
         }))
       }
       else if (existing) {
-        // Publish only visited entries. Legacy entries outside this scope
-        // still need to be materialized before they can be reused.
+        // Retain ownership outside this scope without reusing unmigrated files.
         const migratedItems = checkpointItems(itemMetadata)
         await control.mutate(() => writeSourceSnapshotMetadata(store, {
           ...ready,
