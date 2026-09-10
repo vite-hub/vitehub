@@ -245,6 +245,21 @@ it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY"]
   }
 })
 
+it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY", "api_token"])("preserves streamed %s header suffixes and indented YAML scalars", (key) => {
+  const prefix = `${key}: `
+  const secret = "sensitive-value"
+  const suffix = ";status=ok"
+  for (let split = 0; split <= secret.length; split++) {
+    const state = pendingCredentialAssignmentState(prefix + secret.slice(0, split))!
+    const rest = secret.slice(split) + suffix
+    expect(rest.slice(consumeCredentialAssignment(rest, state)), `split ${split}`).toBe(suffix)
+  }
+  expect(redactCredentialText(`config:\n  ${prefix}correct horse; battery\nstatus: ok`))
+    .toBe(`config:\n  ${prefix}[REDACTED]\nstatus: ok`)
+  expect(redactCredentialText(`${prefix}correct horse; battery\nstatus: ok`))
+    .toBe(`${prefix}[REDACTED]\nstatus: ok`)
+})
+
 it.each(["api-key", "x-access-token", "password", "API_TOKEN"])("redacts CLI credential flag --%s", (key) => {
   expect(redactCredentialText(`--${key}=sensitive;status=ok`)).toBe(`--${key}=[REDACTED];status=ok`)
   expect(redactCredentialText(`command --${key}="sensitive words" --verbose`)).toBe(`command --${key}="[REDACTED]" --verbose`)
