@@ -4,7 +4,10 @@ import { title } from "../src/capabilities/title.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
 const { createProviderAgentAdapter } = vi.hoisted(() => ({
-  createProviderAgentAdapter: vi.fn(() => ({ generate: vi.fn(async () => ({ text: "Inherited title" })) })),
+  createProviderAgentAdapter: vi.fn((driver: { model?: string }) => ({ generate: vi.fn(async () => ({
+    text: "Inherited title",
+    usageRecord: { model: driver.model, usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } },
+  })) })),
 }))
 vi.mock("../src/provider-agent.ts", () => ({ createProviderAgentAdapter }))
 
@@ -21,7 +24,15 @@ it("uses the enclosing provider configuration when generating a title", async ()
   expect(createProviderAgentAdapter).toHaveBeenCalledWith(expect.objectContaining({
     kind: "provider", provider: "codex", model: "title-model", env,
   }))
-  expect((await invocations.getByRunId("inherit-provider"))?.observations).toContainEqual(expect.objectContaining({
+  const invocation = (await invocations.getByRunId("inherit-provider"))!
+  expect(invocation.observations.find(entry => entry.name === "agent.invocation.finish")?.attributes?.["usage.record"]).toMatchObject({
+    calls: [
+      { model: "main-model", usage: { totalTokens: 5 } },
+      { model: "title-model", usage: { totalTokens: 5 } },
+    ],
+    usage: { inputTokens: 6, outputTokens: 4, totalTokens: 10 },
+  })
+  expect(invocation.observations).toContainEqual(expect.objectContaining({
     name: "agent.title.recorded",
     attributes: expect.objectContaining({ "vitehub.session.title": "Inherited title" }),
   }))

@@ -8,9 +8,10 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 const configurationSchema = v.object({ workspace: v.object({ name: v.string() }) })
+const sourceSchema = v.pipe(v.string(), v.nonEmpty(), v.regex(/^[^\p{Cc}]+$/u))
 const hostWorkspaceSchema = v.union([
   v.object({ paths: v.array(v.string()), repository: v.string(), revision: v.string() }),
-  v.object({ content: v.string(), path: v.string(), revision: v.string(), size: v.number() }),
+  v.object({ content: v.string(), path: v.string(), provenance: v.optional(v.object({ source: v.string() })), revision: v.string(), size: v.number() }),
 ])
 const maxFileBytes = 512 * 1024
 
@@ -23,7 +24,7 @@ function visiblePath(path: string): boolean {
     && !path.split("/").some(part => !part || part === ".." || part === "." || /^(?:\.git|\.ssh|\.env(?:\..*)?|auth\.json|credentials(?:\..*)?)$/i.test(part))
 }
 
-export default async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Promise<{ paths: string[], repository: string, revision: string } | { content: string, path: string, revision: string, size: number }> {
+export default async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Promise<{ paths: string[], repository: string, revision: string } | { content: string, path: string, provenance?: { source: string }, revision: string, size: number }> {
   assertConsoleRequest(event)
   const id = event.context?.params?.id ?? ""
   const path = consoleRequestURL(event).searchParams.get("path")
@@ -41,21 +42,25 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
     .find(result => result.success)
   if (!configuration?.success) throw failure(404, "This run did not record its Workspace. Open a newer run to inspect its mounted files.")
   const name = configuration.output.workspace.name
-  const workspace = useWorkspace(name)
+  const workspace = useWorkspace(name, { mode: "read" })
   // These are the mounted files now, not a retained snapshot of the invocation.
   const revision = "current"
   if (path !== null) {
     if (!visiblePath(path)) throw failure(400, "Choose a visible file inside this Workspace.")
-    const visible = (await workspace.fs.glob("**/*")).some(entry => entry.type === "file" && entry.path === path)
-    if (!visible) throw failure(404, "This file is not in the mounted Workspace.")
+    if (!await workspace.fs.exists(path)) throw failure(404, "This file is not in the mounted Workspace.")
     const stat = await workspace.fs.stat(path)
+    if (!stat) throw failure(404, "This file is not in the mounted Workspace.")
     if (stat.type !== "file") throw failure(400, "Choose a file to preview.")
     if (stat.size !== undefined && stat.size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
     const content = await workspace.fs.readFile(path, { encoding: "utf8" })
     const size = new TextEncoder().encode(content).byteLength
     if (size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
     if (content.includes("\0")) throw failure(415, "Binary files cannot be previewed as text.")
-    return { content, path, revision, size }
+    const parsedSource = v.safeParse(sourceSchema, stat.metadata?.source)
+    const source = parsedSource.success ? parsedSource.output : undefined
+    const result: { content: string, path: string, provenance?: { source: string }, revision: string, size: number } = { content, path, revision, size }
+    if (source) result.provenance = { source }
+    return result
   }
   const entries = await workspace.fs.glob("**/*")
   const paths = entries.filter(entry => entry.type === "file" && visiblePath(entry.path)).map(entry => entry.path).sort()

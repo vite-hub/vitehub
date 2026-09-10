@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+
 const inspectProvider = vi.hoisted(() => vi.fn())
 vi.mock("@t3tools/provider-runtime", () => ({ inspectProvider, createProviderRuntime: vi.fn(), createSqliteProviderRuntimeSessionStore: vi.fn() }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable: () => "/fake/codex" }))
@@ -139,7 +141,7 @@ describe("provider inspection", () => {
 })
 
 describe("invocation preflight", () => {
-  it("rejects known unavailable capacity while preparation is still pending, then closes late resources", async () => {
+  it("checks unavailable capacity after preparation and closes its resources", async () => {
     const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     let release!: () => void
     let prepared!: () => void
@@ -149,25 +151,27 @@ describe("invocation preflight", () => {
     const background: Promise<unknown>[] = []
     const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({
       id: "slow-preparation", async prepare() { prepared(); await gate }, close,
-      input() { return new Response("handled") },
     })] })
-    vi.spyOn(agent, "status").mockImplementation(async () => {
+    const status = vi.spyOn(agent, "status").mockImplementation(async () => {
       await started
       return { agent: "test", checkedAt: new Date().toISOString(), readiness: "unavailable", stale: false, reason: "Workspace spend cap reached" }
     })
     const run = runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => { background.push(task) } }, { prompt: "hello" })
-    try { await expect(run).rejects.toMatchObject({ code: "AGENT_R0726", fix: expect.stringContaining("spending limit") }) }
-    finally { release() }
+    await started
+    expect(status).not.toHaveBeenCalled()
+    release()
+    await expect(run).rejects.toMatchObject({ code: "AGENT_R0726", fix: expect.stringContaining("spending limit") })
+    expect(status).toHaveBeenCalledTimes(1)
     await Promise.allSettled(background)
     expect(close).toHaveBeenCalledTimes(1)
   })
 
-  it("allows unknown readiness and never starts a model probe", async () => {
+  it("lets handled input respond without checking an unavailable provider", async () => {
     const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({ id: "handled", input: () => new Response("handled") })] })
-    const status = vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "unknown", checkedAt: new Date().toISOString(), stale: false })
+    const status = vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "unavailable", checkedAt: new Date().toISOString(), stale: false })
     const result = await runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello" })
     expect(await (result as Response).text()).toBe("handled")
-    expect(status).toHaveBeenCalledTimes(1)
+    expect(status).not.toHaveBeenCalled()
   })
 })

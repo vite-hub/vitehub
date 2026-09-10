@@ -19,7 +19,6 @@ icon: i-ph-list-bullets-light
   :selected-id="route.params.invocation"
   :has-more="page.hasMore"
   :loading="page.pending"
-  :remaining-statuses="page.remainingStatuses"
   :continuation-key="page.cursor"
   :retry-key="page.retryRevision"
   @select="openInvocation($event.id)"
@@ -29,11 +28,11 @@ icon: i-ph-list-bullets-light
 
 ## Item data
 
-Each `AgentInvocationListItem` requires `id`, `status`, and `title`. Add project, repository or pull-request context, provider, Agent name, timestamps, and a terminal error description when available.
+Each `AgentInvocationListItem` requires `id`, `status`, and `title`. Add repository or pull-request `context`, a `channel`, and timestamps when available. A terminal `description` becomes the row button's accessible description and the status tooltip. The optional `project`, `agent`, and `provider` fields are available to slots; the default row does not render them.
 
-Status always appears as an icon and a label. The component does not rely on color alone.
+Queued, working, failed, and cancelled statuses appear as an icon and a label. Completed sessions retain a visually hidden `Done` label. The component does not rely on color alone.
 
-The list groups sessions by lifecycle and sorts each group by its most recent activity. Working sessions remain visible. Queued and Done use native disclosures, with Queued open and Done closed by default. Selecting a queued or terminal session opens its group.
+The list renders every loaded session in the order supplied by `items`, without sorting, lifecycle groups, or disclosures. Sort the data in the host application before passing it to the component.
 
 ## Props
 
@@ -43,16 +42,16 @@ The list groups sessions by lifecycle and sorts each group by its most recent ac
 | `selectedId` | `string`                             |                  | Marks the session selected by the host.           |
 | `hasMore`    | `boolean`                            | `false`          | Enables the near-end pagination signal.           |
 | `loading`    | `boolean`                            | `false`          | Shows the loading state and pauses pagination.    |
-| `remainingStatuses` | `readonly AgentInvocationStatus[]` | `[]`         | Statuses that may appear on later cursor pages.    |
-| `continuationKey` | `string \| number`              |                  | Rechecks visible lifecycle pagination after cursor progress. |
+| `remainingStatuses` | `readonly AgentInvocationStatus[]` | `[]`         | Deprecated; ignored by the flat list.    |
+| `continuationKey` | `string \| number`              |                  | Rechecks near-end pagination after cursor progress. |
 | `retryKey`   | `string \| number`                   |                  | Retries the current page after its value changes. |
 | `now`        | `number`                             |                  | Timestamp used for deterministic relative times.  |
 | `ariaLabel`  | `string`                             | `Agent sessions` | Accessible label for the navigation region.       |
 
 ## Pagination
 
-The component emits `endReached` when the viewport nears the end of the visible sessions. Append the next cursor page to `items` and pass the statuses that remain behind that cursor through `remainingStatuses`. The component can then continue through closed Done pages when an older Working or Queued session is still reachable, without automatically loading the entire closed Done history.
+The component emits `endReached` when the viewport nears the end of the loaded sessions and `hasMore` is true. Append the next cursor page to `items`. Pagination pauses while `loading` is true and does not depend on session status.
 
-Set `continuationKey` from the current cursor so a new cursor can continue pagination when a page only refreshes already-loaded sessions. Cursor continuation still respects closed lifecycle groups. If loading fails without changing the cursor, increment `retryKey` so the same page can be requested again.
+Set `continuationKey` from the current cursor so a new cursor can continue pagination when a page only refreshes already-loaded sessions. If loading fails without changing the cursor, increment `retryKey` so the same page can be requested again.
 
-Use `header`, `footer`, `empty`, and `loading` for list states. Use `projectIcon` and `harness` to replace repository and provider presentation without replacing the row behavior. Paginate large histories instead of virtualizing this navigation list.
+Use `header`, `footer`, `empty`, and `loading` for list states. Use `projectIcon` and `harness` to render project, Agent, or provider metadata from the slot's `item` without replacing the row behavior. These slots have no default content. Paginate large histories instead of virtualizing this navigation list.

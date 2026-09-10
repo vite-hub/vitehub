@@ -20,6 +20,7 @@ export interface ChatFinishDeliveryRegistrar {
 
 const deferredReplyTraces = new WeakMap<object, (callback: ChatFinishDeliveryCallback) => boolean>()
 const directReplyTraces = new WeakMap<ChatFinishDeliveryRegistrar, (message: AgentChatMessage) => ChatFinishDeliveryCallback>()
+const primaryReplyTraces = new WeakMap<ChatFinishDeliveryRegistrar, ChatFinishDeliveryCallback>()
 
 export function setChatFinishDirectReplyTrace(
   extension: ChatFinishDeliveryRegistrar,
@@ -33,6 +34,19 @@ export function chatFinishDirectReplyTrace(
   message: AgentChatMessage,
 ): ChatFinishDeliveryCallback | undefined {
   return directReplyTraces.get(extension)?.(message)
+}
+
+export function setChatFinishPrimaryReplyTrace(
+  extension: ChatFinishDeliveryRegistrar,
+  callback: ChatFinishDeliveryCallback,
+): void {
+  primaryReplyTraces.set(extension, callback)
+}
+
+export function chatFinishPrimaryReplyTrace(
+  extension: ChatFinishDeliveryRegistrar,
+): ChatFinishDeliveryCallback | undefined {
+  return primaryReplyTraces.get(extension)
 }
 
 export function setMessageChannelDeferredReplyTrace<TRuntimeConfig extends AgentRuntimeConfig>(
