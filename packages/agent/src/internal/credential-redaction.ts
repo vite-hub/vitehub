@@ -11,6 +11,33 @@ function isCredentialKey(key: string): boolean {
     || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
 }
 
+// Carry mapping syntax across journal chunks without carrying field values.
+function credentialMappingContext(value: string): string | undefined {
+  let depth = 0
+  let quote = ""
+  let escaped = false
+  let boundary = false
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index]!
+    if (escaped) { escaped = false; continue }
+    if (character === "\\") { escaped = true; continue }
+    if (quote) {
+      if (character === quote) quote = ""
+      continue
+    }
+    if (character === '"' || character === "'") { quote = character; boundary = false; continue }
+    if (character === "{") {
+      if (!depth && !/(?:^|[\r\n]) *(?:- +)?(?:[^{}:,\r\n]+:[\t ]*)?$/.test(value.slice(0, index))) continue
+      if (++depth > 128) return
+      boundary = true
+    }
+    else if (character === "}") { depth = Math.max(0, depth - 1); boundary = false }
+    else if (!/\s/.test(character)) boundary = character === "," && depth > 0
+  }
+  if (!depth) return
+  return "{".repeat(depth) + (quote ? quote + (escaped ? "\\" : "") : boundary ? "" : "x ")
+}
+
 function isCredentialAssignment(key: string, prefix: string, precedingText: string): boolean {
   if (!isCredentialKey(key)) return false
   const cli = prefix.startsWith("--")
@@ -21,7 +48,7 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   if (/^(?:key|token)$/i.test(key)) return false
   // Quoted fields, mapping separators, and line-start YAML keys establish assignments.
   if (/^(?:password|secret)$/i.test(key)) {
-    return /["']\s*:\s*$/.test(prefix) || /[{,]\s*$/.test(precedingText) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText)
+    return /["']\s*:\s*$/.test(prefix) || credentialMappingContext(precedingText)?.endsWith("{") === true || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText)
   }
   return true
 }
@@ -269,7 +296,7 @@ export function pendingCredentialQuote(value: string, precedingText = ""): strin
 export function credentialTextLineContext(value: string): string {
   const lastLine = value.split(/[\r\n]/).at(-1) ?? ""
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
-  const mappingSeparator = /[{,]\s*$/.exec(lastLine)?.[0]
-  if (mappingSeparator) return mappingSeparator
+  const mappingContext = credentialMappingContext(value)
+  if (mappingContext) return mappingContext
   return authorizationHeader ? "Authorization: " : /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
 }

@@ -410,3 +410,27 @@ describe("credential line context across journal chunks", () => {
     expect(credentialTextLineContext('password: "sensitive-value"')).toBe("x ")
   })
 })
+
+
+describe("ambiguous mapping punctuation", () => {
+  it.each(["Field labels, ", "Field labels { ", "{labels}, ", 'Example "{", '])("preserves prose after %j", (prefix) => {
+    for (const key of ["password", "secret"]) {
+      const suffix = `${key}: identifier`
+      expect(redactCredentialText(prefix + suffix)).toBe(prefix + suffix)
+      expect(redactCredentialText(suffix, credentialTextLineContext(prefix))).toBe(suffix)
+      expect(pendingCredentialQuote(`${key}: "identifier`, credentialTextLineContext(prefix))).toBeUndefined()
+      expect(credentialTextMayContinue(suffix, credentialTextLineContext(prefix))).toBe(false)
+    }
+  })
+
+  it.each(["{ ", "config: { ", "{status: ok, ", "{nested: {status: ok}, "])("retains real mapping boundaries after %j", (prefix) => {
+    for (const key of ["password", "secret"]) {
+      const suffix = `${key}: sensitive}`
+      expect(redactCredentialText(prefix + suffix)).toBe(prefix + `${key}: [REDACTED]}`)
+      for (let split = prefix.indexOf("{") + 1; split <= prefix.length; split++) {
+        const context = credentialTextLineContext(credentialTextLineContext(prefix.slice(0, split)) + prefix.slice(split))
+        expect(redactCredentialText(suffix, context)).toBe(`${key}: [REDACTED]}`)
+      }
+    }
+  })
+})
