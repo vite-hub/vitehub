@@ -1810,7 +1810,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
   const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
-  const responseIdentity = event.itemId ?? event.turnId
+  const responseIdentity = event.itemId
   const signature = responseIdentity === undefined
     ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
     : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
