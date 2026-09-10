@@ -36,11 +36,12 @@ describe("sandbox public api", () => {
     } as never)).toThrow("project must be a boolean")
   })
 
-  it("returns an error-first tuple instead of throwing", async () => {
-    const [error, value] = await runSandbox("missing")
+  it("returns an HTTP response for failures", async () => {
+    const response = await runSandbox("missing")
 
-    expect(error?.message).toContain("missing")
-    expect(value).toBeUndefined()
+    expect(response).toBeInstanceOf(Response)
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toMatchObject({ error: { message: expect.stringContaining("missing") } })
   })
 
   it("emits extensioned provider loader imports for published ESM", async () => {

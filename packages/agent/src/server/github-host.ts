@@ -109,7 +109,7 @@ class GitHubRateLimitError extends Diagnostic {
     super({
       cause,
       code: "AGENT_R0889",
-      docs: "https://vitehub.dev/docs/reference/diagnostics#agent-diagnostics",
+      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors",
       why: `GitHub GraphQL work for ${repository} is queued until ${new Date(limit.resetAt).toISOString()} (${limit.remaining} points remaining).`,
     }, GitHubRateLimitError)
     this.name = "GitHubRateLimitError"

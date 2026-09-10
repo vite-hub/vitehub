@@ -96,3 +96,9 @@ Test a vague first message and confirm the fallback title is used instead of an 
 
 - [chat()](/docs/capabilities/chat)
 - [chatSummary()](/docs/capabilities/chat-summary)
+
+## Inspect title generation
+
+Open an Invocation's **Capabilities** tab and select **Title**. The view shows the recorded generation state, generated title, generation method, configured model, length limit, timeout, trigger, and channel delivery mode. A custom `id` retains the same Title view.
+
+Snapshots update during title generation and remain available after the Invocation ends. Reading them does not generate another title. The view follows configuration retention; use `configuration: 'content'` on the Invocation journal to keep its data independently of prompt and answer content.

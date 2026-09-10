@@ -94,7 +94,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toBeNull()
+    expect(result.ok).toBe(true)
+    expect(await result.json()).toEqual({ ok: true })
     expect(runtimeMocks.resolveProviderBox).toHaveBeenCalledWith(["node"])
     expect(runtimeMocks.open).toHaveBeenCalledWith({
       id: expect.stringMatching(/^vitehub-example-[a-z0-9]+-[0-9a-f-]{36}$/),
@@ -110,7 +111,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toMatchObject({ message: "destroy failed" })
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { message: "destroy failed" } })
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
@@ -125,7 +127,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toBeInstanceOf(Error)
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { message: expect.any(String) } })
     expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
   })
 
@@ -140,9 +143,10 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toMatchObject({
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: {
       message: "[vitehub] Sandbox definition timeout must be a positive integer no greater than 2147483647.",
-    })
+    } })
     expect(runtimeMocks.resolveSandboxBox).not.toHaveBeenCalled()
   })
 
@@ -185,7 +189,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toBeInstanceOf(Error)
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { message: expect.any(String) } })
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
@@ -199,7 +204,9 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toMatchObject({ code: "SANDBOX_TIMEOUT" })
+    expect(result.ok).toBe(false)
+    expect(result.status).toBe(504)
+    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_TIMEOUT" } })
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
@@ -218,7 +225,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toMatchObject({ code: "SANDBOX_HANDLER_ERROR" })
+    expect(result.ok).toBe(false)
+    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_HANDLER_ERROR" } })
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
@@ -238,7 +246,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toBeNull()
+    expect(result.ok).toBe(true)
+    expect(await result.json()).toEqual({ ok: true })
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
@@ -261,7 +270,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toBeNull()
+    expect(result.ok).toBe(true)
+    expect(await result.json()).toEqual({ ok: true })
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
@@ -278,7 +288,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toBeNull()
+    expect(result.ok).toBe(true)
+    expect(await result.json()).toEqual({ ok: true })
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
@@ -292,7 +303,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toBeNull()
+    expect(result.ok).toBe(true)
+    expect(await result.json()).toEqual({ ok: true })
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
@@ -343,7 +355,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxRuntime("example")
 
-    expect(result[0]).toBeNull()
+    expect(result.ok).toBe(true)
+    expect(await result.json()).toEqual({ ok: true })
     expect(runtimeMocks.executeSandboxDefinition).toHaveBeenCalledWith(
       expect.anything(),
       "example",

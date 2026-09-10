@@ -4,7 +4,7 @@ import type { LanguageModel } from "ai"
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCapabilitiesResolverContext, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriver, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunInputContextValues, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, blob, browser, chat, title, db, email, executor, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, modelsDevPricing, openapi, sandbox, schedule, skills, streamTranscription, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ExecutorCapabilityOptions, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
-import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
+import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -825,6 +825,27 @@ describe("agent public types", () => {
         github: github({
           app: true,
           pullRequest: {
+            filter: {
+              repository: { allow: ["acme/repo"] },
+              author: { deny: ["bot"] },
+              actor: { allow: ["maintainer"] },
+              authorAssociation: { allow: ["MEMBER"] },
+              labels: { allow: ["review"], deny: ["blocked"] },
+              draft: { deny: ["true"] },
+              fork: { allow: ["false"] },
+              base: { allow: ["main"] },
+              head: { allow: ["feat/*"] },
+              title: { deny: ["WIP*"] },
+              action: { allow: ["opened"] },
+            } satisfies GitHubPullRequestFilter,
+            async when(context) {
+              expectTypeOf(context).toEqualTypeOf<GitHubPullRequestFilterContext>()
+              expectTypeOf(context.labels).toEqualTypeOf<readonly string[] | undefined>()
+              expectTypeOf(context.draft).toEqualTypeOf<boolean | undefined>()
+              expectTypeOf(context.fork).toEqualTypeOf<boolean | undefined>()
+              expectTypeOf(context.base).toEqualTypeOf<string | undefined>()
+              return context.author === "maintainer"
+            },
             maxBodyLength: 12_000,
             maxCommentBodyLength: 2_000,
             maxComments: 30,

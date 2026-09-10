@@ -79,9 +79,9 @@ This convention needs no `skills()` Capability declaration. Use [`skills()`](/do
 
 ## Markdown templates
 
-Place a `*.template.md` file beside the TypeScript or JavaScript module that renders it, then import the generated render function directly. For example, `server/agents/review/agent.ts` can import `./reply.template.md`.
+Use ordinary `.md` files for Markdown templates and fragments. Pass a file path or file URL to `renderMarkdownFile()`. For example, `server/agents/review/agent.ts` can render `new URL('./reply.md', import.meta.url)`.
 
-When one caller owns several templates, you can group them in a local directory such as `server/agents/review/templates/`. The directory has no discovery behavior; keep the `.template.md` suffix and import each file explicitly. See [Markdown templates](/docs/reference/markdown-templates) for rendering and generated-type examples.
+A local `templates/` directory can group several files. It has no discovery behavior. Ship the files with the server application and preserve their relative fragment paths. See [Markdown templates](/docs/reference/markdown-templates) for rendering, deployment, and migration examples.
 
 ## Email templates
 

@@ -7,6 +7,8 @@ const providerErrorEnvelopeSchema = v.object({
 })
 
 const agentTypeDiagnosticCodes = new Set([
+  "AGENT_R0923",
+  "AGENT_R0922",
   "AGENT_R0921",
   "AGENT_R0920",
   "AGENT_R0919",
@@ -453,7 +455,7 @@ const dynamicError = {
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
 export const agentDiagnostics = defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics#agent-diagnostics",
+  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors",
   codes: {
     AGENT_R0907: dynamicError,
     AGENT_R0908: dynamicError,
@@ -470,6 +472,11 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0919: dynamicError,
     AGENT_R0920: dynamicError,
     AGENT_R0921: dynamicError,
+    AGENT_R0922: dynamicError,
+    AGENT_R0923: {
+      why: ({ names }: { names: string[] }) => `[vitehub] A tool transform removed MCP tools and introduced ${names.map(name => JSON.stringify(name)).join(", ")} without MCP provenance.`,
+      fix: "Preserve metadata.mcpServer and metadata.originalName when renaming MCP tools. Use context.tools.add() to contribute unrelated tools and a transform to remove MCP tools.",
+    },
     AGENT_R0905: dynamicError,
     AGENT_R0906: dynamicError,
     AGENT_R0903: dynamicError,

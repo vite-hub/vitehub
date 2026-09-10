@@ -8,7 +8,7 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
-import { extractMarkdownTemplateImportSpecifiers } from "@vite-hub/markdown-template/internal/vite"
+import { extractMarkdownTemplateImportSpecifiers, resolveMarkdownTemplateImports } from "@vite-hub/markdown-template/internal/composition"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -194,6 +194,7 @@ function configureNitroCloudflareWorkers(config: Record<string, unknown>, email:
 }
 
 const emailTemplatePrefix = "#vitehub/emails/"
+const resolvedEmailTemplatePrefix = "\0vitehub:email-template:"
 
 function emailTemplateName(id: string): string | undefined {
   if (!id.startsWith(emailTemplatePrefix)) return
@@ -282,6 +283,23 @@ async function discoverEmailTemplates(templatesRoots: string[]): Promise<EmailTe
   return [...templates].map(([name, file]) => ({ file, name }))
 }
 
+async function renderEmailTemplateModule(file: string, watch?: (file: string) => void): Promise<string> {
+  watch?.(file)
+  const template = await resolveMarkdownTemplateImports(await readFile(file, "utf8"), {
+    sourceId: file,
+    async resolveImport(specifier, importer) {
+      const id = resolve(dirname(importer), specifier)
+      watch?.(id)
+      return { id, template: await readFile(id, "utf8") }
+    },
+  })
+  return [
+    `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}`,
+    `export default (data = {}) => renderMarkdownTemplate(${JSON.stringify(template)}, { data })`,
+    "",
+  ].join("\n")
+}
+
 async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot: string, rootDir: string): Promise<void> {
   const stagingRoot = `${outputRoot}.staging`
   const backupRoot = `${outputRoot}.backup`
@@ -291,7 +309,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
   for (const { file, name } of templates) {
     const target = resolve(stagingRoot, `${encodeURIComponent(name)}.mjs`)
     const entry = `${target}.entry.mjs`
-    await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
+    await writeFileIfChanged(entry, await renderEmailTemplateModule(file))
     try {
       await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir })
     }
@@ -474,7 +492,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         } while (refreshPending)
         if (refreshed) {
           for (const module of server.moduleGraph.idToModuleMap.values()) {
-            if (module.id && isInside(materializedRoot, module.id.split("?", 1)[0])) server.moduleGraph.invalidateModule(module)
+            if (module.id && (module.id.startsWith(resolvedEmailTemplatePrefix) || isInside(materializedRoot, module.id.split("?", 1)[0]))) server.moduleGraph.invalidateModule(module)
           }
           server.ws.send({ type: "full-reload" })
         }
@@ -503,7 +521,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         for (const templatesRoot of templatesRoots) {
           const file = resolve(templatesRoot, `${name}.md`)
           try {
-            if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+            if ((await stat(file)).isFile()) return `${resolvedEmailTemplatePrefix}${file}`
           }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
@@ -512,6 +530,12 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       })()
     },
     load(id) {
+      if (id.startsWith(resolvedEmailTemplatePrefix)) {
+        return renderEmailTemplateModule(id.slice(resolvedEmailTemplatePrefix.length), (file) => {
+          watchFiles.add(file)
+          this.addWatchFile(file)
+        })
+      }
       if (id === resolvedEmailDefinitionId && definition) {
         return renderEmailDefinitionModule(definition)
       }

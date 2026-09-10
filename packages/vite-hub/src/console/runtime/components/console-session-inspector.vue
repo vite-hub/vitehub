@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
+import { AgentCapabilityInspector, AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
@@ -9,7 +9,7 @@ import { useConsoleWordWrap } from "./console-wrap";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
-type InspectorTab = "details" | "trace" | "workspace";
+type InspectorTab = "details" | "trace" | "workspace" | "capabilities";
 type WorkspaceDescriptor = {
   paths: string[];
   pullRequest?: number;
@@ -49,6 +49,12 @@ const viewMeta: Record<
     label: "Invocation",
     shortcut: "I",
   },
+  capabilities: {
+    description: "Inspect capabilities, servers, and tool contracts.",
+    icon: "i-lucide-blocks",
+    label: "Capabilities",
+    shortcut: "C",
+  },
   trace: {
     description: "Follow spans, timings, and recorded attributes.",
     icon: "i-lucide-list-tree",
@@ -64,6 +70,7 @@ const viewMeta: Record<
 };
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
+  "capabilities",
   "trace",
   ...(props.workspaceBase ? (["workspace"] as const) : []),
 ]);
@@ -280,7 +287,7 @@ function activateSurface(value: string | number) {
   if (id.startsWith("file:")) openFile(id.slice(5));
   else if (id.startsWith("view:")) {
     const view = id.slice(5);
-    if (view === "details" || view === "trace" || view === "workspace") openView(view);
+    if (view === "details" || view === "trace" || view === "workspace" || view === "capabilities") openView(view);
   }
 }
 
@@ -558,9 +565,12 @@ function message(error: unknown) {
       </div>
     </div>
 
+    <AgentCapabilityInspector v-else-if="tab === 'capabilities'" :invocation="invocation" />
+
     <AgentInvocationInspector
       v-else-if="tab === 'details'"
       :invocation="invocation"
+      :show-capabilities="false"
       :show-error="false"
       :show-status="false"
       :show-timeline="false"
