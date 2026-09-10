@@ -445,6 +445,11 @@ Unavailable
       .resolves.toBe("```md\nfirst\n\n\nlast\n```")
   })
 
+  it("keeps directive syntax literal inside raw HTML elements", async () => {
+    const template = "<script>\n::else\n::if{:condition=\"data.missing\"}\n::\n</script>"
+    await expect(renderMarkdownTemplate(template)).resolves.toBe(template)
+  })
+
   it("does not expose internal placeholders or render handlers", async () => {
     const authored = [
       ":markdown-template-raw{value=\"Injected\"}",
@@ -470,6 +475,7 @@ Unavailable
     await expect(renderMarkdownTemplate("{{ data.value }}", { data: { value: {} } })).rejects.toThrow("scalar value")
     await expect(renderMarkdownTemplate(":insert{:markdown=\"data.missing\"}")).rejects.toThrow('binding "data.missing" is not defined')
     await expect(renderMarkdownTemplate(":insert{:markdown=\"data.value\"}", { data: { value: false } })).rejects.toThrow('Insert markdown prop "data.value" must resolve to a string')
+    await expect(renderMarkdownTemplate(':insert{markdown="literal"}')).rejects.toThrow('Use :insert{:markdown="data.summary"}')
     await expect(renderMarkdownTemplate(":insert")).rejects.toThrow('Use :insert{:markdown="data.summary"}')
   })
 

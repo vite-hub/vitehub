@@ -1115,7 +1115,7 @@ describe("Vite workflow provider outputs", () => {
     await writeFile(join(optionalDevtoolsFixture, "index.js"), `export const optionalDevtools = import("@vitejs/devtools-vite")\n`)
     await writeFile(join(agentDir, "repository-host-context.md"), "Repository host context loaded through Vite raw semantics.\n")
     await writeFile(join(agentDir, "workspace", "context.md"), "Deployed workspace context.\n")
-    await writeFile(join(agentDir, "review.template.md"), "Review {{ repository }} through a bundled Markdown template.\n")
+    await writeFile(join(agentDir, "review.template.md"), "Review {{ data.repository }} through a bundled Markdown template.\n")
     await writeFile(join(agentDir, "agent.ts"), [
       `import { defineAgent } from "@vite-hub/agent"`,
       `import repositoryHostContext from "./repository-host-context.md?raw"`,
@@ -1124,7 +1124,7 @@ describe("Vite workflow provider outputs", () => {
       "",
       "export default defineAgent({",
       "  workspace: {},",
-      `  run: async () => [repositoryHostContext, await renderReview({ repository: "ViteHub" }), optionalDevtools].join("\\n"),`,
+      `  run: async () => [repositoryHostContext, await renderReview({ data: { repository: "ViteHub" } }), optionalDevtools].join("\\n"),`,
       "})",
       "",
     ].join("\n"))

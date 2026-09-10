@@ -38,7 +38,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
       Else: unexpectedBranch,
       ElseIf: unexpectedBranch,
       Insert: async (node, state, parent) => {
-        if (!Object.hasOwn(node[1], ":markdown") && !Object.hasOwn(node[1], "markdown")) {
+        if (!Object.hasOwn(node[1], ":markdown")) {
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: '[vitehub] Markdown template Insert requires a markdown prop. Use :insert{:markdown="data.summary"}.' })
         }
         const path = node[1][":markdown"]

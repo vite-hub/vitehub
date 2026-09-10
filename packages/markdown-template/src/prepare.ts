@@ -2,6 +2,8 @@ import { parseMarkdown } from "comark"
 import type { Node } from "comark"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
 
+const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
+
 // Comark's block components run before multiline code spans. Protect component
 // lines that its own code parser identifies as literal, then restore after rendering.
 export async function prepareTemplate(source: string) {
@@ -18,7 +20,7 @@ export async function prepareTemplate(source: string) {
         if (literal) for (const match of node.matchAll(pattern)) inCode.add(Number(match[1]))
       }
       // SAFETY: Comark element tuple entries after the tag and attributes are child nodes.
-      else if (node[0] !== null) visit(node.slice(2) as Node[], literal || node[0] === "code")
+      else if (node[0] !== null) visit(node.slice(2) as Node[], literal || literalHtmlTags.has(node[0]))
     }
   }
   if (lines.length) visit((await parseMarkdown(masked, { autoClose: false, autoUnwrap: false, linkify: false })).nodes)

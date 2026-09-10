@@ -1,1 +1,1 @@
-Welcome, {{ name }}.
+Welcome, {{ data.name }}.
