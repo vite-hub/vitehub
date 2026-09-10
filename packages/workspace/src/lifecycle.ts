@@ -1,7 +1,9 @@
+import { isDeepStrictEqual } from "node:util"
+
 import { useWorkspaceAssets } from "./asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { files as filesLoader } from "./loaders/files.ts"
-import { normalizeWorkspacePath } from "./core/path.ts"
+import { normalizeWorkspacePath, sha256 } from "./core/path.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
@@ -121,6 +123,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const startupSources = sources.filter(source => source.materialize === "startup")
   await reconcileRemovedStartupSources(definition.name, store, startupSources, undefined, materializationStore)
   abortSignal?.throwIfAborted()
+  const startupBaseline = await captureStartupFiles(store, startupSources)
   const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
   const bundledBuildSources = !hasExplicitLoaders
@@ -128,7 +131,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
     : undefined
   abortSignal?.throwIfAborted()
   if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
-    await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources)
+    await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources, startupBaseline)
     const snapshot = await store.snapshot({ name: "sync" })
     await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
     return
@@ -155,7 +158,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
     await loader.load(ctx)
   }
   abortSignal?.throwIfAborted()
-  await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources)
+  await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources, startupBaseline)
   const snapshot = await store.snapshot({ name: "sync" })
   await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
 }
@@ -171,11 +174,28 @@ async function readStartupSnapshotFile(store: WorkspaceStore, path: string) {
   }
 }
 
-async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[]) {
+async function startupFileEvidence(store: WorkspaceStore, path: string) {
+  const file = await readStartupSnapshotFile(store, path)
+  return file ? { digest: await sha256(file.content), mediaType: file.mediaType, metadata: structuredClone(file.metadata) } : undefined
+}
+
+async function captureStartupFiles(store: WorkspaceStore, sources: ResolvedWorkspaceSource[]) {
+  const baseline = new Map<string, Awaited<ReturnType<typeof startupFileEvidence>>>()
+  for (const source of sources) {
+    const snapshot = await readCurrentSourceSnapshot(store, source)
+    for (const path of Object.keys(snapshot?.items || {})) {
+      if (!baseline.has(path)) baseline.set(path, await startupFileEvidence(store, path))
+    }
+  }
+  return baseline
+}
+
+async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[], baseline: Awaited<ReturnType<typeof captureStartupFiles>>) {
   for (const source of startupSources) {
     const snapshot = await readCurrentSourceSnapshot(store, source)
     if (!snapshot) continue
     for (const [path, recorded] of Object.entries(snapshot.items || {})) {
+      if (isDeepStrictEqual(baseline.get(path), await startupFileEvidence(store, path))) continue
       const file = await readStartupSnapshotFile(store, path)
       if (await materializedFileMatches(file, recorded)) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
@@ -184,7 +204,8 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
       const items = { ...current.items }
       for (const [itemPath, recordedItem] of Object.entries(items)) {
         const item = await readStartupSnapshotFile(store, itemPath)
-        if (!await materializedFileMatches(item, recordedItem)) delete items[itemPath]
+        if (!isDeepStrictEqual(baseline.get(itemPath), await startupFileEvidence(store, itemPath))
+          && !await materializedFileMatches(item, recordedItem)) delete items[itemPath]
       }
       // Keep cleanup evidence for paths that build synchronization did not replace.
       await store.setMeta?.(sourceSnapshotMetaKey(source.key), { ...current, items, status: "updating" })

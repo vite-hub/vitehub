@@ -4389,6 +4389,30 @@ describe("lazy sources", () => {
     expect(decodeFile((await store.readFile("docs"))?.content ?? "", { encoding: "utf8" })).toBe("loader")
   })
 
+  it.each(["memory", "local"] as const)("preserves existing edits and overlapping snapshots through a no-op loader in a %s Store", async (provider) => {
+    const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const definition = {
+      name: "startup-noop-loader",
+      sources: {
+        first: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "first" }, { path: "edited.md", content: "generated" }] }),
+        second: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "second" }] }),
+      },
+      loaders: [{ name: "noop", async load() {} }],
+    } satisfies WorkspaceDefinition
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    await store.writeFile("edited.md", { path: "edited.md", content: "user edit" })
+    const sources = normalizeWorkspaceSources(definition.sources)
+    const before = await Promise.all(sources.map(source => readCurrentSourceSnapshot(store, source)))
+
+    await syncWorkspaceDefinition(definition, store)
+
+    expect(await Promise.all(sources.map(source => readCurrentSourceSnapshot(store, source)))).toEqual(before)
+    const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+    expect(await inspection.readFile("edited.md", { encoding: "utf8" })).toBe("user edit")
+    expect(decodeFile((await store.readFile("edited.md"))?.content ?? "", { encoding: "utf8" })).toBe("user edit")
+  })
+
   it.each(["memory", "local"] as const)("restores unattributed loader writes through an existing %s Workspace view", async (provider) => {
     const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
     const definition = {
