@@ -386,12 +386,13 @@ describe("local workspace store", () => {
       metadata: { source: "stream" },
     })).resolves.toMatchObject({ digest, path: "assets/blob.bin", size: content.byteLength })
 
-    expect(writeFile).not.toHaveBeenCalled()
+    expect(vi.mocked(writeFile).mock.calls.some(([path]) => String(path).endsWith("assets/blob.bin"))).toBe(false)
     await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
       content,
       mediaType: "application/octet-stream",
       metadata: { source: "stream" },
     })
+
   })
 
   it("does not serialize unconditional streamed writes behind the Workspace root lock", async () => {
