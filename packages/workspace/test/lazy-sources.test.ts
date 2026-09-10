@@ -1046,6 +1046,31 @@ describe("lazy sources", () => {
     await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
   })
 
+  it.each([false, true])("does not transfer deleted mount ownership with local=%s", async (local) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const source = (path: string) => custom({ materialize: "startup", mount: "docs", files: [{ path, content: path }] })
+    const retained = source("retained.md")
+    const initial = { name: "deleted-mount-transfer", sources: { removed: source("removed.md"), retained } }
+    const view = createWorkspaceSourceView(initial, store)
+    await view.materializeSources({ sources: ["removed"] })
+    await view.materializeSources({ sources: ["retained"] })
+
+    const originalRm = store.rm.bind(store)
+    const remove = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+      // The retained file disappears after descendant evidence was collected.
+      if (path === "docs") await originalRm("docs/retained.md", { force: true })
+      await originalRm(path, options)
+    })
+    await syncWorkspaceDefinition({ name: initial.name, sources: { retained } }, store)
+    remove.mockRestore()
+    await expect(store.stat("docs")).resolves.toBeUndefined()
+    await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false })
+
+    await store.mkdir("docs")
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it.each([
     { local: false, reuseStartupSnapshots: false },
     { local: false, reuseStartupSnapshots: true },

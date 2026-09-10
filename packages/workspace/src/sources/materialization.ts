@@ -453,6 +453,7 @@ async function reconcileRemovedStartupSourcesInternal(
       if ((await store.stat(path).catch(() => undefined))?.type !== "directory") continue
       const descendants = await store.list(path, { recursive: true })
       let preserveDirectory = false
+      const ownershipTransfers: SourceSnapshotMetadata[] = []
       for (const currentSource of currentSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
@@ -469,7 +470,7 @@ async function reconcileRemovedStartupSourcesInternal(
         }
         // Retained mounts or files can keep this directory nonempty. Transfer
         // ownership within the mount separately from its ancestor directories.
-        await control.checkpoint(() => writeSourceSnapshotMetadata(store, {
+        ownershipTransfers.push({
           ...retainedSnapshot,
           ...(path === currentSource.mountPath
             ? path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true } : {}
@@ -477,13 +478,19 @@ async function reconcileRemovedStartupSourcesInternal(
               ? { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }
               : { ownedDirectories: [...new Set([...(retainedSnapshot.ownedDirectories || []), path])] }),
           status: "updating",
-        }))
+        })
       }
-      if (preserveDirectory) continue
-      try {
-        await control.mutate(() => store.rm(path, { force: true }))
+      if (!preserveDirectory) {
+        try {
+          await control.mutate(() => store.rm(path, { force: true }))
+          // Successful deletion leaves no directory ownership to transfer.
+          continue
+        }
+        catch {}
       }
-      catch {}
+      for (const transfer of ownershipTransfers) {
+        await control.checkpoint(() => writeSourceSnapshotMetadata(store, transfer))
+      }
     }
     await control.checkpoint(async () => {
       await store.setMeta?.(sourceMountSnapshotMetaKey(source.key, source.mountPath), {})
