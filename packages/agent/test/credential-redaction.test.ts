@@ -562,3 +562,22 @@ it("bounds streamed YAML plain credential whitespace while preserving dedents", 
   const boundary = consumeCredentialAssignment(suffix, state)
   expect(state.yamlPlain!.pending + suffix.slice(boundary)).toBe(suffix)
 })
+
+
+it.each(["\r", "\n", "\r\n"])("redacts YAML scalars with %j line endings across chunks", (newline) => {
+  for (const scalar of [
+    `correct horse${newline}    battery staple`,
+    `|${newline}    correct horse${newline}    battery staple`,
+    `>- ${newline}    correct horse${newline}    battery staple`,
+  ]) {
+    const prefix = `config:${newline}  password: `
+    const suffix = `${newline}  status: ok${newline}next: retained`
+    expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    for (let split = 0; split <= scalar.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + scalar.slice(0, split))!
+      const rest = scalar.slice(split) + suffix
+      const boundary = consumeCredentialAssignment(rest, state)
+      expect((state.yaml?.whitespace ?? state.yamlPlain?.pending ?? "") + rest.slice(boundary), `split ${split}`).toBe(suffix)
+    }
+  }
+})

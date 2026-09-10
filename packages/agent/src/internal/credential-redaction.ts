@@ -160,7 +160,7 @@ export interface CredentialAssignmentState {
 }
 
 function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
-  const line = source.slice(0, offset).split("\n").at(-1) ?? ""
+  const line = source.slice(0, offset).split(/\r\n|[\r\n]/).at(-1) ?? ""
   const yamlIndent = /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
   const yamlFlow = /[{,[]\s*$/.test(source.slice(0, offset)) && prefix.trimEnd().endsWith(":")
   return { escaped: false, started: false, ...(yamlFlow ? { yamlFlow } : {}), ...(yamlIndent === undefined ? {} : { yamlIndent }) }
@@ -217,7 +217,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
         if (character === " " || character === "\r" || character === "\n") {
           // Excess blank-line formatting may be dropped, but retain the safe suffix.
           plain.pending = ((plain.pending ?? "") + character).slice(-4096)
-          plain.spaces = character === "\n" ? 0 : Math.min(state.yamlIndent! + 1, (plain.spaces ?? 0) + (character === " " ? 1 : 0))
+          plain.spaces = /[\r\n]/.test(character) ? 0 : Math.min(state.yamlIndent! + 1, (plain.spaces ?? 0) + (character === " " ? 1 : 0))
           continue
         }
         if ((plain.spaces ?? 0) <= state.yamlIndent!) return index
@@ -259,20 +259,19 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       if (yaml.header) {
         if (!/[|>+1-9-]/.test(character)) yaml.modifiers = false
         if (yaml.modifiers && /[1-9]/.test(character)) yaml.indent = state.yamlIndent! + Number(character)
-        if (character === "\n") {
+        if (/[\r\n]/.test(character)) {
           yaml.header = false
           yaml.line = true
-          yaml.whitespace = "\n"
+          yaml.whitespace = character
         }
       }
-      else if (character === "\n") {
+      else if (/[\r\n]/.test(character)) {
         yaml.line = true
-        yaml.whitespace = "\n"
+        yaml.whitespace = character === "\n" && yaml.whitespace === "\r" ? "\r\n" : character
         yaml.spaces = 0
       }
       else if (yaml.line) {
         if (character === " ") yaml.spaces++
-        else if (character === "\r") continue
         else {
           const indent = yaml.spaces
           if (indent < (yaml.indent ?? state.yamlIndent! + 1)) {
