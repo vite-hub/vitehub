@@ -88,7 +88,7 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
   // (for example AGENT_R0726), leaving the useful reset text only on `error`.
   // Surface that information when it is unambiguously a usage failure; keep
   // opaque internal errors on the safe generic message.
-  const raw = typeof args.error === "string"
+  const raw = hasRuntimeType(args.error, "string")
     ? args.error
     : (() => {
         try { return JSON.stringify(args.error) || "" } catch { return "" }
@@ -98,11 +98,11 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
   // Never surface arbitrary URLs embedded in serialized diagnostics. Providers
   // may opt in by supplying an explicitly named usage link on the error object.
   const usageLink = (() => {
-    if (!args.error || typeof args.error !== "object") return undefined
+    if (!args.error || !hasRuntimeType(args.error, "object")) return undefined
     const candidate = readAgentErrorProperty(args.error, "usageUrl")
       ?? readAgentErrorProperty(args.error, "usageURL")
       ?? readAgentErrorProperty(args.error, "usageLink")
-    if (typeof candidate !== "string") return undefined
+    if (!hasRuntimeType(candidate, "string")) return undefined
     try {
       const url = new URL(candidate)
       return url.protocol === "https:" ? url.toString() : undefined

@@ -199,6 +199,15 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
   try {
     const providerError = aiSdkProviderPublicError(error)
     if (providerError) return providerError
+    // Only provider runtime diagnostics may opt into text-based quota classification.
+    // Other internal failures can mention quotas without being provider failures.
+    if (readAgentErrorProperty(error, "code") === "AGENT_R0726") {
+      const message = readAgentErrorProperty(error, "message")
+      if (hasRuntimeType(message, "string")
+        && /usage limit|quota (?:is )?(?:exhausted|exceeded)|insufficient (?:quota|credits)|credit balance.*(?:low|exhausted)|spend(?:ing)? limit|spend.?cap|budget.*exceed/i.test(message)) {
+        return publicError("PROVIDER_QUOTA_EXHAUSTED", "AI provider quota is exhausted.")
+      }
+    }
     const viteHubError = getViteHubErrorShape(error)
     if (viteHubError?.code === "AUTHENTICATION_REQUIRED") {
       return publicError("AUTHENTICATION_REQUIRED", "Authentication required.")

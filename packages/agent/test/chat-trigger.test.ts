@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest"
 
+import { agentDiagnostics } from "../src/agent-diagnostics.ts"
+import { toAgentPublicError } from "../src/agent-error.ts"
+
 import { resolveChatErrorFallbackText } from "../src/chat-trigger.ts"
 
 describe("chat error fallback", () => {
@@ -24,12 +27,12 @@ describe("chat error fallback", () => {
   })
 
   it("explains wrapped provider usage limits and reset times", async () => {
+    const error = Object.assign(agentDiagnostics.AGENT_R0726({
+      message: "You've hit your usage limit. Try again at Sep 15th, 2026 1:23 AM.",
+    }), { usageUrl: "https://chatgpt.com/codex/settings/usage" })
     const fallback = await resolveChatErrorFallbackText(undefined, {
-      error: {
-        message: "AGENT_R0726: You've hit your usage limit. Try again at Sep 15th, 2026 1:23 AM.",
-        usageUrl: "https://chatgpt.com/codex/settings/usage",
-      },
-      history: [], message: { text: "hello" }, publicError: { code: "PROVIDER_QUOTA_EXHAUSTED", error: "AI provider quota is exhausted." },
+      error,
+      history: [], message: { text: "hello" }, publicError: toAgentPublicError(error, "invocation"),
       run: undefined, thread: {}, toolResults: [],
     } as never)
 
@@ -37,6 +40,27 @@ describe("chat error fallback", () => {
     expect(fallback).toContain("Sep 15th, 2026 1:23 AM.")
     expect(fallback).toContain("chatgpt.com/codex/settings/usage")
   })
+
+  it.each([
+    "Provider disconnected",
+    "Too many requests",
+    "The model requires a newer version of Codex",
+  ])("keeps unrelated wrapped provider errors private: %s", async (message) => {
+    const error = agentDiagnostics.AGENT_R0726({ message })
+    const publicError = toAgentPublicError(error, "invocation")
+    expect(publicError.code).toBe("INTERNAL")
+    expect(await resolveChatErrorFallbackText(undefined, { error, publicError } as never))
+      .toBe("Sorry, I couldn't process that message.")
+  })
+
+  it.each(["Quota exhausted", "Insufficient credits", "Workspace spending limit exceeded"])(
+    "classifies wrapped provider quota failures: %s", (message) => {
+      const error = agentDiagnostics.AGENT_R0726({ message: JSON.stringify({ error: { message } }) })
+      expect(toAgentPublicError(error, "invocation").code).toBe("PROVIDER_QUOTA_EXHAUSTED")
+      expect(toAgentPublicError(error, "http").code).toBe("PROVIDER_QUOTA_EXHAUSTED")
+      expect(toAgentPublicError(new Error(message), "invocation").code).toBe("INTERNAL")
+    },
+  )
 
   it("keeps unrelated quota wording on the generic fallback", async () => {
     const fallback = await resolveChatErrorFallbackText(undefined, {
