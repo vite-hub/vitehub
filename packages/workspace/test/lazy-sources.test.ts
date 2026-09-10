@@ -36,6 +36,30 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["directory", "ancestor file"])("refreshes changed startup sources after replacement by %s", async (replacement) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const definition = (path: string) => ({
+      name: "changed-startup-replacement",
+      sources: { generated: custom({ materialize: "startup" as const, mount: "", files: [{ path, content: "generated" }] }) },
+    })
+    await materializeWorkspaceSources(definition("old/child.md"), store)
+    if (replacement === "directory") {
+      await rm(join(root, "old/child.md"))
+      await mkdir(join(root, "old/child.md"))
+      await writeFile(join(root, "old/child.md/user.md"), "user replacement")
+    }
+    else {
+      await rm(join(root, "old"), { recursive: true })
+      await writeFile(join(root, "old"), "user replacement")
+    }
+
+    const result = await materializeWorkspaceSources(definition("new.md"), store)
+    expect(result.sources).toEqual([expect.objectContaining({ status: "ready" })])
+    expect(await readFile(join(root, "new.md"), "utf8")).toBe("generated")
+    expect(await readFile(join(root, replacement === "directory" ? "old/child.md/user.md" : "old"), "utf8")).toBe("user replacement")
+  })
+
   it("keeps a file replacing a startup ancestor in the default Local Store diff", async () => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)

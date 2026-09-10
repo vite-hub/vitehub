@@ -780,7 +780,12 @@ async function materializeWorkspaceSourcesInternal(
     // later Local Store restart would otherwise make it look unavailable.
     if (source.materialize === "startup" && existing?.configHash !== configHash) {
       for (const path of Object.keys(itemMetadata)) {
-        const file = await store.readFile(path)
+        const file = await store.readFile(path).catch((error: unknown) => {
+          // Replaced files and ancestors no longer provide ownership evidence.
+          if (error && hasRuntimeType(error, "object") && "code" in error
+            && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) return undefined
+          throw error
+        })
         if (!file || (!fileAttributesUnavailable(file) && file.metadata?.source !== source.key)) delete itemMetadata[path]
       }
     }
