@@ -1,5 +1,6 @@
 import { withProviderCallbackMetadata } from "../internal/provider-callback-metadata.ts"
 import { createTraceEventLog, resolveRuntimeValue } from "@vite-hub/runtime"
+import { safeAgentTelemetryMetadata } from "../internal/agent-telemetry.ts"
 import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
@@ -204,7 +205,10 @@ function titleTraceLog(traceLog: TraceEventLog | undefined): TraceEventLog | und
     async append(event) {
       const tagged = {
         ...event,
-        attributes: { ...event.attributes, [auxiliaryTraceKindAttribute]: "title" },
+        attributes: {
+          ...(event.name === "agent.stream.error" ? safeAgentTelemetryMetadata(event.attributes) : event.attributes),
+          [auxiliaryTraceKindAttribute]: "title",
+        },
       }
       const entry = await local.append(tagged)
       if (event.name === "agent.stream.error") {

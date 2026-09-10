@@ -123,6 +123,38 @@ describe("title journal ownership", () => {
     expect(invocation.observations.some(entry => entry.name === "agent.stream.error")).toBe(false)
   })
 
+  it("redacts title error credentials before persisting metadata", async () => {
+    const invocations = journal()
+    await runAgent(defineAgent({
+      capabilities: [title({ driver: { async run(context) {
+        await context.traceLog?.append({
+          name: "agent.stream.error",
+          type: "run",
+          attributes: {
+            "error.message": "Authorization: Bearer title-secret",
+            "error.details": { apiKey: "opaque-secret", messages: ["Authorization: Bearer nested-secret"] },
+            "error.recoverable": false,
+          },
+        })
+        throw new Error("Title provider failed")
+      } } })],
+      driver: { run: () => "Done." }, invocations,
+    }), runtime("title-redacted-error"), { prompt: "Explain safety stock" })
+    const invocation = (await invocations.getByRunId("title-redacted-error"))!
+    expect(invocation.status).toBe("completed")
+    expect(invocation.observations).toContainEqual(expect.objectContaining({
+      name: "agent.title.error",
+      attributes: expect.objectContaining({
+        "error.message": "Authorization: Bearer [REDACTED]",
+        "error.recoverable": false,
+        "vitehub.auxiliary.kind": "title",
+      }),
+    }))
+    for (const secret of ["title-secret", "opaque-secret", "nested-secret"]) {
+      expect(JSON.stringify(invocation)).not.toContain(secret)
+    }
+  })
+
   it("bounds generated titles and strips multiline commentary", async () => {
     const invocations = journal()
     await runAgent(defineAgent({
