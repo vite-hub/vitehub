@@ -752,11 +752,11 @@ describe("sources, loaders, and publishers", () => {
     }])
   })
 
-  it("renders caller-relative Markdown template imports in Workspace Definitions", async () => {
+  it("renders Markdown templates with literal references in Workspace Definitions", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, "prompt.template.md"), "Workspace {{ context.name }}\n")
+    await writeFile(join(directory, "prompt.template.md"), "Workspace {{ context.name }}\n@./missing.md\n@workspace.policy\n")
     await writeFile(join(directory, "config.ts"), [
       `import prompt from "./prompt.template.md"`,
       `export default { rootDir: await prompt({ context: { name: "review" } }) }`,
@@ -773,7 +773,7 @@ describe("sources, loaders, and publishers", () => {
     const loader = createWorkspaceDefinitionLoader(root)
 
     await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
-      rootDir: "Workspace review",
+      rootDir: "Workspace review\n@./missing.md\n@workspace.policy",
     })
   })
 
