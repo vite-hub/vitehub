@@ -324,6 +324,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
           mediaType: file.mediaType,
           metadata: file.metadata,
         })
+        await this.setMeta(`file:${normalized}`, { mediaType: file.mediaType, metadata: file.metadata })
         return {
           ...existing,
           mediaType: file.mediaType,
@@ -338,6 +339,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
+      await this.setMeta(`file:${normalized}`, { mediaType: file.mediaType, metadata: file.metadata })
       return {
         path: normalized,
         type: "file",
