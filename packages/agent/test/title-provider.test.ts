@@ -49,7 +49,12 @@ describe("title provider inheritance", () => {
     expect(() => title({ reasoningEffort })).toThrow("must be a non-empty model-advertised value");
   });
 
+  it.each(["", " ", "\t\n"])("rejects empty title model: %j", (model) => {
+    expect(() => title({ model })).toThrow("title({ model }) must be a non-empty string");
+  });
+
   it.each([
+    { options: { model: "" }, code: "AGENT_R0925" },
     { options: { timeoutMs: 0 }, code: "AGENT_R0922" },
     { options: { reasoningEffort: "" }, code: "AGENT_R0923" },
   ])("identifies invalid title options with $code", ({ options, code }) => {
@@ -116,6 +121,7 @@ describe("title provider inheritance", () => {
     { expectedModel: "gpt-main", titleOptions: { instructions: "Use a short subject title" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: undefined },
+    { expectedModel: "gpt-cheap", titleOptions: { model: "  gpt-cheap  " }, reasoningEffort: undefined },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap", reasoningEffort: "low" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "low" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "  low  " }, reasoningEffort: "medium" },
