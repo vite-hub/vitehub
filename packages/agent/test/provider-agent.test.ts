@@ -62,6 +62,7 @@ const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "cl
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
 
+import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { markTrustedWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
@@ -2282,8 +2283,27 @@ cli_auth_credentials_store = "keyring"
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
     expect(events.filter(event => event.type === "text-delta")).toEqual([
       { id: "reasoning_summary_text:reasoning-1:0", phase: "commentary", text: "**Reading related facts**", type: "text-delta" },
-      { id: "assistant_text:message-1:0", phase: "commentary", text: "I’m also applying the evidence skill.", type: "text-delta" },
+      { id: "assistant_text:message-1:0", messageId: "message-1", phase: "commentary", text: "I’m also applying the evidence skill.", type: "text-delta" },
     ])
+  })
+
+  it("preserves a shared message identity across final content segments", async () => {
+    const threadId = "thread-final-segments"
+    runtime(threadId, [
+      event("content.delta", threadId, { contentIndex: 0, delta: "First. ", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("content.delta", threadId, { contentIndex: 1, delta: "Second.", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
+    expect(events.filter(value => value.type === "text-delta")).toEqual([
+      { id: "assistant_text:answer:0", messageId: "answer", phase: "final", text: "First. ", type: "text-delta" },
+      { id: "assistant_text:answer:1", messageId: "answer", phase: "final", text: "Second.", type: "text-delta" },
+    ])
+    let finalText: { identity: string | undefined, text: string } = { identity: undefined, text: "" }
+    for (const value of events) {
+      if (value.type === "text-delta" && value.phase === "final") finalText = appendLatestFinalText(finalText.text, finalText.identity, value)
+    }
+    expect(finalText.text).toBe("First. Second.")
   })
 
   it("keeps assistant item phases separate and forgets completed items", async () => {
@@ -2303,11 +2323,11 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
     expect(events.filter(value => value.type === "text-delta")).toEqual([
-      { id: "assistant_text:comment:0", phase: "commentary", text: "Checking.", type: "text-delta" },
-      { id: "assistant_text:answer:0", phase: "final", text: "Found it.", type: "text-delta" },
-      { id: "assistant_text:comment:0", phase: "commentary", text: "One more check.", type: "text-delta" },
-      { id: "assistant_text:comment:0", phase: "final", text: "Reused item.", type: "text-delta" },
-      { id: "assistant_text:provider:0", phase: "final", text: "No item.", type: "text-delta" },
+      { id: "assistant_text:comment:0", messageId: "comment", phase: "commentary", text: "Checking.", type: "text-delta" },
+      { id: "assistant_text:answer:0", messageId: "answer", phase: "final", text: "Found it.", type: "text-delta" },
+      { id: "assistant_text:comment:0", messageId: "comment", phase: "commentary", text: "One more check.", type: "text-delta" },
+      { id: "assistant_text:comment:0", messageId: "comment", phase: "final", text: "Reused item.", type: "text-delta" },
+      { id: "assistant_text:provider:0", messageId: "provider", phase: "final", text: "No item.", type: "text-delta" },
     ])
   })
 

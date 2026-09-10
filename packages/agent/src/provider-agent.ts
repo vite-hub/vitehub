@@ -1996,7 +1996,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
 }): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
-      if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
+      if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
       return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
