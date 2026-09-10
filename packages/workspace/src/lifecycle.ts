@@ -2,6 +2,7 @@ import { useWorkspaceAssets } from "./asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { invalidateSourceSnapshot, materializedFileMatches, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
@@ -165,7 +166,7 @@ async function readStartupSnapshotFile(store: WorkspaceStore, path: string) {
   }
   catch (error) {
     // A loader can replace an ancestor directory with a file or remove it.
-    if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return undefined
+    if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return undefined
     throw error
   }
 }
