@@ -463,7 +463,7 @@ it.each(["correct horse battery", "correct horse#battery", "correct, horse; batt
 })
 
 it.each(["password", "secret", "api_key"])("redacts YAML flow mapping %s values", (key) => {
-  for (const prefix of ["{ ", "{ status: ok, ", "{ nested: { "]) {
+  for (const prefix of ["{ ", "{ status: ok, ", "{ nested: { ", "[ "]) {
     for (const scalar of ["hunter2", "correct horse battery", '"correct horse"', "'correct horse'"]) {
       const assignment = `${key}: ${scalar}`
       const quote = /^["']/.exec(scalar)?.[0] ?? ""
@@ -475,6 +475,24 @@ it.each(["password", "secret", "api_key"])("redacts YAML flow mapping %s values"
         expect(state).toBeDefined()
         const rest = assignment.slice(split) + ", status: ok }"
         expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(", status: ok }")
+      }
+    }
+  }
+})
+
+it.each([
+  "[hunter2, backup-secret]",
+  "{ primary: hunter2, backup: [second, third] }",
+  '["secret,}value", { nested: "escaped\\\"quote" }]',
+  "[first,\n second]",
+])("redacts nested YAML flow credential %s across chunks", (value) => {
+  for (const prefix of ["{ password: ", "[ secret: "]) {
+    for (const suffix of [", status: ok }", "]"]) {
+      expect(redactCredentialText(prefix + value + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+      for (let split = 0; split <= value.length; split++) {
+        const state = pendingCredentialAssignmentState(prefix + value.slice(0, split))!
+        const rest = value.slice(split) + suffix
+        expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(suffix)
       }
     }
   }
