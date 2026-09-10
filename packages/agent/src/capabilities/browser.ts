@@ -23,12 +23,7 @@ export interface BrowserCapabilityOptions {
   sourceKey?: string
 }
 
-const defaultBrowserSkillContent = `---
-name: agent-browser
-description: Browser automation through the agent-browser CLI. Use for website interaction, screenshots, extraction, and web app testing.
----
-
-# Browser
+const defaultBrowserSkillContent = `# Browser
 
 Use the \`agent-browser\` CLI through the provider's shell for headless browser work.
 
@@ -174,7 +169,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
       },
       sources: {
         [sourceKey]: {
-          content: browserSkillContent(skillContent),
+          content: browserSkillContent(skillContent, skillPath),
           mediaType: "text/markdown",
           workspacePath: skillPath,
         },

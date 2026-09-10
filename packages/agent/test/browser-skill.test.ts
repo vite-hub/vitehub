@@ -4,9 +4,14 @@ import { browserSkillContent } from "../src/internal/browser-skill.ts"
 describe("retained browser skill availability", () => {
   it("adds discovery metadata to body-only custom instructions", () => {
     const retained = browserSkillContent("# My browser\nRun custom-browser.\n")
-    expect(retained).toMatch(/^---\nname: agent-browser\ndescription: .+\n---\n/)
+    expect(retained).toMatch(/^---\nname: "agent-browser"\ndescription: .+\n---\n/)
     expect(retained).toContain("# My browser\nRun custom-browser.\n")
     expect(retained.indexOf("## Browser availability")).toBeLessThan(retained.indexOf("# My browser"))
+  })
+
+  it("names synthesized metadata after the custom Skill directory", () => {
+    const retained = browserSkillContent("# Browser\nUse custom-browser.\n", ".agents/skills/custom-browser/SKILL.md")
+    expect(retained).toContain('name: "custom-browser"\n')
   })
 
   it.each([

@@ -1,6 +1,6 @@
 import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { spawn } from "node:child_process"
 import { lock } from "proper-lockfile"
 
@@ -273,7 +273,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
 export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions = {}): Promise<PreparedBrowserRuntime> {
   const signal = options.abortSignal
   if (signal?.aborted) return Promise.reject(signal.reason)
-  const root = options.cacheRoot || defaultCacheRoot()
+  const root = resolve(options.cacheRoot || defaultCacheRoot())
   const key = `${root}\0${options.npmCommand || "npm"}\0${options.platform || process.platform}`
   let preparation = preparations.get(key)
   if (!preparation) {

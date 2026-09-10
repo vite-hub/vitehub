@@ -1,6 +1,6 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join, relative } from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { lock } from "proper-lockfile"
@@ -70,6 +70,17 @@ describe("browser runtime", () => {
     provideBrowserRuntimeEnvironment(one, env)
     expect(browserRuntimeEnvironment(one)).toBe(env)
     expect(browserRuntimeEnvironment(two)).toBeUndefined()
+  })
+
+  it.each(["option", "environment"])("resolves a relative cache from %s before exposing provider paths", async (source) => {
+    const value = await fixture()
+    const cache = relative(process.cwd(), value.cache)
+    if (source === "environment") vi.stubEnv("VITEHUB_CACHE_DIR", cache)
+    const ready = await prepareBrowserRuntime({ cacheRoot: source === "option" ? cache : undefined, npmCommand: value.npm, platform: "darwin" })
+    expect(isAbsolute(ready.command)).toBe(true)
+    expect(isAbsolute(ready.environment.AGENT_BROWSER_EXECUTABLE_PATH!)).toBe(true)
+    const result = await promisify(execFile)(ready.command, ["--version"], { cwd: value.root, env: { ...process.env, ...ready.environment, PATH: `${ready.environment.PATH}:${process.env.PATH}` } })
+    expect(result.stdout).toContain("0.35.2")
   })
 
   it("deduplicates concurrent preparation and revalidates a retained cache", async () => {
