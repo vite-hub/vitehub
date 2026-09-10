@@ -167,6 +167,21 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.startProcess("three")).rejects.toThrow("Shell session is disposed")
   })
 
+  it("reserves process budget while starts are pending", async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const provider = createBackgroundProvider(async (command: string): Promise<ShellProcess> => {
+      await gate
+      return { command, id: command, async stop() { return stoppedProcessObservation(command) } }
+    })
+    const session = createShellRuntime({ provider }).createSession({ policy: { maxProcesses: 1 } })
+    const first = session.startProcess("one")
+    await expect(session.startProcess("two")).rejects.toThrow("process budget exhausted after 1 processes")
+    release()
+    await expect(first).resolves.toMatchObject({ id: "one" })
+    await session.dispose()
+  })
+
   it("returns background-process cleanup failures without FiberFailure", async () => {
     const firstError = new Error("first stop failed")
     const secondError = new Error("second stop failed")
