@@ -80,5 +80,7 @@ describe("fs blob driver", () => {
       .rejects.toMatchObject({ code: "BLOB_R0005" })
     await expect(driver.put("nested/../.vitehub/blob-meta/poison.json", "{}"))
       .rejects.toMatchObject({ code: "BLOB_R0005" })
+    await expect(driver.put(".VITEHUB/blob-meta/poison.json", "{}"))
+      .rejects.toMatchObject({ code: "BLOB_R0005" })
   })
 })
