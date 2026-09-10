@@ -491,6 +491,23 @@ describe("GitHub workspace store", () => {
     expect(requests[0]?.headers.get("authorization")).toBe("Bearer binding-token");
   });
 
+  it("hides reserved case variants from listings and snapshots", async () => {
+    for (const path of [".vitehub/private.json", ".VITEHUB/private.json", ".ViteHub/private.json"]) {
+      seedRemote(`.vitehub/workspaces/docs/${path}`, "{}");
+    }
+    seedRemote(".vitehub/workspaces/docs/visible.txt", "visible");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({
+      provider: "github", repository: "onmax/repo", token: "token",
+      root: ".vitehub/workspaces/<workspace>",
+    }, "docs");
+
+    for (const options of [{}, { recursive: true }]) {
+      expect((await store.list("", options)).map(entry => entry.path)).toEqual(["visible.txt"]);
+    }
+    expect(Object.keys((await store.snapshot()).entries)).toEqual(["visible.txt"]);
+  });
+
   it("reads, lists, stats, writes, snapshots, and persists metadata through GitHub", async () => {
     seedRemote(".vitehub/workspaces/docs/data/existing.json", '{"ok":true}\n');
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");

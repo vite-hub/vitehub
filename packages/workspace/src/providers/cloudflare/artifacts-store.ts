@@ -200,7 +200,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     for (const [absolute, entry] of this.#fs!.entries) {
       if (absolute === dir || !absolute.startsWith(`${dir}/`)) continue
       const path = normalizeWorkspacePath(absolute.slice(`${dir}/`.length))
-      if (!path || path === ".git" || path.startsWith(".git/") || path === ".vitehub" || path.startsWith(".vitehub/")) continue
+      const root = path.split("/")[0]?.toLowerCase()
+      if (!path || root === ".git" || root === ".vitehub") continue
       if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix) {
         if (path === normalizedPrefix) continue

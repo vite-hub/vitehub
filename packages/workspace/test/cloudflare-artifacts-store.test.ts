@@ -152,6 +152,23 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(new Set(names).size).toBe(names.length)
   })
 
+  it("hides reserved case variants from listings and snapshots", async () => {
+    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "remote-sha", ref: "refs/heads/main" }])
+    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
+      const { fs } = options as { fs: MemoryFS }
+      for (const path of [".vitehub/private.json", ".VITEHUB/private.json", ".ViteHub/private.json"]) {
+        await fs.promises.writeFile(`/workspace/${path}`, "{}")
+      }
+      await fs.promises.writeFile("/workspace/visible.txt", "visible")
+    })
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+
+    for (const options of [{}, { recursive: true }]) {
+      expect((await store.list("", options)).map(entry => entry.path)).toEqual(["visible.txt"])
+    }
+    expect(Object.keys((await store.snapshot()).entries)).toEqual(["visible.txt"])
+  })
+
   it("uses the Artifacts binding and commits snapshots", async () => {
     const repo = artifactsRepo()
     const created = createdRepo()
