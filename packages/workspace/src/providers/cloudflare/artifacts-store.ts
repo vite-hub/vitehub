@@ -238,7 +238,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    await this.#mutate(() => this.#fs!.promises.mkdir(this.#absolute(normalized), { recursive: options.recursive ?? true }))
+    await this.#mutate(() => this.#fs!.promises.mkdir(this.#absolute(normalized), {
+      recursive: options.recursive ?? true,
+      onCreate: options.onCreate ? absolute => options.onCreate!(absolute.slice(`${dir}/`.length)) : undefined,
+    }))
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {

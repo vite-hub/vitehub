@@ -89,7 +89,7 @@ export class MemoryFS {
     return this.normalize(path).split("/").filter(Boolean).pop() || ""
   }
 
-  async mkdir(path: string, options?: { recursive?: boolean } | number) {
+  async mkdir(path: string, options?: { recursive?: boolean, onCreate?: (path: string) => void } | number) {
     const target = this.normalize(path)
     const recursive = isPlainObject(options) && options.recursive === true
     if (target === "/") {
@@ -99,7 +99,7 @@ export class MemoryFS {
     const parent = this.parent(target)
     if (!this.entries.has(parent)) {
       if (!recursive) throw memoryFsError("ENOENT", parent)
-      await this.mkdir(parent, { recursive: true })
+      await this.mkdir(parent, options)
     }
     const existing = this.entries.get(target)
     if (existing) {
@@ -109,6 +109,7 @@ export class MemoryFS {
     const parentEntry = this.#requireDir(parent)
     this.entries.set(target, { kind: "dir", children: new Set(), mtimeMs: Date.now() })
     parentEntry.children.add(this.basename(target))
+    if (typeof options === "object") options.onCreate?.(target)
   }
 
   async writeFile(path: string, data: string | Uint8Array | ArrayBuffer) {
