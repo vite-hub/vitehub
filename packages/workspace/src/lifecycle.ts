@@ -185,7 +185,9 @@ async function captureStartupFiles(store: WorkspaceStore, sources: ResolvedWorks
     const snapshot = await readCurrentSourceSnapshot(store, source)
     for (const path of Object.keys(snapshot?.items || {})) {
       const key = `${source.key}\0${path}`
-      if (!baseline.has(key)) baseline.set(key, await startupFileEvidence(store, path))
+      // Capture shared paths once, for the highest-precedence source. Lower-precedence
+      // sources must not treat the visible higher-precedence file as their baseline.
+      if (![...baseline.keys()].some(existing => existing.endsWith(`\0${path}`))) baseline.set(key, await startupFileEvidence(store, path))
     }
   }
   return baseline
@@ -196,7 +198,11 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
     const snapshot = await readCurrentSourceSnapshot(store, source)
     if (!snapshot) continue
     for (const [path, recorded] of Object.entries(snapshot.items || {})) {
-      if (isDeepStrictEqual(baseline.get(`${source.key}\0${path}`), await startupFileEvidence(store, path))) continue
+      const baselineKey = `${source.key}\0${path}`
+      // An overlapping path belongs to the first (higher-precedence) source only.
+      // Skip lower-precedence sources whose visible evidence cannot represent their baseline.
+      if (!baseline.has(baselineKey) && [...baseline.keys()].some(key => key.endsWith(`\0${path}`))) continue
+      if (isDeepStrictEqual(baseline.get(baselineKey), await startupFileEvidence(store, path))) continue
       const file = await readStartupSnapshotFile(store, path)
       if (await materializedFileMatches(file, recorded)) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
