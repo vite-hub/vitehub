@@ -150,6 +150,30 @@ describe("Capability inspection snapshots", () => {
     expect(configuration(await invocations.getByRunId("local-tools"))).toMatchObject({ tools: [{ name: "local", capabilityId: "local" }] })
   })
 
+  it.each([false, true])("allows renaming a known local tool while removing MCP tools, in-place=%s", async (inPlace) => {
+    const invocations = journal()
+    const languageModel = model()
+    const transform = defineCapability({ id: "local", resolve(context) {
+      context.tools.add({ local: { name: "local", description: "Local tool", execute: async () => "local" } })
+      context.tools.transform(current => {
+        const local = current!.local!
+        if (!inPlace) return { local_new: local }
+        delete current!.local
+        delete current!.mcp_docs_read
+        current!.local_new = local
+        return current
+      })
+    } })
+    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+      mcp({ servers: { docs: { tools: async () => ({ read: { execute: async () => "original" } }), close: vi.fn() } } }),
+      transform,
+    ], driver: { model: languageModel }, invocations }), runtime("renamed-local-tools"), { prompt: "Use local tools" })
+    const snapshot = configuration(await invocations.getByRunId("renamed-local-tools"))
+    expect(snapshot).toMatchObject({ tools: [{ name: "local_new", description: "Local tool" }] })
+    expect(snapshot).toMatchObject({ tools: [expect.not.objectContaining({ mcp: expect.anything() })] })
+    expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "local_new", description: "Local tool" })])
+  })
+
   it.each(["resolve", "discover"])("retains MCP %s failure state without reconnecting or hiding the failure", async (phase) => {
     const invocations = journal()
     const failure = new Error("Discovery unavailable")

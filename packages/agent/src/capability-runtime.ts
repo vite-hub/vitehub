@@ -1449,6 +1449,7 @@ export async function applyCapabilityToolTransforms(
   for (const transform of transforms) {
     // Copy provenance before a transform can mutate the original tool objects.
     const previous = new Map(Object.entries(current ?? {}).map(([name, tool]) => [name, inspectMcpToolProvenance(tool)]))
+    const localTools = new Set(Object.entries(current ?? {}).filter(([name]) => !previous.get(name)).map(([, tool]) => tool))
     const transformed = await transform(current)
     if (!transformed) {
       current = transformed
@@ -1456,7 +1457,7 @@ export async function applyCapabilityToolTransforms(
     }
     const removesMcpTools = [...previous].some(([name, origin]) => origin && !Object.hasOwn(transformed, name))
     const unattributedNames = Object.entries(transformed)
-      .filter(([name, tool]) => !previous.has(name) && !inspectMcpToolProvenance(tool))
+      .filter(([name, tool]) => !previous.has(name) && !localTools.has(tool) && !inspectMcpToolProvenance(tool))
       .map(([name]) => name)
     if (removesMcpTools && unattributedNames.length) {
       throw agentDiagnostics.AGENT_R0923({ names: unattributedNames })
