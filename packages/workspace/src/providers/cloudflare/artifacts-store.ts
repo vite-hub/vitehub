@@ -67,6 +67,7 @@ const fileMetadataFilesSchema = record(string(), fileMetadataSchema)
 const fileMetadataJournalSchema = object({
   path: string(),
   existed: boolean(),
+  digest: string(),
   metadata: fileMetadataSchema,
 })
 
@@ -440,8 +441,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const existed = await this.#fs!.promises.stat(this.#absolute(path)).then(stat => stat.isFile()).catch(() => false)
-    await this.#fs!.promises.writeFile(this.#internalAbsolute(fileMetadataJournalPath), JSON.stringify({ path, existed, metadata: { mediaType: file.mediaType, metadata: file.metadata } }))
-    await this.#fs!.promises.writeFile(this.#absolute(path), contentToBytes(file.content))
+    const content = contentToBytes(file.content)
+    const digest = await sha256(content)
+    await this.#fs!.promises.writeFile(this.#internalAbsolute(fileMetadataJournalPath), JSON.stringify({ path, existed, digest, metadata: { mediaType: file.mediaType, metadata: file.metadata } }))
+    await this.#fs!.promises.writeFile(this.#absolute(path), content)
     if (file.mediaType !== undefined || file.metadata !== undefined) {
       this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
     }
@@ -482,6 +485,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     }
     try {
       if (journal.path && journal.existed === false && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
+        const content = await this.#fs!.promises.readFile(this.#absolute(journal.path))
+        if (await sha256(contentToBytes(content)) !== journal.digest) return
         if (journal.metadata && (journal.metadata.mediaType !== undefined || journal.metadata.metadata !== undefined)) this.#files.set(journal.path, journal.metadata)
         else this.#files.delete(journal.path)
         await this.#writeFileMetadata()

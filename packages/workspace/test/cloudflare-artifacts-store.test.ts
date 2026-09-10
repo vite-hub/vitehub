@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { sha256 } from "../src/core/path.ts"
 import { defineWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { resetWorkspaceStoreCache } from "../src/core/workspace-cache.ts"
@@ -706,6 +707,32 @@ describe("Cloudflare Artifacts workspace store", () => {
     await expect(store.stat("result.json")).resolves.toMatchObject(attributes)
     expect(filesystem?.entries.has("/workspace/.vitehub/files.pending.json")).toBe(false)
     await expect(filesystem?.promises.readFile("/workspace/.vitehub/files.json")).resolves.toEqual(new TextEncoder().encode(committed))
+  })
+
+  it.each(["matching", "partial", "legacy", "previous"])("recovers only version-matched pending metadata after restart: %s", async (kind) => {
+    const attributes = { mediaType: "application/json", metadata: { source: "agent" } }
+    const content = '{"ok":true}'
+    const published = kind === "previous" ? "old content" : kind === "partial" ? content.slice(0, 5) : content
+    const previousMetadata = kind === "previous" ? { source: "original" } : undefined
+    const digest = kind === "legacy" ? undefined : await sha256(content)
+    let filesystem: MemoryFS | undefined
+    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
+    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
+      const { fs } = options as { fs: MemoryFS }
+      filesystem = fs
+      await fs.promises.writeFile("/workspace/result.json", published)
+      await fs.promises.writeFile("/workspace/.vitehub/files.json", JSON.stringify({ "result.json": { metadata: previousMetadata } }))
+      await fs.promises.writeFile("/workspace/.vitehub/files.pending.json", JSON.stringify({
+        path: "result.json", existed: kind === "previous", digest, metadata: attributes,
+      }))
+    })
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+
+    const file = await store.readFile("result.json")
+    expect(file?.content).toEqual(new TextEncoder().encode(published))
+    expect(file?.metadata).toEqual(kind === "matching" ? attributes.metadata : previousMetadata)
+    if (kind === "matching") expect(file?.mediaType).toBe(attributes.mediaType)
+    expect(filesystem?.entries.has("/workspace/.vitehub/files.pending.json")).toBe(false)
   })
 
   it("serializes concurrent snapshots", async () => {
