@@ -587,7 +587,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function previousStat(path: string) {
-    return await store.stat(path)
+    return await store.stat(path).catch(() => undefined)
   }
 
   async function materializeRootStartupSources() {
