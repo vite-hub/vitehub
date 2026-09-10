@@ -527,7 +527,7 @@ export async function materializeWorkspaceSources(
           continue
         }
         const item = entry.item!
-        const metadata = item.metadata || {}
+        const metadata = normalizeSourceFileMetadata(item.metadata || {})
         const previousStat = await store.stat(path)
         const previous = entry.contentStream && store.writeFileStream ? undefined : await store.readFile(path)
         const previousExists = previousStat?.type === "file" || Boolean(previous)

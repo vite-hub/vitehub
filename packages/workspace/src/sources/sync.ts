@@ -157,7 +157,7 @@ async function planSourceSync(
       content,
       mediaType: item.mediaType,
       metadata: normalizeSourceFileMetadata({
-        ...item.metadata,
+        ...normalizeSourceFileMetadata(item.metadata || {}),
         source: source.key,
         sourcePath,
       }),

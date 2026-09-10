@@ -32,7 +32,8 @@ describe("Workspace Source Sync", () => {
   ])("materializes optional Source metadata: $provider, sync=$sync", async ({ provider, sync }) => {
     const root = await createRoot()
     const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
-    const metadata = { title: "Readme", optional: undefined, nested: { keep: true, optional: undefined } }
+    const metadata = { title: "Readme", optional: undefined, nested: { keep: true, optional: undefined }, values: ["docs", undefined, undefined, { optional: undefined }] }
+    delete metadata.values[2]
     registerWorkspace("optional-metadata", defineWorkspace({
       store,
       sources: {
@@ -52,7 +53,44 @@ describe("Workspace Source Sync", () => {
     expect(file?.metadata).toMatchObject({ title: "Readme", nested: { keep: true }, source: "docs" })
     expect(file?.metadata).not.toHaveProperty("optional")
     expect(file?.metadata?.nested).not.toHaveProperty("optional")
+    expect(file?.metadata?.values).toEqual(["docs", null, null, {}])
+    expect(metadata.values[1]).toBeUndefined()
+    expect(Object.hasOwn(metadata.values, 2)).toBe(false)
     expect(metadata).toHaveProperty("optional")
+  })
+
+  it.each([true, false])("rejects invalid Source metadata without invoking getters, sync=%s", async (sync) => {
+    for (const kind of ["getter", "cycle", "array-cycle", "symbol", "hidden", "top-getter"]) {
+      const getter = vi.fn(() => "unexpected")
+      const nested: Record<string, unknown> = {}
+      if (kind === "getter") Object.defineProperty(nested, "value", { enumerable: true, get: getter })
+      if (kind === "cycle") nested.self = nested
+      if (kind === "array-cycle") {
+        const array: unknown[] = []
+        array.push(array)
+        nested.array = array
+      }
+      if (kind === "symbol") Object.defineProperty(nested, Symbol("value"), { enumerable: true, value: "invalid" })
+      if (kind === "hidden") Object.defineProperty(nested, "value", { value: "invalid" })
+      const metadata = { nested }
+      if (kind === "top-getter") Object.defineProperty(metadata, "value", { enumerable: true, get: getter })
+      const name = `invalid-${kind}-${sync}`
+      registerWorkspace(name, defineWorkspace({
+        store: { provider: "memory" },
+        sources: {
+          docs: {
+            sync: sync ? true : undefined,
+            materialize: sync ? undefined : "lazy",
+            async getKeys() { return ["README.md"] },
+            async getItem(key: string) { return { key, content: "# Readme", metadata } },
+          },
+        },
+      }))
+      const workspace = await useRegisteredWorkspace(name)
+      const result = sync ? await workspace.sync({ sources: ["docs"] }) : await workspace.materializeSources({ sources: ["docs"] })
+      expect(result.sources).toEqual([expect.objectContaining({ error: expect.stringContaining("Invalid Workspace metadata") })])
+      expect(getter).not.toHaveBeenCalled()
+    }
   })
 
   it("requires explicit source selection and materializes sync-only sources on demand", async () => {

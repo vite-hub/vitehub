@@ -1,7 +1,7 @@
 import { workspaceError } from "./errors.ts"
 
 // Validate without invoking getters or toJSON hooks that can change ownership.
-function copyJsonValue(value: unknown, ancestors: Set<object>): unknown {
+function copyJsonValue(value: unknown, ancestors: Set<object>, normalizeOptional = false): unknown {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This boundary validates JSON primitives without invoking user getters or serialization hooks.
   if (value === null || typeof value === "string" || typeof value === "boolean") return value
   if (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)) return value
@@ -14,16 +14,22 @@ function copyJsonValue(value: unknown, ancestors: Set<object>): unknown {
   try {
     const descriptors = Object.getOwnPropertyDescriptors(value)
     const keys = Reflect.ownKeys(descriptors).filter(key => !array || key !== "length")
-    if (array && keys.length !== descriptors.length?.value) throw new Error("Invalid JSON metadata")
+    if (array && !normalizeOptional && keys.length !== descriptors.length?.value) throw new Error("Invalid JSON metadata")
     const copy = array ? [] : {}
     for (const [index, key] of keys.entries()) {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON keys must be strings; symbols cannot survive serialization.
-      if (typeof key !== "string" || (array && key !== String(index))) throw new Error("Invalid JSON metadata")
+      if (typeof key !== "string" || (array && (normalizeOptional ? !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= descriptors.length?.value : key !== String(index)))) throw new Error("Invalid JSON metadata")
       const descriptor = descriptors[key]!
       if (!descriptor.enumerable || !("value" in descriptor)) throw new Error("Invalid JSON metadata")
+      if (normalizeOptional && descriptor.value === undefined && !array) continue
       Object.defineProperty(copy, key, {
-        value: copyJsonValue(descriptor.value, ancestors), enumerable: true, writable: true, configurable: true,
+        value: normalizeOptional && descriptor.value === undefined ? null : copyJsonValue(descriptor.value, ancestors, normalizeOptional), enumerable: true, writable: true, configurable: true,
       })
+    }
+    if (array && normalizeOptional) {
+      for (let index = 0; index < descriptors.length?.value; index++) {
+        if (!Object.hasOwn(copy, index)) Object.defineProperty(copy, index, { value: null, enumerable: true, writable: true, configurable: true })
+      }
     }
     return copy
   }
@@ -32,14 +38,14 @@ function copyJsonValue(value: unknown, ancestors: Set<object>): unknown {
   }
 }
 
-export function copyJsonFileMetadata(path: string, metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+export function copyJsonFileMetadata(path: string, metadata: Record<string, unknown> | undefined, normalizeOptional = false): Record<string, unknown> | undefined {
   if (metadata === undefined) return
   let copy: Record<string, unknown> | undefined
   try {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject non-object JavaScript inputs before recursively validating the metadata contract.
     if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)) {
       // SAFETY: The non-null, non-array input is copied into a plain object; copyJsonValue rejects unsupported prototypes and recursively validates every property.
-      copy = copyJsonValue(metadata, new Set()) as Record<string, unknown>
+      copy = copyJsonValue(metadata, new Set(), normalizeOptional) as Record<string, unknown>
     }
   }
   catch { /* Deep or exotic objects are not a portable metadata representation. */ }
