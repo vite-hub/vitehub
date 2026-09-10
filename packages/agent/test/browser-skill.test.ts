@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest"
 import { browserSkillContent } from "../src/internal/browser-skill.ts"
 
 describe("retained browser skill availability", () => {
+  it("adds discovery metadata to body-only custom instructions", () => {
+    const retained = browserSkillContent("# My browser\nRun custom-browser.\n")
+    expect(retained).toMatch(/^---\nname: agent-browser\ndescription: .+\n---\n/)
+    expect(retained).toContain("# My browser\nRun custom-browser.\n")
+    expect(retained.indexOf("## Browser availability")).toBeLessThan(retained.indexOf("# My browser"))
+  })
+
   it.each([
     "Run custom-browser open https://example.com.\n",
     "---\nname: custom-browser\ndescription: Custom browser instructions\n---\nRun custom-browser.\n",
