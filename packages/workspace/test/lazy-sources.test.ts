@@ -4321,6 +4321,35 @@ describe("lazy sources", () => {
     expect(decodeFile((await store.readFile("docs/child.md"))?.content ?? "", { encoding: "utf8" })).toBe("loader")
   })
 
+  it.each(["memory", "local"] as const)("invalidates startup files beneath loader-replaced ancestors in a %s Store", async (provider) => {
+    const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const definition = {
+      name: "startup-loader-ancestor",
+      sources: {
+        generated: custom({ materialize: "startup", mount: "", files: [
+          { path: "docs/child.md", content: "startup" },
+          { path: "retained.md", content: "retained" },
+        ] }),
+      },
+      loaders: [{
+        name: "directory-replacement",
+        async load({ store }) {
+          await store.rm("docs", { recursive: true })
+          await store.writeFile("docs", { path: "docs", content: "loader" })
+        },
+      }],
+    } satisfies WorkspaceDefinition
+    await createWorkspaceSourceView(definition, store).materializeSources()
+
+    await expect(syncWorkspaceDefinition(definition, store)).resolves.toBeUndefined()
+
+    const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSource("generated", definition.sources.generated))
+    expect(snapshot?.status).toBe("updating")
+    expect(snapshot?.items).not.toHaveProperty("docs/child.md")
+    expect(snapshot?.items).toHaveProperty("retained.md")
+    expect(decodeFile((await store.readFile("docs"))?.content ?? "", { encoding: "utf8" })).toBe("loader")
+  })
+
   it.each(["memory", "local"] as const)("restores unattributed loader writes through an existing %s Workspace view", async (provider) => {
     const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
     const definition = {

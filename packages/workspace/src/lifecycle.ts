@@ -159,19 +159,30 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
 }
 
+async function readStartupSnapshotFile(store: WorkspaceStore, path: string) {
+  try {
+    return (await store.stat(path))?.type === "file" ? await store.readFile(path) : undefined
+  }
+  catch (error) {
+    // A loader can replace an ancestor directory with a file or remove it.
+    if (error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return undefined
+    throw error
+  }
+}
+
 async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[]) {
   for (const source of startupSources) {
     const snapshot = await readCurrentSourceSnapshot(store, source)
     if (!snapshot) continue
     for (const [path, recorded] of Object.entries(snapshot.items || {})) {
-      const file = (await store.stat(path))?.type === "file" ? await store.readFile(path) : undefined
+      const file = await readStartupSnapshotFile(store, path)
       if (await materializedFileMatches(file, recorded)) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
       const current = await readCurrentSourceSnapshot(store, source)
       if (!current) break
       const items = { ...current.items }
       for (const [itemPath, recordedItem] of Object.entries(items)) {
-        const item = (await store.stat(itemPath))?.type === "file" ? await store.readFile(itemPath) : undefined
+        const item = await readStartupSnapshotFile(store, itemPath)
         if (!await materializedFileMatches(item, recordedItem)) delete items[itemPath]
       }
       // Keep cleanup evidence for paths that build synchronization did not replace.
