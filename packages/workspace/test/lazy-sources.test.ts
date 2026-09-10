@@ -75,7 +75,7 @@ describe("lazy sources", () => {
       })])),
     })
 
-    await workspace.materializeSources()
+    await workspace.materializeSources?.()
     expect((await workspace.diff()).entries.map(entry => entry.path)).toEqual(["preexisting"])
     expect((await workspace.diff({ from: baseline })).entries.map(entry => entry.path)).toContain("generated")
 
