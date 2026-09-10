@@ -337,7 +337,7 @@ async function removeStaleMaterializedSourceFiles(
       // Local Stores lose file ownership metadata on restart. An indexed path
       // still belongs to the source only while its materialized content matches.
       const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
-      if (!file || !recordedDigest || await sha256(file.content) !== recordedDigest) continue
+      if (!file || !fileAttributesUnavailable(file) || !recordedDigest || await sha256(file.content) !== recordedDigest) continue
     }
     const overlapsAnotherSource = sources.some(candidate =>
       candidate.key !== source.key
@@ -439,7 +439,7 @@ async function reconcileRemovedStartupSourcesInternal(
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
       // Local Stores lose per-file metadata across restarts. Only recover ownership
       // from a persisted content digest, so edited user files remain untouched.
-      if (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest)) continue
+      if (owner !== source.key && !(owner === undefined && fileAttributesUnavailable(file) && recordedDigest && await sha256(file.content) === recordedDigest)) continue
       for (const currentSource of currentSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
@@ -751,7 +751,7 @@ async function materializeWorkspaceSourcesInternal(
         if (!file) return false
         if (file.metadata?.source !== undefined) return file.metadata.source === source.key
         const digest = existing?.items?.[path]?.materializedContentDigest
-        return Boolean(digest && await sha256(file.content) === digest)
+        return Boolean(fileAttributesUnavailable(file) && digest && await sha256(file.content) === digest)
       }))
       // A reused pathname alone cannot establish generated ownership. Local
       // Stores can recover missing metadata only from the recorded content.
@@ -766,6 +766,14 @@ async function materializeWorkspaceSourcesInternal(
     const itemMetadata: Record<string, LazyMaterializedMetadata> = retainPriorItems
       ? { ...existing?.items }
       : {}
+    // Do not persist old ownership evidence for an explicit replacement: a
+    // later Local Store restart would otherwise make it look unavailable.
+    if (source.materialize === "startup" && existing?.configHash !== configHash) {
+      for (const path of Object.keys(itemMetadata)) {
+        const file = await store.readFile(path)
+        if (!file || (!fileAttributesUnavailable(file) && file.metadata?.source !== source.key)) delete itemMetadata[path]
+      }
+    }
     if (completeSource) {
       assertCurrent()
       await control.mutate(() => writeSourceSnapshotMetadata(store, {

@@ -2832,7 +2832,7 @@ describe("lazy sources", () => {
     expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
   })
 
-  it.each(["memory", "local"].flatMap(kind => [false, true].map(retry => ({ kind, retry }))))("retains cleanup evidence through failed startup configuration refreshes on $kind with retry=$retry", async ({ kind, retry }) => {
+  it.each(["memory", "local"].flatMap(kind => [false, true].flatMap(retry => ["edited", "cleared", "claimed"].map(replacement => ({ kind, retry, replacement })))))("retains cleanup evidence through failed startup configuration refreshes on $kind with retry=$retry replacement=$replacement", async ({ kind, retry, replacement }) => {
     const root = await createRoot()
     const store = kind === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
     const definition = {
@@ -2852,7 +2852,12 @@ describe("lazy sources", () => {
       },
     }
     await createWorkspaceSourceView(definition, store).materializeSources()
-    await store.writeFile("edited.md", { path: "edited.md", content: "user edit" })
+    const replacementContent = replacement === "edited" ? "user edit" : "generated"
+    await store.writeFile("edited.md", {
+      path: "edited.md",
+      content: replacementContent,
+      ...(replacement === "claimed" ? { metadata: { source: "other" } } : {}),
+    })
     let fail = true
     const changed = {
       ...definition,
@@ -2888,7 +2893,7 @@ describe("lazy sources", () => {
     expect(Boolean(await reopened.stat("current.md"))).toBe(retry)
     const edited = await reopened.readFile("edited.md")
     expect(edited).toBeDefined()
-    expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
+    expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe(replacementContent)
   })
 
   it("does not reuse scoped startup evidence as a complete snapshot", async () => {
