@@ -928,7 +928,7 @@ describe("agent Vite plugin", () => {
     expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
   })
 
-  it("regenerates Agent outputs when an imported instruction document changes", async () => {
+  it("watches colocated instructions without expanding relative references", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-instruction-update-"))
     try {
@@ -955,7 +955,7 @@ describe("agent Vite plugin", () => {
         server: { moduleGraph: { getModuleById, invalidateModule } },
       })
 
-      expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
+      expect(invalidateModule).not.toHaveBeenCalled()
 
       invalidateModule.mockClear()
       await rm(join(agentRoot, "instructions.md"))

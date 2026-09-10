@@ -357,14 +357,12 @@ describe("hubEmail", () => {
     ] } })
   })
 
-  it("serializes development refreshes and watches imported templates", async () => {
+  it("serializes template refreshes and leaves relative references literal", async () => {
     const root = await createTempProject()
     const templatesRoot = join(root, "server", "emails")
-    const sharedTemplate = join(root, "server", "shared", "footer.md")
+    const template = join(templatesRoot, "monthly-recap.md")
     await mkdir(templatesRoot, { recursive: true })
-    await mkdir(join(root, "server", "shared"), { recursive: true })
-    await writeFile(join(templatesRoot, "monthly-recap.md"), "Hello\n@../shared/footer.md")
-    await writeFile(sharedTemplate, "First footer")
+    await writeFile(template, "Hello\n@../shared/footer.md")
     // SAFETY: hosting is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({
       driver: "resend",
@@ -394,32 +392,26 @@ describe("hubEmail", () => {
       ws: { send },
     })
 
-    await writeFile(sharedTemplate, "Updated footer")
-    handlers.get("change")?.(sharedTemplate)
-    handlers.get("change")?.(sharedTemplate)
+    await writeFile(template, "Updated footer")
+    handlers.get("change")?.(template)
+    handlers.get("change")?.(template)
 
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     expect(invalidateModule).toHaveBeenCalledWith(generatedModule)
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Updated footer")
 
-    await writeFile(join(templatesRoot, "monthly-recap.md"), "@../shared/missing.md")
-    handlers.get("change")?.(join(templatesRoot, "monthly-recap.md"))
-    handlers.get("change")?.(join(templatesRoot, "monthly-recap.md"))
-
-    await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(2))
-    const missingTemplate = join(root, "server", "shared", "missing.md")
-    expect(addWatchPaths).toHaveBeenCalledWith(expect.arrayContaining([missingTemplate]))
-    expect(send).toHaveBeenCalledOnce()
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-      .toContain("Updated footer")
-
-    await writeFile(missingTemplate, "Recovered footer")
-    handlers.get("add")?.(missingTemplate)
+    await writeFile(template, "@../shared/missing.md")
+    handlers.get("change")?.(template)
+    handlers.get("change")?.(template)
 
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
+    expect(logError).not.toHaveBeenCalled()
+    expect(addWatchPaths).not.toHaveBeenCalledWith(expect.arrayContaining([
+      join(root, "server", "shared", "missing.md"),
+    ]))
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-      .toContain("Recovered footer")
+      .toContain("@../shared/missing.md")
   })
 
   it("uses the development Nitro preset instead of the deployment target", async () => {

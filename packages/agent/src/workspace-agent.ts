@@ -28,7 +28,6 @@ import {
   collectStaticInstructionCoverage,
   createInstructionCoverage,
   composeInstructionDocument,
-  resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
@@ -979,33 +978,6 @@ function getNodeBuiltin(name: string): unknown {
   }
 }
 
-function resolveInstructionImportFromFile(specifier: string, importer: string): { content: string, file: string } {
-  const fs = getNodeBuiltin("node:fs")
-  const path = getNodeBuiltin("node:path")
-  if (!fs || !path) {
-    throw agentDiagnostics.AGENT_R0884({ message: `[vitehub] Instruction import "${specifier}" requires local filesystem access.` })
-  }
-  const file = path.resolve(path.dirname(importer), specifier)
-  return {
-    content: fs.readFileSync(file, "utf8"),
-    file,
-  }
-}
-
-export async function resolveInstructionDocumentImports(content: string, file: string): Promise<string> {
-  return await resolveInstructionImports(content, {
-    file,
-    read: resolveInstructionImportFromFile,
-  })
-}
-
-export async function resolveColocatedAgentInstructionDocument(content: string, sourceRootDir: string | undefined): Promise<string> {
-  const fs = getNodeBuiltin("node:fs")
-  const path = getNodeBuiltin("node:path")
-  if (!fs || !path || !sourceRootDir || !hasColocatedAgentInstructions(sourceRootDir)) return content
-  return await resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
-}
-
 async function composeInstructions(
   content: string,
   context?: AgentInvocationContextStore,
@@ -1372,12 +1344,6 @@ export async function resolveWorkspaceAgentDefaultInstructions<
   catch {}
   if (!content) return undefined
 
-  const fs = getNodeBuiltin("node:fs")
-  const path = getNodeBuiltin("node:path")
-  const sourceRootDir = definition.sourceRootDir
-  if (fs && path && sourceRootDir && hasColocatedAgentInstructions(sourceRootDir)) {
-    return await resolveColocatedAgentInstructionDocument(content, sourceRootDir)
-  }
   return content
 }
 

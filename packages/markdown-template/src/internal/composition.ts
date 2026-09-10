@@ -1,9 +1,3 @@
-export {
-  renderMarkdownTemplateInternal,
-  resolveMarkdownTemplateImports,
-} from "../render.ts"
+export { renderMarkdownTemplateInternal } from "../render.ts"
 
-export type {
-  RenderMarkdownTemplateInternalOptions,
-  ResolveMarkdownTemplateImportsOptions,
-} from "../types.ts"
+export type { RenderMarkdownTemplateInternalOptions } from "../types.ts"

@@ -1,9 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
-import {
-  renderMarkdownTemplateInternal,
-  resolveMarkdownTemplateImports,
-} from "../src/internal/composition.ts"
+import { renderMarkdownTemplateInternal } from "../src/internal/composition.ts"
 import { renderMarkdownTemplate } from "../src/index.ts"
 
 describe("renderMarkdownTemplate", () => {
@@ -160,9 +157,6 @@ describe("renderMarkdownTemplate", () => {
           inline: "**raw Markdown**",
         },
       },
-      resolveImport: async () => {
-        throw new Error("fragment imports must not resolve")
-      },
     })).toBe([
       "# Review",
       "",
@@ -292,22 +286,19 @@ describe("renderMarkdownTemplate", () => {
         enabled: true,
         section: "**Trusted** guidance.",
       },
-      resolveImport: async () => ({ id: "/detail.md", template: "Imported detail." }),
-      sourceId: "/instructions.md",
     })).toBe([
       "<policy>",
       "Use Acme.",
       "",
       "**Trusted** guidance.",
       "",
-      "Imported detail.",
+      "@./detail.md",
       "",
       "</policy>",
     ].join("\n"))
   })
 
   it("keeps bindings, fragments, branches, and imports literal in code", async () => {
-    const resolveImport = vi.fn(() => ({ id: "/used.md", template: "Used" }))
     const template = [
       "`{{ name }}`",
       "``{{{ section }}}``",
@@ -338,8 +329,6 @@ describe("renderMarkdownTemplate", () => {
 
     expect(await renderMarkdownTemplate(template, {
       data: { enabled: true, name: "Acme", section: "Rendered" },
-      resolveImport,
-      sourceId: "/instructions.md",
     })).toBe([
       "`{{ name }}`",
       "`{{{ section }}}`",
@@ -363,10 +352,8 @@ describe("renderMarkdownTemplate", () => {
       "",
       "`{{ name }} {{{ section }}} ::if{enabled} @./ignored.md :: `",
       "",
-      "Used",
+      "@./used.md",
     ].join("\n"))
-    expect(resolveImport).toHaveBeenCalledOnce()
-    expect(resolveImport).toHaveBeenCalledWith("./used.md", "/instructions.md")
   })
 
   it("preserves blank lines inside fenced code", async () => {
@@ -388,78 +375,9 @@ describe("renderMarkdownTemplate", () => {
     expect(rendered).not.toBe("Injected")
   })
 
-  it("resolves nested relative imports by canonical id", async () => {
-    const files = new Map([
-      ["/nested.md", "## Nested\n@./policy.md"],
-      ["/policy.md", "::if{enabled}\nPolicy for {{ customer.name }}\n::"],
-    ])
-    const resolveImport = vi.fn(async (specifier: string, importer: string) => {
-      const id = new URL(specifier, `file://${importer}`).pathname
-      const imported = files.get(id)
-      return imported === undefined ? undefined : { id, template: imported }
-    })
-
-    expect(await renderMarkdownTemplate("# Base\n@./nested.md", {
-      data: { customer: { name: "Acme" }, enabled: true },
-      resolveImport,
-      sourceId: "/instructions.md",
-    })).toBe([
-      "# Base",
-      "",
-      "## Nested",
-      "",
-      "Policy for Acme",
-    ].join("\n"))
-    expect(resolveImport).toHaveBeenNthCalledWith(1, "./nested.md", "/instructions.md")
-    expect(resolveImport).toHaveBeenNthCalledWith(2, "./policy.md", "/nested.md")
-  })
-
-  it("resolves imports without evaluating the template", async () => {
-    await expect(resolveMarkdownTemplateImports([
-      "Hello {{ name }}.",
-      "@workspace.policy",
-      "@mention",
-    ].join("\n"), {
-      resolveBareImport: async specifier => specifier === "workspace.policy"
-        ? { id: specifier, template: "::if{enabled}\nPolicy\n::" }
-        : undefined,
-    })).resolves.toBe([
-      "Hello {{ name }}.",
-      "::if{condition=\"enabled\"}",
-      "Policy",
-      "::",
-      "@mention",
-    ].join("\n"))
-
-    await expect(resolveMarkdownTemplateImports("@./policy.md", {
-      resolveImport: async () => ({ id: "/policy.md", template: "::if{enabled}\nPolicy" }),
-    })).rejects.toThrow("missing a closing")
-  })
-
-  it("leaves relative-looking text literal when no resolver is provided", async () => {
-    await expect(renderMarkdownTemplate("Read @./policy.md")).resolves.toBe("Read @./policy.md")
-  })
-
-  it("rejects invalid imports, cycles, and depth overflow", async () => {
-    const resolveImport = async (specifier: string) => ({ id: specifier, template: `@${specifier}` })
-
-    await expect(renderMarkdownTemplate("@https://example.com/policy.md", {
-      resolveImport,
-    })).rejects.toThrow("must be a relative path")
-    await expect(renderMarkdownTemplate("@./*.md", {
-      resolveImport,
-    })).rejects.toThrow("cannot use globs")
-    await expect(renderMarkdownTemplate("@./missing.md", {
-      resolveImport: async () => undefined,
-    })).rejects.toThrow("could not be resolved")
-    await expect(renderMarkdownTemplate("@./a.md", {
-      resolveImport: async () => ({ id: "/root.md", template: "Again" }),
-      sourceId: "/root.md",
-    })).rejects.toThrow("Circular Markdown template import")
-    await expect(renderMarkdownTemplate("@./a.md", {
-      maxImportDepth: 1,
-      resolveImport,
-    })).rejects.toThrow("import depth exceeded 1")
+  it("keeps former import syntax literal", async () => {
+    const template = "@./missing.md @../policy.md @workspace.policy @https://example.com/policy.md"
+    await expect(renderMarkdownTemplate(template)).resolves.toBe(template)
   })
 
   it("rejects missing, null, and non-scalar values", async () => {

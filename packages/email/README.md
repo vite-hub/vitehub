@@ -61,7 +61,7 @@ The official [`email()` Agent Capability](https://vitehub.dev/docs/capabilities/
 
 ## Compose dynamic Markdown
 
-`renderEmailMarkdown()` resolves `@vite-hub/markdown-template` data, conditions, fragments, and caller-provided imports before Comark renders the HTML body.
+`renderEmailMarkdown()` resolves `@vite-hub/markdown-template` data, conditions, and fragments before Comark renders the HTML body.
 
 ```ts
 import { email } from "@vite-hub/email/server"
@@ -105,7 +105,7 @@ Nested paths keep their relative name. For example,
 to `.vitehub/types/email.d.ts` and bundles templates for provider builds under
 `.vitehub/email/templates`.
 
-The renderer does not sanitize authored HTML, trusted Markdown fragments, or imported templates, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `{{{ fragment }}}` binding or import.
+The renderer does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `{{{ fragment }}}` binding.
 
 ## Test without delivery
 

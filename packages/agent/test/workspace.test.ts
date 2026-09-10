@@ -1248,7 +1248,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(agentSettings.at(-1)?.instructions).toBe([
-      "# Support\n\nImported policy.",
+      "# Support\n\n@./policy.md",
       "Use technical detail for Acme.",
       "## Runtime policy\n\nUse trusted runtime context.",
       "Use docs for Acme.",
@@ -1372,7 +1372,7 @@ describe("defineAgent workspace option", () => {
         instructions: [
           "Use {{ workspace.tone }} tone.",
           "Inline {{ workspace.policy }}",
-          "@workspace.policy",
+          "{{{ workspace.policy }}}",
         ],
         model: {} as never
       },

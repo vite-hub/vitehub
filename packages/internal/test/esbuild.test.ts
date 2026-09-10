@@ -935,13 +935,14 @@ describe("bundleEsmEntry", () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "babysitter.schedule.mjs")
     const template = join(rootDir, "prompt.template.md")
-    const partial = join(rootDir, "context.md")
+    const partial = join(rootDir, "context.template.md")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(template, "@./context.md.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./context.md\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(template, "{{{ detail }}}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
     await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.template.md"`,
-      `export default () => prompt({ blocker: "> Waiting", context: { number: 42 } })`,
+      `import detail from "./context.template.md"`,
+      `export default async () => prompt({ blocker: "> Waiting", detail: await detail({ context: { number: 42 } }) })`,
       ``,
     ].join("\n"), "utf8")
 
@@ -955,10 +956,10 @@ describe("bundleEsmEntry", () => {
 
     // SAFETY: This bundle's entry module exports an async Markdown template renderer.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("Review PR 42..\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\nReview PR 42.\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
   })
 
-  it("fails when a bundled Markdown template import is missing", async () => {
+  it("keeps missing import text literal in bundled Markdown templates", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
     const outfile = join(rootDir, "bundle.mjs")
@@ -966,8 +967,10 @@ describe("bundleEsmEntry", () => {
     await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default prompt\n', "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
-    await expect(bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir }))
-      .rejects.toThrow("Could not resolve")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+    // SAFETY: The fixture exports the renderer built above.
+    const bundled = await import(pathToFileURL(outfile).href) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("@./missing.md")
   })
 
   it("resolves root-absolute raw imports from the Vite root", async () => {
@@ -1039,13 +1042,13 @@ describe("bundleEsmEntry", () => {
     expect(loaded.default).toBe("caller handled raw")
   })
 
-  it("bundles partials from direct Markdown template imports", async () => {
+  it("composes separately rendered Markdown template fragments", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
     const template = join(rootDir, "prompt.template.md")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(entry, 'import render from "./prompt.template.md"\nexport default render\n', "utf8")
-    await writeFile(template, "Hello @./partial.template.md", "utf8")
+    await writeFile(entry, 'import render from "./prompt.template.md"\nimport partial from "./partial.template.md"\nexport default async data => render({ partial: await partial(data) })\n', "utf8")
+    await writeFile(template, "Hello {{{ partial }}}", "utf8")
     await writeFile(join(rootDir, "partial.template.md"), "{{ name }}!", "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")

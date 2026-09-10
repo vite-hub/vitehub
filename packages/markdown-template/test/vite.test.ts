@@ -14,7 +14,7 @@ import {
 import { build } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { extractMarkdownTemplateImportSpecifiers, markdownTemplateMaterializationPath, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
+import { markdownTemplateMaterializationPath, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
 import { hubMarkdownTemplate } from "../src/vite.ts"
 
 const tempDirs: string[] = []
@@ -69,22 +69,18 @@ describe("hubMarkdownTemplate", () => {
     }, "/app/reply.template.md")).resolves.toBe("/app/reply.template.md?markdown-template")
   })
 
-  it("extracts imports from indented paragraph continuations", () => {
-    expect(extractMarkdownTemplateImportSpecifiers("Intro\n    @./context.md\n")).toEqual(["./context.md"])
-    expect(extractMarkdownTemplateImportSpecifiers("    @./example.md\n")).toEqual([])
-  })
-
   it("bundles caller-relative templates as typed render functions", async () => {
     const root = await createRoot()
     const entry = join(root, "babysitter.schedule.ts")
     const template = join(root, "prompt.template.md")
-    const partial = join(root, "context.md")
+    const partial = join(root, "context.template.md")
     const outfile = join(root, "dist", "schedule.mjs")
-    await writeFile(template, "# Babysitter\n\n@./context.md.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./context.md\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(template, "# Babysitter\n\n{{{ detail }}}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
     await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.template.md"`,
-      `export default (): Promise<string> => prompt({ blocker: "> Waiting", context: { number: 42 } })`,
+      `import detail from "./context.template.md"`,
+      `export default async (): Promise<string> => prompt({ blocker: "> Waiting", detail: await detail({ context: { number: 42 } }) })`,
       ``,
     ].join("\n"), "utf8")
 
@@ -107,7 +103,7 @@ describe("hubMarkdownTemplate", () => {
     await Promise.all([rm(template), rm(partial)])
     // SAFETY: The fixture entry exports the declared default function and is built immediately above.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42..\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\nReview PR 42.\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
     const typesPath = join(root, ".vitehub", "types", "markdown-template.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain(`declare module "*.template.md"`)
 
@@ -160,17 +156,20 @@ describe("hubMarkdownTemplate", () => {
     await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
   }, 15_000)
 
-  it("fails the build when a bundled template import is missing", async () => {
+  it("keeps missing import text literal when building a template", async () => {
     const root = await createRoot()
     const entry = join(root, "entry.ts")
     await writeFile(join(root, "prompt.template.md"), "@./missing.md\n", "utf8")
     await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default prompt\n', "utf8")
 
-    await expect(build({
-      build: { lib: { entry, formats: ["es"] }, outDir: join(root, "dist") },
+    await build({
+      build: { lib: { entry, fileName: () => "entry.mjs", formats: ["es"] }, outDir: join(root, "dist") },
       logLevel: "silent",
       plugins: [hubMarkdownTemplate()],
       root,
-    })).rejects.toThrow("Could not resolve Markdown template import")
+    })
+    // SAFETY: The fixture exports the renderer built above.
+    const bundled = await import(pathToFileURL(join(root, "dist", "entry.mjs")).href) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("@./missing.md")
   })
 })

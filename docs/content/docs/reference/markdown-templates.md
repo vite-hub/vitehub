@@ -52,7 +52,7 @@ export const replies = {
 
 The `vitehub()` preset installs the template module integration. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both forms generate the ambient module type under `.vitehub/types`, which the application `tsconfig.json` must include.
 
-Imported fragments can remain ordinary `.md` files.
+Compose shared sections in TypeScript by rendering another template and passing the result as a Markdown fragment.
 
 ## Render a template string
 
@@ -102,9 +102,8 @@ Title: Refine navigation
 | Syntax | Purpose | Behavior |
 | --- | --- | --- |
 | `{{ path.to.value }}` | Scalar binding | Accepts a string, number, or boolean and escapes Markdown syntax in the value. A scalar may occupy a complete inline link destination, such as `[Open]({{ url }})`; unsafe destinations and values whose URL meaning cannot be preserved fail rendering. Missing paths and non-scalar values fail rendering. |
-| `{{{ path.to.markdown }}}` | Markdown fragment | Inserts trusted Markdown without evaluating bindings, conditions, or imports inside the fragment again. Block Markdown is rejected when the binding appears in an inline position. |
+| `{{{ path.to.markdown }}}` | Markdown fragment | Inserts trusted Markdown without evaluating bindings or conditions inside the fragment again. Block Markdown is rejected when the binding appears in an inline position. |
 | `::if{condition}` | Conditional section | Selects an `if`, `else-if`, or `else` branch. Conditions support data paths, literals, `!`, equality and inequality (`===`, `!==`, `==`, and `!=` use strict semantics), `&&`, <code>&#124;&#124;</code>, and parentheses. |
-| `@./relative.md` | Template import | Calls `resolveImport` for a relative file. Absolute paths, URLs, and globs are rejected. |
 | `{{ value }}` in a quoted XML-style attribute | Attribute binding | Escapes HTML attribute characters before inserting the scalar value. |
 
 Template syntax inside code spans, fenced code blocks, and indented code blocks remains literal. Authored XML-style tags remain in the rendered Markdown.
@@ -116,37 +115,14 @@ Template syntax inside code spans, fenced code blocks, and indented code blocks 
 | Option | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `data` | `Record<string, unknown>` | `{}` | Supplies values for scalar bindings, fragments, and conditions. Paths resolve own properties only. |
-| `maxImportDepth` | `number` | `4` | Limits nested imports when `resolveImport` is present. Use a non-negative integer; `0` rejects every import. |
-| `resolveImport` | `ResolveMarkdownTemplateImport` | none | Resolves one relative specifier against the current canonical source id. Without it, relative-looking text remains literal. |
-| `sourceId` | `string` | `<template>` | Identifies the root template for relative resolution and circular-import detection. |
 
-The import resolver returns `{ id, template }`, where `id` is the canonical identity used for nested imports and cycle detection.
-
-```ts [src/render-instructions.ts]
-import { readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
-import { renderMarkdownTemplate } from '@vite-hub/markdown-template'
-
-const sourceId = resolve('instructions/review.md')
-const template = await readFile(sourceId, 'utf8')
-
-const markdown = await renderMarkdownTemplate(template, {
-  data: { repository: { name: 'vite-hub/vitehub' } },
-  sourceId,
-  async resolveImport(specifier, importer) {
-    const id = resolve(dirname(importer), specifier)
-    return { id, template: await readFile(id, 'utf8') }
-  },
-})
-```
-
-The resolver owns filesystem, URL, authorization, and caching policy. ViteHub resolves imports before evaluating conditional sections, rejects missing resolutions, and stops circular imports, so the resolver must authorize every requested import even when it appears inside an unselected branch.
+Template text such as `@./policy.md` stays literal. Render reusable sections explicitly and insert the results through `{{{ path.to.markdown }}}`.
 
 ## Security and limits
 
 Scalar escaping prevents untrusted values from becoming Markdown syntax, but rendered Markdown is still data for the next consumer. Triple-bound fragments are trusted input and do not create an instruction or security boundary for a model.
 
-The package deliberately has no loops, helpers, macros, compile phase, HTML renderer, implicit filesystem access, or public syntax-tree API. Prepare repeated sections in application code, pass the finished Markdown as a fragment, and keep import access inside `resolveImport`.
+The package deliberately has no loops, helpers, macros, compile phase, HTML renderer, implicit filesystem access, or public syntax-tree API. Prepare repeated sections in application code, pass the finished Markdown as a fragment.
 
 ## Related pages
 

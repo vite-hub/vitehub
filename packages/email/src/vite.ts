@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises"
+import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -8,7 +8,6 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
-import { extractMarkdownTemplateImportSpecifiers } from "@vite-hub/markdown-template/internal/vite"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -251,19 +250,6 @@ function renderEmailTemplateTypes(names: string[]): string {
   ].join("\n")).join("\n\n") + (names.length ? "\n" : "")
 }
 
-async function collectEmailTemplateDependencies(files: string[], dependencies: Set<string>): Promise<void> {
-  const visit = async (file: string) => {
-    const template = await readFile(file, "utf8")
-    for (const specifier of extractMarkdownTemplateImportSpecifiers(template)) {
-      const dependency = resolve(dirname(file), specifier)
-      if (dependencies.has(dependency)) continue
-      dependencies.add(dependency)
-      await visit(dependency)
-    }
-  }
-  for (const file of files) await visit(file)
-}
-
 interface EmailTemplate {
   file: string
   name: string
@@ -358,7 +344,6 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     if (options.materialize) {
       const nextWatchFiles = new Set(files)
       try {
-        await collectEmailTemplateDependencies(files, nextWatchFiles)
         await materializeEmailTemplates(templates, materializedRoot, options.projectRoot)
       }
       finally {

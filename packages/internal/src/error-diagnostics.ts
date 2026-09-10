@@ -50,8 +50,6 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_B0038: dynamicError,
     INTERNAL_B0039: dynamicError,
     INTERNAL_B0040: dynamicError,
-    INTERNAL_B0041: dynamicError,
-    INTERNAL_B0042: dynamicError,
     INTERNAL_B0043: dynamicError,
     INTERNAL_B0044: dynamicError,
     INTERNAL_B0045: dynamicError,

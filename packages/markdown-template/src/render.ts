@@ -2,7 +2,6 @@ import { characterEntitiesLegacy } from "character-entities-legacy"
 import { renderMarkdown } from "comark/render"
 
 import { evaluateCondition, templatePathValue } from "./condition.ts"
-import { expandMarkdownTemplateImports } from "./imports.ts"
 import {
   cleanMarkdown,
   createMarkdownTemplateRuntime,
@@ -14,7 +13,6 @@ import type { MarkdownTemplateRuntime } from "./markdown.ts"
 import type {
   RenderMarkdownTemplateInternalOptions,
   RenderMarkdownTemplateOptions,
-  ResolveMarkdownTemplateImportsOptions,
 } from "./types.ts"
 import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -33,7 +31,6 @@ interface TemplateTokenState {
   values: string[]
 }
 
-const defaultImportDepth = 4
 const templatePathSource = String.raw`[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*`
 const templatePathPattern = new RegExp(`^${templatePathSource}$`)
 const tripleBindingPattern = new RegExp(String.raw`\{\{\{\s*(${templatePathSource})\s*\}\}\}`, "g")
@@ -50,16 +47,6 @@ interface TemplatePreparation {
   tagTokens: TemplateTokenState
 }
 
-export async function resolveMarkdownTemplateImports(
-  template: string,
-  options: ResolveMarkdownTemplateImportsOptions,
-): Promise<string> {
-  assertTemplate(template)
-  const preparation = createTemplatePreparation()
-  const imported = await expandPreparedImports(await preparation.prepare(template), options, preparation)
-  return restoreTemplateTokens(restoreTemplateTags(imported, preparation.tagTokens), preparation.protectedTokens)
-}
-
 export async function renderMarkdownTemplate(
   template: string,
   options: RenderMarkdownTemplateOptions = {},
@@ -74,16 +61,9 @@ export async function renderMarkdownTemplateInternal(
   assertTemplate(template)
   const data = options.data ?? {}
   const preparation = createTemplatePreparation()
-  const shorthand = await preparation.prepare(template)
-  const imported = options.resolveImport
-    ? await expandPreparedImports(shorthand, {
-        maxImportDepth: options.maxImportDepth,
-        resolveImport: options.resolveImport,
-        sourceId: options.sourceId,
-      }, preparation)
-    : shorthand
-  validateConditionalDirectives(await directiveValidationSource(imported))
-  const normalizedLinks = await normalizeLinkBindings(imported)
+  const prepared = await preparation.prepare(template)
+  validateConditionalDirectives(await directiveValidationSource(prepared))
+  const normalizedLinks = await normalizeLinkBindings(prepared)
   const fragmentToken = `VITEHUBMARKDOWNTEMPLATEFRAGMENT${crypto.randomUUID().replaceAll("-", "")}`
   const normalized = await normalizeTripleBindings(normalizedLinks.template, fragmentToken, preparation.runtime)
   const tree = await parseTemplateMarkdown(normalized.template, true)
@@ -252,21 +232,6 @@ function restoreLiteralDirectives(template: string, state: TemplateTokenState): 
   )
 }
 
-async function expandPreparedImports(
-  template: string,
-  options: ResolveMarkdownTemplateImportsOptions,
-  preparation: TemplatePreparation,
-): Promise<string> {
-  return await expandMarkdownTemplateImports(template, {
-    maxImportDepth: options.maxImportDepth ?? defaultImportDepth,
-    prepare: preparation.prepare,
-    resolveBareImport: options.resolveBareImport,
-    resolveImport: options.resolveImport,
-    runtime: preparation.runtime,
-    sourceId: options.sourceId ?? "<template>",
-  })
-}
-
 function maskTemplateTags(
   template: string,
   state: TemplateTokenState,
@@ -328,10 +293,6 @@ async function protectCodeTemplateSyntax(
   })
   masked = masked.replace(/\{\{\{[^{}\r\n]*\}\}\}|\{\{[^{}\r\n]*\}\}/g, (binding) => {
     const index = candidates.push({ kind: "syntax", value: binding }) - 1
-    return `${prefix}${index}END`
-  })
-  masked = masked.replace(/@[^\s<>{}[\]]+/g, (specifier) => {
-    const index = candidates.push({ kind: "syntax", value: specifier }) - 1
     return `${prefix}${index}END`
   })
   if (!candidates.length) return template
