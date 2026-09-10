@@ -26,6 +26,35 @@ afterEach(async () => {
 })
 
 describe("Workspace Source Sync", () => {
+  it.each([
+    { provider: "local", sync: true }, { provider: "memory", sync: true },
+    { provider: "local", sync: false }, { provider: "memory", sync: false },
+  ])("materializes optional Source metadata: $provider, sync=$sync", async ({ provider, sync }) => {
+    const root = await createRoot()
+    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const metadata = { title: "Readme", optional: undefined, nested: { keep: true, optional: undefined } }
+    registerWorkspace("optional-metadata", defineWorkspace({
+      store,
+      sources: {
+        docs: {
+          sync: sync ? true : undefined,
+          materialize: sync ? undefined : "lazy",
+          async getKeys() { return ["README.md"] },
+          async getItem(key: string) { return { key, content: "# Readme", metadata } },
+        },
+      },
+    }))
+    const workspace = await useRegisteredWorkspace("optional-metadata")
+    if (sync) await workspace.sync({ sources: ["docs"] })
+    else await workspace.readFile("docs/README.md")
+    const reader = provider === "local" ? createLocalWorkspaceStore(root) : store
+    const file = await reader.readFile("docs/README.md")
+    expect(file?.metadata).toMatchObject({ title: "Readme", nested: { keep: true }, source: "docs" })
+    expect(file?.metadata).not.toHaveProperty("optional")
+    expect(file?.metadata?.nested).not.toHaveProperty("optional")
+    expect(metadata).toHaveProperty("optional")
+  })
+
   it("requires explicit source selection and materializes sync-only sources on demand", async () => {
     registerWorkspace("explicit-sync", defineWorkspace({
       store: { provider: "memory" },

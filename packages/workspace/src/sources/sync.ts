@@ -1,6 +1,7 @@
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
+import { normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath } from "./source-items.ts"
 import {
@@ -155,11 +156,11 @@ async function planSourceSync(
       path,
       content,
       mediaType: item.mediaType,
-      metadata: {
+      metadata: normalizeSourceFileMetadata({
         ...item.metadata,
         source: source.key,
         sourcePath,
-      },
+      }),
     })
   }
 

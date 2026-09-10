@@ -5,6 +5,7 @@ import { workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
+import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
@@ -138,15 +139,6 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
 
 function contentSize(content: string | Uint8Array) {
   return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
-}
-
-function normalizeMetadataValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeMetadataValue)
-  if (!value || Object.getPrototypeOf(value) !== Object.prototype) return value
-  return Object.fromEntries(Object.entries(value)
-    .filter(([, entry]) => entry !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) => [key, normalizeMetadataValue(entry)]))
 }
 
 function observableFileMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -536,11 +528,11 @@ export async function materializeWorkspaceSources(
         const previousStat = await store.stat(path)
         const previous = entry.contentStream && store.writeFileStream ? undefined : await store.readFile(path)
         const previousExists = previousStat?.type === "file" || Boolean(previous)
-        const fileMetadata = {
+        const fileMetadata = normalizeSourceFileMetadata({
           ...metadata,
           ...entry.metadata,
           source: source.key,
-        }
+        })
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
