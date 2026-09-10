@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
+import { browserSkillContent } from "../src/internal/browser-skill.ts"
+
 import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
 import { defineWorkspace, useWorkspace } from "@vite-hub/workspace"
 import { registerWorkspace } from "@vite-hub/workspace/test"
@@ -818,7 +820,7 @@ describe("agent capability runtime", () => {
     registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     await workspace.fs.writeFile(".agents/skills/coding/SKILL.md", "# Coding\n")
-    if (existingSkill) await workspace.fs.writeFile(skillPath, "# Browser\nUse bash.\n")
+    if (existingSkill) await workspace.fs.writeFile(skillPath, browserSkillContent("# Browser\nUse bash.\n"))
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUse bash.\n" })],
@@ -844,7 +846,7 @@ describe("agent capability runtime", () => {
       },
     ])
     expect(resolved.workspaceDefinition?.rules?.["screenshots/**"]).toEqual({ commit: true, write: true })
-    await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Browser\nUse bash.\n")
+    await expect(workspace.fs.readFile(skillPath)).resolves.toBe(browserSkillContent("# Browser\nUse bash.\n"))
     await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
     expect((await workspace.fs.stat(skillPath)).metadata?.capabilityWorkspaceContribution).toMatchObject({ capabilityId: "browser" })
     await resolveAgentCapabilities({
@@ -853,7 +855,7 @@ describe("agent capability runtime", () => {
       driverKind: "provider",
       workspaceDefinition: { name: workspaceName, sources: {} },
     })
-    await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Browser\nUpdated guidance.\n")
+    await expect(workspace.fs.readFile(skillPath)).resolves.toBe(browserSkillContent("# Browser\nUpdated guidance.\n"))
     await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
     if (directEdit) await writeFile(join(workspaceRoot, skillPath), "# Custom browser skill\n")
     else await workspace.fs.writeFile(skillPath, "# Custom browser skill\n")
@@ -925,6 +927,32 @@ describe("agent capability runtime", () => {
     expect(browser().metadata).toMatchObject({ runtime: "managed" })
     expect(browser({ runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
     expect(browser({ command: "custom-browser" }).metadata).toMatchObject({ runtime: "external" })
+  })
+
+  it.each([undefined, "custom-browser"])("activates retained custom browser guidance only with the capability: %s", async (command) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const { browserRuntimeEnvironment } = await import("../src/internal/browser-runtime.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const context = createAgentInvocationContextStore()
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [browser({ command, runtime: "external", skillContent: "Run custom-browser." })],
+    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      context,
+      driverKind: "provider",
+      workspaceDefinition: { name: "review", sources: {} },
+    })
+    expect(browserRuntimeEnvironment(context)).toEqual({ VITEHUB_BROWSER_ACTIVE: "1" })
+    expect(resolved.workspaceDefinition?.sources?.["skill.browser"]).toMatchObject({
+      content: expect.stringContaining("check that `VITEHUB_BROWSER_ACTIVE` is `1`"),
+    })
+    await expect(resolved.close()).resolves.toBeUndefined()
+    const nextContext = createAgentInvocationContextStore()
+    await resolveAgentCapabilities({ capabilities: [] }, runtime(), {}, emptyWorkspace() as never, "write", {
+      context: nextContext,
+      driverKind: "provider",
+    })
+    expect(browserRuntimeEnvironment(nextContext)).toBeUndefined()
   })
 
   it("rejects a custom command for the managed browser runtime", async () => {

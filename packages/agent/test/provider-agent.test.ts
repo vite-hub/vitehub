@@ -279,6 +279,27 @@ describe("Provider Agent Driver", () => {
     expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
   })
 
+  it.each([false, true])("scopes external browser availability to one invocation with launcher %s", async (customLaunch) => {
+    const threadId = "thread-external-browser"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId)
+    provideBrowserRuntimeEnvironment(runContext.context as never, { VITEHUB_BROWSER_ACTIVE: "1" })
+    const launch = vi.fn(() => ({ command: "ssh", args: ["host"] }))
+    const adapter = createProviderAgentAdapter({
+      provider: "codex",
+      env: { VITEHUB_BROWSER_ACTIVE: "1" },
+      ...(customLaunch ? { launch } : {}),
+    })
+    await adapter.generate(runContext as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toHaveProperty("VITEHUB_BROWSER_ACTIVE", "1")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+    expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
+
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await adapter.generate(context(threadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toHaveProperty("VITEHUB_BROWSER_ACTIVE", "0")
+  })
+
   it("rejects managed browser environment with a custom or remote launcher", async () => {
     const threadId = "thread-browser-remote-launch"
     const runContext = context(threadId)
@@ -328,7 +349,7 @@ describe("Provider Agent Driver", () => {
       expect(launchContext.environment).not.toHaveProperty("PATH")
       expect(launchContext.cwd).toContain("vitehub-provider-")
       expect(Object.isFrozen(launchContext.environment)).toBe(true)
-      expect(launchContext.requiredEnvironment).toEqual([])
+      expect(launchContext.requiredEnvironment).toEqual(["VITEHUB_BROWSER_ACTIVE"])
       expect(Object.isFrozen(launchContext.requiredEnvironment)).toBe(true)
       return {
         args: ["-e", 'require("node:fs").writeFileSync(process.env.LAUNCH_OUTPUT, JSON.stringify(process.argv.slice(1)))'],
@@ -370,7 +391,7 @@ describe("Provider Agent Driver", () => {
     await createProviderAgentAdapter({ launch, provider: "codex" }).generate(invocation as never)
 
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({
-      requiredEnvironment: ["T3_MCP_BEARER_TOKEN"],
+      requiredEnvironment: ["VITEHUB_BROWSER_ACTIVE", "T3_MCP_BEARER_TOKEN"],
     }))
   })
 

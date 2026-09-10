@@ -461,7 +461,7 @@ function parsedProviderLaunchDiagnostic(value: unknown): ProviderLaunchDiagnosti
 }
 
 function providerSecretEnvironmentKeys(environment: AgentProviderEnvironment | undefined, requiredEnvironment: readonly string[]): string[] {
-  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment, "CLIPROXY_API_KEY"])]
+  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment, "CLIPROXY_API_KEY"])].filter(key => key !== "VITEHUB_BROWSER_ACTIVE")
 }
 
 function providerLauncherSource(
@@ -2381,13 +2381,14 @@ async function* runProvider<
       ? (options.provider === "codex" ? "codex" : "claude")
       : providerExecutable
     const capabilityEnvironment = auxiliary ? undefined : browserRuntimeEnvironment(context.context)
-    if (options.launch !== undefined && capabilityEnvironment) {
+    if (options.launch !== undefined && capabilityEnvironment?.PATH) {
       throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
     }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...providerEnvironmentOverrides,
       ...capabilityEnvironment,
+      VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
       ...(capabilityEnvironment?.LD_LIBRARY_PATH
         ? { LD_LIBRARY_PATH: [capabilityEnvironment.LD_LIBRARY_PATH, providerEnvironmentOverrides?.LD_LIBRARY_PATH].filter(Boolean).join(delimiter) }
         : {}),
@@ -2401,6 +2402,7 @@ async function* runProvider<
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
       }
       const requiredEnvironment = Object.freeze([
+        "VITEHUB_BROWSER_ACTIVE",
         ...(codexCredentialHome ? ["CODEX_HOME"] : []),
         ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
       ])
@@ -2433,7 +2435,7 @@ async function* runProvider<
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       // Login profiles reset PATH and hide the invocation's managed browser CLI.
-      ...(options.provider === "codex" && capabilityEnvironment ? ['-c "allow_login_shell=false"'] : []),
+      ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
     // The runtime chooses environment arguments over settings. Give auxiliary

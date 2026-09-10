@@ -5,6 +5,7 @@ import { normalizeDeliveryArtifactPath } from "../delivery-artifacts.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { cloneWithPropertyDescriptors } from "../internal/stream-result.ts"
 import { browserRuntimeEnvironment, closeBrowserRuntimeSession, prepareBrowserRuntime, provideBrowserRuntimeEnvironment } from "../internal/browser-runtime.ts"
+import { browserSkillContent } from "../internal/browser-skill.ts"
 
 import type { AgentCapabilityDefinition, AgentDeliveryArtifact } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -151,10 +152,14 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
     async prepare(context) {
       if (context.driver?.kind !== "provider") throw agentDiagnostics.AGENT_R0026({ message: "[vitehub] browser() requires a Provider Agent Driver." })
-      if (runtimeMode !== "managed") return
+      if (runtimeMode !== "managed") {
+        provideBrowserRuntimeEnvironment(context.context, Object.freeze({ VITEHUB_BROWSER_ACTIVE: "1" }))
+        return
+      }
       const runtime = await prepareBrowserRuntime({ abortSignal: context.abortSignal })
       provideBrowserRuntimeEnvironment(context.context, Object.freeze({
         ...runtime.environment,
+        VITEHUB_BROWSER_ACTIVE: "1",
         AGENT_BROWSER_SESSION: `vh-${crypto.randomUUID().slice(0, 12)}`,
       }))
       if (options.skillContent === undefined) skillContent = runtime.skillContent
@@ -169,7 +174,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
       },
       sources: {
         [sourceKey]: {
-          content: skillContent,
+          content: browserSkillContent(skillContent),
           mediaType: "text/markdown",
           workspacePath: skillPath,
         },
