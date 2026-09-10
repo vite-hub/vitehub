@@ -7,6 +7,7 @@ const providerErrorEnvelopeSchema = v.object({
 })
 
 const agentTypeDiagnosticCodes = new Set([
+  "AGENT_R0924",
   "AGENT_R0923",
   "AGENT_R0922",
   "AGENT_R0921",

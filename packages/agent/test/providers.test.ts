@@ -3567,6 +3567,38 @@ describe("server helpers", () => {
     expect(schedules.create).not.toHaveBeenCalled()
   })
 
+  it("returns HTTP 400 for conflicting Claude prompt file arguments", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { agentDiagnostics } = await import("../src/agent-diagnostics.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(
+      // SAFETY: This fixture supplies the Agent contract exercised by the chat route.
+      defineAgent({
+        capabilities: [defineChatCapability()],
+        driver: {
+          run: () => {
+            throw agentDiagnostics.AGENT_R0924({ message: "Conflicting Claude prompt file arguments." })
+          },
+        },
+      }) as never,
+    )
+
+    const response = await handler(
+      new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          messages: [{ id: "user-1", parts: [{ text: "hello", type: "text" }], role: "user" }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      { agentName: "support" },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ code: "INTERNAL", error: "Agent request failed." })
+  })
+
   it("keeps manual chat route Schedule primitives explicit", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { schedule } = await import("../src/capabilities.ts")
