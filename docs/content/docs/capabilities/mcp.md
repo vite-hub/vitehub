@@ -160,3 +160,11 @@ Cover MCP usage guidance in Agent Driver Instructions with explicit Capability c
 - [Official capabilities](/docs/capabilities/official-capabilities)
 - [Custom capabilities](/docs/capabilities/custom-capabilities)
 - [AI SDK MCP tool-definition drift](https://ai-sdk.dev/docs/ai-sdk-core/mcp-tools#detecting-tool-definition-drift-rug-pull)
+
+## Inspect servers and tools
+
+Open an Invocation's **Capabilities** tab and select **MCP**. Each configured server has a recorded discovery status, sanitized connection metadata, and its tools. A tool shows its original MCP name, the name exposed to the Agent, its description, and recorded input and output JSON Schema.
+
+The snapshot distinguishes resolved servers, skipped optional servers, and resolution or discovery failures. Resolved servers can have no tools. These are observations from the selected Invocation, not current connection health. Opening the view does not reconnect or call tools. MCP resources mounted through Sources are outside this Capability's inventory.
+
+Enable `configuration: 'content'` on the Invocation journal to retain the custom view and tool contracts. Missing schemas are shown as not recorded. The built-in Console journal enables configuration capture.

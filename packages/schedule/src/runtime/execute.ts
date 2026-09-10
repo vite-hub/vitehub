@@ -156,7 +156,7 @@ function toHandlerContext(
   }
 }
 
-async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, store: ScheduleRunStore = getScheduleRunStore()): Promise<ScheduleRunRecord> {
+async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRecord, response: ScheduleRunRecord["response"], store: ScheduleRunStore = getScheduleRunStore()): Promise<ScheduleRunRecord> {
   const now = new Date()
   await store.updateAttempt(attempt.id, {
     completedAt: now,
@@ -165,6 +165,7 @@ async function completeRun(run: ScheduleRunRecord, attempt: ScheduleRunAttemptRe
   })
   return requireUpdatedRun(await store.updateRun(run.id, {
     completedAt: now,
+    response,
     status: "succeeded",
     updatedAt: now,
   }))
@@ -207,9 +208,13 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const localWaitUntil = createLocalWaitUntil()
   const waitUntil = options.waitUntil ?? localWaitUntil.waitUntil
   try {
-    await options.definition.handler(toHandlerContext(run, attempt, options.input, waitUntil))
+    const result = await options.definition.handler(toHandlerContext(run, attempt, options.input, waitUntil))
+    let response: ScheduleRunRecord["response"]
+    if (result instanceof Response) {
+      response = { status: result.status, statusText: result.statusText, headers: Object.fromEntries(result.headers), body: await result.clone().text() }
+    }
     if (!options.waitUntil) await localWaitUntil.flush()
-    return await completeRun(run, attempt, runStore)
+    return await completeRun(run, attempt, response, runStore)
   }
   catch (error) {
     if (!options.waitUntil) {

@@ -17,7 +17,7 @@ import { createGitHubHost } from "../src/server/github-host.ts";
 it("isolates provider credentials and git directories across concurrent checkouts", async () => {
   let token = 0
   const host = createGitHubHost({
-    credentials: () => ({ token: `token-${++token}`, rateLimitKey: "test" }),
+    credentials: ({ repository }) => ({ token: `${repository ?? "default"}:${++token}`, rateLimitKey: repository ?? "test" }),
     identity: { login: "worker" },
   });
   let release!: () => void;
@@ -26,7 +26,7 @@ it("isolates provider credentials and git directories across concurrent checkout
     release = resolve;
   });
   const directories = await Promise.all(
-    ["acme/one", "acme/two"].map((repository) =>
+    ["acme/one", "other/two"].map((repository) =>
       host.withPullRequestCheckout(
         { repository, number: 1, headSha: "a".repeat(40) },
         async (checkout) => {
@@ -34,6 +34,7 @@ it("isolates provider credentials and git directories across concurrent checkout
           await barrier;
           const env = await host.environment();
           expect(env.GH_TOKEN).toBe(checkout.token);
+          expect(env.GH_TOKEN).toMatch(new RegExp(`^${repository}:`));
           expect(env.GIT_DIR).toBe(`${checkout.path}/.git`);
           expect(env.GIT_WORK_TREE).toBe(".");
           return env.GIT_DIR;

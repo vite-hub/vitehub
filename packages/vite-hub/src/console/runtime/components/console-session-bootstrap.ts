@@ -34,9 +34,11 @@ export function resetCapabilityFilterForRouteTransition(options: {
   routeChanged: boolean;
   scheduleRefresh: () => void;
   selectedCapabilityId: Ref<string | undefined>;
+  selectedTriggeredBy?: Ref<string | undefined>;
 }): boolean {
-  if (options.preserve || !options.routeChanged || !options.selectedCapabilityId.value) return false;
+  if (options.preserve || !options.routeChanged || (!options.selectedCapabilityId.value && !options.selectedTriggeredBy?.value)) return false;
   options.selectedCapabilityId.value = undefined;
+  if (options.selectedTriggeredBy) options.selectedTriggeredBy.value = undefined;
   options.scheduleRefresh();
   return true;
 }

@@ -19,6 +19,9 @@ import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
 import { agentInvocationTraceIdContextKey } from "./trace.ts"
+import { setAgentCapabilityInspection } from "./internal/agent-telemetry.ts"
+import { inspectMcpToolProvenance } from "./tool-inspection.ts"
+import { copyToolMetadataWithOverrides, copyToolWithOverrides } from "./tool-runtime.ts"
 import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesResolverContext,
@@ -53,6 +56,7 @@ import type {
   AgentRunInput,
   AgentRuntimeConfig,
   AgentStaticCapabilitiesList,
+  AgentToolInspection,
   AgentToolSet,
   AgentToolStandardSchema,
   AgentToolTransform,
@@ -1311,6 +1315,15 @@ export async function resolveAgentCapabilities<
             registries.telemetryMetadata.push({ capabilityId: capability.id, metadata })
           },
         },
+        inspection: {
+          async set(state) {
+            await setAgentCapabilityInspection(invocationContext, capability.id, {
+              label: capability.inspection?.label ?? capability.id,
+              ...capability.inspection,
+              state,
+            })
+          },
+        },
         tools: {
           add(value) {
             if (!value) return
@@ -1519,15 +1532,66 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
   }
 }
 
+function withMcpMetadata(metadata: unknown, source: NonNullable<AgentToolInspection["mcp"]>): Record<string, unknown> {
+  const value = isRuntimeRecord(metadata) ? metadata : {}
+  return copyToolMetadataWithOverrides(value, { mcpServer: source.server, originalName: source.name })
+}
+
+function withMcpToolProvenance(tool: AgentToolSet[string], source: NonNullable<AgentToolInspection["mcp"]>): AgentToolSet[string] {
+  const definition = copyToolWithOverrides(tool, {})
+  let metadataDescriptor: PropertyDescriptor | undefined
+  for (let owner: object | null = definition; owner && !metadataDescriptor; owner = Object.getPrototypeOf(owner)) {
+    metadataDescriptor = Object.getOwnPropertyDescriptor(owner, "metadata")
+  }
+  const descriptor = metadataDescriptor ?? { configurable: true, enumerable: true, writable: true }
+  const attributedMetadata: PropertyDescriptor = "get" in descriptor || "set" in descriptor
+    ? { ...descriptor, get(this: AgentToolSet[string]) { return withMcpMetadata(descriptor.get?.call(this), source) } }
+    : { ...descriptor, value: withMcpMetadata(descriptor.value, source) }
+  return Object.create(Object.getPrototypeOf(definition), {
+    ...Object.getOwnPropertyDescriptors(definition),
+    metadata: attributedMetadata,
+  })
+}
+
 export async function applyCapabilityToolTransforms(
   tools: AgentToolSet | undefined,
   transforms: AgentToolTransform[] = [],
-): Promise<AgentToolSet | undefined> {
+): Promise<{ tools: AgentToolSet | undefined, originalNames: Map<string, string> }> {
   let current = tools
+  let originalNames = new Map(Object.keys(tools ?? {}).map(name => [name, name]))
   for (const transform of transforms) {
-    current = await transform(current)
+    // Each key needs its own identity, even when contributions share a definition.
+    if (current) current = Object.fromEntries(Object.entries(current).map(([name, tool]) => [name, copyToolWithOverrides(tool, {})]))
+    // Copy provenance before a transform can mutate the original tool objects.
+    const previous = new Map(Object.entries(current ?? {}).map(([name, tool]) => [name, inspectMcpToolProvenance(tool)]))
+    const localTools = new Set(Object.entries(current ?? {}).filter(([name]) => !previous.get(name)).map(([, tool]) => tool))
+    const objectNames = new Map(Object.entries(current ?? {}).map(([name, tool]) => [tool, originalNames.get(name) ?? name]))
+    const transformed = await transform(current)
+    if (!transformed) {
+      current = transformed
+      originalNames = new Map()
+      continue
+    }
+    const removesMcpTools = [...previous].some(([name, origin]) => origin && !Object.hasOwn(transformed, name))
+    const unattributedNames = Object.entries(transformed)
+      .filter(([name, tool]) => !previous.has(name) && !localTools.has(tool) && !inspectMcpToolProvenance(tool))
+      .map(([name]) => name)
+    if (removesMcpTools && unattributedNames.length) {
+      throw agentDiagnostics.AGENT_R0923({ names: unattributedNames })
+    }
+    const transformedNames = new Map(Object.entries(transformed).map(([name, tool]) => {
+      const mcp = inspectMcpToolProvenance(tool)
+      const previousMcpName = mcp && [...previous].find(([, origin]) => origin?.server === mcp.server && origin.name === mcp.name)?.[0]
+      return [name, objectNames.get(tool) ?? originalNames.get(previousMcpName ?? name) ?? name]
+    }))
+    current = Object.fromEntries(Object.entries(transformed).map(([name, tool]) => {
+      const source = previous.get(name)
+      if (!source || inspectMcpToolProvenance(tool)) return [name, tool]
+      return [name, withMcpToolProvenance(tool, source)]
+    }))
+    originalNames = transformedNames
   }
-  return current
+  return { tools: current, originalNames }
 }
 
 const useCurrentRendererResult = Symbol("useCurrentRendererResult")

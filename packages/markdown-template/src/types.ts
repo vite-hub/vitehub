@@ -22,6 +22,8 @@ export interface RenderMarkdownTemplateOptions {
   sourceId?: string
 }
 
+export type RenderMarkdownFileOptions = Pick<RenderMarkdownTemplateOptions, "data" | "maxImportDepth">
+
 export interface RenderMarkdownTemplateInternalOptions extends RenderMarkdownTemplateOptions {
   validateConditionPath?: (path: string) => boolean
 }

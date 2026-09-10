@@ -1,18 +1,225 @@
 import { describe, expect, it } from "vitest"
 import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignment, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "../src/internal/credential-redaction.ts"
 
-describe("structured credential redaction", () => {
-  it.each(["password", "secret", "api_key"])("redacts the complete YAML %s plain scalar across chunks", (key) => {
-    const prefix = `  ${key}: `
-    const scalar = "correct horse\tbattery"
-    const suffix = "\n  status: ok"
+it.each([" # public comment\nstatus: ok", "\n\nstatus: ok", "\r\n\r\nstatus: ok"])("preserves complete streamed YAML separators before %j", (ending) => {
+  const separator = " \t".repeat(2048)
+  const state = pendingCredentialAssignmentState("password: private", "", 16384)!
+  let restored = ""
+  const suffix = separator + ending
+  for (let offset = 0; offset < suffix.length; offset += 17) {
+    const chunk = suffix.slice(offset, offset + 17)
+    const boundary = consumeCredentialAssignment(chunk, state)
+    expect(state.yaml!.whitespace.length).toBeLessThanOrEqual(16384)
+    if (boundary < chunk.length) {
+      restored = state.yaml!.whitespace + chunk.slice(boundary) + suffix.slice(offset + chunk.length)
+      break
+    }
+  }
+  expect(restored).toBe(suffix)
+  expect(state.yaml!.truncated).not.toBe(true)
+})
+
+it("marks separator overflow and clears it when secret content resumes", () => {
+  const state = pendingCredentialAssignmentState("password: private", "", 32)!
+  consumeCredentialAssignment(" ".repeat(4096), state)
+  expect(state.yaml!.whitespace).toBe(" ".repeat(32))
+  expect(state.yaml!.truncated).toBe(true)
+  consumeCredentialAssignment("more-private", state)
+  expect(state.yaml!.whitespace).toBe("")
+  expect(state.yaml!.truncated).toBe(false)
+})
+
+it("bounds structured credential state across an unclosed stream", () => {
+  const state = pendingCredentialAssignmentState("PASSWORD={")!
+  for (let chunk = 0; chunk < 128; chunk++) {
+    expect(consumeCredentialAssignment("{[".repeat(1024), state)).toBe(2048)
+    expect(state.structureClosers!.length).toBeLessThanOrEqual(128)
+  }
+  const tail = '}]'.repeat(1024) + " private-value;status=ok"
+  expect(consumeCredentialAssignment(tail, state)).toBe(tail.length)
+  expect(redactCredentialText("PASSWORD=" + "{".repeat(129) + tail)).toBe("PASSWORD=[REDACTED]")
+})
+
+it("preserves the suffix after a structured credential within the nesting limit", () => {
+  const value = "{[".repeat(64) + '"private"' + "]}".repeat(64)
+  expect(redactCredentialText("PASSWORD=" + value + ";status=ok")).toBe("PASSWORD=[REDACTED];status=ok")
+  const state = pendingCredentialAssignmentState("PASSWORD=" + value.slice(0, 128))!
+  const rest = value.slice(128) + ";status=ok"
+  expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+})
+
+it.each(["note,\n", "note {\n", "note [\n", "note: \"{\",\n", "config: {},\n"])("does not infer YAML flow from prose punctuation in %j", (prefix) => {
+  const assignment = "password: alpha,beta]gamma}delta"
+  expect(redactCredentialText(prefix + assignment)).toBe(prefix + "password: [REDACTED]")
+  const context = credentialTextLineContext(prefix)
+  expect(redactCredentialText(assignment, context)).toBe("password: [REDACTED]")
+  for (let split = 0; split <= "alpha,beta]gamma}delta".length; split++) {
+    const state = pendingCredentialAssignmentState("password: " + "alpha,beta]gamma}delta".slice(0, split), context)!
+    const rest = "alpha,beta]gamma}delta".slice(split)
+    expect(consumeCredentialAssignment(rest, state)).toBe(rest.length)
+  }
+})
+
+it.each([
+  ["{password: ", "}"],
+  ["config: {password: ", ", status: ok}"],
+  ["{status: ok, secret: ", "}"],
+  ["config: {status: ok,\n  password: ", ",\n  status: ok}"],
+  ["config: {\n  password: ", ", status: ok}"],
+  ["config: { # } is prose\n  password: ", ", status: ok\n}"],
+  ["config: { # [ \" \\ is prose\r\n  password: ", ", status: ok\n}"],
+  ["config: {status: ok, # } ] is prose\n  password: ", "}"],
+  ["config: {status: ok,\r\n  password: ", "}"],
+  ["config: [\n  password: ", "]"],
+])("redacts YAML flow mapping values after %s", (prefix, suffix) => {
+  expect(redactCredentialText(prefix + "sensitive value" + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+  const keyStart = prefix.search(/(?:password|secret):/)
+  const context = credentialTextLineContext(prefix.slice(0, keyStart))
+  const assignment = prefix.slice(keyStart)
+  expect(redactCredentialText(assignment + "sensitive value" + suffix, context)).toBe(assignment + "[REDACTED]" + suffix)
+  let streamedContext = ""
+  for (const character of prefix.slice(0, keyStart)) streamedContext = credentialTextLineContext(streamedContext + character)
+  expect(redactCredentialText(assignment + "sensitive value" + suffix, streamedContext)).toBe(assignment + "[REDACTED]" + suffix)
+  for (let split = 0; split <= "sensitive value".length; split++) {
+    const state = pendingCredentialAssignmentState(assignment + "sensitive value".slice(0, split), context)!
+    expect(state).toBeDefined()
+    const rest = "sensitive value".slice(split) + suffix
+    expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(suffix)
+  }
+})
+
+it.each([
+  ["", "|", "  ", ""],
+  ["", ">", "  ", ""],
+  ["", "|-", "  ", ""],
+  ["", ">+", "  ", ""],
+  ["", "|2", "  ", ""],
+  ["config:\n  ", "|", "    ", "  "],
+  ["- ", "|2", "    ", "  "],
+])("preserves field-like prose inside YAML %s%s scalars", (prefix, style, indent, siblingIndent) => {
+  const prose = `${prefix}message: ${style}\n${indent}password: "ordinary words"\n${indent}secret: ordinary text\n`
+  const input = prose + `${siblingIndent}password: sensitive-value\n${siblingIndent}status: ok`
+  const expected = prose + `${siblingIndent}password: [REDACTED]\n${siblingIndent}status: ok`
+  expect(redactCredentialText(input)).toBe(expected)
+  for (let split = 0; split <= prose.length; split++) {
+    let context = ""
+    for (const character of input.slice(0, split)) context = credentialTextLineContext(context + character)
+    expect(redactCredentialText(input.slice(split), context)).toBe(expected.slice(split))
+  }
+})
+
+it.each(["\r", "\n", "\r\n"])("preserves YAML siblings after %j line breaks", (lineBreak) => {
+  for (const scalar of ["sensitive value", `|${lineBreak}    sensitive value`, `>${lineBreak}    sensitive value`]) {
+    const prefix = `config:${lineBreak}  password: `
+    const suffix = `${lineBreak}  status: ok`
     expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
-    for (let split = 1; split < scalar.length; split++) {
+    const captured = scalar + suffix
+    for (let split = 1; split <= scalar.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + captured.slice(0, split))!
+      const rest = captured.slice(split)
+      const boundary = consumeCredentialAssignment(rest, state)
+      expect(state.yaml!.whitespace + rest.slice(boundary)).toBe(suffix)
+    }
+    const state = pendingCredentialAssignmentState(prefix + scalar)!
+    for (const character of lineBreak + "  ") expect(consumeCredentialAssignment(character, state)).toBe(1)
+    expect(consumeCredentialAssignment("status: ok", state)).toBe(0)
+    expect(state.yaml!.whitespace + "status: ok").toBe(suffix)
+  }
+})
+
+describe("plain YAML credential scalars", () => {
+  it.each([
+    [" \t".repeat(2048), "# public comment\nstatus: ok"],
+    [" \t".repeat(2048) + "\n", "status: ok"],
+    ["\n" + " ".repeat(4096), "# public comment\nstatus: ok"],
+  ])("preserves complete direct-redaction separators, case %#", (separator, suffix) => {
+    expect(redactCredentialText("password: sensitive" + separator + suffix))
+      .toBe("password: [REDACTED]" + separator + suffix)
+  })
+
+  it.each(["", "\n"])("bounds retained separators after a credential and %j", (lineBreak) => {
+    const state = pendingCredentialAssignmentState("password: sensitive" + lineBreak)!
+    for (let chunk = 0; chunk < 128; chunk++) {
+      expect(consumeCredentialAssignment(" ".repeat(1024), state)).toBe(1024)
+      expect(state.yaml!.whitespace.length).toBeLessThanOrEqual(1024)
+    }
+    expect(consumeCredentialAssignment("# public comment\nstatus: ok", state)).toBe(0)
+    expect(state.yaml!.whitespace.length).toBeLessThanOrEqual(1024)
+    expect(state.yaml!.whitespace.startsWith(lineBreak)).toBe(true)
+  })
+
+  it.each([
+    ["password: ", "correct horse battery", "\nstatus: ok"],
+    ["api_token: ", "sensitive value", " # public comment\nstatus: ok"],
+    ["config:\n  password: ", "correct horse\n    battery\n\n   staple", "\n  status: ok"],
+    ["  - secret: ", "sensitive value\n      more secret", "\n    status: ok"],
+    ["password: ", 'sensitive#value,with;shell&punctuation<> and "quotes"', "\nstatus: ok"],
+    ["password: ", "correct horse\n  battery", "  # public comment\nstatus: ok"],
+  ])("redacts all words in %s across every split", (prefix, scalar, suffix) => {
+    expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    for (let split = 0; split <= scalar.length; split++) {
       const state = pendingCredentialAssignmentState(prefix + scalar.slice(0, split))!
+      expect(state, `split ${split}`).toBeDefined()
       const rest = scalar.slice(split) + suffix
-      expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(suffix)
+      const boundary = consumeCredentialAssignment(rest, state)
+      expect(state.yaml!.whitespace + rest.slice(boundary), `split ${split}`).toBe(suffix)
     }
   })
+
+  it("retains plain scalar and comment boundaries across individual characters", () => {
+    const state = pendingCredentialAssignmentState("password: ")!
+    for (const character of "correct horse\n  battery \t") {
+      expect(consumeCredentialAssignment(character, state)).toBe(1)
+    }
+    expect(consumeCredentialAssignment("# public comment", state)).toBe(0)
+    expect(state.yaml!.whitespace).toBe(" \t")
+  })
+})
+
+describe("structured credential redaction", () => {
+  it.each([
+    "(first-secret second-secret)",
+    "('first ) secret' \"second secret\")",
+    "(first\\)secret second-secret)",
+    '("$(printf \'%s\' "nested secret")" last-secret)',
+    "($(printf '%s' nested-secret) last-secret)",
+    "(<(printf '%s' nested-secret) last-secret)",
+  ])("redacts complete shell credential arrays: %s", (credential) => {
+    const prefix = "PASSWORD="
+    const suffix = "; status=ok"
+    expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    for (let split = 0; split <= credential.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + credential.slice(0, split))!
+      expect(state, `split ${split}`).toBeDefined()
+      const remainder = credential.slice(split) + suffix
+      expect(remainder.slice(consumeCredentialAssignment(remainder, state)), `split ${split}`).toBe(suffix)
+    }
+    expect(redactCredentialText("VALUES=" + credential + suffix)).toBe("VALUES=" + credential + suffix)
+  })
+
+  it.each([
+    '{"d":"sensitive"}',
+    '["first-secret","second-secret"]',
+    '[{"d":"sensitive"},["other-secret"]]',
+    '{]"d":"sensitive"}',
+    '[}"sensitive"]',
+    '{"nested":[{"d":"escaped\\\"} ] secret"},["other-secret"]]}',
+  ])("redacts complete structured credential values: %s", (credential) => {
+    const prefix = '{"privateKey":'
+    const suffix = ',"status":"ok"}'
+    expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    // Every possible split must preserve the same end boundary, including splits
+    // inside an escaped quote and immediately after the final closing delimiter.
+    for (let split = 0; split <= credential.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + credential.slice(0, split))!
+      expect(state, `split ${split}`).toBeDefined()
+      const remainder = credential.slice(split) + suffix
+      const boundary = consumeCredentialAssignment(remainder, state)
+      expect(remainder.slice(boundary), `split ${split}`).toBe(suffix)
+    }
+    expect(redactCredentialText('{"payload":' + credential + suffix)).toBe('{"payload":' + credential + suffix)
+  })
+
   it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: BASIC"])("redacts quoted %s values", (scheme) => {
     for (const quote of ['"', "'"]) {
       const prefix = `${scheme} ${quote}`
@@ -104,6 +311,59 @@ it.each([
   }
 })
 
+it.each(["API_TOKEN ?", "PASSWORD +", "--api-token?", "'PASSWORD' +"])("retains partial compound assignment %s across flushes", (prefix) => {
+  expect(credentialTextMayContinue(prefix)).toBe(true)
+  expect(pendingCredentialTextSuffix(prefix)).toBe(prefix)
+  expect(redactCredentialText(prefix)).toBe(prefix)
+  expect(redactCredentialText(prefix + "= sensitive-value;status=ok")).toBe(prefix + "= [REDACTED];status=ok")
+  const state = pendingCredentialAssignmentState(prefix + "= ")!
+  expect(state).toBeDefined()
+  const rest = "sensitive-value;status=ok"
+  expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+})
+
+it.each(["status +", "ordinary ?"])("preserves non-credential partial operator %s", (text) => {
+  expect(credentialTextMayContinue(text)).toBe(false)
+  expect(pendingCredentialTextSuffix(text)).toBeUndefined()
+  expect(redactCredentialText(text + "= public")).toBe(text + "= public")
+})
+
+it.each(["API_TOKEN ?= sensitive", "PASSWORD += secret", "PASSWORD := value"]) ("redacts compound assignments", (input) => {
+  expect(redactCredentialText(input)).toMatch(/\[REDACTED\]/)
+})
+
+it.each([
+  "machine example.com login alice ",
+  "machine example.com ",
+  "machine example.com account billing login alice ",
+  "machine example.com login alice account billing ",
+  "machine example.com\n  account billing\n  ",
+  "default ",
+  "default login alice ",
+  "default account billing login alice ",
+  'machine example.com login "Alice Smith" account billing ',
+])("redacts whitespace-delimited netrc passwords after %s", (context) => {
+  const suffix = " login next-user\nmachine next.example"
+  expect(redactCredentialText(context + "password sensitive-value" + suffix)).toBe(context + "password [REDACTED]" + suffix)
+  expect(redactCredentialText("password sensitive-value" + suffix, credentialTextLineContext(context))).toBe("password [REDACTED]" + suffix)
+  for (let split = 0; split <= "sensitive-value".length; split++) {
+    const state = pendingCredentialAssignmentState("password " + "sensitive-value".slice(0, split), context)!
+    expect(state).toBeDefined()
+    const rest = "sensitive-value".slice(split) + "\nmachine next.example"
+    expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe("\nmachine next.example")
+  }
+  expect(redactCredentialText("Choose a password with several words")).toBe("Choose a password with several words")
+})
+
+it.each([
+  "The machine needs a password with several words",
+  "Use the default password with several words",
+  "machine example.com documentation mentions password requirements",
+  "default login uses password authentication",
+])("preserves non-netrc password prose: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+})
+
 it.each([
   "This is a basic example",
   "Use basic authentication",
@@ -133,10 +393,8 @@ it.each(["basic", "BASIC", "bAsIc"])("redacts contextual %s authorization across
 
 it.each([
   ['{"password":"sensitive-value","status":"ok"}', '{"password":"[REDACTED]","status":"ok"}'],
-  ['{password: sensitive}', '{password: [REDACTED]}'],
-  ['{ secret: "private" }', '{ secret: "[REDACTED]" }'],
-  ['{status: ok, password: sensitive, secret: "private"}', '{status: ok, password: [REDACTED], secret: "[REDACTED]"}'],
-  ["api_token: sensitive-value;status=ok", "api_token: [REDACTED];status=ok"],
+  ["api_token: sensitive-value;status=ok", "api_token: [REDACTED]"],
+  ["api_token: sensitive-value\nstatus: ok", "api_token: [REDACTED]\nstatus: ok"],
   ['password = "correct horse";status=ok', 'password = "[REDACTED]";status=ok'],
   ["API_TOKEN = sensitive-value", "API_TOKEN = [REDACTED]"],
   ["'secret' : 'private & words';status=ok", "'secret' : '[REDACTED]';status=ok"],
@@ -192,7 +450,8 @@ it("recognizes a quoted credential key after its opening quote was flushed", () 
 })
 
 it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY"])("redacts hyphenated %s credentials and retains every name prefix", (key) => {
-  expect(redactCredentialText(`${key}: sensitive-value;status=ok`)).toBe(`${key}: [REDACTED];status=ok`)
+  expect(redactCredentialText(`${key}: sensitive-value;status=ok`)).toBe(`${key}: [REDACTED]`)
+  expect(redactCredentialText(`${key}: sensitive-value\nstatus: ok`)).toBe(`${key}: [REDACTED]\nstatus: ok`)
   expect(redactCredentialText(`"${key}":"sensitive-value"`)).toBe(`"${key}":"[REDACTED]"`)
   expect(pendingCredentialAssignment(`${key}: sensitive`)).toBe("unquoted")
   expect(pendingCredentialQuote(`"${key}":"sensitive`)).toBe('"')
@@ -286,7 +545,13 @@ it.each(["The bearer of good news arrived", "A basic explanation follows"])("pre
 it.each(["bearer", "BEARER", "bEaReR", "basic", "BASIC", "bAsIc"])("redacts bare scheme lines: %s", (scheme) => {
   const prefix = `launcher failed\n  ${scheme} `
   expect(redactCredentialText(`${prefix}sensitive-value;status=ok`)).toBe(`${prefix}[REDACTED];status=ok`)
-  expect(pendingCredentialScheme(`${prefix}sensitive`)).toBe("unquoted")
+  expect(pendingCredentialScheme(`${prefix}sensitive-`)).toBe("unquoted")
+})
+
+it.each(["bearer", "bEaReR", "basic", "bAsIc"])("preserves lowercase bare scheme prose: %s", (scheme) => {
+  const value = `launcher failed\n  ${scheme} of good news`
+  expect(redactCredentialText(value)).toBe(value)
+  expect(pendingCredentialScheme(value)).toBeUndefined()
 })
 
 it("keeps preceding prose context across scheme detection boundaries", () => {
@@ -295,7 +560,30 @@ it("keeps preceding prose context across scheme detection boundaries", () => {
   expect(redactCredentialText("bearer sensitive-value", "launcher failed\n")).toBe("bearer [REDACTED]")
 })
 
+it.each([".".repeat(512), "diagnostic...", "status=ok;", "prefix-"])("preserves authorization boundaries after %s", (prefix) => {
+  const context = credentialTextLineContext(prefix)
+  for (const scheme of ["basic", "BASIC", "bearer", "BEARER"]) {
+    const header = `Authorization: ${scheme} `
+    expect(redactCredentialText(`${header}sensitive-value;status=ok`, context)).toBe(`${header}[REDACTED];status=ok`)
+    expect(pendingCredentialScheme(header, context)).toBe("scheme")
+  }
+})
+
 it.each([
+  ["PASSWORD=$(printf supersecret);status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=${UNSET:-sensitive-value};status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=${UNSET:-${OTHER:-secret words}}tail;status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=${UNSET:-$(printf 'secret words')};status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=<(printf sensitive-value);status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=>(cat sensitive-file);status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=<(printf $(printf 'secret) words'))tail;status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=$(cat <(printf secret));status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=`printf supersecret`;status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ['PASSWORD="$(printf "secret words")";status=ok', 'PASSWORD="[REDACTED]";status=ok'],
+  ["PASSWORD=$(printf $(printf supersecret))tail;status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=$((1 + 2));status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=$(printf 'secret) words');status=ok", "PASSWORD=[REDACTED];status=ok"],
+  ["PASSWORD=$(printf `printf supersecret`);status=ok", "PASSWORD=[REDACTED];status=ok"],
   [String.raw`SECRET='abc\';status=ok`, "SECRET='[REDACTED]';status=ok"],
   [String.raw`SECRET=abc'def\';status=ok`, "SECRET=[REDACTED];status=ok"],
   ['PASSWORD=abc"def ghi"jkl;status=ok', 'PASSWORD=[REDACTED];status=ok'],
@@ -330,6 +618,11 @@ it.each([
   ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
   ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
   ['{"authorization":"', "Custom-Auth sensitive-value", '", "status":"ok"}'],
+  ['{"authorization":"', "abc;def&ghi<jkl>mno}pqr", '", "status":"ok"}'],
+  ['{"authorization":"', "Custom-Auth abc;def", '", "status":"ok"}'],
+  ['{"authorization":"', "abc'def;ghi", '", "status":"ok"}'],
+  ['{"authorization":"', String.raw`abc\"def;ghi`, '", "status":"ok"}'],
+  ["Authorization: '", 'abc"def;ghi', "';status=ok"],
 ])("redacts explicit %s headers across every credential boundary", (prefix, credential, suffix) => {
   expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
   for (let split = 0; split <= credential.length; split++) {
@@ -395,16 +688,6 @@ it.each(["password", "secret"])("redacts bare YAML %s fields with retained line 
 })
 
 describe("credential line context across journal chunks", () => {
-  it.each(["{", "{ ", "{status: ok, "])("preserves mapping context %j", (prefix) => {
-    const context = credentialTextLineContext(prefix)
-    for (const key of ["password", "secret"]) {
-      expect(redactCredentialText(`${key}: sensitive}`, context)).toBe(`${key}: [REDACTED]}`)
-      expect(pendingCredentialAssignment(`${key}: sensitive`, context)).toBe("unquoted")
-      expect(pendingCredentialQuote(`${key}: "private`, context)).toBe('"')
-      expect(credentialTextMayContinue(`${key}: sensitive`, context)).toBe(true)
-    }
-  })
-
   it.each(["- ", "  - ", "  -   "])("preserves YAML list prefix %j", (prefix) => {
     const context = credentialTextLineContext(`config:\n${prefix}`)
     for (const key of ["password", "secret"]) {
@@ -423,38 +706,149 @@ describe("credential line context across journal chunks", () => {
 })
 
 
-describe("ambiguous mapping punctuation", () => {
-  it.each(["config: ", "  config: ", "- config: "])("retains a mapping opener after a flushed label %j", (prefix) => {
-    const labelContext = credentialTextLineContext(prefix)
-    expect(labelContext).toBe("x: ")
-    const context = credentialTextLineContext(labelContext + "{status: ok, ")
-    for (const key of ["password", "secret"]) {
-      expect(redactCredentialText(`${key}: sensitive}`, context)).toBe(`${key}: [REDACTED]}`)
-      expect(pendingCredentialQuote(`${key}: "private`, context)).toBe('"')
-      expect(credentialTextMayContinue(`${key}: sensitive`, context)).toBe(true)
+it.each([
+  "password:\nstatus: ok",
+  "password: \nstatus: ok",
+  "password: # optional\nstatus: ok",
+  "config:\n  secret: \r\n  status: ok",
+])("preserves empty YAML credential values: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+})
+
+
+it.each(["_authToken", "_password", "_auth", "auth", "__APIKEY"])("redacts npm credential key %s across chunk boundaries", (key) => {
+  const prefix = `//registry.npmjs.org/:${key}=`
+  const secret = "c2VjcmV0=="
+  expect(redactCredentialText(`${prefix}${secret};status=ok`)).toBe(`${prefix}[REDACTED];status=ok`)
+  for (let split = 1; split <= key.length; split++) {
+    const partial = key.slice(0, split)
+    expect(credentialTextMayContinue(partial)).toBe(true)
+    expect(pendingCredentialTextSuffix(partial)).toBe(partial)
+    expect(redactCredentialText(`${partial}${key.slice(split)}=${secret}`)).toBe(`${key}=[REDACTED]`)
+  }
+  for (let split = 0; split <= secret.length; split++) {
+    const state = pendingCredentialAssignmentState(prefix + secret.slice(0, split))!
+    expect(state).toBeDefined()
+    const rest = secret.slice(split) + ";status=ok"
+    expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+  }
+})
+
+it.each(["auth is configured", "authorization is required", "oauth=enabled", "author=alice"])("preserves non-credential auth text: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+})
+
+describe("passphrase credentials", () => {
+  it.each(["SSH_KEY_PASSPHRASE", "KEYSTORE_PASSPHRASE", "passphrase", "sshPassphrase", "ssh-passphrase"])("redacts %s and retains split key prefixes", (key) => {
+    expect(redactCredentialText(`${key}=sensitive-value;status=ok`)).toBe(`${key}=[REDACTED];status=ok`)
+    expect(redactCredentialText(`${key}="correct horse";status=ok`)).toBe(`${key}="[REDACTED]";status=ok`)
+    for (let split = key.toLowerCase().indexOf("passphrase") + 1; split <= key.length; split++) {
+      const prefix = key.slice(0, split)
+      expect(credentialTextMayContinue(`${".".repeat(512)}${prefix}`), prefix).toBe(true)
+      expect(pendingCredentialTextSuffix(`${".".repeat(512)}${prefix}`)).toBe(prefix)
     }
-    const proseContext = credentialTextLineContext(labelContext + "ordinary words { ")
-    expect(redactCredentialText("password: identifier", proseContext)).toBe("password: identifier")
   })
 
-  it.each(["Field labels, ", "Field labels { ", "{labels}, ", 'Example "{", '])("preserves prose after %j", (prefix) => {
-    for (const key of ["password", "secret"]) {
-      const suffix = `${key}: identifier`
-      expect(redactCredentialText(prefix + suffix)).toBe(prefix + suffix)
-      expect(redactCredentialText(suffix, credentialTextLineContext(prefix))).toBe(suffix)
-      expect(pendingCredentialQuote(`${key}: "identifier`, credentialTextLineContext(prefix))).toBeUndefined()
-      expect(credentialTextMayContinue(suffix, credentialTextLineContext(prefix))).toBe(false)
-    }
-  })
-
-  it.each(["{ ", "config: { ", "{status: ok, ", "{nested: {status: ok}, "])("retains real mapping boundaries after %j", (prefix) => {
-    for (const key of ["password", "secret"]) {
-      const suffix = `${key}: sensitive}`
-      expect(redactCredentialText(prefix + suffix)).toBe(prefix + `${key}: [REDACTED]}`)
-      for (let split = prefix.indexOf("{") + 1; split <= prefix.length; split++) {
-        const context = credentialTextLineContext(credentialTextLineContext(prefix.slice(0, split)) + prefix.slice(split))
-        expect(redactCredentialText(suffix, context)).toBe(`${key}: [REDACTED]}`)
+  it.each(["SSH_KEY_PASSPHRASE=", "KEYSTORE_PASSPHRASE=", "--passphrase ", "--passphrase="])("redacts %s values across every split", (prefix) => {
+    for (const secret of ["sensitive-value", '"correct horse"']) {
+      const suffix = ";status=ok"
+      expect(redactCredentialText(prefix + secret + suffix)).toBe(prefix + (secret.startsWith('"') ? '"[REDACTED]"' : "[REDACTED]") + suffix)
+      for (let split = 0; split < secret.length; split++) {
+        const first = prefix + secret.slice(0, split)
+        expect(credentialTextMayContinue(first)).toBe(true)
+        const state = pendingCredentialAssignmentState(first)!
+        expect(state).toBeDefined()
+        const rest = secret.slice(split) + suffix
+        expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(suffix)
       }
+    }
+  })
+
+  it.each(["passphrase authentication is configured", "bypassphrase=public", "passphrase_hint=public"])("preserves non-credential text %s", (value) => {
+    expect(redactCredentialText(value)).toBe(value)
+  })
+})
+
+
+it.each(["<", ">"])("preserves ordinary text after a split shell marker %s", (marker) => {
+  const state = pendingCredentialAssignmentState(`PASSWORD=private${marker}`)!
+  expect(consumeCredentialAssignment("", state)).toBe(0)
+  const rest = "public-file;status=ok"
+  expect(consumeCredentialAssignment(rest, state)).toBe(0)
+  expect(state.shellProcess).toBe(marker)
+  expect(redactCredentialText(`PASSWORD=private${marker}${rest}`)).toBe(`PASSWORD=[REDACTED]${marker}${rest}`)
+})
+
+it.each(["<", ">"])("keeps split redirects inside shell substitutions secret: %s", (marker) => {
+  const state = pendingCredentialAssignmentState(`PASSWORD=$(cat ${marker}`)!
+  const rest = "private-file);status=ok"
+  expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(";status=ok")
+  expect(state.shellProcess).toBeUndefined()
+})
+
+it("bounds retained YAML comment context without parsing comment syntax", () => {
+  let context = credentialTextLineContext("config: { #")
+  for (const character of "} [ \" \\ ".repeat(256)) {
+    context = credentialTextLineContext(context + character)
+    expect(context.length).toBeLessThanOrEqual(4)
+  }
+  context = credentialTextLineContext(context + "\n  ")
+  expect(redactCredentialText("password: private value, status: ok}", context)).toBe("password: [REDACTED], status: ok}")
+})
+
+it("preserves grammar-shaped netrc prose", () => {
+  const prose = "default login uses password authentication"
+  expect(redactCredentialText(prose)).toBe(prose)
+})
+
+it.each(["bearer of good news", "basic explanation follows", "bEaReR of good news", "bAsIc explanation follows"])("preserves line-start scheme prose: %s", (text) => {
+  expect(redactCredentialText(text)).toBe(text)
+  expect(pendingCredentialScheme(text)).toBeUndefined()
+})
+
+it.each(["bearer", "basic", "bEaReR", "bAsIc"])("retains ambiguous bare %s token prefixes", (scheme) => {
+  const prefix = `launcher failed\n  ${scheme} sensitive`
+  expect(credentialTextMayContinue(prefix)).toBe(true)
+  expect(pendingCredentialScheme(prefix)).toBeUndefined()
+  expect(pendingCredentialTextSuffix(prefix)).toBe(`${scheme} sensitive`)
+  expect(pendingCredentialScheme(`${scheme} sensitive-value`)).toBe("unquoted")
+})
+
+it.each(["bearer", "basic", "bEaReR", "bAsIc"])("redacts completed alphabetic standalone %s credentials", (scheme) => {
+  for (const suffix of ["", "  ", "\nstatus ok", "\r\nstatus ok"]) {
+    expect(redactCredentialText(`launcher failed\n  ${scheme} abcdef${suffix}`))
+      .toBe(`launcher failed\n  ${scheme} [REDACTED]${suffix}`)
+  }
+})
+
+// An authorization value can resemble a shell assignment before its next delta.
+it.each(["Authorization: ", "Proxy-Authorization: "])("retains %s context for token-shaped compound operators", (prefix) => {
+  const partial = `${prefix}raw-token+`
+  expect(pendingCredentialTextSuffix(partial)).toBe(partial)
+  const complete = `${pendingCredentialTextSuffix(partial)}/`
+  const state = pendingAuthorizationState(complete)
+  expect(state).toBeDefined()
+  expect(redactCredentialText(complete)).toBe(`${prefix}[REDACTED]`)
+  expect(consumeAuthorization("=\nstatus=ok", state!)).toBe(1)
+})
+it.each(["Authorization: ", "Proxy-Authorization: "]) ("retains authorization context for question suffixes", (prefix) => {
+  const partial = `${prefix}raw-token?`
+  expect(pendingCredentialTextSuffix(partial)).toBe(partial)
+  expect(redactCredentialText(`${partial}/`)).toBe(`${prefix}[REDACTED]`)
+})
+
+
+describe("structured credential redaction", () => {
+  it.each(["password", "secret", "api_key"])("redacts the complete YAML %s plain scalar across chunks", (key) => {
+    const prefix = `  ${key}: `
+    const scalar = "correct horse\tbattery"
+    const suffix = "\n  status: ok"
+    expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    for (let split = 1; split < scalar.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + scalar.slice(0, split))!
+      const rest = scalar.slice(split) + suffix
+      const boundary = consumeCredentialAssignment(rest, state)
+      expect((state.yaml?.whitespace ?? "") + rest.slice(boundary)).toBe(suffix)
     }
   })
 })

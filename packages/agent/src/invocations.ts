@@ -90,6 +90,7 @@ export interface AgentInvocationListOptions {
   limit?: number
   search?: string
   status?: AgentInvocationRecordStatus | readonly AgentInvocationRecordStatus[]
+  triggeredBy?: string
 }
 
 export type AgentInvocationSummary = Omit<AgentInvocationRecord, "observations">
@@ -125,13 +126,15 @@ export interface AgentInvocationStore {
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
-  get(id: string): MaybePromise<AgentInvocationRecord | undefined>
+  /** Filter returned observations by exact name when requested. */
+  get(id: string, options?: { observationNames?: readonly string[] }): MaybePromise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): MaybePromise<AgentInvocationSummary | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
   list(options?: AgentInvocationListOptions): MaybePromise<AgentInvocationListResult>
   listAgentNames?(): MaybePromise<readonly string[]>
   listCapabilityIds?(agentName?: string): MaybePromise<readonly string[]>
+  listTriggeredBy?(agentName?: string): MaybePromise<readonly string[]>
   release(id: string, claimId: string): MaybePromise<void>
   /** Updates are idempotent for observations carrying the ViteHub observation identity attribute. */
   update(id: string, input: AgentInvocationStoreUpdateInput, claimId?: string): MaybePromise<AgentInvocationRecord | undefined>
@@ -183,13 +186,15 @@ export interface AgentInvocations {
   /** Durably append evidence to a live or terminal invocation. Repeated IDs return the existing observation. */
   appendObservation(id: string, event: TraceEvent, options: { id: string }): Promise<AgentInvocationRecord | undefined>
   readonly [agentInvocationsBrand]: true
-  get(id: string): Promise<AgentInvocationRecord | undefined>
+  /** Filter returned observations by exact name when requested. */
+  get(id: string, options?: { observationNames?: readonly string[] }): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): Promise<AgentInvocationSummary | undefined>
   list(options?: AgentInvocationListOptions): Promise<AgentInvocationListResult>
   listAgentNames(): Promise<readonly string[]>
   listCapabilityIds(agentName?: string): Promise<readonly string[]>
+  listTriggeredBy(agentName?: string): Promise<readonly string[]>
 }
 
 interface BoundAgentInvocations extends AgentInvocations {
@@ -1161,9 +1166,12 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       records.set(record.id, cloneRecord(record))
       return { created: true, record: cloneRecord(record) }
     },
-    get(id) {
+    get(id, options) {
       const record = records.get(id)
-      return record ? cloneRecord(record) : undefined
+      if (!record) return
+      return cloneRecord(options?.observationNames
+        ? { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
+        : record)
     },
     getSummary(id) {
       const record = records.get(id)
@@ -1179,6 +1187,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       const search = normalizeSearch(options.search)
       const agentName = options.agentName?.trim()
       const capabilityId = options.capabilityId?.trim()
+      const triggeredBy = options.triggeredBy?.trim()
       const statuses = options.status === undefined
         ? undefined
         : new Set(Array.isArray(options.status) ? options.status : [options.status])
@@ -1187,6 +1196,7 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
         .filter(record => Number(record.cursor) < before
           && (!agentName || record.agentName === agentName)
           && (!capabilityId || invocationCapabilityIds(record).includes(capabilityId))
+          && (!triggeredBy || (hasRuntimeType(record.annotations?.triggeredBy, "string") && record.annotations.triggeredBy.trim() === triggeredBy))
           && (!statuses || statuses.has(record.status))
           && matchesInvocationSearch(record, search))
         .sort((a, b) => Number(b.cursor) - Number(a.cursor))
@@ -1205,6 +1215,15 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       return [...new Set([...records.values()]
         .filter(record => !selectedAgent || record.agentName === selectedAgent)
         .flatMap(record => invocationCapabilityIds(record)))]
+        .sort()
+    },
+    listTriggeredBy(agentName) {
+      const selectedAgent = agentName?.trim()
+      return [...new Set([...records.values()]
+        .filter(record => !selectedAgent || record.agentName === selectedAgent)
+        .flatMap(record => hasRuntimeType(record.annotations?.triggeredBy, "string") && record.annotations.triggeredBy.trim()
+          ? [record.annotations.triggeredBy]
+          : []))]
         .sort()
     },
     release(id, claimId) {
@@ -1259,6 +1278,7 @@ function journalTraceLog(
   metadataContent: ReadonlySet<string>,
   maxMessageDeltaCharacters: number,
   maxMessageDeltaKeys: number,
+  maxSeparatorCharacters: number,
 ): TraceEventLog {
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const messageDeltaChunkCharacters = maxMessageDeltaCharacters
@@ -1268,7 +1288,7 @@ function journalTraceLog(
   let messageDeltaKeysTruncated = false
   let activeMessageDeltaKey: string | undefined
   const precedingMessageText = new Map<string, string>()
-  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
+  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number, emittedCharacters?: number }>()
   const redactingCredentialDeltas = new Map<string, { kind: "authorization", state: AuthorizationState } | { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
@@ -1292,6 +1312,7 @@ function journalTraceLog(
     if (!pending) return
     const rawContent = pending.entry.attributes?.["message.content"]
     let retainedContent: string | undefined
+    let emittedCharacters = 0
     if (hasRuntimeType(rawContent, "string")) {
       let content = rawContent
       const precedingText = precedingMessageText.get(key) ?? ""
@@ -1299,7 +1320,7 @@ function journalTraceLog(
         if (!interveningEvent && content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content, precedingText)
         const scheme = pendingCredentialScheme(content, precedingText)
-        const assignment = pendingCredentialAssignmentState(content, precedingText)
+        const assignment = pendingCredentialAssignmentState(content, precedingText, maxSeparatorCharacters)
         const authorization = pendingAuthorizationState(content)
         if (authorization) {
           redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
@@ -1307,7 +1328,7 @@ function journalTraceLog(
         else if (assignment) {
           redactingCredentialDeltas.set(key, { kind: "shell", state: assignment })
           // Complete only the persisted placeholder; the scanner retains the raw state.
-          if (!assignment.started) content += "[REDACTED]"
+          if (!assignment.started && !assignment.yamlFlow && assignment.yamlIndent === undefined) content += "[REDACTED]"
           else if (assignment.quote) content += `${assignment.escaped ? "\\" : ""}${assignment.quote}`
         }
         else if (quote) {
@@ -1325,10 +1346,16 @@ function journalTraceLog(
         else {
           // A possible marker is still ordinary text until its separator arrives.
           retainedContent = pendingCredentialTextSuffix(content)
-          if (retainedContent) content = content.slice(0, -retainedContent.length)
+          if (retainedContent) {
+            emittedCharacters = Math.max(0, (pending.emittedCharacters ?? 0) - (content.length - retainedContent.length))
+            // Emit ordinary marker text in place, but keep it as scanner context.
+            // An authorization header may already contain an unknown credential.
+            if (interveningEvent && !retainedContent.includes(":")) emittedCharacters = retainedContent.length
+            else content = content.slice(0, -retainedContent.length)
+          }
         }
       }
-      const redacted = redactCredentialText(content, precedingText)
+      const redacted = redactCredentialText(content, precedingText).slice(pending.emittedCharacters ?? 0)
       // Retain only line and authorization-header context, never credential text.
       const emittedRaw = rawContent.slice(0, rawContent.length - (retainedContent?.length ?? 0))
       precedingMessageText.set(key, credentialTextLineContext(precedingText + emittedRaw))
@@ -1349,6 +1376,7 @@ function journalTraceLog(
       pendingMessageDeltas.set(key, {
         entry: { ...pending.entry, attributes: { ...pending.entry.attributes, "message.content": retainedContent } },
         events: 0,
+        emittedCharacters,
       })
     }
   }
@@ -1389,13 +1417,25 @@ function journalTraceLog(
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
       if (redaction.kind === "shell" || redaction.kind === "authorization") {
+        // YAML mappings can flush before their value starts. Persist separators
+        // immediately and emit the placeholder only when scalar content arrives.
+        const yamlPrefix = redaction.kind === "shell" && (redaction.state.yamlFlow || redaction.state.yamlIndent !== undefined) && !redaction.state.started
+          ? redaction.state.yamlProperty ? "" : content.match(redaction.state.yamlFlow ? /^\s*/ : /^[\t ]*/)?.[0] ?? ""
+          : undefined
+        const yamlQuote = yamlPrefix !== undefined && redaction.kind === "shell" && redaction.state.yamlIndent !== undefined
+          ? /^["']/.exec(content.slice(yamlPrefix.length))?.[0] ?? ""
+          : ""
         const boundary = redaction.kind === "authorization"
           ? consumeAuthorization(content, redaction.state)
           : consumeCredentialAssignment(content, redaction.state)
+        if (yamlPrefix !== undefined) {
+          const prefix = yamlPrefix + (redaction.kind === "shell" && redaction.state.started ? `${yamlQuote}[REDACTED]${yamlQuote}` : "")
+          if (prefix) emit({ ...entry, attributes: { ...entry.attributes, "message.content": prefix } })
+        }
         if (boundary === content.length) return
         redactingCredentialDeltas.delete(key)
-        content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? "" : "") + content.slice(boundary)
-        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
+        content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? redaction.state.shellProcess ?? "" : "") + content.slice(boundary)
+        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content, ...(redaction.kind === "shell" && redaction.state.yaml?.truncated ? { "content.truncated": true } : {}) } }
       }
       else {
         if (redaction.kind === "scheme") {
@@ -1832,7 +1872,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount, limits.maxBytes),
         },
         async finish(status, error) {
           if (finished || finishing) return
@@ -1994,9 +2034,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       return persisted
     },
-    async get(id) {
+    async get(id, options) {
       assertInvocationId(id)
-      return await store.get(id)
+      const record = await store.get(id, options)
+      if (!record || !options?.observationNames) return record
+      return { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
     },
     async getByRunId(runId, agentName) {
       return await store.get(await agentInvocationId(runId, agentName))
@@ -2011,6 +2053,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       const capabilityId = options.capabilityId?.trim()
       if (capabilityId) normalized.capabilityId = capabilityId
       else delete normalized.capabilityId
+      const triggeredBy = options.triggeredBy?.trim()
+      if (triggeredBy) normalized.triggeredBy = triggeredBy
+      else delete normalized.triggeredBy
       if (search) normalized.search = search
       else delete normalized.search
       return await store.list(normalized)
@@ -2050,6 +2095,26 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         cursor = page.cursor
       } while (cursor)
       return [...capabilityIds].sort()
+    },
+    async listTriggeredBy(agentName) {
+      const selectedAgent = agentName?.trim()
+      if (store.listTriggeredBy) {
+        return [...new Set((await store.listTriggeredBy(selectedAgent))
+          .map(triggeredBy => triggeredBy.trim())
+          .filter(Boolean))]
+          .sort()
+      }
+      const triggeredBy = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        for (const invocation of page.invocations) {
+          const label = invocation.annotations?.triggeredBy
+          if (hasRuntimeType(label, "string") && label.trim()) triggeredBy.add(label.trim())
+        }
+        cursor = page.cursor
+      } while (cursor)
+      return [...triggeredBy].sort()
     },
   }
   return invocations
