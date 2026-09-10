@@ -194,8 +194,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!bytes) return undefined
+    await this.#loadMeta()
     const normalized = normalizeWorkspacePath(path)
-    const metadata = this.#files.get(normalized)
+    const metadata = this.#files.get(normalized) || this.#meta.get(`file:${normalized}`) as Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined
     return {
       path: normalized,
       content: new Uint8Array(bytes),
@@ -275,6 +276,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       mediaType: file.mediaType,
       metadata: file.metadata,
     })
+    await this.#loadMeta()
+    this.#meta.set(`file:${normalized}`, { mediaType: file.mediaType, metadata: file.metadata })
+    await this.#writeMeta()
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
@@ -386,13 +390,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!info) return undefined
+    await this.#loadMeta()
     const entry: WorkspaceStat = {
       path: normalized,
       type: info.isDirectory() ? "directory" : "file",
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
-      mediaType: info.isFile() ? this.#files.get(normalized)?.mediaType : undefined,
-      metadata: info.isFile() ? this.#files.get(normalized)?.metadata : undefined,
+      mediaType: info.isFile() ? (this.#files.get(normalized) || this.#meta.get(`file:${normalized}`) as Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined)?.mediaType : undefined,
+      metadata: info.isFile() ? (this.#files.get(normalized) || this.#meta.get(`file:${normalized}`) as Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined)?.metadata : undefined,
       digest: info.isFile() ? await fileDigest(absolute) : undefined,
     }
     return entry

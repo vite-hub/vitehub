@@ -963,11 +963,24 @@ async function applyCapabilityWorkspaceContributions<
       for (const { capabilityId, path, ifDigest } of pending) {
         const stat = await sourceResolution.workspace.fs.stat(path)
         const { content, digest } = desired.get(path)!
-        await retainedWorkspace.fs.writeFile(path, content, {
-          ifDigest,
-          mediaType: stat.mediaType,
-          metadata: { ...stat.metadata, capabilityWorkspaceContribution: { capabilityId, digest, path } },
-        })
+        try {
+          await retainedWorkspace.fs.writeFile(path, content, {
+            ifDigest,
+            mediaType: stat.mediaType,
+            metadata: { ...stat.metadata, capabilityWorkspaceContribution: { capabilityId, digest, path } },
+          })
+        }
+        catch (error) {
+          // Concurrent invocations may win the same CAS write. Accept that
+          // race only when the resulting file is exactly our owned content.
+          if (Reflect.get(Object(error), "code") !== "WORKSPACE_CONFLICT") throw error
+          const after = await retainedWorkspace.fs.stat(path)
+          const afterContent = await retainedWorkspace.fs.readFile(path, { encoding: "binary" })
+          const afterMetadata = after?.metadata?.capabilityWorkspaceContribution
+          if (!after?.digest || await capabilityContributionDigest(afterContent) !== digest
+            || !isRuntimeRecord(afterMetadata) || afterMetadata.capabilityId !== capabilityId
+            || afterMetadata.digest !== digest) throw error
+        }
       }
     }
   }

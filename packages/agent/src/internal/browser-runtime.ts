@@ -78,9 +78,8 @@ import { pathToFileURL } from 'node:url'
 import { writeFile } from 'node:fs/promises'
 const require = createRequire(join(process.argv[1], 'package.json'))
 const modulePath = require.resolve('@sparticuz/chromium')
-const { inflate } = await import(pathToFileURL(modulePath).href)
-const bin = join(dirname(modulePath), '..', 'bin')
-await Promise.all(['chromium.br', 'al2023.tar.br', 'fonts.tar.br', 'swiftshader.tar.br'].map(name => inflate(join(bin, name))))
+const Chromium = (await import(pathToFileURL(modulePath).href)).default
+await Chromium.executablePath()
 await writeFile(join(process.env.TMPDIR, 'fonts', 'fonts.conf'), '<fontconfig><dir prefix="relative">.</dir><cachedir prefix="xdg">fontconfig</cachedir></fontconfig>')
 `
 
