@@ -328,7 +328,13 @@ async function removeStaleMaterializedSourceFiles(
   const entries = source.mountPath
     ? await store.list(source.mountPath, { recursive: true })
     : previousPaths.size || (store.getMeta && store.setMeta && (!previousSnapshot || previousSnapshot.items))
-      ? await Promise.all([...previousPaths].map(async path => await store.stat(path)))
+      ? (await Promise.all([...previousPaths].map(async path => {
+        try { return await store.stat(path) }
+        catch (error) {
+          if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) return undefined
+          throw error
+        }
+      }))).filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
       : await store.list("", { recursive: true })
   for (const entry of entries) {
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
