@@ -42,7 +42,7 @@ function pendingAuthorizationHeader(value: string): string | undefined {
   const match = /["']?\b([A-Za-z-]+)["']?\s*:?\s*["']?$/.exec(value.slice(-128))
   if (!match) return
   const name = match[1]!.toUpperCase()
-  return ["AUTHORIZATION", "PROXY-AUTHORIZATION"].some(header => header.startsWith(name)) ? match[0] : undefined
+  return ["AUTHORIZATION", "PROXY-AUTHORIZATION", "COOKIE", "SET-COOKIE"].some(header => header.startsWith(name)) ? match[0] : undefined
 }
 
 export function pendingCredentialTextSuffix(value: string): string | undefined {
@@ -62,6 +62,7 @@ export interface AuthorizationState {
   escaped: boolean
   quote?: string
   outerQuote?: string
+  cookie?: boolean
 }
 
 // Explicit headers can carry multiple comma-separated authentication parameters.
@@ -74,7 +75,7 @@ export function consumeAuthorization(value: string, state: AuthorizationState): 
     else if (state.quote) {
       if (character === state.quote) delete state.quote
     }
-    else if (character === state.outerQuote || /[\r\n;&<>}]/.test(character)) return index
+    else if (character === state.outerQuote || (state.cookie ? /[\r\n<>}]/ : /[\r\n;&<>}]/).test(character)) return index
     else if (character === '"' || character === "'") state.quote = character
   }
   return value.length
@@ -84,10 +85,12 @@ function* authorizationValues(value: string) {
   // Only established scheme names may remain visible. An arbitrary first token
   // can itself be a schemeless credential, even when more header text follows.
   const headers = /\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*(["']?)[\t ]*(?:(Bearer|Basic|Digest|Token|ApiKey|Negotiate|AWS4-HMAC-SHA256)[\t ]+)?/gi
-  for (const match of value.matchAll(headers)) {
+  const cookies = /\b(?:set-)?cookie["']?[\t ]*:[\t ]*(["']?)/gi
+  const matches = [...value.matchAll(headers), ...value.matchAll(cookies)].sort((left, right) => left.index - right.index)
+  for (const match of matches) {
     if (/^(Bearer|Basic)$/i.test(match[2]!)) continue
     const start = match.index + match[0].length
-    const state: AuthorizationState = { escaped: false, ...(match[1] ? { outerQuote: match[1] } : {}) }
+    const state: AuthorizationState = { escaped: false, ...(/^(?:set-)?cookie/i.test(match[0]) ? { cookie: true } : {}), ...(match[1] ? { outerQuote: match[1] } : {}) }
     const length = consumeAuthorization(value.slice(start), state)
     yield { start, length, state, scheme: match[2] }
   }

@@ -497,3 +497,22 @@ it.each([
     }
   }
 })
+
+it.each(["Cookie", "Set-Cookie", "cookie", "SET-COOKIE"])("redacts %s headers and streamed cookie values", (header) => {
+  const credential = "session=secret; other=private&value; Path=/; HttpOnly"
+  const prefix = `${header}: `
+  const suffix = "\nstatus: ok"
+  expect(redactCredentialText(prefix + credential + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+  expect(redactCredentialText(`{"${header}":"${credential}","status":"ok"}`)).toBe(`{"${header}":"[REDACTED]","status":"ok"}`)
+  for (let split = 0; split <= credential.length; split++) {
+    const first = prefix + credential.slice(0, split)
+    expect(credentialTextMayContinue(first)).toBe(true)
+    const state = pendingAuthorizationState(first)
+    const rest = credential.slice(split) + suffix
+    if (state) expect(rest.slice(consumeAuthorization(rest, state))).toBe(suffix)
+    else expect(redactCredentialText(first + rest)).toBe(prefix + "[REDACTED]" + suffix)
+  }
+  for (let split = 1; split <= header.length; split++) {
+    expect(pendingCredentialTextSuffix(header.slice(0, split))).toBe(header.slice(0, split))
+  }
+})
