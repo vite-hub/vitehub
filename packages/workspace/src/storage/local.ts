@@ -182,8 +182,22 @@ async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle
   }
 }
 
+async function removeOwnedGate(lock: string) {
+  const { rm } = await import("node:fs/promises")
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rm(lock, { force: true, recursive: true })
+      return
+    }
+    catch (error) {
+      if (attempt >= 2) throw error
+      await delay(25)
+    }
+  }
+}
+
 async function withFilesystemLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
-  const { mkdir, open, readFile, rm } = await import("node:fs/promises")
+  const { mkdir, open } = await import("node:fs/promises")
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
   let lease: import("node:fs/promises").FileHandle | undefined
@@ -205,7 +219,8 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
     }
     catch (error) {
       if (created) {
-        await rm(lock, { force: true, recursive: true })
+        try { await removeOwnedGate(lock) }
+        catch (cleanupError) { throw new AggregateError([error, cleanupError], "Workspace gate acquisition and cleanup failed", { cause: error }) }
         throw error
       }
       if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
@@ -220,8 +235,9 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
     return await withLeaseHeartbeat(lease!, operation)
   }
   finally {
-    const activeOwner = await readFile(ownerPath, "utf8").catch(() => undefined)
-    if (activeOwner === owner) await rm(lock, { force: true, recursive: true })
+    // Existing gates are never reclaimed, so this invocation retains ownership
+    // until release. A failed marker reread must not leave its gate behind.
+    await removeOwnedGate(lock)
   }
 }
 

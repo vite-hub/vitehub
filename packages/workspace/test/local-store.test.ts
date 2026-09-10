@@ -830,7 +830,7 @@ describe("local workspace store", () => {
     })
   })
 
-  it.each(["open", "write"])("removes an unacquired gate after owner %s fails", async (failure) => {
+  it.each(["open", "write", "cleanup"])("removes an unacquired gate after owner %s fails", async (failure) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
     const path = "file.txt"
@@ -845,13 +845,47 @@ describe("local workspace store", () => {
       if (String(args[0]) === `${gate}/owner`) vi.spyOn(file, "writeFile").mockRejectedValueOnce(error)
       return file
     })
+    if (failure === "cleanup") {
+      let failed = false
+      vi.mocked(rm).mockImplementation(async (...args) => {
+        if (String(args[0]) === gate && !failed) {
+          failed = true
+          throw Object.assign(new Error("gate cleanup failed"), { code: "EIO" })
+        }
+        return actual.rm(...args)
+      })
+    }
     await expect(store.writeFile(path, { path, content: "failed" })).rejects.toThrow(error)
     await expect(actual.stat(gate)).rejects.toMatchObject({ code: "ENOENT" })
     vi.mocked(open).mockImplementation(actual.open)
+    vi.mocked(rm).mockImplementation(actual.rm)
     const restarted = createLocalWorkspaceStore(root)
     expect(await restarted.readFile(path)).toMatchObject({ content: new TextEncoder().encode("before") })
     await restarted.writeFile(path, { path, content: "after" })
     expect(await restarted.readFile(path)).toMatchObject({ content: new TextEncoder().encode("after") })
+  })
+
+  it.each(["EIO", "EMFILE"])("releases owned gates without rereading owner markers on %s", async (code) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = "file.txt"
+    await store.writeFile(path, { path, content: "before" })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(readFile).mockImplementation(async (...args) => {
+      if (String(args[0]).endsWith(".gate/owner")) throw Object.assign(new Error("owner reread failed"), { code })
+      return actual.readFile(...args)
+    })
+    try {
+      await store.writeFile(path, { path, content: "after" })
+      expect((await readdir(join(root, ".vitehub/locks"))).filter(entry => entry.endsWith(".gate"))).toEqual([])
+      const restarted = createLocalWorkspaceStore(root)
+      await expect(restarted.readFile(path)).resolves.toMatchObject({ content: new TextEncoder().encode("after") })
+      await restarted.writeFile(path, { path, content: "restarted" })
+      await expect(restarted.readFile(path)).resolves.toMatchObject({ content: new TextEncoder().encode("restarted") })
+    }
+    finally {
+      vi.mocked(readFile).mockImplementation(actual.readFile)
+    }
   })
 
   it.each(["reader", "writer"])("retains a %s lease beyond expiry after heartbeat failure until its operation settles", async (kind) => {
