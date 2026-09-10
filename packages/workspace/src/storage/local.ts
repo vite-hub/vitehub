@@ -213,7 +213,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       for (let current = target; current !== root; current = dirname(current)) {
         ancestors.push(current)
       }
-      ancestors.push(root)
+      // The configured root defines the storage boundary, even when it is a symlink.
       for (const ancestor of ancestors.reverse()) {
         const info = await lstat(ancestor).catch((error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return undefined

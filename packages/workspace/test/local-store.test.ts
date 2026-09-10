@@ -36,6 +36,29 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it("supports regular, conditional, and streamed writes through a configured symlink root", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(parent)
+    const target = join(parent, "target")
+    const root = join(parent, "root")
+    await mkdir(target)
+    await symlink(target, root, "junction")
+    const store = createLocalWorkspaceStore(root)
+
+    await store.writeFile("regular.md", { path: "regular.md", content: "regular" })
+    await store.writeFileConditional!("conditional.md", { path: "conditional.md", content: "conditional" }, null)
+    await store.writeFileStream!("stream.md", {
+      path: "stream.md",
+      content: new ReadableStream({ start(controller) {
+        controller.enqueue(new TextEncoder().encode("stream"))
+        controller.close()
+      } }),
+    })
+    for (const name of ["regular", "conditional", "stream"]) {
+      expect(await readFile(join(target, `${name}.md`), "utf8")).toBe(name)
+    }
+  })
+
   it.each([".agents", ".agents/skills", ".vitehub", ".vitehub/tmp"])("rejects conditional persistence through a linked %s directory", async (linkedPath) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     const outside = await mkdtemp(join(tmpdir(), "vitehub-workspace-outside-"))
