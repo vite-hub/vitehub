@@ -132,7 +132,11 @@ export function redactCredentialText(value: string, precedingText = ""): string 
   const redacted = redactAuthorizationHeaders(value)
     .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/\\?#@"<>]+@/gi, "$1[REDACTED]@")
     .replace(/\bph[cx]_[A-Za-z0-9_-]+\b/g, "[REDACTED]")
-    .replace(/(\bproject\b[^\r\n]{0,160}\btoken\s*:\s*)([^\s"',;&{}<>()]+)/gi, "$1[REDACTED]")
+    .replace(/(\bproject\b[^\r\n]{0,160}?\btoken["']?\s*:\s*)("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?|[^\s"',;&{}<>()]+)/gi, (_match, prefix: string, token: string) => {
+      const quote = /^["']/.test(token) ? token[0]! : ""
+      const closed = quote && token.length > 1 && token.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(token)
+      return `${prefix}${quote}[REDACTED]${closed ? quote : ""}`
+    })
     .replace(/\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?)/gi, (match, scheme: string, quoted: string, offset: number, source: string) => {
       if (!isCredentialScheme(scheme, precedingText + source.slice(0, offset))) return match
       const quote = quoted[0]!

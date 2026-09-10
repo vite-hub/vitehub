@@ -196,6 +196,17 @@ it("redacts a project token embedded in provider tool metadata", () => {
   })
 })
 
+it.each([
+  ['{"project":{"token":"hunter2"},"status":"ok"}', '{"project":{"token":"[REDACTED]"},"status":"ok"}'],
+  ["project: {token: 'secret words;private', status: ok}", "project: {token: '[REDACTED]', status: ok}"],
+  [String.raw`{"project":{"token":"secret\"words"}}`, '{"project":{"token":"[REDACTED]"}}'],
+  ['project token: "unfinished secret', 'project token: "[REDACTED]'],
+  ['{"token":"identifier"}', '{"token":"identifier"}'],
+])("redacts quoted project metadata without losing surrounding evidence: %s", (input, expected) => {
+  expect(redactCredentialText(input)).toBe(expected)
+  expect(safeAgentTelemetryMetadata({ description: input })).toEqual({ description: expected })
+})
+
 it("redacts recognized PostHog tokens throughout persisted agent configuration", async () => {
   const context = createAgentInvocationContextStore()
   const token = "phc_fake_project_token_123456789"
