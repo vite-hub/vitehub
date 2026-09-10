@@ -3357,11 +3357,29 @@ describe("lazy sources", () => {
     else await expect(store.stat("docs/child")).resolves.toBeUndefined()
   })
 
+  it.each([false, true])("preserves a concurrently created ancestor with local=%s", async (local) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const mkdir = store.mkdir.bind(store)
+    vi.spyOn(store, "mkdir").mockImplementationOnce(async (path, options) => {
+      await mkdir("docs")
+      await mkdir(path, options)
+    })
+    const definition = {
+      name: "concurrent-mount-ancestor",
+      sources: { generated: custom({ materialize: "startup", mount: "docs/nested/generated", files: [{ path: "file.md", content: "generated" }] }) },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
+
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    await expect(store.stat("docs/nested")).resolves.toBeUndefined()
+  })
+
   it("cleans mount ancestors created before recursive mkdir fails", async () => {
     const store = createMemoryWorkspaceStore()
     const mkdir = store.mkdir.bind(store)
-    const failure = vi.spyOn(store, "mkdir").mockImplementationOnce(async () => {
-      await mkdir("docs/nested", { recursive: true })
+    const failure = vi.spyOn(store, "mkdir").mockImplementationOnce(async (_path, options) => {
+      await mkdir("docs/nested", { ...options, recursive: true })
       throw new Error("mount creation failed")
     })
     const definition = {

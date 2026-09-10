@@ -812,21 +812,13 @@ async function materializeWorkspaceSourcesInternal(
       throwIfAborted(options.abortSignal)
       if (source.mountPath) {
         await control.mutate(async () => {
-          const mountExists = Boolean(await store.stat(source.mountPath))
-          const missingAncestors: string[] = []
-          for (const directory of parentDirectoryPaths(source.mountPath)) {
-            if (!await store.stat(directory)) missingAncestors.push(directory)
-          }
-          try {
-            await store.mkdir(source.mountPath, { recursive: true })
-          }
-          finally {
-            // Recursive mkdir can create parents even when creating the mount fails.
-            for (const directory of missingAncestors) {
-              if ((await store.stat(directory))?.type === "directory" && !ownedAncestors.includes(directory)) ownedAncestors.push(directory)
-            }
-            ownsMount = ownsMount || !mountExists && (await store.stat(source.mountPath))?.type === "directory"
-          }
+          await store.mkdir(source.mountPath, {
+            recursive: true,
+            onCreate(directory) {
+              if (directory === source.mountPath) ownsMount = true
+              else if (parentDirectoryPaths(source.mountPath).includes(directory) && !ownedAncestors.includes(directory)) ownedAncestors.push(directory)
+            },
+          })
         })
       }
 

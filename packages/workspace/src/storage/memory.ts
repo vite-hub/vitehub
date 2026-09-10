@@ -89,11 +89,13 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     return node ? await this.#entry(normalized, node) : undefined
   }
 
-  async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
+  async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
     await this.#mutate(() => {
       const normalized = normalizeWorkspacePath(path)
-      this.#ensureParents(normalized)
+      this.#ensureParents(normalized, options.onCreate)
+      const existed = this.#nodes.has(normalized)
       this.#nodes.set(normalized, { type: "directory", mtime: now() })
+      if (!existed) options.onCreate?.(normalized)
     })
   }
 
@@ -168,11 +170,14 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     return result
   }
 
-  #ensureParents(path: string) {
+  #ensureParents(path: string, onCreate?: (path: string) => void) {
     const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
     for (let index = 1; index < parts.length; index++) {
       const dir = parts.slice(0, index).join("/")
-      if (!this.#nodes.has(dir)) this.#nodes.set(dir, { type: "directory", mtime: now() })
+      if (!this.#nodes.has(dir)) {
+        this.#nodes.set(dir, { type: "directory", mtime: now() })
+        onCreate?.(dir)
+      }
     }
   }
 

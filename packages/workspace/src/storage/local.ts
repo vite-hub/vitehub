@@ -373,8 +373,26 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
-    const { mkdir } = await import("node:fs/promises")
-    await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
+    const { mkdir, stat } = await import("node:fs/promises")
+    if (!options.onCreate) {
+      await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
+      return
+    }
+    const normalized = normalizeWorkspacePath(path)
+    const parts = normalized.split("/").filter(Boolean)
+    const directories = options.recursive === false ? [normalized] : parts.map((_, index) => parts.slice(0, index + 1).join("/"))
+    await mkdir(this.root, { recursive: true })
+    for (const directory of directories) {
+      const absolute = resolveInside(this.root, directory)
+      try {
+        await mkdir(absolute)
+      }
+      catch (error) {
+        if (Reflect.get(Object(error), "code") !== "EEXIST" || !(await stat(absolute)).isDirectory()) throw error
+        continue
+      }
+      options.onCreate(directory)
+    }
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
