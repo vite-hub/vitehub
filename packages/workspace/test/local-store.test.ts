@@ -90,14 +90,39 @@ describe("local workspace store", () => {
   it.each([false, true])("allows recreating a missing removal target, recursive: %s", async (recursive) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
-    await store.writeFile("missing", { path: "missing", content: "existing", metadata: { source: "docs" } })
+    await store.writeFile("missing", { path: "missing", content: "existing", mediaType: "text/custom", metadata: { source: "docs" } })
     await rm(`${root}/missing`)
     await expect(store.rm("missing", { recursive })).rejects.toMatchObject({ code: "ENOENT" })
     expect(await readdir(`${root}/.vitehub/file-removals`)).toEqual([])
     const restarted = createLocalWorkspaceStore(root)
     await expect(restarted.stat("missing")).resolves.toBeUndefined()
-    await restarted.writeFile("missing", { path: "missing", content: "created", metadata: { source: "docs" } })
-    await expect(createLocalWorkspaceStore(root).readFile("missing")).resolves.toMatchObject({ metadata: { source: "docs" } })
+    await writeFile(`${root}/missing`, "created")
+    for (const reader of [store, restarted, createLocalWorkspaceStore(root)]) {
+      const file = await reader.readFile("missing")
+      expect(file?.metadata).toBeUndefined()
+      expect(file?.mediaType).not.toBe("text/custom")
+      expect((await reader.stat("missing"))?.metadata).toBeUndefined()
+    }
+  })
+
+  it("keeps a missing target guarded when stale metadata cleanup fails", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("missing", { path: "missing", content: "old", metadata: { source: "docs" } })
+    await rm(`${root}/missing`)
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(rm).mockImplementation(async (target, options) => {
+      if (String(target) === `${metadataRoot(root)}/missing`) throw new Error("cleanup interrupted")
+      return await actual.rm(target, options)
+    })
+    try {
+      await expect(store.rm("missing")).rejects.toThrow("cleanup interrupted")
+    }
+    finally {
+      vi.mocked(rm).mockImplementation(actual.rm)
+    }
+    await writeFile(`${root}/missing`, "new")
+    await expect(createLocalWorkspaceStore(root).readFile("missing")).rejects.toThrow("Interrupted Workspace removal")
   })
 
   it.each(["file", "directory"])("keeps metadata readable after rejected non-recursive %s removal", async (kind) => {

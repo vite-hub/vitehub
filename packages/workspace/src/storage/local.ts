@@ -795,14 +795,18 @@ class LocalWorkspaceStore implements WorkspaceStore {
       createdMarker = file !== undefined
       await file?.close()
     }
+    let missingTargetError: NodeJS.ErrnoException | undefined
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
     }).catch(async (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT" && options.force) return
-      // A missing target or failed non-recursive removal deleted no descendants. Only
+      if (error.code === "ENOENT") {
+        if (!options.force) missingTargetError = error
+        return
+      }
+      // A failed non-recursive removal deleted no descendants. Only
       // clear our own marker; an earlier interrupted removal still needs recovery.
-      if (createdMarker && (!options.recursive || error.code === "ENOENT")) await rm(marker, { force: true })
+      if (createdMarker && !options.recursive) await rm(marker, { force: true })
       throw error
     })
     for (const key of this.#files.keys()) {
@@ -811,6 +815,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { rm: removeMetadata } = await import("node:fs/promises")
     if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
     await rm(marker, { force: true })
+    if (missingTargetError) throw missingTargetError
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
