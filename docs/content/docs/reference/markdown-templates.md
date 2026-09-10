@@ -1,6 +1,6 @@
 ---
 title: Markdown templates
-description: Render deterministic Markdown from explicit data, bounded conditions, fragments, and caller-resolved imports.
+description: Render deterministic Markdown from explicit data, bounded conditions, and fragments.
 navigation.order: 53
 navigation.group: Application APIs
 icon: i-vscode-icons-file-type-markdown
@@ -34,7 +34,7 @@ const prompt = await renderPrompt({
 })
 ```
 
-ViteHub bundles the template and its relative Markdown imports before deployment. The deployed application does not read these source files at runtime. The generated module type accepts an optional `Record<string, unknown>` and returns `Promise<string>`.
+ViteHub bundles only directly imported `*.template.md` files before deployment. References such as `@./partial.md` remain literal text and do not bundle additional files. The deployed application does not read these source files at runtime. The generated module type accepts an optional `Record<string, unknown>` and returns `Promise<string>`.
 
 When one caller owns several templates, you may group them in a local directory such as `./templates/`. The directory has no discovery behavior; import each `*.template.md` file directly. Multiple callers can also import the same template from an explicitly shared source path.
 
