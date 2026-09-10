@@ -39,14 +39,6 @@ const legacyHtmlReferences = new Set(characterEntitiesLegacy)
 const closesLinkDestinationPattern = /(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\))/y
 const closesEnclosedLinkDestinationPattern = /\s*>(?:\s*\)|\s+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^)\\])*\))\s*\))/y
 
-interface TemplatePreparation {
-  directiveTokens: TemplateTokenState
-  prepare: (value: string) => Promise<string>
-  protectedTokens: TemplateTokenState
-  runtime: MarkdownTemplateRuntime
-  tagTokens: TemplateTokenState
-}
-
 export async function renderMarkdownTemplate(
   template: string,
   options: RenderMarkdownTemplateOptions = {},
@@ -60,26 +52,31 @@ export async function renderMarkdownTemplateInternal(
 ): Promise<string> {
   assertTemplate(template)
   const data = options.data ?? {}
-  const preparation = createTemplatePreparation()
-  const prepared = await preparation.prepare(template)
-  validateConditionalDirectives(await directiveValidationSource(prepared))
+  const nonce = crypto.randomUUID().replaceAll("-", "")
+  const protectedTokens: TemplateTokenState = { prefix: `VITEHUBMARKDOWNTEMPLATEPROTECTED${nonce}`, values: [] }
+  const tagTokens: TemplateTokenState = { prefix: `VITEHUBMARKDOWNTEMPLATETAG${nonce}`, values: [] }
+  const directiveTokens: TemplateTokenState = { prefix: `VITEHUBMARKDOWNTEMPLATEDIRECTIVE${nonce}`, values: [] }
+  const runtime = createMarkdownTemplateRuntime(nonce)
+  const prepared = maskTemplateTags(await protectCodeTemplateSyntax(template, protectedTokens, nonce), tagTokens)
+  // Code directives are already protected, so validate the remaining authored directives once.
+  validateConditionalDirectives(prepared)
   const normalizedLinks = await normalizeLinkBindings(prepared)
   const fragmentToken = `VITEHUBMARKDOWNTEMPLATEFRAGMENT${crypto.randomUUID().replaceAll("-", "")}`
-  const normalized = await normalizeTripleBindings(normalizedLinks.template, fragmentToken, preparation.runtime)
+  const normalized = await normalizeTripleBindings(normalizedLinks.template, fragmentToken, runtime)
   const tree = await parseTemplateMarkdown(normalized.template, true)
   const nodes = await composeNodes(tree.nodes, {
     data,
-    directiveTokens: preparation.directiveTokens,
+    directiveTokens,
     fragmentToken,
     fragments: normalized.fragments,
     linkToken: normalizedLinks.token,
     links: normalizedLinks.links,
     validateConditionPath: options.validateConditionPath,
   })
-  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: preparation.runtime.components }))
+  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: runtime.components }))
   return restoreTemplateTokens(
-    restoreTemplateTags(restoreLiteralDirectives(rendered, preparation.directiveTokens), preparation.tagTokens, data),
-    preparation.protectedTokens,
+    restoreTemplateTags(restoreLiteralDirectives(rendered, directiveTokens), tagTokens, data),
+    protectedTokens,
   )
 }
 
@@ -185,36 +182,6 @@ function assertTemplate(template: string): void {
   }
 }
 
-function createTemplatePreparation(): TemplatePreparation {
-  const nonce = crypto.randomUUID().replaceAll("-", "")
-  const protectedTokens: TemplateTokenState = {
-    prefix: `VITEHUBMARKDOWNTEMPLATEPROTECTED${nonce}`,
-    values: [],
-  }
-  const tagTokens: TemplateTokenState = {
-    prefix: `VITEHUBMARKDOWNTEMPLATETAG${nonce}`,
-    values: [],
-  }
-  const directiveTokens: TemplateTokenState = {
-    prefix: `VITEHUBMARKDOWNTEMPLATEDIRECTIVE${nonce}`,
-    values: [],
-  }
-  return {
-    directiveTokens,
-    prepare: async (value) => {
-      const prepared = maskTemplateTags(
-        await protectCodeTemplateSyntax(value, protectedTokens, nonce),
-        tagTokens,
-      )
-      validateConditionalDirectives(await directiveValidationSource(prepared))
-      return prepared
-    },
-    protectedTokens,
-    runtime: createMarkdownTemplateRuntime(nonce),
-    tagTokens,
-  }
-}
-
 function protectLiteralDirectives(template: string, state: TemplateTokenState): string {
   return template.replace(/^([\t ]*:{2,}[A-Za-z][\w-]*)\{[^{}\r\n]+\}(?=[\t ]*$)/gm, (directive, prefix: string) => {
     const index = state.values.push(directive) - 1
@@ -298,7 +265,7 @@ async function protectCodeTemplateSyntax(
   if (!candidates.length) return template
 
   const tree = await parseTemplateMarkdown(masked)
-  const inCode = directiveTokensInCode(tree.nodes, prefix)
+  const inCode = templateTokensInCode(tree.nodes, prefix)
   return masked.replace(new RegExp(`${prefix}(\\d+)END`, "g"), (_match, index: string) => {
     const candidate = candidates[Number(index)]
     if (!candidate) return _match
@@ -338,25 +305,7 @@ async function normalizeTripleBindings(
   }
 }
 
-async function directiveValidationSource(
-  template: string,
-): Promise<string> {
-  const nonce = crypto.randomUUID().replaceAll("-", "")
-  const prefix = `VITEHUBMARKDOWNTEMPLATEVALIDATION${nonce}`
-  const directives: string[] = []
-  const masked = template.replace(/^(\s*)(::[^\r\n]*)$/gm, (_match, indentation: string, directive: string) => {
-    const index = directives.push(directive) - 1
-    return `${indentation}${prefix}${index}END`
-  })
-  if (!directives.length) return template
-
-  const tree = await parseTemplateMarkdown(masked)
-  const inCode = directiveTokensInCode(tree.nodes, prefix)
-  return masked.replace(new RegExp(`${prefix}(\\d+)END`, "g"), (_match, index: string) =>
-    inCode.has(Number(index)) ? "code" : directives[Number(index)] ?? _match)
-}
-
-function directiveTokensInCode(nodes: ComarkNode[], prefix: string, inCode = false): Set<number> {
+function templateTokensInCode(nodes: ComarkNode[], prefix: string, inCode = false): Set<number> {
   const found = new Set<number>()
   for (const node of nodes) {
     if (typeof node === "string") {
@@ -366,7 +315,7 @@ function directiveTokensInCode(nodes: ComarkNode[], prefix: string, inCode = fal
       continue
     }
     if (!isElement(node)) continue
-    const nested = directiveTokensInCode(node.slice(2) as ComarkNode[], prefix, inCode || node[0] === "code")
+    const nested = templateTokensInCode(node.slice(2) as ComarkNode[], prefix, inCode || node[0] === "code")
     for (const index of nested) found.add(index)
   }
   return found

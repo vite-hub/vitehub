@@ -356,6 +356,38 @@ describe("renderMarkdownTemplate", () => {
     ].join("\n"))
   })
 
+  it.each([
+    ["fenced", "```md\n::else\n::if{missing}\n{{ missing }}\n```"],
+    ["indented", "    ::else\n    ::if{missing}\n    {{ missing }}"],
+    ["multiline inline", "``\n::else\n::if{missing}\n{{ missing }}\n``"],
+  ])("ignores malformed branches in %s code while validating authored branches", async (_kind, code) => {
+    const template = `::if{enabled}\nSelected\n\n${code}\n\n::else-if{fallback}\nFallback\n::else\nNeither\n::`
+    const selected = await renderMarkdownTemplate(template, { data: { enabled: true } })
+    expect(selected).toContain("Selected")
+    expect(selected).toContain("::else")
+    expect(selected).toContain("::if{missing}")
+    expect(selected).toContain("{{ missing }}")
+    expect(selected).not.toContain("VITEHUBMARKDOWNTEMPLATE")
+    await expect(renderMarkdownTemplate(template, { data: { enabled: false, fallback: true } }))
+      .resolves.toBe("Fallback")
+    await expect(renderMarkdownTemplate(template, { data: { enabled: false, fallback: false } }))
+      .resolves.toBe("Neither")
+    await expect(renderMarkdownTemplate(`${code}\n\n::if{enabled}\nUnclosed`))
+      .rejects.toThrow("missing a closing")
+  })
+
+  it("isolates protected syntax across concurrent renders and a rejected render", async () => {
+    const template = "`{{ literal }}`\n\n<policy name=\"{{ name }}\">\n::if{enabled}\n{{{ section }}}\n::else\nHidden\n::\n</policy>"
+    const results = await Promise.allSettled([
+      renderMarkdownTemplate(template, { data: { enabled: true, name: "First", section: "First fragment" } }),
+      renderMarkdownTemplate(template, { data: { enabled: true, name: "Missing section" } }),
+      renderMarkdownTemplate(template, { data: { enabled: false, name: "Last" } }),
+    ])
+    expect(results[0]).toEqual({ status: "fulfilled", value: "`{{ literal }}`\n\n<policy name=\"First\">\n\nFirst fragment\n\n</policy>" })
+    expect(results[1].status).toBe("rejected")
+    expect(results[2]).toEqual({ status: "fulfilled", value: "`{{ literal }}`\n\n<policy name=\"Last\">\n\nHidden\n\n</policy>" })
+  })
+
   it("preserves blank lines inside fenced code", async () => {
     await expect(renderMarkdownTemplate("```md\nfirst\n\n\nlast\n```"))
       .resolves.toBe("```md\nfirst\n\n\nlast\n```")
