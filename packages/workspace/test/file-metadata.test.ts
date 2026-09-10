@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { copyJsonFileMetadata } from "../src/core/file-metadata.ts"
+import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -97,4 +99,43 @@ describe("portable file metadata", () => {
     await expect(workspace.writeFile("file", "content", { metadata: { source: 123 } })).rejects.toThrow("metadata.source must be a string")
     expect(write).not.toHaveBeenCalled()
   })
+})
+
+it("copies descriptor values without reading proxy properties", () => {
+  const get = vi.fn(() => 123)
+  const nested = new Proxy({ labels: new Proxy(["docs"], { get }) }, { get })
+  const metadata = new Proxy({ source: "docs", nested }, { get })
+  const copy = copyJsonFileMetadata("file.txt", metadata)
+  expect(copy).toEqual({ source: "docs", nested: { labels: ["docs"] } })
+  expect(structuredClone(copy)).toEqual(copy)
+  expect(JSON.parse(JSON.stringify(copy))).toEqual(copy)
+  expect(get).not.toHaveBeenCalled()
+})
+
+it.each(["memory", "local", "stream"])("persists validated proxy metadata through %s writes", async (provider) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-proxy-metadata-"))
+  try {
+    const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(root)
+    const get = vi.fn(() => 123)
+    const metadata = new Proxy({ source: "docs", nested: { label: "original" } }, { get })
+    if (provider === "stream") {
+      await store.writeFileStream!("file.txt", { path: "file.txt", metadata, content: new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode("content")); controller.close() } }) })
+    }
+    else await store.writeFile("file.txt", { path: "file.txt", content: "content", metadata })
+    const reader = provider === "memory" ? store : createLocalWorkspaceStore(root)
+    await expect(reader.readFile("file.txt")).resolves.toMatchObject({ metadata: { source: "docs", nested: { label: "original" } } })
+    expect(get).not.toHaveBeenCalled()
+  }
+  finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it("dispatches plain metadata to the Store from the public write boundary", async () => {
+  const store = createMemoryWorkspaceStore()
+  const write = vi.spyOn(store, "writeFile")
+  const get = vi.fn(() => 123)
+  const view = createWorkspaceSourceView({ name: "proxy-metadata" }, store)
+  await view.writeFile("file.txt", "content", { metadata: new Proxy({ nested: { label: "original" } }, { get }) })
+  const metadata = write.mock.calls[0]![1].metadata
+  expect(structuredClone(metadata)).toEqual({ nested: { label: "original" } })
+  expect(get).not.toHaveBeenCalled()
 })

@@ -7,7 +7,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { check, fallback, literal, object, optional, pipe, record, safeParse, string, unknown } from "valibot"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
-import { assertJsonFileMetadata } from "../core/file-metadata.ts"
+import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
 
@@ -32,10 +32,11 @@ const fileMetadataSchema = optional(pipe(unknown(), check(value => !Array.isArra
 })))
 
 function assertFileMetadata(path: string, metadata: WorkspaceFile["metadata"]) {
-  assertJsonFileMetadata(path, metadata)
+  metadata = copyJsonFileMetadata(path, metadata)
   if (!safeParse(fileMetadataSchema, metadata).success) {
     throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. metadata.source must be a string when provided.`)
   }
+  return metadata
 }
 
 async function backupFile(path: string, backup: string): Promise<number | undefined> {
@@ -571,7 +572,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    assertFileMetadata(path, file.metadata)
+    file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
@@ -628,7 +629,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
-    assertFileMetadata(path, file.metadata)
+    file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)

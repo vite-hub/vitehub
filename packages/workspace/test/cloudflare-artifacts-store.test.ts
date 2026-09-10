@@ -744,6 +744,19 @@ describe("Cloudflare Artifacts workspace store", () => {
     })
   })
 
+  it("writes descriptor metadata from proxies without invoking get traps", async () => {
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+    const get = vi.fn(() => 123)
+    await store.writeFile("result.txt", {
+      path: "result.txt", content: "content",
+      metadata: new Proxy({ source: "docs", nested: { label: "original" } }, { get }),
+    })
+    await expect(store.readFile("result.txt")).resolves.toMatchObject({
+      metadata: { source: "docs", nested: { label: "original" } },
+    })
+    expect(get).not.toHaveBeenCalled()
+  })
+
   it.each([42, null, false, {}, []])("rejects invalid persisted Source ownership: %j", async (source) => {
     gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
     gitMock.clone.mockImplementationOnce(async (options?: unknown) => {

@@ -1,5 +1,5 @@
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
-import { assertJsonFileMetadata } from "../core/file-metadata.ts"
+import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
 
@@ -152,7 +152,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   #writeFile(path: string, file: WorkspaceFile): void {
-    assertJsonFileMetadata(path, file.metadata)
+    file = { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }
     const normalized = normalizeWorkspacePath(path)
     this.#ensureParents(normalized)
     this.#nodes.set(normalized, {
