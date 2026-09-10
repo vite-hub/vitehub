@@ -5,7 +5,7 @@ import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
-import { markFileAttributesUnavailable } from "../internal/file-attributes.ts"
+import { fileAttributesUnavailable, markFileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
@@ -219,6 +219,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
   }
 
+  #recordFileAttributes(path: string, file: WorkspaceFile): void {
+    // Restoring a file read after restart must retain its unavailable attributes.
+    if (fileAttributesUnavailable(file)) this.#files.delete(path)
+    else this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
+  }
+
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
@@ -230,10 +236,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const digest = await sha256(bytes)
     const existing = await this.stat(normalized)
     if (existing?.type === "file" && existing.digest === digest) {
-      this.#files.set(normalized, {
-        mediaType: file.mediaType,
-        metadata: file.metadata,
-      })
+      this.#recordFileAttributes(normalized, file)
       return
     }
     await Promise.all([
@@ -248,10 +251,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
-    this.#files.set(normalized, {
-      mediaType: file.mediaType,
-      metadata: file.metadata,
-    })
+    this.#recordFileAttributes(normalized, file)
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {

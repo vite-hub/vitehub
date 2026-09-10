@@ -113,6 +113,30 @@ describe("lazy sources", () => {
     expect(Buffer.from((await reopened.readFile("docs/guide.md"))!.content).toString()).toBe("persisted needle")
   })
 
+  it.each(["persisted needle", "lower needle"])("preserves unavailable attributes after overlapping restart recovery with %s", async (lowerContent) => {
+    const root = await createRoot()
+    const getItem = vi.fn(async (key: string) => ({ key, content: "persisted needle", mediaType: "text/markdown", metadata: { label: "higher" } }))
+    const definition = {
+      name: "reopened-overlapping-inspection",
+      sources: {
+        higher: custom({ materialize: "startup", mount: "docs", getKeys: async () => ["guide.md"], getItem }),
+        lower: custom({ materialize: "startup", mount: "docs", getKeys: async () => ["guide.md", "extra.md"], getItem: async (key: string) => ({ key, content: lowerContent, mediaType: "text/plain", metadata: { label: "lower" } }) }),
+      },
+    }
+    await materializeWorkspaceSources(definition, createLocalWorkspaceStore(root))
+    getItem.mockClear()
+    getItem.mockRejectedValue(new Error("inspection must not refresh the higher Source"))
+    await rm(join(root, "docs/extra.md"))
+    const reopened = createLocalWorkspaceStore(root)
+
+    for (let pass = 0; pass < 2; pass++) {
+      const inspection = createWorkspaceSourceView(definition, reopened, { reuseStartupSnapshots: true })
+      await inspection.list("docs", { recursive: true })
+      await expect(inspection.readFile("docs/guide.md")).resolves.toBe("persisted needle")
+      expect(getItem).not.toHaveBeenCalled()
+    }
+  })
+
   it.each(["memory", "local"])("revalidates explicitly cleared attributes in %s inspection snapshots", async (storeType) => {
     const store = storeType === "local" ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
     const getItem = vi.fn(async (key: string) => ({ key, content: "needle", mediaType: "text/markdown", metadata: { label: "guide" } }))
