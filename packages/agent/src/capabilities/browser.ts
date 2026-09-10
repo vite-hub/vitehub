@@ -128,12 +128,12 @@ function attachBrowserScreenshots(
 
 export function browser(options: BrowserCapabilityOptions = {}): AgentCapabilityDefinition {
   const command = assertCommand(options.command || "agent-browser")
-  if (options.command !== undefined && options.runtime === "managed") {
+  if (command !== "agent-browser" && options.runtime === "managed") {
     throw agentDiagnostics.AGENT_R0025({ message: "[vitehub] browser({ runtime: \"managed\" }) owns the agent-browser command. Remove command or use runtime: \"external\" for a custom executable." })
   }
   const skillPath = normalizeSkillPath(options.skillPath || ".agents/skills/agent-browser/SKILL.md")
   const sourceKey = options.sourceKey || "skill.browser"
-  const runtimeMode = options.runtime ?? (options.command === undefined ? "managed" : "external")
+  const runtimeMode = options.runtime ?? (command === "agent-browser" ? "managed" : "external")
   let skillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
 
   return Object.assign(defineCapability({

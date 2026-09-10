@@ -1045,6 +1045,9 @@ describe("agent capability runtime", () => {
   it("exposes the effective browser runtime in inspection metadata", async () => {
     const { browser } = await import("../src/capabilities.ts")
     expect(browser().metadata).toMatchObject({ runtime: "managed" })
+    expect(browser({ command: "agent-browser" }).metadata).toMatchObject({ runtime: "managed" })
+    expect(browser({ command: "agent-browser", runtime: "managed" }).metadata).toMatchObject({ runtime: "managed" })
+    expect(browser({ command: "agent-browser", runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
     expect(browser({ runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
     expect(browser({ command: "custom-browser" }).metadata).toMatchObject({ runtime: "external" })
   })
