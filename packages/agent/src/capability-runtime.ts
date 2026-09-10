@@ -923,11 +923,14 @@ async function applyCapabilityWorkspaceContributions<
   const persistencePaths = context.workspacePersistencePaths || []
   // SAFETY: Persistence runs only for the writable workspace returned by capability source resolution.
   const retainedWorkspace = baseWorkspace as ReadonlyWorkspaceFacade<Name> & {
+    capabilities?(): Promise<{ conditionalWrites: boolean }>
     fs: ReadonlyWorkspaceFacade<Name>["fs"] & {
       writeFile(path: string, content: string | Uint8Array, options?: { ifDigest?: string | null, mediaType?: string, metadata?: Record<string, unknown> }): Promise<string>
     }
   }
-  if (persistencePaths.length && hasRuntimeType(retainedWorkspace.fs.writeFile, "function")) {
+  if (persistencePaths.length
+    && hasRuntimeType(retainedWorkspace.fs.writeFile, "function")
+    && (await retainedWorkspace.capabilities?.())?.conditionalWrites) {
     await Promise.all(persistencePaths.map(({ path }) => sourceResolution.workspace.fs.materializeSources?.({ path })))
     const pending: Array<{ capabilityId: string, path: string, ifDigest: string | null }> = []
     const desired = new Map<string, { content: string | Uint8Array, digest: string }>()

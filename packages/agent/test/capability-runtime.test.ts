@@ -965,6 +965,30 @@ describe("agent capability runtime", () => {
     await rm(workspaceRoot, { force: true, recursive: true })
   })
 
+  it("keeps browser Skills invocation-local when the Store lacks conditional writes", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const workspaceName = `nonconditional-browser-${crypto.randomUUID()}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    workspace.capabilities = async () => ({ conditionalWrites: false })
+    const write = vi.spyOn(workspace.fs, "writeFile").mockRejectedValue(new Error("conditional writes unavailable"))
+    const skillPath = ".agents/skills/agent-browser/SKILL.md"
+
+    for (const skillContent of ["# Browser\nUse bash.\n", "# Browser\nUpdated guidance.\n"]) {
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [browser({ runtime: "external", skillContent })],
+      }, runtime(), {}, workspace as never, "write", {
+        driverKind: "provider",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })
+      await expect(resolved.workspace!.fs.readFile(skillPath)).resolves.toBe(browserSkillContent(skillContent, skillPath))
+      await expect(workspace.fs.exists(skillPath)).resolves.toBe(false)
+      await resolved.close()
+    }
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it("preserves a Skill created during Capability resolution", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
