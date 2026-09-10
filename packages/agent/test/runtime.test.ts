@@ -1,6 +1,7 @@
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import * as v from "valibot"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent, traceEventsToOpenTelemetrySpans, ViteHubError } from "@vite-hub/runtime"
@@ -1355,6 +1356,8 @@ describe("agent message protocol", () => {
           yield { text: "secret text", type: "text-delta" }
           yield { id: "tool-1", input: { query: "secret" }, name: "search", type: "tool-call" }
           yield { id: "tool-1", name: "search", output: { result: "secret" }, type: "tool-result" }
+          yield { data: { kind: "input.message", value: { message: "private follow-up", mode: "steer" } }, id: "follow-up-1", type: "data-agent-event" }
+          yield { data: { kind: "input.steered", value: { mode: "steer" } }, type: "data-agent-event" }
           yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
           yield { type: "finish" }
         })() },
@@ -1376,6 +1379,8 @@ describe("agent message protocol", () => {
       "agent.message.delta",
       "agent.tool.start",
       "agent.tool.finish",
+      "agent.input.message",
+      "agent.input.steered",
       "agent.usage.recorded",
       "agent.stream.finish",
       "agent.invocation.finish",
@@ -1386,6 +1391,17 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret text")
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
     expect(JSON.stringify(traceLog.entries())).not.toContain("private reasoning")
+    expect(JSON.stringify(traceLog.entries())).not.toContain("private follow-up")
+    expect(traceLog.entries().find(event => event.name === "agent.input.message")?.attributes).toMatchObject({
+      "input.mode": "steer",
+      "message.id": "follow-up-1",
+      "message.role": "user",
+    })
+    expect(traceLog.entries().find(event => event.name === "agent.input.steered")?.attributes).toMatchObject({
+      "input.mode": "steer",
+      "vitehub.action.name": "input.steered",
+      "vitehub.activity.kind": "action",
+    })
   })
 
   it("batches reasoning, records title data, and retains complete content when opted in", async () => {
@@ -1399,6 +1415,7 @@ describe("agent message protocol", () => {
           yield { phase: "commentary", text: "the repository", type: "text-delta" }
           yield { id: "tool-1", input: { path: "README.md" }, name: "read", type: "tool-call" }
           yield { id: "tool-1", name: "read", output: { text: "contents" }, type: "tool-result" }
+          yield { data: { kind: "input.message", value: { message: "Include the retry path", mode: "steer" } }, id: "follow-up-1", type: "data-agent-event" }
           yield { phase: "final", text: "Finished ", type: "text-delta" }
           yield { phase: "final", text: "the review", type: "text-delta" }
           yield { type: "finish" }
@@ -1422,6 +1439,39 @@ describe("agent message protocol", () => {
     ])
     expect(traceLog.entries().find(event => event.name === "agent.tool.start")?.attributes?.["tool.input"]).toEqual({ path: "README.md" })
     expect(traceLog.entries().find(event => event.name === "agent.tool.finish")?.attributes?.["tool.output"]).toEqual({ text: "contents" })
+    expect(traceLog.entries().find(event => event.name === "agent.input.message")?.attributes).toMatchObject({
+      "input.mode": "steer",
+      "message.content": "Include the retry path",
+      "message.role": "user",
+    })
+  })
+
+  it.each([64 * 1024 - 1, 64 * 1024, 64 * 1024 + 1])("marks steered input trace truncation only above the content limit (%i characters)", async (length) => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog({ content: "content" })
+    const message = "x".repeat(length)
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+        yield { data: { kind: "input.message", value: { message, mode: "steer" } }, id: "follow-up-1", type: "data-agent-event" }
+        yield { type: "finish" }
+      })() },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Review the repository" })],
+    })
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    const observations = traceLog.entries().filter(event => event.name === "agent.input.message")
+    expect(observations).toHaveLength(1)
+    expect(observations[0]?.attributes).toMatchObject({
+      "input.mode": "steer",
+      "message.content": message.slice(0, 64 * 1024),
+      "message.id": "follow-up-1",
+      "message.role": "user",
+    })
+    expect(observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(length > 64 * 1024 ? true : undefined)
   })
 
   it("exports product actions as execute_tool spans with ViteHub rendering semantics", async () => {
@@ -3080,6 +3130,88 @@ describe("agent message protocol", () => {
       },
     })
     await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("channel:portal:hello")
+  })
+
+  it.each([false, true])("validates and transforms Standard Schema trigger input before invoke (callable: %s)", async (callable) => {
+    const { defineAgent, resolveAgentTriggerInvocation, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const validation = vi.fn((value: string) => value.length > 0)
+    const schema = v.object({ payload: v.object({ text: v.pipe(v.string(), v.trim(), v.check(validation, "private validation detail")) }) })
+    const inputSchema = callable ? Object.assign(() => {}, { "~standard": schema["~standard"] }) : schema
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          messages: false,
+          triggers: {
+            webhook: defineChannelTrigger({
+              input: inputSchema,
+              invoke: (_context, input) => ({ input: { prompt: input.payload.text } }),
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
+            }),
+          },
+        }),
+      },
+      driver: { run: context => context.prompt },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(runAgentTrigger(agent, runtime, "portal.webhook", { payload: { text: "  hello  " } })).resolves.toBe("hello")
+    validation.mockClear()
+    const invalid = await resolveAgentTriggerInvocation(agent, {
+      ...runtime,
+      request: new Request("https://example.test/webhook", { headers: { "x-webhook-secret": "secret" }, method: "POST" }),
+    }, "portal.webhook", { payload: { text: "" } })
+    expect("response" in invalid && invalid.response.status).toBe(400)
+    if ("response" in invalid) await expect(invalid.response.json()).resolves.toEqual({ accepted: false, reason: "invalid_payload" })
+    expect(validation).toHaveBeenCalledTimes(1)
+
+    validation.mockClear()
+    await expect(resolveAgentTriggerInvocation(agent, {
+      ...runtime,
+      request: new Request("https://example.test/webhook", { headers: { "x-webhook-secret": "wrong" }, method: "POST" }),
+    }, "portal.webhook", { payload: { text: "" } })).rejects.toMatchObject({
+      message: "[vitehub] Webhook secret verification failed.",
+      statusCode: 401,
+    })
+    expect(validation).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])("propagates webhook validator exceptions (async: %s)", async (asyncValidation) => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const failure = new Error("broken validator")
+    const invoke = vi.fn(() => ({ input: { prompt: "unused" } }))
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          messages: false,
+          triggers: {
+            webhook: defineChannelTrigger({
+              input: {
+                "~standard": {
+                  version: 1,
+                  vendor: "test",
+                  validate() {
+                    if (asyncValidation) return Promise.reject(failure)
+                    throw failure
+                  },
+                },
+              },
+              invoke,
+              webhooks: [{ provider: "portal", secretHeader: "x-webhook-secret", secretToken: "secret" }],
+            }),
+          },
+        }),
+      },
+      driver: { run: context => context.prompt },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(resolveAgentTriggerInvocation(agent, {
+      ...runtime,
+      request: new Request("https://example.test/webhook", { headers: { "x-webhook-secret": "secret" }, method: "POST" }),
+    }, "portal.webhook", { payload: { text: "hello" } })).rejects.toBe(failure)
+    expect(invoke).not.toHaveBeenCalled()
   })
 
   it("adds only the active Channel Capabilities", async () => {
