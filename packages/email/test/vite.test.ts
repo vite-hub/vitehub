@@ -317,6 +317,8 @@ describe("hubEmail", () => {
       // SAFETY: Email template modules export a renderer with these explicit data inputs.
       const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<string> }
       await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\nPending.")
+      // Stop development refreshes before removing the source tree to simulate deployment.
+      await server.close()
       const paths = await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
       await rm(join(root, "server"), { recursive: true })
       // SAFETY: prepareTypes materializes the same Email renderer contract for deployment.

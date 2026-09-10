@@ -60,7 +60,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
 | `vite-hub/kv` | KV Runtime Helper. |
-| `vite-hub/markdown-template` | Markdown rendering from explicit file paths or template strings. |
+| `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
+| `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing with canonical [Realtime checkpoints](/docs/reference/realtime). |
@@ -133,7 +134,8 @@ for libraries, focused integrations, and advanced composition.
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |
-| `@vite-hub/markdown-template` | Markdown Template Package | Markdown rendering from explicit file paths or template strings. |
+| `@vite-hub/markdown-template` | Markdown Template Package | Portable Markdown rendering from template strings. |
+| `@vite-hub/markdown-template/file` | Markdown Template Package | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `@vite-hub/queue` | Queue Package | Queue Definition and enqueue Runtime Helper. |
 | `@vite-hub/rate-limit` | Rate Limit Package | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `@vite-hub/rate-limit/drivers/memory` | Rate Limit Package | Local, test, and single-process fixed-window enforcement. |
