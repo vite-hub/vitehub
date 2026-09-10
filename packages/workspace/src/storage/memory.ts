@@ -48,7 +48,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       path: normalized,
       content: node.content || "",
       mediaType: node.mediaType,
-      metadata: node.metadata,
+      metadata: structuredClone(node.metadata),
     }
   }
 
@@ -159,7 +159,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       type: "file",
       content: file.content,
       mediaType: file.mediaType,
-      metadata: file.metadata,
+      metadata: structuredClone(file.metadata),
       mtime: now(),
     })
   }
@@ -187,7 +187,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       size,
       mtime: node.mtime,
       mediaType: node.mediaType,
-      metadata: node.metadata,
+      metadata: structuredClone(node.metadata),
       digest: node.type === "file" ? await sha256(content) : undefined,
     }
   }
