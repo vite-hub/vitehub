@@ -339,7 +339,7 @@ export type AgentCapabilityInspectionElement = {
   | { type: "Section", props: { title: string | AgentCapabilityInspectionBinding } }
   | { type: "Text", props: { text: string | AgentCapabilityInspectionBinding } }
   | { type: "KeyValue", props: { label: string | AgentCapabilityInspectionBinding, value: AgentInspectionValue } }
-  | { type: "Tools", props: { names?: string[] | AgentCapabilityInspectionBinding } }
+  | { type: "Tools", props: { names?: string[] | AgentCapabilityInspectionBinding, mcpServer?: string | AgentCapabilityInspectionBinding } }
 )
 
 /** Read-only JSON Render spec. The inspector owns the component catalog. */

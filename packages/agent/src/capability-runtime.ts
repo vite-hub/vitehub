@@ -1446,7 +1446,18 @@ export async function applyCapabilityToolTransforms(
 ): Promise<AgentToolSet | undefined> {
   let current = tools
   for (const transform of transforms) {
+    const previous = { ...current }
     current = await transform(current)
+    if (!current) continue
+    current = Object.fromEntries(Object.entries(current).map(([name, tool]) => {
+      const source = previous?.[name]
+      if (!source?.metadata?.mcpServer || tool.metadata?.mcpServer) return [name, tool]
+      return [name, { ...tool, metadata: {
+        ...tool.metadata,
+        mcpServer: source.metadata.mcpServer,
+        originalName: source.metadata.originalName,
+      } }]
+    }))
   }
   return current
 }

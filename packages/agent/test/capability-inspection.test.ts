@@ -74,15 +74,34 @@ describe("Capability inspection snapshots", () => {
     const record = await invocations.getByRunId("mcp-inspection")
     expect(configuration(record)).toMatchObject({
       capabilities: [{ id: "mcp", inspection: { label: "MCP", view: capability.inspection?.view, state: { servers: [
-        { name: "docs-server", status: "Resolved", tools: ["mcp_docs_server_read_doc"] },
-        { name: "empty", status: "Resolved", tools: [] },
-        { name: "optional", status: "Skipped", tools: [] },
+        { name: "docs-server", status: "Resolved" },
+        { name: "empty", status: "Resolved" },
+        { name: "optional", status: "Skipped" },
       ] } } }],
       tools: [{ name: "mcp_docs_server_read_doc", capabilityId: "mcp", mcp: { server: "docs-server", name: "read-doc" }, description: "Read a document.", inputSchema: { required: ["path"] }, outputSchema: { type: "string" } }],
     })
     await invocations.getByRunId("mcp-inspection")
     expect(tools).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("captures final MCP contracts after replacement, renaming and removal", async () => {
+    const tools = vi.fn(async () => ({
+      read: { description: "Original", inputSchema: { type: "object" }, execute: async () => "read" },
+      removed: { inputSchema: { type: "object" }, execute: async () => "removed" },
+    }))
+    const invocations = journal()
+    const replace = defineCapability({ id: "replace", resolve(context) {
+      context.tools.transform(current => ({ ...current, mcp_docs_read: {
+        name: "mcp_docs_read", description: "Replacement", inputSchema: { type: "string" }, execute: async () => "replacement",
+      } }))
+      context.tools.transform(current => ({ renamed: { ...current!.mcp_docs_read!, name: "renamed" } }))
+    } })
+    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [mcp({ servers: { docs: { tools, close: vi.fn() } } }), replace], driver: { model: model() }, invocations }), runtime("mcp-transformed"), { prompt: "Read docs" })
+    expect(configuration(await invocations.getByRunId("mcp-transformed"))).toMatchObject({
+      tools: [{ name: "renamed", capabilityId: "mcp", mcp: { server: "docs", name: "read" }, description: "Replacement", inputSchema: { type: "string" } }],
+    })
+    expect(tools).toHaveBeenCalledTimes(1)
   })
 
   it.each(["resolve", "discover"])("retains MCP %s failure state without reconnecting or hiding the failure", async (phase) => {

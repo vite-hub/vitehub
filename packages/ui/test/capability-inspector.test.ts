@@ -30,6 +30,16 @@ describe("Capability inspector", () => {
     wrapper.unmount();
   });
 
+  it("filters MCP tools by final provenance after a rename", () => {
+    const current = invocation();
+    current.configuration!.tools![0]!.name = "renamed_read";
+    const wrapper = mount(AgentCapabilityInspector, { props: { invocation: current } });
+    expect(wrapper.findAll("section")[0]!.text()).toContain("renamed_read");
+    expect(wrapper.findAll("section")[0]!.text()).toContain("read-doc");
+    expect(wrapper.findAll("section")[1]!.text()).not.toContain("renamed_read");
+    wrapper.unmount();
+  });
+
   it("updates Title state without losing selection and resets selection between Invocations", async () => {
     const current = invocation();
     const wrapper = mount(AgentCapabilityInspector, { props: { invocation: current } });

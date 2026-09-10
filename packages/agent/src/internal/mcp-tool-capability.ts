@@ -161,7 +161,7 @@ export function defineMcpToolCapability<
     async resolve(context) {
       const tools: AgentToolSet = {}
       const clients: McpClient[] = []
-      const servers: Array<Record<string, AgentInspectionValue>> = options.servers.map(server => ({ name: server.name, status: "Not resolved", tools: [] }))
+      const servers: Array<Record<string, AgentInspectionValue>> = options.servers.map(server => ({ name: server.name, status: "Not resolved" }))
       const publishInspection = async () => {
         if (options.inspection) await context.inspection.set({ servers, empty: servers.length ? "" : "No MCP servers configured." })
       }
@@ -199,7 +199,6 @@ export function defineMcpToolCapability<
           await assertMcpToolIntegrity(server.name, serverTools, serverDefinition.integrity, options.integrityLabel)
         }
         servers[index]!.connection = safeAgentTelemetryMetadata(metadata) ?? {}
-        servers[index]!.tools = Object.keys(serverTools || {}).map(name => options.toolName(server.name, name))
         return { metadata, server, serverTools }
       }))
       for (const [index, result] of results.entries()) {

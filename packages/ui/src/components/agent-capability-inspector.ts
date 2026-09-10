@@ -14,7 +14,7 @@ const catalogProps: Record<string, readonly string[]> = {
   Section: ["title"],
   Text: ["text"],
   KeyValue: ["label", "value"],
-  Tools: ["names"],
+  Tools: ["names", "mcpServer"],
 };
 
 function readOnlyValue(value: unknown, depth = 0): boolean {
@@ -103,7 +103,9 @@ export const AgentCapabilityInspector = defineComponent({
       KeyValue: catalogComponent(props => h("dl", { class: "vh-capability-inspector__value" }, [h("dt", display(props.label)), h("dd", display(props.value))])),
       Tools: catalogComponent(props => {
         const names = Array.isArray(props.names) ? props.names : undefined;
-        const selectedTools = Object.hasOwn(props, "names") ? tools.value.filter(tool => names?.includes(tool.name)) : tools.value;
+        const selectedTools = tools.value.filter(tool =>
+          (!Object.hasOwn(props, "names") || names?.includes(tool.name))
+          && (!Object.hasOwn(props, "mcpServer") || typeof props.mcpServer === "string" && tool.mcp?.server === props.mcpServer));
         return selectedTools.length ? h(AgentToolList, { tools: selectedTools }) : h("p", { class: "vh-capability-inspector__empty" }, "No tool contracts recorded.");
       }),
     };

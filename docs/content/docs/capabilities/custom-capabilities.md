@@ -297,7 +297,7 @@ The view uses a read-only subset of [JSON Render](https://github.com/vercel-labs
 | `Section` | `title` | Group children under a heading. |
 | `Text` | `text` | Display plain text. |
 | `KeyValue` | `label`, `value` | Display a named value, including structured JSON. |
-| `Tools` | Optional `names` | Show recorded contracts for this Capability's tools. Omit `names` to show all of them. |
+| `Tools` | Optional `names`, `mcpServer` | Show recorded contracts for this Capability's tools. Filter by final tool names or MCP server provenance; omit both to show all of them. |
 
 Use `{ $state: '/path' }` to read a state value. A container can repeat its children with `repeat: { statePath: '/items', key: 'id' }`; its descendants use `{ $item: '/field' }` to read the current item. `children` contains element IDs. The exported `AgentCapabilityInspectionView` type checks component names and props. The Console rejects unsupported components, actions, computed expressions, and cyclic element trees, then shows the recorded data and tools instead.
 

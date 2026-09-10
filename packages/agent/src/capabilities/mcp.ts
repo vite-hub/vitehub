@@ -70,7 +70,7 @@ export function mcp<
           },
           status: { type: "KeyValue", props: { label: "Discovery", value: { $item: "/status" } } },
           connection: { type: "KeyValue", props: { label: "Connection", value: { $item: "/connection" } } },
-          tools: { type: "Tools", props: { names: { $item: "/tools" } } },
+          tools: { type: "Tools", props: { mcpServer: { $item: "/name" } } },
         },
       },
     },
