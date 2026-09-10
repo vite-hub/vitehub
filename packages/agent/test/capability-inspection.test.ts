@@ -150,11 +150,17 @@ describe("Capability inspection snapshots", () => {
     expect(configuration(await invocations.getByRunId("local-tools"))).toMatchObject({ tools: [{ name: "local", capabilityId: "local" }] })
   })
 
-  it.each([false, true])("allows renaming a known local tool while removing MCP tools, in-place=%s", async (inPlace) => {
+  it.each([
+    { inPlace: false, replaceFirst: false },
+    { inPlace: true, replaceFirst: false },
+    { inPlace: false, replaceFirst: true },
+    { inPlace: true, replaceFirst: true },
+  ])("retains ownership when renaming a local tool while removing MCP tools: %j", async ({ inPlace, replaceFirst }) => {
     const invocations = journal()
     const languageModel = model()
     const transform = defineCapability({ id: "local", resolve(context) {
       context.tools.add({ local: { name: "local", description: "Local tool", execute: async () => "local" } })
+      if (replaceFirst) context.tools.transform(current => ({ ...current, local: { name: "local", description: "Local tool", execute: async () => "replacement" } }))
       context.tools.transform(current => {
         const local = current!.local!
         if (!inPlace) return { local_new: local }
@@ -169,7 +175,7 @@ describe("Capability inspection snapshots", () => {
       transform,
     ], driver: { model: languageModel }, invocations }), runtime("renamed-local-tools"), { prompt: "Use local tools" })
     const snapshot = configuration(await invocations.getByRunId("renamed-local-tools"))
-    expect(snapshot).toMatchObject({ tools: [{ name: "local_new", description: "Local tool" }] })
+    expect(snapshot).toMatchObject({ tools: [{ name: "local_new", capabilityId: "local", description: "Local tool" }] })
     expect(snapshot).toMatchObject({ tools: [expect.not.objectContaining({ mcp: expect.anything() })] })
     expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "local_new", description: "Local tool" })])
   })

@@ -284,8 +284,8 @@ describe("agent capability runtime", () => {
       expect.objectContaining({ text: "rewritten" }),
     ])
     await expect(applyCapabilityToolTransforms(resolved.tools, resolved.toolTransforms)).resolves.toEqual({
-      added: { name: "added" },
-      original: { name: "original" },
+      tools: { added: { name: "added" }, original: { name: "original" } },
+      originalNames: new Map([["added", "added"], ["original", "original"]]),
     })
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
   })

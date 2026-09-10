@@ -3719,8 +3719,7 @@ async function createAgentInvocationContext<
         throw error
       }
     }
-    const originalToolContracts = inspectAgentTools(capabilities.tools)
-    const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms).catch(async (error) => {
+    const transformed = await applyCapabilityToolTransforms(capabilities.tools, resolveCapabilityCli ? [] : capabilities.toolTransforms).catch(async (error) => {
       try {
         await capabilities.close()
       }
@@ -3729,6 +3728,7 @@ async function createAgentInvocationContext<
       }
       throw error
     })
+    const transformedTools = transformed.tools
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(preparedTools, toolStepReporter)
@@ -3771,9 +3771,7 @@ async function createAgentInvocationContext<
       .filter(contribution => contribution.kind === "Capability tools")
       .flatMap(contribution => (contribution.names || []).map(name => [name, contribution.capabilityId] as const)))
     const inspectedTools = inspectAgentTools(tools)?.map(tool => {
-      const original = tool.mcp && originalToolContracts?.find(original =>
-        original.mcp?.server === tool.mcp?.server && original.mcp?.name === tool.mcp?.name)
-      const owner = toolOwners.get(original?.name ?? tool.name)
+      const owner = toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name)
       return { ...tool, ...(owner ? { capabilityId: owner } : {}) }
     })
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {

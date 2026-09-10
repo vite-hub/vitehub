@@ -1294,10 +1294,10 @@ async function createAgent(
     context.workspaceInstructionBindings,
   )
   const adapterTools = await resolveTools(options, metadataContext, context.toolStepReporter)
-  const resolvedTools = withDefaultToolInputSchemas(withToolDiagnosticMessages(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
+  const resolvedTools = withDefaultToolInputSchemas(withToolDiagnosticMessages(withWorkspaceFallbackToolEvidence((await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
-  }, []), fallbackCapture)), jsonSchema)
+  }, [])).tools, fallbackCapture)), jsonSchema)
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,

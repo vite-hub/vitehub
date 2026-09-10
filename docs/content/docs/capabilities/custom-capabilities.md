@@ -321,4 +321,4 @@ context.tools.transform(tools => ({
 }))
 ```
 
-A transform can remove MCP keys and move existing non-MCP tool objects to new keys. New keys that contain reconstructed tools without provenance fail with `AGENT_R0923` when MCP keys are removed in the same transform. The runtime cannot infer which server a reconstructed tool came from. To add unrelated tools while removing MCP tools, contribute the new tools with `context.tools.add()` and remove the MCP entries in the transform.
+A transform can remove MCP keys and move existing non-MCP tool objects to new keys. These tools keep their original Capability ownership in inspection, including after a same-key replacement in an earlier transform. New keys that contain reconstructed tools without provenance fail with `AGENT_R0923` when MCP keys are removed in the same transform. The runtime cannot infer which server a reconstructed tool came from. To add unrelated tools while removing MCP tools, contribute the new tools with `context.tools.add()` and remove the MCP entries in the transform.

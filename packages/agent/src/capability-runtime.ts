@@ -1444,15 +1444,18 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
 export async function applyCapabilityToolTransforms(
   tools: AgentToolSet | undefined,
   transforms: AgentToolTransform[] = [],
-): Promise<AgentToolSet | undefined> {
+): Promise<{ tools: AgentToolSet | undefined, originalNames: Map<string, string> }> {
   let current = tools
+  let originalNames = new Map(Object.keys(tools ?? {}).map(name => [name, name]))
   for (const transform of transforms) {
     // Copy provenance before a transform can mutate the original tool objects.
     const previous = new Map(Object.entries(current ?? {}).map(([name, tool]) => [name, inspectMcpToolProvenance(tool)]))
     const localTools = new Set(Object.entries(current ?? {}).filter(([name]) => !previous.get(name)).map(([, tool]) => tool))
+    const objectNames = new Map(Object.entries(current ?? {}).map(([name, tool]) => [tool, originalNames.get(name) ?? name]))
     const transformed = await transform(current)
     if (!transformed) {
       current = transformed
+      originalNames = new Map()
       continue
     }
     const removesMcpTools = [...previous].some(([name, origin]) => origin && !Object.hasOwn(transformed, name))
@@ -1462,6 +1465,11 @@ export async function applyCapabilityToolTransforms(
     if (removesMcpTools && unattributedNames.length) {
       throw agentDiagnostics.AGENT_R0923({ names: unattributedNames })
     }
+    const transformedNames = new Map(Object.entries(transformed).map(([name, tool]) => {
+      const mcp = inspectMcpToolProvenance(tool)
+      const previousMcpName = mcp && [...previous].find(([, origin]) => origin?.server === mcp.server && origin.name === mcp.name)?.[0]
+      return [name, objectNames.get(tool) ?? originalNames.get(previousMcpName ?? name) ?? name]
+    }))
     current = Object.fromEntries(Object.entries(transformed).map(([name, tool]) => {
       const source = previous.get(name)
       if (!source || inspectMcpToolProvenance(tool)) return [name, tool]
@@ -1471,8 +1479,9 @@ export async function applyCapabilityToolTransforms(
         originalName: source.name,
       } }]
     }))
+    originalNames = transformedNames
   }
-  return current
+  return { tools: current, originalNames }
 }
 
 const useCurrentRendererResult = Symbol("useCurrentRendererResult")
