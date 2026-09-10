@@ -2604,7 +2604,7 @@ function githubOpenedPullRequestActivityTarget(input: unknown, payload: unknown)
   return { repository, issue, ...(deliveryId ? { deliveryId } : {}), ...(installationId ? { installationId } : {}) }
 }
 
-function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload, input: unknown): GitHubPullRequestFilterContext {
+function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload): GitHubPullRequestFilterContext {
   const pr = isRecord(payload.pull_request) ? payload.pull_request : undefined
   const issue = isRecord(payload.issue) ? payload.issue : undefined
   const repository = isRecord(payload.repository) ? maybeString(payload.repository.full_name) : undefined
@@ -2628,13 +2628,18 @@ function githubPullRequestFilterRule(value: string | boolean | undefined, rule: 
   return !rule.allow || rule.allow.length === 0 || rule.allow.some(item => item === text)
 }
 
-async function githubPullRequestMatchesFilter(options: GitHubPullRequestCommentEventOptions, payload: GitHubIssueCommentPayload, input: unknown): Promise<boolean> {
+async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: GitHubPullRequestCommentEventOptions<TRuntimeConfig>,
+  payload: GitHubIssueCommentPayload,
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: AgentCallbackContext<TRuntimeConfig>,
+): Promise<boolean> {
   const filter = options.filter
   if (!filter && !options.when) return true
-  const value = githubPullRequestFilterContext(payload, input)
+  const value = githubPullRequestFilterContext(payload)
   const checks: [string | boolean | undefined, GitHubPullRequestFilterRules | undefined][] = [
     [value.repository, filter?.repository], [value.author, filter?.author], [value.actor, filter?.actor], [value.authorAssociation, filter?.authorAssociation],
-    [value.base, filter?.base], [value.head, filter?.head], [value.title, filter?.title], [value.action, filter?.action], [value.draft, filter?.draft], [value.fork, filter?.fork],
+    [value.title, filter?.title], [value.action, filter?.action],
   ]
   if (checks.some(([v, rule]) => !githubPullRequestFilterRule(v, rule))) return false
   if (filter?.labels) {
@@ -2642,6 +2647,32 @@ async function githubPullRequestMatchesFilter(options: GitHubPullRequestCommentE
     if (filter.labels.deny?.some(label => labels.includes(label))) return false
     if (filter.labels.allow && !filter.labels.allow.some(label => labels.includes(label))) return false
   }
+  // Comment webhooks only include a PR link. Fetch PR-only fields when needed.
+  if (!isRecord(payload.pull_request) && payload.issue?.pull_request
+    && (filter?.base || filter?.head || filter?.draft || filter?.fork || options.when)) {
+    const repository = value.repository
+    const number = maybeNumber(payload.issue.number)
+    if (repository && number) {
+      const appOptions = app ? githubAppOptions(app) || {} : {}
+      const token = await githubPullRequestMetadataToken(app, context, maybeNumber(payload.installation?.id), repository).catch(() => undefined)
+      const pullRequest = await githubApiJson(
+        appOptions.fetch || fetch,
+        `${appOptions.apiBaseUrl || "https://api.github.com"}/repos/${repository}/pulls/${number}`,
+        githubApiHeaders(token, appOptions.userAgent),
+      )
+      if (isRecord(pullRequest)) {
+        const hydrated = githubPullRequestFilterContext({ ...payload, pull_request: pullRequest })
+        value.base = hydrated.base
+        value.head = hydrated.head
+        value.draft = hydrated.draft
+        value.fork = hydrated.fork
+      }
+    }
+  }
+  if (!githubPullRequestFilterRule(value.base, filter?.base)
+    || !githubPullRequestFilterRule(value.head, filter?.head)
+    || !githubPullRequestFilterRule(value.draft, filter?.draft)
+    || !githubPullRequestFilterRule(value.fork, filter?.fork)) return false
   return options.when ? await options.when(value) : true
 }
 
@@ -2658,7 +2689,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         let payload = inputPayloadOrBody(input)
         if (payload && pullRequest) {
           const optionsForFilter = pullRequest === true ? {} : pullRequest
-          if (!await githubPullRequestMatchesFilter(optionsForFilter, payload, input)) return optionsForFilter.ignored?.("filtered") || ignored("filtered")
+          if (!await githubPullRequestMatchesFilter(optionsForFilter, payload, app, context)) return optionsForFilter.ignored?.("filtered") || ignored("filtered")
         }
         const activityTarget = githubOpenedPullRequestActivityTarget(input, payload)
         if (activity && activityTarget) {

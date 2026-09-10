@@ -1459,7 +1459,7 @@ describe("agent channels", () => {
   it("filters issue comment and pull request deliveries before invocation", async () => {
     const { github } = await import("../src/channels.ts")
     const seen: unknown[] = []
-    const channel = github({ pullRequest: {
+    const channel = github({ app: { fetch: vi.fn(async () => Response.json({ draft: false, base: { ref: "main" }, head: { ref: "feature", repo: { full_name: "contributor/app" } } })) }, pullRequest: {
       filter: { repository: { allow: ["acme/app"] }, author: { deny: ["blocked"] }, labels: { allow: ["review"] } },
       when: async (context) => { seen.push(context); return true },
       ignored: reason => Response.json({ accepted: false, reason }),
@@ -1473,6 +1473,28 @@ describe("agent channels", () => {
     const accepted = await invoke(githubIssueCommentPayload())
     expect(accepted).not.toBeInstanceOf(Response)
     expect(seen[0]).toMatchObject({ repository: "acme/app", author: "mona", actor: "mona", labels: ["review"], title: "Improve app" })
+  })
+
+  it.each(["issue_comment", "pull_request"])("hydrates PR-only filters for %s deliveries", async (event) => {
+    const { github } = await import("../src/channels.ts")
+    const pr = { draft: false, base: { ref: "main" }, head: { ref: "feature", repo: { full_name: "contributor/app" } } }
+    const fetcher = vi.fn(async () => Response.json(pr))
+    const when = vi.fn(async () => false)
+    const channel = github({
+      app: { fetch: fetcher },
+      pullRequest: {
+        filter: { base: { allow: ["main"] }, head: { allow: ["feature"] }, draft: { allow: ["false"] }, fork: { allow: ["true"] } },
+        when,
+        ignored: reason => Response.json({ reason }),
+      },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const payload = { ...githubIssueCommentPayload(), ...(event === "pull_request" ? { pull_request: pr } : {}) }
+    const result = await trigger.invoke({ capabilities: [], channel } as never, { payload })
+    expect(when).toHaveBeenCalledWith(expect.objectContaining({ base: "main", head: "feature", draft: false, fork: true }))
+    expect(fetcher).toHaveBeenCalledTimes(event === "issue_comment" ? 1 : 0)
+    expect(await (result as Response).json()).toEqual({ reason: "filtered" })
   })
 
   it("marks disabled pull request workspaces in invocation context", async () => {
