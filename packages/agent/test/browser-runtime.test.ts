@@ -3,9 +3,15 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
+import { lock } from "proper-lockfile"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { browserRuntimeEnvironment, prepareBrowserRuntime, provideBrowserRuntimeEnvironment, resetBrowserRuntimePreparationForTest } from "../src/internal/browser-runtime.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
+
+vi.mock("proper-lockfile", async (importOriginal) => {
+  const original = await importOriginal<typeof import("proper-lockfile")>()
+  return { ...original, lock: vi.fn(original.lock) }
+})
 
 const roots: string[] = []
 
@@ -28,6 +34,7 @@ const skill=path.join(prefix,'node_modules','agent-browser','skills','agent-brow
 }
 
 afterEach(async () => {
+  vi.mocked(lock).mockClear()
   resetBrowserRuntimePreparationForTest()
   vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
@@ -108,8 +115,36 @@ describe("browser runtime", () => {
     const reason = new Error("cancel browser preparation")
     abort.abort(reason)
     await expect(pending).rejects.toBe(reason)
+    const later = prepareBrowserRuntime(options)
     await expect(shared).resolves.toHaveProperty("command")
+    await expect(later).resolves.toBe(await shared)
+    expect(lock).toHaveBeenCalledTimes(1)
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
+  })
+
+  it("replaces a pending lock wait only after all consumers cancel", async () => {
+    const value = await fixture()
+    let rejectLock!: (error: Error) => void
+    vi.mocked(lock).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectLock = reject }))
+    const options = { cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" as const }
+    const first = new AbortController()
+    const second = new AbortController()
+    const one = prepareBrowserRuntime({ ...options, abortSignal: first.signal })
+    const two = prepareBrowserRuntime({ ...options, abortSignal: second.signal })
+    await vi.waitFor(() => expect(lock).toHaveBeenCalledTimes(1))
+    first.abort(new Error("first cancelled"))
+    await expect(one).rejects.toThrow("first cancelled")
+    second.abort(new Error("second cancelled"))
+    await expect(two).rejects.toThrow("second cancelled")
+
+    const replacement = prepareBrowserRuntime(options)
+    await vi.waitFor(() => expect(lock).toHaveBeenCalledTimes(2))
+    const ready = await replacement
+    // A retired generation must not evict the replacement when it eventually fails.
+    rejectLock(new Error("abandoned lock wait failed"))
+    await new Promise(resolve => setImmediate(resolve))
+    await expect(prepareBrowserRuntime(options)).resolves.toBe(ready)
+    expect(lock).toHaveBeenCalledTimes(2)
   })
 
   it("serializes invalid cache repair across Node processes", async () => {

@@ -13,7 +13,7 @@ const puppeteerBrowsersVersion = "2.10.10"
 const chromiumBundleVersion = "149.0.0"
 const chromeForTestingVersion = "149.0.7827.155"
 const browserRuntimeEnvironments = new WeakMap<AgentInvocationContextStore, Readonly<Record<string, string>>>()
-const preparations = new Map<string, Promise<PreparedBrowserRuntime>>()
+const preparations = new Map<string, { promise: Promise<PreparedBrowserRuntime>, consumers: number }>()
 
 export interface PreparedBrowserRuntime {
   command: string
@@ -277,20 +277,38 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
   const key = `${root}\0${options.npmCommand || "npm"}\0${options.platform || process.platform}`
   let preparation = preparations.get(key)
   if (!preparation) {
-    preparation = provision(root, options.npmCommand, options.platform).catch((error) => {
-      preparations.delete(key)
-      throw error
-    })
-    preparations.set(key, preparation)
-  }
-  if (!signal) return preparation
-  return new Promise((resolve, reject) => {
-    const onAbort = () => {
-      if (preparations.get(key) === preparation) preparations.delete(key)
-      reject(signal.reason)
+    const generation = {
+      promise: provision(root, options.npmCommand, options.platform).catch((error) => {
+        if (preparations.get(key) === generation) preparations.delete(key)
+        throw error
+      }),
+      consumers: 0,
     }
-    signal.addEventListener("abort", onAbort, { once: true })
-    preparation.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort))
+    preparations.set(key, generation)
+    preparation = generation
+  }
+  const generation = preparation
+  generation.consumers++
+  return new Promise((resolve, reject) => {
+    let finished = false
+    const finish = () => {
+      if (finished) return false
+      finished = true
+      generation.consumers--
+      signal?.removeEventListener("abort", onAbort)
+      return true
+    }
+    const onAbort = () => {
+      if (!finish()) return
+      if (generation.consumers === 0 && preparations.get(key) === generation) preparations.delete(key)
+      reject(signal?.reason)
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+    generation.promise.then((value) => {
+      if (finish()) resolve(value)
+    }, (error) => {
+      if (finish()) reject(error)
+    })
   })
 }
 
