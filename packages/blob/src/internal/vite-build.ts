@@ -11,6 +11,7 @@ import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/verc
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { normalizeBlobOptions } from "../config.ts"
+import { filesSdkDriverPeers } from "./files-sdk-peers.ts"
 
 import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
@@ -25,27 +26,6 @@ const productName = "blob"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
 const nodeBuiltinExternals = [...new Set(builtinModules.flatMap(name => name.startsWith("node:") ? [name] : [name, `node:${name}`]))]
-const s3ProviderPeers = ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"] as const
-const buildFilesSdkDriverPeers = {
-  akamai: s3ProviderPeers,
-  azure: ["@azure/identity", "@azure/storage-blob"],
-  box: ["box-typescript-sdk-gen"],
-  "cloudflare-r2": s3ProviderPeers,
-  "digitalocean-spaces": s3ProviderPeers,
-  dropbox: ["dropbox"],
-  fs: [],
-  gcs: ["@google-cloud/storage"],
-  "google-drive": ["@googleapis/drive", "google-auth-library"],
-  hetzner: s3ProviderPeers,
-  minio: s3ProviderPeers,
-  "netlify-blobs": [],
-  onedrive: ["@azure/identity", "@microsoft/microsoft-graph-client"],
-  s3: s3ProviderPeers,
-  storj: s3ProviderPeers,
-  supabase: ["@supabase/storage-js"],
-  uploadthing: ["uploadthing"],
-  "vercel-blob": [],
-} satisfies Record<BlobDriver, readonly string[]>
 const BLOB_ENTRY_NAMES_DEFAULT = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const BLOB_ENTRY_NAMES_PRIORITIZED = ["server.blob.ts", "server.blob.mts", "server.blob.js", "server.blob.mjs", ...BLOB_ENTRY_NAMES_DEFAULT] as const
 
@@ -527,7 +507,7 @@ function createVercelOutput(
 function getSelectedFilesSdkProviderPeers(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined): string[] {
   const resolved = resolveBlobConfig(blob, "vercel")
   const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
-  return [...new Set(stores.flatMap(store => buildFilesSdkDriverPeers[store.driver] ?? []))]
+  return [...new Set(stores.flatMap(store => filesSdkDriverPeers[store.driver] ?? []))]
 }
 
 function hasExplicitFsStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
@@ -575,7 +555,7 @@ function getVercelBlobRuntimePackages(blob: BlobModuleOptions | ResolvedBlobModu
   const resolved = resolveBlobConfig(blob, "vercel")
   const stores = resolved === false ? [] : Object.values(resolved.stores || { default: resolved.store })
   for (const store of stores) {
-    for (const name of buildFilesSdkDriverPeers[store.driver] ?? []) {
+    for (const name of filesSdkDriverPeers[store.driver] ?? []) {
       packages.add(name)
       filesSdkPeers.add(name)
     }
