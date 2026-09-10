@@ -347,7 +347,9 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
     await expect(view.list("docs", { recursive: true })).rejects.toThrow(`Workspace Source recovery failed: ${failedSource}`)
     expect(writeFile).toHaveBeenCalledWith("docs/shared.md", expect.objectContaining({ content: "partial failed source" }))
-    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "higher" })
+    const persisted = await store.readFile("docs/shared.md")
+    expect(persisted).toBeDefined()
+    expect(typeof persisted!.content === "string" ? persisted!.content : new TextDecoder().decode(persisted!.content)).toBe("higher")
     await expect(view.readFile("docs/shared.md")).resolves.toBe("higher")
   })
 
@@ -623,8 +625,8 @@ describe("lazy sources", () => {
     const result = await createWorkspaceSourceView({ ...definition }, store).materializeSources()
 
     expect(result.sources).toEqual([
-      expect.objectContaining({ source: "healthy", status: "ready" }),
       expect.objectContaining({ source: "blocked", status: "error", error: expect.stringContaining("ENOTDIR") }),
+      expect.objectContaining({ source: "healthy", status: "ready" }),
     ])
     expect(await readFile(join(root, "healthy/ok.md"), "utf8")).toBe("ready")
     expect(await readFile(join(root, "parent"), "utf8")).toBe("user replacement")

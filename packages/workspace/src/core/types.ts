@@ -792,5 +792,6 @@ export interface WorkspaceMaterializeSourcesResult {
   durationMs: number
   files: number
   path: string
+  /** Selected Sources in resolution order: longest mount path first, then Source key alphabetically. */
   sources: WorkspaceSourceMaterializationStatus[]
 }
