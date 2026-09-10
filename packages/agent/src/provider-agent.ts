@@ -1853,6 +1853,30 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     })
     options.accumulator.observedPartition = true
   }
+  const previousCall = options.accumulator.calls.at(-1)
+  if (options.provider === "codex" && !changed && cumulative !== undefined && previousCall?.usage) {
+    const cachedInputTokens = usage.cachedInputTokens ?? previousCall.usage.details?.cachedInputTokens
+    const reasoningOutputTokens = usage.reasoningOutputTokens ?? previousCall.usage.details?.reasoningOutputTokens
+    options.accumulator.calls[options.accumulator.calls.length - 1] = {
+      ...previousCall,
+      raw: usage,
+      usage: {
+        ...previousCall.usage,
+        details: {
+          ...previousCall.usage.details,
+          ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+          ...(reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens }),
+        },
+        ...(cachedInputTokens === undefined ? {} : { inputTokenDetails: { cacheReadTokens: cachedInputTokens } }),
+      },
+    }
+    // A later snapshot can complete or correct the latest response's details.
+    const calls = options.accumulator.calls
+    options.accumulator.cachedInputTokensComplete = calls.every(call => call.usage?.details?.cachedInputTokens !== undefined)
+    options.accumulator.reasoningOutputTokensComplete = calls.every(call => call.usage?.details?.reasoningOutputTokens !== undefined)
+    options.accumulator.cachedInputTokens = calls.reduce((total, call) => total + (call.usage?.details?.cachedInputTokens ?? 0), 0)
+    options.accumulator.reasoningOutputTokens = calls.reduce((total, call) => total + (call.usage?.details?.reasoningOutputTokens ?? 0), 0)
+  }
   options.accumulator.previousTotalProcessedTokens = cumulative
   options.accumulator.lastSignature = signature
   options.accumulator.lastResponseIdentity = responseIdentity

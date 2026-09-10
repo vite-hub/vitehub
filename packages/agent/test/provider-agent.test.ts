@@ -2632,6 +2632,25 @@ cli_auth_credentials_store = "keyring"
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
   })
 
+  it("merges enriched and corrected same-total Codex usage snapshots", async () => {
+    const threadId = "thread-enriched-usage"
+    const partition = { inputTokens: 4, outputTokens: 2, totalProcessedTokens: 40 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: partition }),
+      event("thread.token-usage.updated", threadId, { usage: { ...partition, cachedInputTokens: 1, reasoningOutputTokens: 1 } }),
+      event("thread.token-usage.updated", threadId, { usage: { ...partition, cachedInputTokens: 3, reasoningOutputTokens: 2 } }),
+      event("thread.token-usage.updated", threadId, { usage: partition }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord).toMatchObject({
+      calls: [{ usage: { inputTokenDetails: { cacheReadTokens: 3 }, details: { cachedInputTokens: 3, reasoningOutputTokens: 2 } } }],
+      usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6, inputTokenDetails: { cacheReadTokens: 3 }, details: { cachedInputTokens: 3, reasoningOutputTokens: 2 } },
+    })
+    expect(result.usageRecord?.calls).toHaveLength(1)
+  })
+
   it("does not replace primary telemetry configuration during an auxiliary provider run", async () => {
     const threadId = "thread-auxiliary-configuration"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
