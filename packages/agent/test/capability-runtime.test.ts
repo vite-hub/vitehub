@@ -762,6 +762,46 @@ describe("agent capability runtime", () => {
   })
 
   it.each([
+    { provider: "memory", path: undefined },
+    { provider: "local", path: "skills/review" },
+  ] as const)("retains directory-backed Skills through Workspace Sources: %j", async ({ provider, path }) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser, skills } = await import("../src/capabilities.ts")
+    const workspaceName = `retained-directory-${crypto.randomUUID()}`
+    const root = await mkdtemp(join(tmpdir(), "vitehub-retained-directory-"))
+    const files: Record<string, string> = { "SKILL.md": "# Review", "references/guide.md": "Review guide" }
+    const skillDirectory = path ?? "skills"
+    const capability = skills({ path, source: {
+      materialize: "lazy",
+      async getKeys() { return Object.keys(files) },
+      async getItem(key: string) { return { key, content: files[key], mediaType: "text/markdown" } },
+    } })
+    const definition = defineWorkspace({ store: provider === "local" ? { provider, root } : { provider }, sources: capability.workspaceSources })
+    registerWorkspace(workspaceName, definition)
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const resolve = () => resolveAgentCapabilities({
+      capabilities: [capability, browser({ runtime: "external", skillContent: "# Browser" })],
+    }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider",
+      workspaceDefinition: { ...definition, name: workspaceName },
+    })
+    try {
+      await resolve()
+      for (const [key, content] of Object.entries(files)) {
+        await expect(workspace.fs.readFile(`${skillDirectory}/${key}`)).resolves.toBe(content)
+        expect((await workspace.fs.stat(`${skillDirectory}/${key}`)).digest).toEqual(expect.any(String))
+      }
+      await resolve()
+      await expect(workspace.fs.readFile(`${skillDirectory}/references/guide.md`)).resolves.toBe("Review guide")
+      await expect(workspace.fs.writeFile(`${skillDirectory}/references/guide.md`, "User guide")).rejects.toThrow("Source-backed workspace paths are read-only")
+      await expect(workspace.fs.readFile(`${skillDirectory}/references/guide.md`)).resolves.toBe("Review guide")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
     ".agents/skills/agent-browser/SKILL.md",
     ".codex/skills/agent-browser/SKILL.md",
     ".claude/skills/custom-browser/SKILL.md",

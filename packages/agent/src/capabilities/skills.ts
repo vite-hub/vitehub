@@ -1,4 +1,4 @@
-import { defineCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -122,8 +122,9 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
       : {}),
   })
 
+  // Skills reference existing Workspace files or declared Workspace Sources.
+  // Keep persistence with the Workspace so Sources retain their write policy.
   return Object.assign(capability, {
     [workspaceMaterializationPathsSymbol]: [providerWorkspacePath],
-    [workspacePersistencePathsSymbol]: [providerWorkspacePath],
   })
 }
