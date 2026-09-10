@@ -446,3 +446,18 @@ it.each([123456, 0, true, false, null])("redacts primitive schema credentials: %
     } } }],
   })
 })
+
+
+it.each(["correct horse battery", "correct horse#battery", "correct, horse; battery", "correct 'horse' battery"])("redacts the entire YAML plain credential %j", (scalar) => {
+  for (const prefix of ["password: ", "config:\n  secret: ", "  - api_token: "]) {
+    for (const suffix of ["\nstatus: ok", " # public comment\nstatus: ok"]) {
+      const expectedSuffix = suffix.trimStart().startsWith("#") ? suffix.slice(1) : suffix
+      expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+      for (let split = 0; split <= scalar.length; split++) {
+        const state = pendingCredentialAssignmentState(prefix + scalar.slice(0, split))!
+        const rest = scalar.slice(split) + suffix
+        expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(expectedSuffix)
+      }
+    }
+  }
+})

@@ -136,6 +136,7 @@ export interface CredentialAssignmentState {
   started: boolean
   quote?: string
   yamlIndent?: number
+  yamlPlain?: { whitespace: boolean }
   yamlProperty?: boolean
   yaml?: { header: boolean, modifiers: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
 }
@@ -159,6 +160,7 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
     if (!length) continue
     const quote = /^["']/.exec(content)?.[0] ?? ""
     result += value.slice(offset, start) + quote + "[REDACTED]" + (quote && !state.quote ? quote : "")
+    if (state.yamlPlain && content[length] === "#") result += " "
     if (state.yaml && length < content.length) result += state.yaml.whitespace
     offset = start + length
   }
@@ -183,7 +185,15 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     if (!state.started && state.yamlIndent !== undefined && (character === "|" || character === ">")) {
       state.yaml = { header: true, modifiers: true, line: false, spaces: 0, whitespace: "" }
     }
+    if (!state.started && state.yamlIndent !== undefined && !state.yaml && character !== '"' && character !== "'") {
+      state.yamlPlain = { whitespace: false }
+    }
     state.started = true
+    if (state.yamlPlain) {
+      if (/[\r\n]/.test(character) || (character === "#" && state.yamlPlain.whitespace)) return index
+      state.yamlPlain.whitespace = /[\t ]/.test(character)
+      continue
+    }
     if (state.yaml) {
       const yaml = state.yaml
       if (yaml.header) {
