@@ -2,7 +2,7 @@
 const uppercaseCredentialKeys = [
   "APIKEY", "ACCESSKEY", "PRIVATEKEY", "SECRETKEY", "PUBLICKEY",
   "ACCESSTOKEN", "AUTHTOKEN", "REFRESHTOKEN", "CLIENTSECRET", "SESSIONTOKEN",
-  "X-API-KEY", "X-ACCESS-TOKEN",
+  "X-API-KEY", "X-ACCESS-TOKEN", "CREDENTIAL", "CREDENTIALS", "AUTHORIZATION",
 ]
 
 function isCredentialKey(key: string): boolean {
@@ -17,6 +17,8 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   if (cli && /^key$/i.test(key)) return false
   if (!/[:=]\s*$/.test(prefix)) return cli
   if (!prefix.trimEnd().endsWith(":")) return true
+  // Authorization headers have already been redacted with their scheme preserved.
+  if (/^(?:proxy-)?authorization$/i.test(key)) return false
   // Generic token/key fields also describe parser tokens and object identifiers.
   if (/^(?:key|token)$/i.test(key)) return false
   // Quoted fields, YAML line starts, and flow mapping boundaries establish assignments.
@@ -62,7 +64,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD))["']?(?:\s*[:=]\s*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS?|AUTHORIZATION))["']?(?:\s*[:=]\s*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
