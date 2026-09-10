@@ -800,9 +800,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       force: options.force ?? false,
     }).catch(async (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" && options.force) return
-      // A failed non-recursive removal cannot have deleted descendants. Only
+      // A missing target or failed non-recursive removal deleted no descendants. Only
       // clear our own marker; an earlier interrupted removal still needs recovery.
-      if (createdMarker && !options.recursive) await rm(marker, { force: true })
+      if (createdMarker && (!options.recursive || error.code === "ENOENT")) await rm(marker, { force: true })
       throw error
     })
     for (const key of this.#files.keys()) {

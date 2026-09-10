@@ -87,6 +87,19 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each([false, true])("allows recreating a missing removal target, recursive: %s", async (recursive) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await store.writeFile("missing", { path: "missing", content: "existing", metadata: { source: "docs" } })
+    await rm(`${root}/missing`)
+    await expect(store.rm("missing", { recursive })).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await readdir(`${root}/.vitehub/file-removals`)).toEqual([])
+    const restarted = createLocalWorkspaceStore(root)
+    await expect(restarted.stat("missing")).resolves.toBeUndefined()
+    await restarted.writeFile("missing", { path: "missing", content: "created", metadata: { source: "docs" } })
+    await expect(createLocalWorkspaceStore(root).readFile("missing")).resolves.toMatchObject({ metadata: { source: "docs" } })
+  })
+
   it.each(["file", "directory"])("keeps metadata readable after rejected non-recursive %s removal", async (kind) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
