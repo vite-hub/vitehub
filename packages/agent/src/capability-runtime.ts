@@ -68,6 +68,7 @@ type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputEx
   order?: "last"
   providerCount: number
 }
+export const workspacePersistencePathsSymbol: unique symbol = Symbol("vitehub.agent.workspacePersistencePaths")
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
 export const capabilityInvocationStartSymbol: unique symbol = Symbol("vitehub.agent.capabilityInvocationStart")
 export const eagerFinishExtensionSymbol: unique symbol = Symbol("vitehub.agent.eagerFinishExtension")
@@ -78,6 +79,7 @@ type InternalAgentCapabilityDefinition<
   [capabilityInvocationStartSymbol]?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   [eagerFinishExtensionSymbol]?: boolean
   [workspaceMaterializationPathsSymbol]?: readonly string[]
+  [workspacePersistencePathsSymbol]?: readonly string[]
 }
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 type AgentCapabilityDefinitionInput<
@@ -1037,9 +1039,8 @@ export async function resolveAgentCapabilities<
     : []
   const workspacePersistencePaths = driverKind === "provider"
     ? capabilities.flatMap(capability =>
-        // SAFETY: Capability registration establishes the internal materialization-path contribution contract.
-        ((capability as InternalAgentCapabilityDefinition)[workspaceMaterializationPathsSymbol] || [])
-          .filter(path => /^\.agents\/skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/.test(path))
+        // SAFETY: Capability registration establishes the internal persistence-path contribution contract.
+        ((capability as InternalAgentCapabilityDefinition)[workspacePersistencePathsSymbol] || [])
           .map(path => ({ capabilityId: capability.id, path })),
       )
     : []

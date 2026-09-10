@@ -761,7 +761,16 @@ describe("agent capability runtime", () => {
     ])
   })
 
-  it.each([{ existingSkill: false, directEdit: false }, { existingSkill: true, directEdit: false }, { existingSkill: true, directEdit: true }])("applies browser workspace source contributions: %j", async ({ existingSkill, directEdit }) => {
+  it.each([
+    ".agents/skills/agent-browser/SKILL.md",
+    ".codex/skills/agent-browser/SKILL.md",
+    ".claude/skills/custom-browser/SKILL.md",
+    "custom/browser-guide.md",
+  ].flatMap(skillPath => [
+    { existingSkill: false, directEdit: false },
+    { existingSkill: true, directEdit: false },
+    { existingSkill: true, directEdit: true },
+  ].map(scenario => ({ ...scenario, skillPath }))))("applies browser workspace source contributions: %j", async ({ existingSkill, directEdit, skillPath }) => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
     const workspaceName = `retained-browser-${crypto.randomUUID()}`
@@ -769,10 +778,10 @@ describe("agent capability runtime", () => {
     registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
     await workspace.fs.writeFile(".agents/skills/coding/SKILL.md", "# Coding\n")
-    if (existingSkill) await workspace.fs.writeFile(".agents/skills/agent-browser/SKILL.md", "# Browser\nUse bash.\n")
+    if (existingSkill) await workspace.fs.writeFile(skillPath, "# Browser\nUse bash.\n")
 
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser({ runtime: "external", skillContent: "# Browser\nUse bash.\n" })],
+      capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUse bash.\n" })],
     }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider",
       workspaceDefinition: {
@@ -784,7 +793,7 @@ describe("agent capability runtime", () => {
     expect(resolved.workspaceDefinition?.sources?.["skill.browser"]).toMatchObject({
       materialize: "lazy",
       mediaType: "text/markdown",
-      workspacePath: ".agents/skills/agent-browser/SKILL.md",
+      workspacePath: skillPath,
     })
     expect(resolved.tools).toBeUndefined()
     expect(resolved.registries.workspaceContributions).toEqual([
@@ -795,26 +804,26 @@ describe("agent capability runtime", () => {
       },
     ])
     expect(resolved.workspaceDefinition?.rules?.["screenshots/**"]).toEqual({ commit: true, write: true })
-    await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Browser\nUse bash.\n")
+    await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Browser\nUse bash.\n")
     await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
-    expect((await workspace.fs.stat(".agents/skills/agent-browser/SKILL.md")).metadata?.capabilityWorkspaceContribution).toMatchObject({ capabilityId: "browser" })
+    expect((await workspace.fs.stat(skillPath)).metadata?.capabilityWorkspaceContribution).toMatchObject({ capabilityId: "browser" })
     await resolveAgentCapabilities({
-      capabilities: [browser({ runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
+      capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
     }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider",
       workspaceDefinition: { name: workspaceName, sources: {} },
     })
-    await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Browser\nUpdated guidance.\n")
+    await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Browser\nUpdated guidance.\n")
     await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
-    if (directEdit) await writeFile(join(workspaceRoot, ".agents/skills/agent-browser/SKILL.md"), "# Custom browser skill\n")
-    else await workspace.fs.writeFile(".agents/skills/agent-browser/SKILL.md", "# Custom browser skill\n")
+    if (directEdit) await writeFile(join(workspaceRoot, skillPath), "# Custom browser skill\n")
+    else await workspace.fs.writeFile(skillPath, "# Custom browser skill\n")
     await expect(resolveAgentCapabilities({
-      capabilities: [browser({ runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
+      capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
     }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider",
       workspaceDefinition: { name: workspaceName, sources: {} },
     })).rejects.toThrow("conflicts with an existing Workspace path")
-    await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Custom browser skill\n")
+    await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Custom browser skill\n")
     await rm(workspaceRoot, { force: true, recursive: true })
   })
 

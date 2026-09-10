@@ -1,4 +1,4 @@
-import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
 import { executeWorkspaceCommand } from "./workspace-command.ts"
 
@@ -397,5 +397,6 @@ export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefi
     },
   }), {
     [workspaceMaterializationPathsSymbol]: [skillPath],
+    [workspacePersistencePathsSymbol]: [skillPath],
   })
 }

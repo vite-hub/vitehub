@@ -1,4 +1,4 @@
-import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "../capability-runtime.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentWorkspaceDiff } from "../agent-workspace-runtime.ts"
 import { normalizeDeliveryArtifactPath } from "../delivery-artifacts.ts"
@@ -177,5 +177,6 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
     }),
   }), {
     [workspaceMaterializationPathsSymbol]: [skillPath],
+    [workspacePersistencePathsSymbol]: [skillPath],
   })
 }

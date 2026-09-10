@@ -1,4 +1,4 @@
-import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "../capability-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -124,5 +124,6 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
 
   return Object.assign(capability, {
     [workspaceMaterializationPathsSymbol]: [providerWorkspacePath],
+    [workspacePersistencePathsSymbol]: [providerWorkspacePath],
   })
 }
