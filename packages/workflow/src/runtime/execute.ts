@@ -1,5 +1,5 @@
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
-import { serializeResponse, toResponse } from "@vite-hub/runtime"
+import { serializeResponse, toResponse, type SerializedResponse } from "@vite-hub/runtime"
 
 const defaultStepOptions = {
   retries: {
@@ -65,7 +65,7 @@ export async function runWorkflowHandler<TPayload, TResult>(
 export async function runSerializedWorkflowHandler<TPayload, TResult>(
   context: WorkflowExecutionContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
-) {
+): Promise<SerializedResponse> {
   const run = async () => serializeResponse(toResponse(await definition.handler(context)))
   return definition.options?.rootStep === false
     ? await run()
