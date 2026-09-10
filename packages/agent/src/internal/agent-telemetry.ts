@@ -127,15 +127,6 @@ function redactConfigurationValue(
 function redactTelemetryConfiguration(configuration: AgentTelemetryConfiguration): AgentTelemetryConfiguration {
   // SAFETY: Redaction preserves configuration structure; secret primitive values become redaction markers.
   const redacted = redactConfigurationValue(configuration) as AgentTelemetryConfiguration
-  if (configuration.workspace?.sources && redacted.workspace) {
-    redacted.workspace.sources = configuration.workspace.sources.map((source, index) => {
-      const safe = redacted.workspace!.sources![index]!
-      if (typeof source === "string" || typeof safe === "string") return safe
-      return source.repository && /^[\w.-]+\/[\w.-]+$/.test(source.repository)
-        ? { ...safe, repository: source.repository }
-        : safe
-    })
-  }
   return redacted
 }
 

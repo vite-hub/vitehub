@@ -59,7 +59,7 @@ it("redacts secret schema descendants without changing ordinary shared defaults"
 })
 
 
-it("redacts repository schema keywords while preserving validated workspace repositories", async () => {
+it("redacts repository credentials while preserving ordinary workspace repositories", async () => {
   const context = createAgentInvocationContextStore()
   await setAgentTelemetryConfiguration(context, {
     driver: { kind: "provider" },
@@ -83,7 +83,9 @@ it("redacts repository schema keywords while preserving validated workspace repo
   })
   expect(value.workspace?.sources).toEqual([
     { id: "docs", repository: "owner/repo" },
-    { id: "token-name", repository: "owner/phc_123456789012345678901234567890" },
+    { id: "token-name", repository: "owner/[REDACTED]" },
     { id: "invalid", repository: "Authorization: Bearer [REDACTED]" },
   ])
+  await updateAgentTelemetryConfiguration(context, {})
+  expect(getAgentTelemetryConfiguration(context)!.value).toEqual(value)
 })
