@@ -1811,7 +1811,10 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
   const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
-  const responseIdentity = event.itemId ?? event.eventId
+  // `eventId` identifies the telemetry update, not the response partition.
+  // Using it here makes every snapshot look like a new response and prevents
+  // Codex usage updates from completing a single partition.
+  const responseIdentity = event.itemId
   const signature = responseIdentity === undefined
     ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
     : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
