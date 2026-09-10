@@ -353,6 +353,32 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/shared.md")).resolves.toBe("higher")
   })
 
+  it.each([false, true].flatMap(local => [false, true].flatMap(reuseStartupSnapshots => (["list", "search"] as const).map(operation => ({ local, reuseStartupSnapshots, operation })))))("restores startup precedence after preparation fails during $operation with local=$local and snapshot reuse=$reuseStartupSnapshots", async ({ local, reuseStartupSnapshots, operation }) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "startup-preparation-failure",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "higher" }] }),
+        second: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "middle" }] }),
+        third: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "lower" }] }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).readFile("docs/shared.md")
+    await store.rm("docs/shared.md")
+    definition.sources.second.prepare = async () => { throw new Error("preparation unavailable") }
+    const writeFile = vi.spyOn(store, "writeFile")
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+    const result = operation === "search"
+      ? view.search({ pattern: "higher" })
+      : view.list("docs", { recursive: true })
+    await expect(result).rejects.toThrow("preparation unavailable")
+    expect(writeFile).toHaveBeenCalledWith("docs/shared.md", expect.objectContaining({ content: "lower" }))
+    const persisted = await store.readFile("docs/shared.md")
+    expect(persisted).toBeDefined()
+    expect(typeof persisted!.content === "string" ? persisted!.content : new TextDecoder().decode(persisted!.content)).toBe("higher")
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("higher")
+  })
+
   it("refreshes nested startup files before the first directory listing", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["stale.md"]
