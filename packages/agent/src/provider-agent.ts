@@ -1854,6 +1854,13 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     options.accumulator.observedPartition = true
   }
   const previousCall = options.accumulator.calls.at(-1)
+  if (options.provider === "codex" && !changed && cumulative !== undefined && previousCall && !previousCall.usage && partitionTotal !== undefined) {
+    previousCall.usage = { inputTokens, outputTokens, totalTokens: partitionTotal }
+    options.accumulator.inputTokens += inputTokens!
+    options.accumulator.outputTokens += outputTokens!
+    options.accumulator.observedPartition = true
+    options.accumulator.partitionComplete = options.accumulator.calls.every(call => call.usage !== undefined)
+  }
   if (options.provider === "codex" && !changed && cumulative !== undefined && previousCall?.usage) {
     const cachedInputTokens = usage.cachedInputTokens ?? previousCall.usage.details?.cachedInputTokens
     const reasoningOutputTokens = usage.reasoningOutputTokens ?? previousCall.usage.details?.reasoningOutputTokens

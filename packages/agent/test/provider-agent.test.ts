@@ -2632,6 +2632,32 @@ cli_auth_credentials_store = "keyring"
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
   })
 
+  it.each([false, true])("completes a raw-only Codex response without losing earlier unknown partitions: %s", async (earlierUnknown) => {
+    const threadId = "thread-raw-enriched-usage"
+    const partition = { inputTokens: 5, outputTokens: 2, cachedInputTokens: 1, reasoningOutputTokens: 1, totalProcessedTokens: 47 }
+    runtime(threadId, [
+      ...(earlierUnknown ? [event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 40 } })] : []),
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 47 } }),
+      event("thread.token-usage.updated", threadId, { usage: partition }),
+      event("thread.token-usage.updated", threadId, { usage: partition }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord?.calls).toHaveLength(earlierUnknown ? 2 : 1)
+    expect(result.usageRecord?.calls?.at(-1)).toMatchObject({
+      raw: partition,
+      usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7, details: { cachedInputTokens: 1, reasoningOutputTokens: 1 } },
+    })
+    if (earlierUnknown) {
+      expect(result.usageRecord?.calls?.[0]?.usage).toBeUndefined()
+      expect(result.usageRecord?.usage?.totalTokens).toBeUndefined()
+    }
+    else {
+      expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 2, totalTokens: 7 })
+    }
+  })
+
   it("merges enriched and corrected same-total Codex usage snapshots", async () => {
     const threadId = "thread-enriched-usage"
     const partition = { inputTokens: 4, outputTokens: 2, totalProcessedTokens: 40 }
