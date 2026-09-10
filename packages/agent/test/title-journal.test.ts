@@ -96,6 +96,33 @@ describe("title journal ownership", () => {
     expect((await invocations.getByRunId("title-cap"))?.title).toBe("New conversation")
   })
 
+  it("retains title provider errors without failing the primary invocation", async () => {
+    const invocations = journal()
+    await runAgent(defineAgent({
+      capabilities: [title({ fallback: "New conversation", driver: { async run(context) {
+        await context.traceLog?.append({
+          name: "agent.stream.error",
+          type: "run",
+          attributes: { "error.message": "Spend cap reached", "error.recoverable": false },
+        })
+        throw new Error("Spend cap reached")
+      } } })],
+      driver: { run: () => "Done." }, invocations,
+    }), runtime("title-error-diagnostic"), { prompt: "Explain safety stock" })
+    const invocation = (await invocations.getByRunId("title-error-diagnostic"))!
+    expect(invocation.title).toBe("New conversation")
+    expect(invocation.status).toBe("completed")
+    expect(invocation.observations).toContainEqual(expect.objectContaining({
+      name: "agent.title.error",
+      attributes: expect.objectContaining({
+        "error.message": "Spend cap reached",
+        "error.recoverable": false,
+        "vitehub.auxiliary.kind": "title",
+      }),
+    }))
+    expect(invocation.observations.some(entry => entry.name === "agent.stream.error")).toBe(false)
+  })
+
   it("bounds generated titles and strips multiline commentary", async () => {
     const invocations = journal()
     await runAgent(defineAgent({
