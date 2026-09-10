@@ -1789,6 +1789,7 @@ interface ProviderInvocationUsageAccumulator {
   calls: AgentUsageRecord[]
   inputTokens: number
   lastSignature?: string
+  lastResponseIdentity?: string
   outputTokens: number
   partitionComplete: boolean
   previousTotalProcessedTokens?: number
@@ -1816,7 +1817,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const cumulative = usage.totalProcessedTokens
   const changed = cumulative !== undefined
     ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
-    : options.accumulator.lastSignature !== signature
+    : responseIdentity !== undefined
+      ? responseIdentity !== options.accumulator.lastResponseIdentity
+      : options.accumulator.lastSignature !== signature
   const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed
   if (options.provider === "codex" && changed && partitionTotal === undefined) {
     options.accumulator.partitionComplete = false
@@ -1852,6 +1855,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   }
   options.accumulator.previousTotalProcessedTokens = cumulative
   options.accumulator.lastSignature = signature
+  options.accumulator.lastResponseIdentity = responseIdentity
   options.accumulator.lastUsageEvent = event
   const accumulatedPartition = options.provider === "codex" && options.accumulator.observedPartition && options.accumulator.partitionComplete
   const totalTokens = accumulatedPartition
