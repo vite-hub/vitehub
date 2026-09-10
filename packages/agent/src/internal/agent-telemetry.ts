@@ -22,13 +22,22 @@ const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTel
 // runtimes can report inspections without making telemetry configuration a
 // hard dependency during initialization.
 export async function setAgentCapabilityInspection(
-  _context: AgentInvocationContextStore,
-  _id: string,
-  _inspection: unknown,
+  context: AgentInvocationContextStore,
+  id: string,
+  inspection: unknown,
 ): Promise<void> {
-  void _context
-  void _id
-  void _inspection
+  const current = configurationByContext.get(context)
+  if (!current) return
+  const capabilities = [...(current.source.capabilities ?? [])]
+  const index = capabilities.findIndex(capability => capability.id === id)
+  if (index < 0) return
+  const safe = safeMetadataValue(inspection)
+  if (!safe || Array.isArray(safe)) return
+  capabilities[index] = { ...capabilities[index], inspection: safe } as typeof capabilities[number]
+  const next = { ...current.source, capabilities }
+  const fingerprinted = await withConfigurationFingerprint(next)
+  configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
+  await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
 }
 
 function secretMetadataKey(key: string): boolean {
