@@ -130,7 +130,7 @@ describe("chat error fallback", () => {
   it("lets developers choose details for any execution error", async () => {
     const fallback = await resolveChatErrorFallbackText({
       errorFallbackText: ({ error, publicError }) => `debug: ${publicError.code} ${String(error)}`,
-    } as never, {
+    }, {
       error: new Error("private execution details"),
       history: [], message: { text: "hello" }, publicError: { code: "INTERNAL", error: "Internal error." },
       run: undefined, thread: {}, toolResults: [],
