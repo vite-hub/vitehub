@@ -45,6 +45,7 @@ import type {
 import type { MessageChannelTitleDeliveryAttempt } from "../internal/channels.ts"
 import type { TraceEventLog } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { redactCredentialText } from "../internal/credential-redaction.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
 type TitleResolutionValue = string | typeof skippedTitleDelivery | undefined
@@ -1077,7 +1078,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           run: context.run,
           runtime: context.runtimeContext,
         }, {
-          attributes: { "vitehub.session.title": value.trim() },
+          attributes: { "vitehub.session.title": redactCredentialText(value.trim()) },
           name: "agent.title.recorded",
           type: "run",
         })
