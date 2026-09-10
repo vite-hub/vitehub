@@ -22,7 +22,7 @@ describe("renderEmailMarkdown", () => {
   })
 
   it("renders explicitly supplied Markdown fragments", async () => {
-    await expect(renderEmailMarkdown("Hello\n\n:markdown{:value=\"data.footer\"}", {
+    await expect(renderEmailMarkdown("Hello\n\n:insert{:markdown=\"data.footer\"}", {
       data: { footer: "Regards, **ViteHub**" },
     })).resolves.toEqual({
       html: "<p>Hello</p>\n<p>Regards, <strong>ViteHub</strong></p>",

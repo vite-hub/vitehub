@@ -72,12 +72,12 @@ Text such as `@./path.md` stays literal in instruction documents.
 
 ## Insert trusted invocation values
 
-Read invocation values through `data.context.*` bindings. Use the `Markdown` component for trusted Markdown.
+Read invocation values through `data.context.*` bindings. Use the `Insert` component for trusted Markdown.
 
 ```md [server/agents/support/instructions.md]
 Answer for {{ data.context.customerName }}.
 
-:markdown{:value="data.context.supportPolicy"}
+:insert{:markdown="data.context.supportPolicy"}
 ```
 
 The caller or a Capability must set these values before composition. Missing bindings fail instead of rendering empty text; templates cannot read arbitrary request fields, environment variables, or JavaScript expressions.
@@ -107,7 +107,7 @@ export default defineAgent({
     model: 'openai/gpt-5.1-mini',
     instructions: [
       'Use {{ data.workspace.tone }} tone.',
-      ':markdown{:value="data.workspace.policy"}',
+      ':insert{:markdown="data.workspace.policy"}',
     ],
   },
   workspace: {
@@ -119,7 +119,7 @@ export default defineAgent({
 })
 ```
 
-`:markdown{:value="data.workspace.policy"}` inserts the declared Markdown without evaluating bindings, conditions, or coverage directives inside it. Render any dynamic content before passing it as a fragment. ViteHub does not scan or auto-load every Markdown file in the Workspace.
+`:insert{:markdown="data.workspace.policy"}` inserts the declared Markdown without evaluating bindings, conditions, or coverage directives inside it. Render any dynamic content before passing it as a fragment. ViteHub does not scan or auto-load every Markdown file in the Workspace.
 
 ## Cover configured primitives
 

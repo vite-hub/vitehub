@@ -17,13 +17,13 @@ describe("instruction composition", () => {
     const input = [
       "    @./ignored.md",
       "    @workspace.policy",
-      "    :markdown{:value=\"data.context.policy\"}",
+      "    :insert{:markdown=\"data.context.policy\"}",
     ].join("\n")
     const expected = [
       "```",
       "@./ignored.md",
       "@workspace.policy",
-      ":markdown{:value=\"data.context.policy\"}",
+      ":insert{:markdown=\"data.context.policy\"}",
       "```",
     ].join("\n")
 
@@ -38,12 +38,12 @@ describe("instruction composition", () => {
       "Before ``code",
       "@./ignored.md",
       "@workspace.policy",
-      ":markdown{:value=\"data.context.policy\"}",
+      ":insert{:markdown=\"data.context.policy\"}",
       "code``",
       "@./used.md",
     ].join("\n")
     const expected = [
-      "Before `code @./ignored.md @workspace.policy :markdown{:value=\"data.context.policy\"} code`",
+      "Before `code @./ignored.md @workspace.policy :insert{:markdown=\"data.context.policy\"} code`",
       "@./used.md",
     ].join("\n")
 
@@ -56,7 +56,7 @@ describe("instruction composition", () => {
   it("renders condition chains and context bindings without executing JavaScript", async () => {
     const document = [
       "Hello {{ data.context.customerName }}.",
-      "::markdown{:value=\"data.context.supportPolicy\"}\n::",
+      "::insert{:markdown=\"data.context.supportPolicy\"}\n::",
       "::if{:condition=\"data.context.technicalAudience\"}",
       "Use technical detail.",
       "::else-if{:value=\"data.context.audience\" eq=\"support\"}",
@@ -85,13 +85,13 @@ describe("instruction composition", () => {
   })
 
   it("preserves trusted markdown bindings after punctuation", async () => {
-    expect(await composeInstructionDocument("Use (<Markdown :value=\"data.context.policy\"></Markdown>).", {
+    expect(await composeInstructionDocument("Use (<Insert :markdown=\"data.context.policy\"></Insert>).", {
       context: { policy: "trusted policy" },
     })).toBe("Use (trusted policy).")
   })
 
   it("renders markdown bindings without recursively evaluating their content", async () => {
-    expect(await composeInstructionDocument(":markdown{:value=\"data.context.policy\"}", {
+    expect(await composeInstructionDocument(":insert{:markdown=\"data.context.policy\"}", {
       context: {
         enabled: true,
         name: "Acme",
@@ -142,7 +142,7 @@ describe("instruction composition", () => {
       "<policy>",
       "Use {{ data.context.name }}.",
       "::if{:condition=\"data.context.enabled\"}",
-      ":markdown{:value=\"data.context.section\"}",
+      ":insert{:markdown=\"data.context.section\"}",
       "::",
       "</policy>",
     ].join("\n"), {
@@ -217,19 +217,19 @@ describe("instruction composition", () => {
       .rejects.toThrow("Instruction binding \"data.workspace.tone\" is not defined")
     await expect(composeInstructionDocument("{{ data.workspace.tone }}", { workspace: { tone: null } }))
       .rejects.toThrow("Instruction binding \"data.workspace.tone\" is not defined")
-    await expect(composeInstructionDocument(":markdown{:value=\"data.context.policy\"}"))
+    await expect(composeInstructionDocument(":insert{:markdown=\"data.context.policy\"}"))
       .rejects.toThrow("Instruction binding \"data.context.policy\" is not defined")
-    await expect(composeInstructionDocument(":markdown{:value=\"data.context.policy\"}", { context: { policy: null } }))
+    await expect(composeInstructionDocument(":insert{:markdown=\"data.context.policy\"}", { context: { policy: null } }))
       .rejects.toThrow("Instruction binding \"data.context.policy\" is not defined")
   })
 
   it("inserts Workspace Markdown without recursively evaluating its syntax", async () => {
     const policy = "## Policy\n\n{{ data.context.name }}\n\n@workspace.policy"
-    await expect(composeInstructionDocument("# Support\n\n:markdown{:value=\"data.workspace.policy\"}", {
+    await expect(composeInstructionDocument("# Support\n\n:insert{:markdown=\"data.workspace.policy\"}", {
       context: { name: "Acme" },
       workspace: { policy },
     })).resolves.toBe(`# Support\n\n${policy}`)
-    await expect(composeInstructionDocument(":markdown{:value=\"data.workspace.missing\"}"))
+    await expect(composeInstructionDocument(":insert{:markdown=\"data.workspace.missing\"}"))
       .rejects.toThrow("is not defined")
   })
 
@@ -263,8 +263,8 @@ describe("instruction composition", () => {
   it("keeps the full template language literal in fenced, indented, and multiline code", async () => {
     const syntax = [
       "{{ data.context.name }}",
-      ":markdown{:value=\"data.context.section\"}",
-      ":markdown{:value=\"data.workspace.section\"}",
+      ":insert{:markdown=\"data.context.section\"}",
+      ":insert{:markdown=\"data.workspace.section\"}",
       "::if{:condition=\"data.context.enabled\"}",
       "@workspace.policy",
       "::",
@@ -379,7 +379,7 @@ describe("instruction composition", () => {
 
     expect(await composeInstructionDocument([
       "::source{key=\"authored-source\"}",
-      ":markdown{:value=\"data.context.section\"}",
+      ":insert{:markdown=\"data.context.section\"}",
       "::",
     ].join("\n"), {
       context: { section: injected },

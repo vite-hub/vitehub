@@ -105,7 +105,7 @@ Nested paths keep their relative name. For example,
 to `.vitehub/types/email.d.ts` and bundles templates for provider builds under
 `.vitehub/email/templates`.
 
-The renderer does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `:markdown{:value="data.fragment"}` component.
+The renderer does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `:insert{:markdown="data.fragment"}` component.
 
 ## Test without delivery
 

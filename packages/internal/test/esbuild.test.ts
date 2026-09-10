@@ -937,7 +937,7 @@ describe("bundleEsmEntry", () => {
     const template = join(rootDir, "prompt.template.md")
     const partial = join(rootDir, "context.template.md")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(template, ":markdown{:value=\"data.detail\"}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n:markdown{:value=\"data.blocker\"}\n", "utf8")
+    await writeFile(template, ":insert{:markdown=\"data.detail\"}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n:insert{:markdown=\"data.blocker\"}\n", "utf8")
     await writeFile(partial, "Review PR {{ data.context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.template.md"`,
@@ -1048,7 +1048,7 @@ describe("bundleEsmEntry", () => {
     const template = join(rootDir, "prompt.template.md")
     const outfile = join(rootDir, "bundle.mjs")
     await writeFile(entry, 'import render from "./prompt.template.md"\nimport partial from "./partial.template.md"\nexport default async data => render({ partial: await partial(data) })\n', "utf8")
-    await writeFile(template, "Hello :markdown{:value=\"data.partial\"}", "utf8")
+    await writeFile(template, "Hello :insert{:markdown=\"data.partial\"}", "utf8")
     await writeFile(join(rootDir, "partial.template.md"), "{{ data.name }}!", "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")

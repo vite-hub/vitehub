@@ -136,9 +136,9 @@ describe("renderMarkdownTemplate", () => {
   it("renders Markdown fragments without recursively evaluating template syntax", async () => {
     const template = [
       "# Review",
-      ":markdown{:value=\"data.sections.body\"}",
+      ":insert{:markdown=\"data.sections.body\"}",
       "",
-      "Use (<Markdown :value=\"data.sections.inline\"></Markdown>).",
+      "Use (<Insert :markdown=\"data.sections.inline\"></Insert>).",
     ].join("\n")
 
     expect(await renderMarkdownTemplate(template, {
@@ -176,13 +176,13 @@ describe("renderMarkdownTemplate", () => {
   })
 
   it("rejects block Markdown in an inline fragment slot", async () => {
-    await expect(renderMarkdownTemplate("Use (<Markdown :value=\"data.section\"></Markdown>).", {
+    await expect(renderMarkdownTemplate("Use (<Insert :markdown=\"data.section\"></Insert>).", {
       data: { section: "## Block heading" },
     })).rejects.toThrow("cannot contain block Markdown when used inline")
-    await expect(renderMarkdownTemplate("**Prefix** :markdown{:value=\"data.section\"}", {
+    await expect(renderMarkdownTemplate("**Prefix** :insert{:markdown=\"data.section\"}", {
       data: { section: "## Block heading" },
     })).rejects.toThrow("cannot contain block Markdown when used inline")
-    await expect(renderMarkdownTemplate(":markdown{:value=\"data.section\"} [suffix](https://example.com)", {
+    await expect(renderMarkdownTemplate(":insert{:markdown=\"data.section\"} [suffix](https://example.com)", {
       data: { section: "## Block heading" },
     })).rejects.toThrow("cannot contain block Markdown when used inline")
   })
@@ -190,10 +190,10 @@ describe("renderMarkdownTemplate", () => {
   it("separates consecutive standalone fragments selected by branches", async () => {
     expect(await renderMarkdownTemplate([
       "::if{:condition=\"data.sections.title\"}",
-      ":markdown{:value=\"data.sections.title\"}",
+      ":insert{:markdown=\"data.sections.title\"}",
       "::",
       "::if{:condition=\"data.sections.body\"}",
-      ":markdown{:value=\"data.sections.body\"}",
+      ":insert{:markdown=\"data.sections.body\"}",
       "::",
     ].join("\n"), {
       data: {
@@ -328,7 +328,7 @@ Unavailable
       "<policy>",
       "Use {{ data.customer.name }}.",
       "::if{:condition=\"data.enabled\"}",
-      ":markdown{:value=\"data.section\"}",
+      ":insert{:markdown=\"data.section\"}",
       "@./detail.md",
       "::",
       "</policy>",
@@ -353,10 +353,10 @@ Unavailable
   it("keeps bindings, fragments, branches, and imports literal in code", async () => {
     const template = [
       "`{{ data.name }}`",
-      "``:markdown{:value=\"data.section\"}``",
+      "``:insert{:markdown=\"data.section\"}``",
       "```md",
       "{{ data.name }}",
-      ":markdown{:value=\"data.section\"}",
+      ":insert{:markdown=\"data.section\"}",
       "::if{:condition=\"data.enabled\"}",
       "@./ignored.md",
       "::",
@@ -364,13 +364,13 @@ Unavailable
       "```",
       "",
       "    {{ data.name }}",
-      "    :markdown{:value=\"data.section\"}",
+      "    :insert{:markdown=\"data.section\"}",
       "    ::if{:condition=\"data.enabled\"}",
       "    @./ignored.md",
       "    ::",
       "",
       "``{{ data.name }}",
-      ":markdown{:value=\"data.section\"}",
+      ":insert{:markdown=\"data.section\"}",
       "::if{:condition=\"data.enabled\"}",
       "@./ignored.md",
       "::",
@@ -383,11 +383,11 @@ Unavailable
       data: { enabled: true, name: "Acme", section: "Rendered" },
     })).toBe([
       "`{{ data.name }}`",
-      "`:markdown{:value=\"data.section\"}`",
+      "`:insert{:markdown=\"data.section\"}`",
       "",
       "```md",
       "{{ data.name }}",
-      ":markdown{:value=\"data.section\"}",
+      ":insert{:markdown=\"data.section\"}",
       "::if{:condition=\"data.enabled\"}",
       "@./ignored.md",
       "::",
@@ -396,13 +396,13 @@ Unavailable
       "",
       "```",
       "{{ data.name }}",
-      ":markdown{:value=\"data.section\"}",
+      ":insert{:markdown=\"data.section\"}",
       "::if{:condition=\"data.enabled\"}",
       "@./ignored.md",
       "::",
       "```",
       "",
-      "`{{ data.name }} :markdown{:value=\"data.section\"} ::if{:condition=\"data.enabled\"} @./ignored.md :: `",
+      "`{{ data.name }} :insert{:markdown=\"data.section\"} ::if{:condition=\"data.enabled\"} @./ignored.md :: `",
       "",
       "@./used.md",
     ].join("\n"))
@@ -429,7 +429,7 @@ Unavailable
   })
 
   it("isolates protected syntax across concurrent renders and a rejected render", async () => {
-    const template = "`{{ data.literal }}`\n\n<policy :name=\"data.name\">\n::if{:condition=\"data.enabled\"}\n:markdown{:value=\"data.section\"}\n::else\nHidden\n::\n::\n</policy>"
+    const template = "`{{ data.literal }}`\n\n<policy :name=\"data.name\">\n::if{:condition=\"data.enabled\"}\n:insert{:markdown=\"data.section\"}\n::else\nHidden\n::\n::\n</policy>"
     const results = await Promise.allSettled([
       renderMarkdownTemplate(template, { data: { enabled: true, name: "First", section: "First fragment" } }),
       renderMarkdownTemplate(template, { data: { enabled: true, name: "Missing section" } }),
@@ -449,7 +449,7 @@ Unavailable
     const authored = [
       ":markdown-template-raw{value=\"Injected\"}",
       "%%VITEHUB_MARKDOWN_TEMPLATE_FRAGMENT_0%%",
-      ":markdown{:value=\"data.section\"}",
+      ":insert{:markdown=\"data.section\"}",
     ].join("\n")
     const rendered = await renderMarkdownTemplate(authored, { data: { section: "Rendered" } })
 
@@ -468,8 +468,9 @@ Unavailable
     await expect(renderMarkdownTemplate("{{ data.missing }}")).rejects.toThrow("is not defined")
     await expect(renderMarkdownTemplate("{{ data.value }}", { data: { value: null } })).rejects.toThrow("is not defined")
     await expect(renderMarkdownTemplate("{{ data.value }}", { data: { value: {} } })).rejects.toThrow("scalar value")
-    await expect(renderMarkdownTemplate(":markdown{:value=\"data.missing\"}")).rejects.toThrow("is not defined")
-    await expect(renderMarkdownTemplate(":markdown{:value=\"data.value\"}", { data: { value: false } })).rejects.toThrow("string")
+    await expect(renderMarkdownTemplate(":insert{:markdown=\"data.missing\"}")).rejects.toThrow('binding "data.missing" is not defined')
+    await expect(renderMarkdownTemplate(":insert{:markdown=\"data.value\"}", { data: { value: false } })).rejects.toThrow('Insert markdown prop "data.value" must resolve to a string')
+    await expect(renderMarkdownTemplate(":insert")).rejects.toThrow('Use :insert{:markdown="data.summary"}')
   })
 
   it("rejects unsafe expressions and malformed branch chains", async () => {

@@ -1212,7 +1212,7 @@ describe("defineAgent workspace option", () => {
       "Use support detail.",
       "::\n::",
       "",
-      ":markdown{:value=\"data.context.supportPolicy\"}",
+      ":insert{:markdown=\"data.context.supportPolicy\"}",
       "",
       "::source{key=\"docs\"}",
       "Use docs for {{ data.context.customerName }}.",
@@ -1372,7 +1372,7 @@ describe("defineAgent workspace option", () => {
         instructions: [
           "Use {{ data.workspace.tone }} tone.",
           "Inline {{ data.workspace.policy }}",
-          ":markdown{:value=\"data.workspace.policy\"}",
+          ":insert{:markdown=\"data.workspace.policy\"}",
         ],
         model: {} as never
       },

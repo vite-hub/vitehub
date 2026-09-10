@@ -13,9 +13,11 @@ export async function prepareTemplate(source: string) {
   const inCode = new Set<number>()
   const visit = (nodes: Node[], literal = false) => {
     for (const node of nodes) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Comark represents text nodes as strings and element nodes as tuples.
       if (typeof node === "string") {
         if (literal) for (const match of node.matchAll(pattern)) inCode.add(Number(match[1]))
       }
+      // SAFETY: Comark element tuple entries after the tag and attributes are child nodes.
       else if (node[0] !== null) visit(node.slice(2) as Node[], literal || node[0] === "code")
     }
   }

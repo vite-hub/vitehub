@@ -215,7 +215,7 @@ export async function sendWelcome(name: string, to: string) {
 | `data` | `Record<string, unknown>` | `{}` | Supplies scalar bindings, Markdown fragments, and conditional values. |
 
 ::warning
-`renderEmailMarkdown()` does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `:markdown{:value="data.fragment"}` binding.
+`renderEmailMarkdown()` does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `:insert{:markdown="data.fragment"}` binding.
 ::
 
 ## Provider behavior for Resend

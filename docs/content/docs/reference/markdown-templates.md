@@ -70,7 +70,7 @@ Wait for the author.
 ::
 ::
 
-:markdown{:value="data.files"}`
+:insert{:markdown="data.files"}`
 
 const markdown = await renderMarkdownTemplate(template, {
   data: {
@@ -82,7 +82,7 @@ const markdown = await renderMarkdownTemplate(template, {
 })
 ```
 
-The title renders as literal text, with its asterisks escaped. The `Markdown` component inserts the file list as Markdown structure.
+The title renders as literal text, with its asterisks escaped. The `Insert` component inserts the file list as Markdown structure.
 
 ## Bind values and attributes
 
@@ -122,23 +122,30 @@ Compute compound logic in TypeScript and pass its boolean result. Conditions do 
 
 ## Insert trusted Markdown
 
-Use a standalone `Markdown` component for block content:
+Use `{{ data.summary }}` for plain text and `:insert{:markdown="data.summary"}` to preserve Markdown formatting. For `summary: '**Ready**'`:
+
+| Template | Result |
+| --- | --- |
+| `{{ data.summary }}` | Literal text `**Ready**`, with the asterisks escaped. |
+| `:insert{:markdown="data.summary"}` | Markdown `**Ready**`, which displays as **Ready**. |
+
+`Insert` is a ViteHub component using Comark syntax. The `:markdown` prop reads a string from your data. Put it on its own line, separated by blank lines, to insert headings, lists, or multiple paragraphs:
 
 ```md
-:markdown{:value="data.summary"}
+:insert{:markdown="data.summary"}
 ```
 
 The container form also works:
 
 ```md
-::markdown{:value="data.summary"}
+::insert{:markdown="data.summary"}
 ::
 ```
 
 Use a paired component beside punctuation, where Comark's colon shorthand is not recognized:
 
 ```md
-Use (<Markdown :value="data.policy"></Markdown>).
+Use (<Insert :markdown="data.policy"></Insert>).
 ```
 
 A fragment must be a string. An inline fragment must parse as inline content; block Markdown in an inline position rejects the render. Fragment content is parsed and serialized by Comark without template components or bindings, so its template syntax is not evaluated recursively. Comark may normalize the spelling of literal component attributes.
@@ -160,7 +167,7 @@ This is a breaking syntax change for direct render calls, imported template file
 | Previous syntax | Comark syntax |
 | --- | --- |
 | `{{ name }}` | `{{ data.name }}` |
-| `{{{ summary }}}` | `:markdown{:value="data.summary"}` |
+| `{{{ summary }}}` | `:insert{:markdown="data.summary"}` |
 | `::if{enabled}` | `::if{:condition="data.enabled"}` |
 | `::if{status === 'ready'}` | `::if{:value="data.status" eq="ready"}` |
 | `::if{enabled && !draft}` | Compute `visible = enabled && !draft` in TypeScript, then use `::if{:condition="data.visible"}`. |

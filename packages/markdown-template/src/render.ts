@@ -32,26 +32,31 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         const { branches, after } = conditionalBranches(node)
         const selected = branches.find(branch => branch[0] === "else"
           || matchesCondition(branch[1], state.renderData, options.validateConditionPath))
+        // SAFETY: Branches are Comark element tuples; entries after tag and attributes are child nodes.
         return await renderNodes([...(selected?.slice(2) as Node[] ?? []), ...after], state, parent)
       },
       Else: unexpectedBranch,
       ElseIf: unexpectedBranch,
-      Markdown: async (node, state, parent) => {
-        const path = node[1][":value"]
+      Insert: async (node, state, parent) => {
+        if (!Object.hasOwn(node[1], ":markdown") && !Object.hasOwn(node[1], "markdown")) {
+          throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: '[vitehub] Markdown template Insert requires a markdown prop. Use :insert{:markdown="data.summary"}.' })
+        }
+        const path = node[1][":markdown"]
         if (options.validateFragmentPath && (typeof path !== "string" || !path.startsWith("data.") || !options.validateFragmentPath(path.slice(5)))) {
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template fragment "${String(path)}" must use an allowed data path.` })
         }
-        const value = boundValue(node, state)
+        const value = boundValue(node, state, "markdown")
         if (typeof value !== "string") {
-          throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: "[vitehub] Markdown template fragment value must resolve to a string." })
+          throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template Insert markdown prop "${String(path ?? "markdown")}" must resolve to a string.` })
         }
         // Fragments are parsed without bindings and rendered without template components.
         const fragment = await parseMarkdown(value, { autoClose: false, autoUnwrap: false, linkify: false })
         if (parent && (parent[0] === "p" || state.context.inline)) {
           if (!fragment.nodes.length) return ""
           if (fragment.nodes.length !== 1 || !Array.isArray(fragment.nodes[0]) || fragment.nodes[0][0] !== "p") {
-            throw diagnostics.MARKDOWN_TEMPLATE_R0021({ message: "[vitehub] Markdown template fragment cannot contain block Markdown when used inline." })
+            throw diagnostics.MARKDOWN_TEMPLATE_R0021({ message: "[vitehub] Markdown template fragment cannot contain block Markdown when used inline. Put :insert on its own line, separated by blank lines." })
           }
+          // SAFETY: The check above establishes a paragraph element whose remaining tuple entries are child nodes.
           return await renderNodes(fragment.nodes[0].slice(2) as Node[], literalState(state), parent)
         }
         return await renderNodes(fragment.nodes, literalState(state), parent)
@@ -61,6 +66,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         const props = resolveAttributes(node[1], state.renderData, { parseJson: true })
         const bound = resolveAttributes({ ":value": node[1][":href"] }, state.renderData, { parseJson: true })
         const href = await safeLinkDestination(requireScalar(bound.value, String(node[1][":href"])), String(node[1][":href"]))
+        // SAFETY: Preserve the element tag and children, replacing only its resolved attributes.
         return await state.handlers.a!([node[0], { ...props, href }, ...node.slice(2)] as ElementNode, state, parent)
       },
       Html: {
@@ -72,7 +78,9 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
             if (key.startsWith(":")) requireScalar(props[key.slice(1)], String(attrs[key]))
           }
           const escaped = Object.fromEntries(Object.entries(props).map(([key, value]) =>
+            // doctor-disable-next-line typescript/strict/no-runtime-typeof -- String XML attributes need escaping; Comark serializes boolean and numeric attributes.
             [key, typeof value === "string" ? escapeHtml(value) : value]))
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only raw text children of block HTML need Markdown parsing; parsed nodes are rendered directly.
           const content = attrs.$?.block === 1 && children.every(child => typeof child === "string")
             ? (await parseMarkdown(children.join(""), parserOptions)).nodes
             : children
@@ -83,12 +91,12 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   })).trim())
 }
 
-function boundValue(node: ElementNode, state: State): unknown {
+function boundValue(node: ElementNode, state: State, prop = "value"): unknown {
   const props = resolveAttributes(node[1], state.renderData, { parseJson: true })
-  if (props.value === undefined || props.value === null) {
-    throw diagnostics.MARKDOWN_TEMPLATE_R0017({ message: `[vitehub] Markdown template binding "${String(node[1][":value"] ?? "value")}" is not defined.` })
+  if (props[prop] === undefined || props[prop] === null) {
+    throw diagnostics.MARKDOWN_TEMPLATE_R0017({ message: `[vitehub] Markdown template binding "${String(node[1][`:${prop}`] ?? prop)}" is not defined.` })
   }
-  return props.value
+  return props[prop]
 }
 
 function scalarValue(node: ElementNode, state: State): string {
@@ -99,6 +107,7 @@ function requireScalar(value: unknown, path: string): string {
   if (value === undefined || value === null) {
     throw diagnostics.MARKDOWN_TEMPLATE_R0017({ message: `[vitehub] Markdown template binding "${path}" is not defined.` })
   }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- This binding boundary accepts exactly the three scalar representations and rejects objects.
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
   throw diagnostics.MARKDOWN_TEMPLATE_R0018({ message: `[vitehub] Markdown template binding "${path}" must resolve to a scalar value.` })
 }
@@ -145,10 +154,13 @@ function conditionalBranches(node: ElementNode): { branches: ElementNode[], afte
 
 // Comark resolves inherited properties; expose only the explicit data for this render.
 function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Clone object properties recursively while preserving scalar values unchanged.
   if (!value || typeof value !== "object") return value
+  // SAFETY: The map stores only the corresponding clone for each input object during this traversal.
   if (seen.has(value)) return seen.get(value) as T
   const copy = Object.setPrototypeOf(Array.isArray(value) ? [] : {}, null)
   seen.set(value, copy)
   for (const [key, item] of Object.entries(value)) copy[key] = ownData(item, seen)
+  // SAFETY: The clone preserves own enumerable data and array shape; Comark only reads those properties.
   return copy as T
 }

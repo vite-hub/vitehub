@@ -6,6 +6,7 @@ import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 type Ordered = number | string
 type Comparison = (value: unknown, expected: unknown) => boolean
 const ordered = (compare: (value: Ordered, expected: Ordered) => boolean): Comparison => (value, expected) =>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Ordered comparisons accept only matching numeric or string representations, without coercion.
   (typeof value === "number" && typeof expected === "number" || typeof value === "string" && typeof expected === "string")
   && compare(value, expected)
 
@@ -29,6 +30,7 @@ export function matchesCondition(
     if (!allowedProps.has(key.replace(/^:/, ""))) {
       throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0024({ message: `[vitehub] Unsupported Markdown template condition prop "${key}". Use Comark-bound condition or value props.` })
     }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only string attributes can contain a Comark binding path to validate.
     if (validatePath && key.startsWith(":") && typeof value === "string") {
       // Comark owns literal parsing and binding resolution; the consumer owns allowed data paths.
       let literal = false
