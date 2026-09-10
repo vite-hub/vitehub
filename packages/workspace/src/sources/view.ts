@@ -475,12 +475,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of sources.filter(source => !source.mountPath)) {
       await ensurePrepared(source.key)
       await ensureMaterialized(source.key)
-      const file = await store.readFile(path)
+      const file = await store.stat(path)
       if (file?.metadata?.source === source.key) return source
     }
   }
 
   async function isSourceBackedStorePath(path: string) {
+    // A missing sidecar must not release ownership recorded by the current Source.
+    for (const source of allSources) {
+      const snapshot = await readCurrentSourceSnapshot(store, source)
+      if (Object.keys(snapshot?.items || {}).some(item => item === path || !path || item.startsWith(`${path}/`))) return true
+    }
     const file = await store.readFile(path)
     if (typeof file?.metadata?.source === "string" && allSources.some(source => source.key === file.metadata?.source)) return true
     const stat = await store.stat(path)

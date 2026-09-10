@@ -14,6 +14,44 @@ import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.
 import { useWorkspace } from "../src/core/use.ts"
 import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
 import { readWorkspaceSourceMaterializationStatus } from "../src/source-metadata.ts"
+import { createWorkspaceSourceView } from "../src/sources/view.ts"
+
+it.each(["sidecar", "tree"])("keeps cached Source paths read-only after losing the metadata %s", async (missing) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-missing-sidecar-"))
+  const getItem = vi.fn(async (key: string) => ({ key, content: "original" }))
+  const definition = {
+    name: "missing-sidecar",
+    sources: {
+      docs: {
+        cache: { maxAge: 3600 },
+        mount: { path: "" },
+        materialize: "startup" as const,
+        async getKeys() { return ["docs/file.txt"] },
+        getItem,
+      },
+    },
+  }
+  try {
+    await materializeWorkspaceSources(definition, createLocalWorkspaceStore(root))
+    const metadataRoot = join(root, ".vitehub", "file-metadata")
+    await rm(missing === "tree" ? metadataRoot : join(metadataRoot, "docs/file.txt/metadata.json"), { recursive: true })
+    const restarted = createLocalWorkspaceStore(root)
+    const view = createWorkspaceSourceView(definition, restarted)
+    await expect(view.writeFile("docs/file.txt", "overwrite")).rejects.toThrow("read-only")
+    await expect(view.rm("docs/file.txt")).rejects.toThrow("read-only")
+    await expect(view.rm("docs", { recursive: true })).rejects.toThrow("read-only")
+    await expect(view.mkdir("docs/file.txt")).rejects.toThrow("read-only")
+    await expect(view.writeFile("docs/generated.txt", "allowed")).resolves.toBe("docs/generated.txt")
+    await expect(restarted.readFile("docs/file.txt")).resolves.toMatchObject({ content: new TextEncoder().encode("original") })
+    expect(getItem).toHaveBeenCalledTimes(1)
+    const withoutSource = createWorkspaceSourceView({ ...definition, sources: {} }, restarted)
+    await expect(withoutSource.writeFile("docs/file.txt", "released")).resolves.toBe("docs/file.txt")
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
+  }
+})
 
 it.each([
   { overlay: false, legacy: false },
