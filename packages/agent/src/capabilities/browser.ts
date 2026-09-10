@@ -128,7 +128,7 @@ function attachBrowserScreenshots(
 }
 
 export function browser(options: BrowserCapabilityOptions = {}): AgentCapabilityDefinition {
-  const command = assertCommand(options.command || "agent-browser")
+  const command = assertCommand(options.command ?? "agent-browser")
   if (command !== "agent-browser" && options.runtime === "managed") {
     throw agentDiagnostics.AGENT_R0025({ message: "[vitehub] browser({ runtime: \"managed\" }) owns the agent-browser command. Remove command or use runtime: \"external\" for a custom executable." })
   }

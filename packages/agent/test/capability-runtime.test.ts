@@ -1056,6 +1056,9 @@ describe("agent capability runtime", () => {
     expect(browser({ command: "agent-browser", runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
     expect(browser({ runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
     expect(browser({ command: "custom-browser" }).metadata).toMatchObject({ runtime: "external" })
+    expect(() => browser({ command: "" })).toThrow("must be a single executable name")
+    expect(() => browser({ command: "", runtime: "managed" })).toThrow("must be a single executable name")
+    expect(() => browser({ command: "", runtime: "external" })).toThrow("must be a single executable name")
   })
 
   it("keeps default Skill identity independent of a custom command", async () => {
