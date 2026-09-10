@@ -8,6 +8,8 @@ import { custom, defineWorkspace, markdown, useWorkspace } from "../src/index.ts
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
+import type { WritableWorkspaceFacade } from "../src/core/use.ts"
 import { registerWorkspace } from "../src/test.ts"
 
 import type { WorkspaceStore } from "../src/index.ts"
@@ -26,6 +28,30 @@ afterEach(async () => {
 })
 
 describe("Workspace Source Sync", () => {
+  it.each(["memory", "local"])("preserves Source ownership through resolved writable facades: %s", async (provider) => {
+    const root = await createRoot()
+    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    registerWorkspace("resolved-metadata", defineWorkspace({ store }))
+    const base = useWorkspace("resolved-metadata", { mode: "write" })
+    const { workspace } = await createWorkspaceSourceResolutionFacade(base, {
+      name: "resolved-metadata",
+      sources: {
+        docs: custom({
+          sync: true,
+          async getKeys() { return ["README.md"] },
+          async getItem(key) { return { key, content: "# Docs", metadata: { title: "Docs" } } },
+        }),
+      },
+    }, {
+      invocation: { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false, toJSON: () => ({}) } },
+      overlay: true,
+    })
+    await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({ status: "ready" })
+    const reader = provider === "local" ? createLocalWorkspaceStore(root) : store
+    await expect(reader.readFile("docs/README.md")).resolves.toMatchObject({ metadata: { title: "Docs", source: "docs" } })
+    await expect(base.fs.writeFile("forged.md", "forged", { metadata: { source: "docs" } })).rejects.toThrow()
+  })
+
   it.each([
     { provider: "local", sync: true }, { provider: "memory", sync: true },
     { provider: "local", sync: false }, { provider: "memory", sync: false },
@@ -87,7 +113,7 @@ describe("Workspace Source Sync", () => {
         },
       }))
       const workspace = await useRegisteredWorkspace(name)
-      const result = sync ? await workspace.sync({ sources: ["docs"] }) : await workspace.materializeSources({ sources: ["docs"] })
+      const result = sync ? await workspace.sync({ sources: ["docs"] }) : await workspace.materializeSources!({ sources: ["docs"] })
       expect(result.sources).toEqual([expect.objectContaining({ error: expect.stringContaining("Invalid Workspace metadata") })])
       expect(getter).not.toHaveBeenCalled()
     }

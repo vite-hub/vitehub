@@ -190,17 +190,20 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 }
 
-function createWritableFacadeStore(workspace: WritableWorkspaceFacade): WorkspaceStore {
+function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSync = false): WorkspaceStore {
   const meta = new Map<string, unknown>()
   const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
   const store: WorkspaceStore = {
     async readFile(path) {
+      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      if (target?.readFile) return await target.readFile(path)
       try {
         const stat = await workspace.fs.stat(path as never)
         if (stat.type === "directory") return
         return {
           content: await workspace.fs.readFile(path as never, { encoding: "binary" } as never) as Uint8Array,
           mediaType: stat.mediaType,
+          metadata: stat.metadata,
           path,
         }
       }
@@ -209,7 +212,10 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
       }
     },
     async writeFile(path, file) {
-      await workspace.fs.writeFile(path as never, file.content, { mediaType: file.mediaType })
+      // Source Sync owns its provenance; public writes must still enforce write policy.
+      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      if (target?.writeFile) return await target.writeFile(path, file)
+      await workspace.fs.writeFile(path as never, file.content, { mediaType: file.mediaType, metadata: file.metadata })
     },
     async list(path, options) {
       return await workspace.fs.list(path as never, options)
@@ -390,7 +396,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   if (isWritableWorkspaceFacade(workspace)) {
     const writePolicy = createWorkspaceWritePolicy(resolvedDefinition)
-    const syncStore = createWritableFacadeStore(workspace)
+    const syncStore = createWritableFacadeStore(workspace, true)
     let writeWorkspace!: Workspace
 
     async function previousStat(path: string) {

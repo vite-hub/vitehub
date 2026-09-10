@@ -28,7 +28,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 import { github as githubPublisher } from "../src/publish.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { workspaceStoreTarget } from "../src/storage/target.ts"
-import { resolveWorkspaceMetadataTarget } from "../src/storage/metadata-target.ts"
+import { workspaceMetadataTarget, resolveWorkspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../src/storage/metadata-target.ts"
 
 const invocation = {
   context: {
@@ -111,7 +111,7 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
   }
 }
 
-function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade {
+function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade & WorkspaceMetadataTargetCarrier {
   // SAFETY: This test fixture intentionally supplies only the Workspace tools exercised by these cases.
   const tools = {
     inspect: () => ({}),
@@ -119,6 +119,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
     write: () => ({}),
   } as never
   return {
+    [workspaceMetadataTarget]: () => resolveWorkspaceMetadataTarget(workspace),
     capabilities: async () => await workspace.capabilities?.() ?? { conditionalWrites: false },
     diff: async options => await workspace.diff(options),
     fs: {
@@ -1397,7 +1398,7 @@ describe("Workspace Source Resolution", () => {
             return keys
           },
           async getItem(key) {
-            return { key, path: key, content: `# ${key}\n` }
+            return { key, path: key, content: `# ${key}\n`, metadata: { title: key } }
           },
         }),
       },
@@ -1412,6 +1413,8 @@ describe("Workspace Source Resolution", () => {
       status: "ready",
     })
     await expect(base.readFile("docs/old.md")).resolves.toBe("# old.md\n")
+    const stored = await resolveWorkspaceMetadataTarget(base)
+    await expect(stored?.readFile?.("docs/old.md")).resolves.toMatchObject({ metadata: { title: "old.md", source: "docs" } })
 
     keys = ["README.md"]
     const second = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
