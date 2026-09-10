@@ -463,7 +463,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     // Invalid ownership must not turn a Source file into an ordinary writable file.
     if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
     const { path: _path, ...result } = parsed.output
-    return result
+    return { ...result, metadata: assertFileMetadata(path, result.metadata) }
   }
 
   async #prepareMetadataDirectories(path: string, create: boolean, repair = true) {

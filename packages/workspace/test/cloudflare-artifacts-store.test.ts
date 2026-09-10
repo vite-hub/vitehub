@@ -790,6 +790,10 @@ describe("Cloudflare Artifacts workspace store", () => {
 
   it.each([
     ["truncated", '{"path":"result.json",'],
+    ...["1e400", "-1e400", "-0"].map(value => [
+      `nonportable-${value}`,
+      `{ "path": "result.json", "existed": true, "digest": "CONTENT_DIGEST", "metadata": { "metadata": { "nested": [${value}] } } }`,
+    ]),
     ["schema-invalid", JSON.stringify({ path: "result.json", existed: "false", metadata: { source: "pending" } })],
   ])("discards a %s pending journal on restart without changing committed files", async (_kind, pending) => {
     const attributes = { mediaType: "application/json", metadata: { source: "agent" } }
@@ -802,7 +806,7 @@ describe("Cloudflare Artifacts workspace store", () => {
       filesystem = fs
       await fs.promises.writeFile("/workspace/result.json", content)
       await fs.promises.writeFile("/workspace/.vitehub/files.json", committed)
-      await fs.promises.writeFile("/workspace/.vitehub/files.pending.json", pending)
+      await fs.promises.writeFile("/workspace/.vitehub/files.pending.json", pending.replace("CONTENT_DIGEST", await sha256(content)))
     })
     const store = await createStore({
       create: vi.fn(),
@@ -815,6 +819,17 @@ describe("Cloudflare Artifacts workspace store", () => {
     await expect(store.stat("result.json")).resolves.toMatchObject(attributes)
     expect(filesystem?.entries.has("/workspace/.vitehub/files.pending.json")).toBe(false)
     await expect(filesystem?.promises.readFile("/workspace/.vitehub/files.json")).resolves.toEqual(new TextEncoder().encode(committed))
+  })
+
+  it.each(["1e400", "-1e400", "-0"])("rejects nonportable persisted metadata: %s", async (value) => {
+    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
+    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
+      const { fs } = options as { fs: MemoryFS }
+      await fs.promises.writeFile("/workspace/result.json", "content")
+      await fs.promises.writeFile("/workspace/.vitehub/files.json", `{ "result.json": { "metadata": { "source": "agent", "nested": [{ "value": ${value} }] } } }`)
+    })
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+    await expect(store.readFile("result.json")).rejects.toThrow("Invalid Workspace metadata for result.json")
   })
 
   it.each(["matching", "replacement", "partial", "legacy", "previous"])("recovers only version-matched pending metadata after restart: %s", async (kind) => {

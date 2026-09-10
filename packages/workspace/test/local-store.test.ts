@@ -199,6 +199,10 @@ describe("local workspace store", () => {
   it.each([
     "",
     "{",
+    ...["1e400", "-1e400", "-0"].flatMap(value => [
+      `{ "path": "file.txt", "metadata": { "source": "docs", "value": ${value} } }`,
+      `{ "path": "file.txt", "metadata": { "source": "docs", "nested": [{ "value": ${value} }] } }`,
+    ]),
     JSON.stringify({ path: "other.txt", metadata: { source: "docs" } }),
     JSON.stringify({ path: "file.txt", metadata: { source: 123 } }),
     JSON.stringify({ path: "file.txt", metadata: null }),

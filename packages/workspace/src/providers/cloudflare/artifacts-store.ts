@@ -474,13 +474,14 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const content = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataPath)).catch(() => undefined)
     if (content) {
       const files = parse(fileMetadataFilesSchema, parseJson(contentToBytes(content)))
-      this.#files = new Map(Object.entries(files))
+      this.#files = new Map(Object.entries(files).map(([path, file]) => [path, { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }]))
     }
     const pending = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataJournalPath)).catch(() => undefined)
     if (!pending) return
     let journal
     try {
       journal = parse(fileMetadataJournalSchema, parseJson(contentToBytes(pending)))
+      journal.metadata.metadata = copyJsonFileMetadata(journal.path, journal.metadata.metadata)
     }
     catch {
       // Interrupted journal writes cannot safely supply recovery metadata.
