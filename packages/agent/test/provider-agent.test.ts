@@ -2632,14 +2632,14 @@ cli_auth_credentials_store = "keyring"
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
   })
 
-  it.each([false, true])("completes a raw-only Codex response without losing earlier unknown partitions: %s", async (earlierUnknown) => {
+  it.each([[false, true], [true, true], [false, false], [true, false]])("completes a raw-only Codex response without losing earlier unknown partitions: %s, cumulative: %s", async (earlierUnknown, cumulative) => {
     const threadId = "thread-raw-enriched-usage"
-    const partition = { inputTokens: 5, outputTokens: 2, cachedInputTokens: 1, reasoningOutputTokens: 1, totalProcessedTokens: 47 }
+    const partition = { inputTokens: 5, outputTokens: 2, cachedInputTokens: 1, reasoningOutputTokens: 1, ...(cumulative ? { totalProcessedTokens: 47 } : {}) }
     runtime(threadId, [
       ...(earlierUnknown ? [event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 40 } })] : []),
-      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 47 } }),
-      event("thread.token-usage.updated", threadId, { usage: partition }),
-      event("thread.token-usage.updated", threadId, { usage: partition }),
+      event("thread.token-usage.updated", threadId, { usage: cumulative ? { totalProcessedTokens: 47 } : {} }, { itemId: "response-1" }),
+      event("thread.token-usage.updated", threadId, { usage: partition }, { itemId: "response-1" }),
+      event("thread.token-usage.updated", threadId, { usage: partition }, { itemId: "response-1" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
     // SAFETY: This fixture constructs the provider invocation contract.
@@ -2656,6 +2656,19 @@ cli_auth_credentials_store = "keyring"
     else {
       expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 2, totalTokens: 7 })
     }
+  })
+
+  it.each([undefined, "response-2"])("keeps unmatched raw-only usage unknown: %s", async (laterIdentity) => {
+    const threadId = "thread-unmatched-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 47 } }, { itemId: "response-1" }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }, laterIdentity ? { itemId: laterIdentity } : {}),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord?.calls?.[0]?.usage).toBeUndefined()
+    expect(result.usageRecord?.usage?.inputTokens).toBeUndefined()
   })
 
   it("merges enriched and corrected same-total Codex usage snapshots", async () => {

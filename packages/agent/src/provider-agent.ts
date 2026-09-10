@@ -1790,6 +1790,7 @@ interface ProviderInvocationUsageAccumulator {
   inputTokens: number
   lastSignature?: string
   lastResponseIdentity?: string
+  lastCallIdentity?: string
   outputTokens: number
   partitionComplete: boolean
   previousTotalProcessedTokens?: number
@@ -1815,13 +1816,16 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
     : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
   const cumulative = usage.totalProcessedTokens
-  const changed = cumulative !== undefined
-    ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
-    : responseIdentity !== undefined
-      ? responseIdentity !== options.accumulator.lastResponseIdentity
-      : options.accumulator.lastSignature !== signature
+  const changed = responseIdentity !== undefined && responseIdentity !== options.accumulator.lastResponseIdentity
+    ? true
+    : cumulative !== undefined
+      ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
+      : responseIdentity !== undefined
+        ? responseIdentity !== options.accumulator.lastResponseIdentity
+        : options.accumulator.lastSignature !== signature
   const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed
   if (options.provider === "codex" && changed && partitionTotal === undefined) {
+    options.accumulator.lastCallIdentity = responseIdentity
     options.accumulator.partitionComplete = false
     options.accumulator.calls.push({
       ...(options.model ? { model: options.model } : {}),
@@ -1830,6 +1834,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     })
   }
   if (countPartition) {
+    options.accumulator.lastCallIdentity = responseIdentity
     options.accumulator.inputTokens += inputTokens!
     options.accumulator.outputTokens += outputTokens!
     if (usage.cachedInputTokens === undefined) options.accumulator.cachedInputTokensComplete = false
@@ -1854,14 +1859,15 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     options.accumulator.observedPartition = true
   }
   const previousCall = options.accumulator.calls.at(-1)
-  if (options.provider === "codex" && !changed && cumulative !== undefined && previousCall && !previousCall.usage && partitionTotal !== undefined) {
+  const sameResponse = responseIdentity !== undefined && responseIdentity === options.accumulator.lastCallIdentity
+  if (options.provider === "codex" && !changed && sameResponse && previousCall && !previousCall.usage && partitionTotal !== undefined) {
     previousCall.usage = { inputTokens, outputTokens, totalTokens: partitionTotal }
     options.accumulator.inputTokens += inputTokens!
     options.accumulator.outputTokens += outputTokens!
     options.accumulator.observedPartition = true
     options.accumulator.partitionComplete = options.accumulator.calls.every(call => call.usage !== undefined)
   }
-  if (options.provider === "codex" && !changed && cumulative !== undefined && previousCall?.usage) {
+  if (options.provider === "codex" && !changed && (sameResponse || (responseIdentity === undefined && options.accumulator.lastCallIdentity === undefined && cumulative !== undefined)) && previousCall?.usage) {
     const cachedInputTokens = usage.cachedInputTokens ?? previousCall.usage.details?.cachedInputTokens
     const reasoningOutputTokens = usage.reasoningOutputTokens ?? previousCall.usage.details?.reasoningOutputTokens
     options.accumulator.calls[options.accumulator.calls.length - 1] = {
