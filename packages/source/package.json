@@ -76,7 +76,6 @@
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
-    "effect": "catalog:effect",
     "h3": "catalog:unjs",
     "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
@@ -87,6 +86,7 @@
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "effect": "catalog:effect",
     "mrmime": "catalog:workspace",
     "ocache": "catalog:unjs",
     "picomatch": "catalog:workspace",
