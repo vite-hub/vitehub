@@ -428,3 +428,21 @@ describe("credential line context across journal chunks", () => {
     expect(credentialTextLineContext('password: "sensitive-value"')).toBe("x ")
   })
 })
+
+it.each([123456, 0, true, false, null])("redacts primitive schema credentials: %s", async (value) => {
+  const context = createAgentInvocationContextStore()
+  await setAgentTelemetryConfiguration(context, {
+    capabilities: [],
+    driver: { kind: "provider" },
+    tools: [{ name: "exec", inputSchema: { properties: {
+      apiKey: { default: value, examples: [value, { nested: value }] },
+      publicValue: { default: value },
+    } } }],
+  } as never)
+  expect(getAgentTelemetryConfiguration(context)?.value).toMatchObject({
+    tools: [{ inputSchema: { properties: {
+      apiKey: { default: "[redacted]", examples: ["[redacted]", { nested: "[redacted]" }] },
+      publicValue: { default: value },
+    } } }],
+  })
+})

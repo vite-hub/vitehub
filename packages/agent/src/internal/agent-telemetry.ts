@@ -109,7 +109,7 @@ function redactConfigurationValue(
     if (key === "repo" || key === "repository") return value
     return redactCredentialText(value)
   }
-  if (!value || !hasRuntimeType(value, "object")) return value
+  if (!value || !hasRuntimeType(value, "object")) return secret ? "[redacted]" : value
   const visited = secret ? seen.secret : seen.public
   const existing = visited.get(value)
   if (existing) return existing
@@ -126,7 +126,7 @@ function redactConfigurationValue(
 }
 
 function redactTelemetryConfiguration(configuration: AgentTelemetryConfiguration): AgentTelemetryConfiguration {
-  // SAFETY: Redaction recursively preserves configuration keys and value shapes while replacing strings with strings.
+  // SAFETY: Redaction preserves configuration structure; secret primitive values become redaction markers.
   return redactConfigurationValue(configuration) as AgentTelemetryConfiguration
 }
 
