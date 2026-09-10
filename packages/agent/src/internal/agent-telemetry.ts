@@ -17,6 +17,7 @@ function compareCodeUnits(left: string, right: string): number {
 }
 
 const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTelemetryConfigurationState>()
+const inspectionUpdates = new WeakMap<AgentInvocationContextStore, Promise<void>>()
 
 // Capability inspection is optional telemetry; retain the boundary export so
 // runtimes can report inspections without making telemetry configuration a
@@ -26,18 +27,24 @@ export async function setAgentCapabilityInspection(
   id: string,
   inspection: unknown,
 ): Promise<void> {
-  const current = configurationByContext.get(context)
-  if (!current) return
+  const previous = inspectionUpdates.get(context) ?? Promise.resolve()
+  const update = previous.then(async () => {
+    const current = configurationByContext.get(context)
+    if (!current) return
   const capabilities = [...(current.source.capabilities ?? [])]
   const index = capabilities.findIndex(capability => capability.id === id)
   if (index < 0) return
   const safe = safeMetadataValue(inspection)
   if (!safe || Array.isArray(safe)) return
+  // SAFETY: capabilities[index] is known to exist because index is non-negative.
   capabilities[index] = { ...capabilities[index], inspection: safe } as typeof capabilities[number]
   const next = { ...current.source, capabilities }
   const fingerprinted = await withConfigurationFingerprint(next)
   configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
-  await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
+    await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
+  })
+  inspectionUpdates.set(context, update)
+  await update
 }
 
 function secretMetadataKey(key: string): boolean {
