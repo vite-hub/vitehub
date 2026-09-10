@@ -874,7 +874,12 @@ async function materializeWorkspaceSourcesInternal(
         }
         const item = entry.item!
         const metadata = item.metadata || {}
-        const previousStat = await store.stat(path)
+        let previousStat
+        try {
+          previousStat = await store.stat(path)
+        } catch (error) {
+          if (!(error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR"))) throw error
+        }
         const previous = entry.contentStream && store.writeFileStream ? undefined : await store.readFile(path)
         const previousExists = previousStat?.type === "file" || Boolean(previous)
         const fileMetadata = {
@@ -884,7 +889,14 @@ async function materializeWorkspaceSourcesInternal(
         }
         const missingDirectories: string[] = []
         for (const directory of parentDirectoryPaths(path)) {
-          if (directory !== source.mountPath && sourceOwnsDirectory(source, directory) && !await store.stat(directory)) missingDirectories.push(directory)
+          if (directory !== source.mountPath && sourceOwnsDirectory(source, directory)) {
+            let directoryStat
+            try { directoryStat = await store.stat(directory) }
+            catch (error) {
+              if (!(error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR"))) throw error
+            }
+            if (!directoryStat) missingDirectories.push(directory)
+          }
         }
         const written = await writeMaterializedFile(store, path, {
           path,
