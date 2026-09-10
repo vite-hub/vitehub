@@ -29,6 +29,7 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
 import { resolveRuntimeValue } from "@vite-hub/runtime";
 import { codexLaunchArgs } from "../src/internal/codex-launch-args.ts";
 import type { AgentProviderEnvironmentResolver } from "../src/types.ts";
+import { isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts";
 import { title } from "../src/capabilities.ts";
 import { createMessage, defineAgent, runAgent } from "../src/index.ts";
 
@@ -46,6 +47,20 @@ describe("title provider inheritance", () => {
 
   it.each(["", " ", "\t\n"])("rejects empty title reasoning effort: %j", (reasoningEffort) => {
     expect(() => title({ reasoningEffort })).toThrow("must be a non-empty model-advertised value");
+  });
+
+  it.each([
+    { options: { timeoutMs: 0 }, code: "AGENT_R0922" },
+    { options: { reasoningEffort: "" }, code: "AGENT_R0923" },
+  ])("identifies invalid title options with $code", ({ options, code }) => {
+    let diagnostic: unknown;
+    try {
+      title(options);
+    } catch (error) {
+      diagnostic = error;
+    }
+    expect(diagnostic).toMatchObject({ code });
+    expect(isAgentTypeDiagnostic(diagnostic)).toBe(true);
   });
 
   afterEach(() => {
