@@ -452,7 +452,8 @@ async function reconcileRemovedStartupSourcesInternal(
       // provides current directory evidence for cleanup or ownership transfer.
       if ((await store.stat(path).catch(() => undefined))?.type !== "directory") continue
       const descendants = await store.list(path, { recursive: true })
-      let preserveDirectory = false
+      // An empty mount without a removed owned file may have been recreated.
+      let preserveDirectory = path === source.mountPath && !removedOwnedPaths.some(item => pathContains(path, item))
       const ownershipTransfers: SourceSnapshotMetadata[] = []
       for (const currentSource of currentSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
@@ -742,7 +743,7 @@ async function materializeWorkspaceSourcesInternal(
       && existing?.mountPath === source.mountPath && existing.ownsMount === true
     const ownedAncestors = [...(existing?.mountPath === source.mountPath ? existing.ownedAncestors || [] : [])]
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
-    for (const directory of ownedDirectories) {
+    for (const directory of new Set([...ownedDirectories, ...(ownsMount && source.materialize === "startup" ? [source.mountPath] : [])])) {
       const indexedDescendants = Object.keys(existing?.items || {}).filter(path => pathContains(directory, path))
       const descendants = await Promise.all(indexedDescendants.map(async (path) => {
         const file = await store.readFile(path).catch(() => undefined)
@@ -753,7 +754,10 @@ async function materializeWorkspaceSourcesInternal(
       }))
       // A reused pathname alone cannot establish generated ownership. Local
       // Stores can recover missing metadata only from the recorded content.
-      if (!descendants.some(Boolean)) ownedDirectories.delete(directory)
+      if (!descendants.some(Boolean)) {
+        ownedDirectories.delete(directory)
+        if (directory === source.mountPath) ownsMount = false
+      }
     }
     let revision = existing?.revision
     const retainPriorItems = existing?.configHash === configHash

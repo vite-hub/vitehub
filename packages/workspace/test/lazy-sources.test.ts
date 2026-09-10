@@ -703,8 +703,7 @@ describe("lazy sources", () => {
     }
     const reopened = local ? createLocalWorkspaceStore(root) : store
     await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
-    if (stage === "list") await expect(reopened.stat("docs")).resolves.toBeUndefined()
-    else await expect(reopened.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    await expect(reopened.stat("docs")).resolves.toMatchObject({ type: "directory" })
   })
 
   it.each(["abort", "write"].flatMap(stage => [false, true].map(local => ({ stage, local }))))("does not claim unwritten child directories after $stage with local=$local", async ({ stage, local }) => {
@@ -789,7 +788,8 @@ describe("lazy sources", () => {
       expect(typeof replacement!.content === "string" ? replacement!.content : new TextDecoder().decode(replacement!.content)).toBe("user replacement")
     }
     else {
-      await expect(reopened.stat("docs")).resolves.toBeUndefined()
+      await expect(reopened.stat("docs")).resolves.toMatchObject({ type: "directory" })
+      await expect(reopened.stat("docs/child")).resolves.toBeUndefined()
     }
   })
 
@@ -990,7 +990,7 @@ describe("lazy sources", () => {
     { preexisting: true, moved: true, userFile: false },
     { preexisting: false, moved: false, userFile: true },
     { preexisting: false, moved: true, userFile: true },
-  ])("cleans empty startup mounts with preexisting=$preexisting moved=$moved userFile=$userFile", async ({ preexisting, moved, userFile }) => {
+  ])("preserves empty startup mounts without ownership evidence with preexisting=$preexisting moved=$moved userFile=$userFile", async ({ preexisting, moved, userFile }) => {
     const store = createMemoryWorkspaceStore()
     if (preexisting) await store.mkdir("docs/generated", { recursive: true })
     const source = (mount: string) => custom({
@@ -1001,7 +1001,7 @@ describe("lazy sources", () => {
     })
     const initial = { name: "empty-startup-mount", sources: { generated: source("docs/generated") } }
     await createWorkspaceSourceView(initial, store).materializeSources()
-    // A later refresh must retain the original mount ownership.
+    // A later refresh cannot prove ownership from an empty pathname alone.
     await createWorkspaceSourceView(initial, store).materializeSources()
     await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
     if (userFile) await store.writeFile("docs/generated/user.md", { path: "docs/generated/user.md", content: "keep" })
@@ -1012,10 +1012,8 @@ describe("lazy sources", () => {
     }, store).materializeSources()
 
     if (userFile) await expect(store.readFile("docs/generated/user.md")).resolves.toMatchObject({ content: "keep" })
-    if (preexisting || userFile) await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
-    else await expect(store.stat("docs/generated")).resolves.toBeUndefined()
-    if (preexisting || userFile || moved) await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
-    else await expect(store.stat("docs")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
     if (moved) await expect(store.stat("docs/moved")).resolves.toMatchObject({ type: "directory" })
   })
 
@@ -3170,6 +3168,25 @@ describe("lazy sources", () => {
     await expect(store.stat("docs/nested")).resolves.toBeUndefined()
     if (preexisting) await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
     else await expect(store.stat("docs")).resolves.toBeUndefined()
+  })
+
+  it.each([false, true].flatMap(local => [false, true].flatMap(refresh => [false, true].map(empty => ({ local, refresh, empty })))))("preserves a recreated empty mount with local=$local refresh=$refresh empty=$empty", async ({ local, refresh, empty }) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "recreated-empty-mount",
+      sources: {
+        generated: custom({ materialize: "startup", mount: "docs", files: empty ? [] : [{ path: "file.md", content: "generated" }] }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.rm("docs", { recursive: true })
+    await store.mkdir("docs")
+    if (refresh) await createWorkspaceSourceView({ ...definition }, store).materializeSources()
+
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
+
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    await expect(store.list("docs")).resolves.toEqual([])
   })
 
   it.each([false, true].flatMap(local => ["docs", "docs/nested"].map(recreated => ({ local, recreated }))))("preserves recreated mount ancestors after refresh with local=$local at $recreated", async ({ local, recreated }) => {
