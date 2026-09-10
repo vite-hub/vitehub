@@ -26,8 +26,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
       "node": "./dist/index.js",
+      "types": "./dist/portable.d.ts",
       "default": "./dist/portable.js"
     },
     "./internal/composition": "./dist/internal/composition.js",

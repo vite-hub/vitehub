@@ -1325,6 +1325,8 @@ it.each(["browser", "neutral"] as const)("bundles the portable Markdown root for
     },
     bundle: true,
     platform,
+    // Neutral hosts must opt into resolution for dependencies without exports maps.
+    mainFields: ["module", "main"],
     format: "esm",
     write: false,
     metafile: true,

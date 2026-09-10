@@ -10,7 +10,7 @@ export default defineConfig({
     entry: ["src/index.ts", "src/portable.ts", "src/internal/composition.ts"],
     exports: {
       customExports(exports) {
-        exports["."] = { types: "./dist/index.d.ts", node: "./dist/index.js", default: "./dist/portable.js" }
+        exports["."] = { node: "./dist/index.js", types: "./dist/portable.d.ts", default: "./dist/portable.js" }
         delete exports["./portable"]
         return exports
       },

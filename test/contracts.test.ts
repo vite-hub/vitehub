@@ -108,7 +108,17 @@ describe("package manifest contracts", () => {
       expect(manifest.scripts?.build).toEqual(expect.any(String))
       expect(manifest.scripts?.typecheck).toEqual(expect.any(String))
       expect(manifest.scripts?.test).toEqual(expect.any(String))
-      expect(exportTarget(manifest.exports?.["."])).toBe("./dist/index.js")
+      if (packageName === "markdown-template") {
+        expect(manifest.exports?.["."]).toEqual({
+          node: "./dist/index.js",
+          types: "./dist/portable.d.ts",
+          default: "./dist/portable.js",
+        })
+        expect(Object.keys(manifest.exports?.["."] ?? {})).toEqual(["node", "types", "default"])
+      }
+      else {
+        expect(exportTarget(manifest.exports?.["."])).toBe("./dist/index.js")
+      }
       expect(manifest.exports?.["./package.json"]).toBe("./package.json")
     }
   })
