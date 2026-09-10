@@ -45,9 +45,17 @@ function pendingAuthorizationHeader(value: string): string | undefined {
   return ["AUTHORIZATION", "PROXY-AUTHORIZATION", "COOKIE", "SET-COOKIE"].some(header => header.startsWith(name)) ? match[0] : undefined
 }
 
+// An unfinished authority may still turn out to contain userinfo. Once the
+// journal exhausts its buffer, omit that authority until its boundary arrives.
+export function pendingCredentialUri(value: string): { start: number, prefix: string } | undefined {
+  const match = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/\\?#@"<>]*$/i.exec(value)
+  return match ? { start: match.index, prefix: match[1]! } : undefined
+}
+
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
-  return /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
+  return /\b[a-z][a-z0-9+.-]*:\/?$/i.exec(tail)?.[0]
+    ?? /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
     ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
     ?? pendingAuthorizationHeader(value)
@@ -120,6 +128,7 @@ function redactAuthorizationHeaders(value: string): string {
 
 export function redactCredentialText(value: string, precedingText = ""): string {
   const redacted = redactAuthorizationHeaders(value)
+    .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/\\?#@"<>]+@/gi, "$1[REDACTED]@")
     .replace(/\bph[cx]_[A-Za-z0-9_-]+\b/g, "[REDACTED]")
     .replace(/(\bproject\b[^\r\n]{0,160}\btoken\s*:\s*)([^\s"',;&{}<>()]+)/gi, "$1[REDACTED]")
     .replace(/\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?)/gi, (match, scheme: string, quoted: string, offset: number, source: string) => {
@@ -301,6 +310,7 @@ export function pendingCredentialAssignment(value: string, precedingText = ""): 
 }
 
 export function credentialTextMayContinue(value: string, precedingText = ""): boolean {
+  if (pendingCredentialUri(value) || /\b[a-z][a-z0-9+.-]*:\/?$/i.test(value)) return true
   if (pendingAuthorizationState(value)) return true
   if (/\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.test(value)) return true
   if (/(?<![A-Za-z0-9_-])--?$/.test(value)) return true

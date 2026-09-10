@@ -2,7 +2,7 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
+import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, pendingCredentialUri, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AuthorizationState, CredentialAssignmentState } from "./internal/credential-redaction.ts"
@@ -1286,7 +1286,7 @@ function journalTraceLog(
   let activeMessageDeltaKey: string | undefined
   const precedingMessageText = new Map<string, string>()
   const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
-  const redactingCredentialDeltas = new Map<string, { kind: "authorization", state: AuthorizationState } | { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
+  const redactingCredentialDeltas = new Map<string, { kind: "uri" } | { kind: "authorization", state: AuthorizationState } | { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1318,6 +1318,7 @@ function journalTraceLog(
         const scheme = pendingCredentialScheme(content, precedingText)
         const assignment = pendingCredentialAssignmentState(content, precedingText)
         const authorization = pendingAuthorizationState(content)
+        const uri = pendingCredentialUri(content)
         if (authorization) {
           redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
         }
@@ -1326,6 +1327,10 @@ function journalTraceLog(
           // Complete only the persisted placeholder; the scanner retains the raw state.
           if (!assignment.started) content += "[REDACTED]"
           else if (assignment.quote) content += `${assignment.escaped ? "\\" : ""}${assignment.quote}`
+        }
+        else if (uri) {
+          redactingCredentialDeltas.set(key, { kind: "uri" })
+          content = content.slice(0, uri.start) + uri.prefix + "[REDACTED]"
         }
         else if (quote) {
           redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
@@ -1344,6 +1349,12 @@ function journalTraceLog(
           retainedContent = pendingCredentialTextSuffix(content)
           if (retainedContent) content = content.slice(0, -retainedContent.length)
         }
+      }
+      // A scheme name can itself be split before its colon. Retain a bounded
+      // trailing word even when no credential marker has been established yet.
+      else if (!final && !interveningEvent) {
+        retainedContent = /\b[a-z][a-z0-9+.-]*$/i.exec(content.slice(-128))?.[0]
+        if (retainedContent) content = content.slice(0, -retainedContent.length)
       }
       const redacted = redactCredentialText(content, precedingText)
       // Retain only line and authorization-header context, never credential text.
@@ -1405,7 +1416,14 @@ function journalTraceLog(
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
-      if (redaction.kind === "shell" || redaction.kind === "authorization") {
+      if (redaction.kind === "uri") {
+        const boundary = content.search(/[\s/\\?#@"<>]/)
+        if (boundary === -1) return
+        redactingCredentialDeltas.delete(key)
+        content = content.slice(boundary)
+        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
+      }
+      else if (redaction.kind === "shell" || redaction.kind === "authorization") {
         const boundary = redaction.kind === "authorization"
           ? consumeAuthorization(content, redaction.state)
           : consumeCredentialAssignment(content, redaction.state)

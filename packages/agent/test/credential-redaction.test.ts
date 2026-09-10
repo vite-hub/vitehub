@@ -4,6 +4,20 @@ import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTel
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
 describe("structured credential redaction", () => {
+  it.each([
+    ["postgres://alice:hunter2@db.example/app", "postgres://[REDACTED]@db.example/app"],
+    ["postgres://alice:hun'ter2@host/db", "postgres://[REDACTED]@host/db"],
+    ["redis://:hunter2@localhost:6379/0", "redis://[REDACTED]@localhost:6379/0"],
+    ["https://alice%40example:p%2Fss@host/path", "https://[REDACTED]@host/path"],
+    ["ssh://alice@host/path", "ssh://[REDACTED]@host/path"],
+    ['{"url":"postgres://alice:hunter2@host/db"}', '{"url":"postgres://[REDACTED]@host/db"}'],
+    ["https://host/path/alice@example", "https://host/path/alice@example"],
+    ["https://host?q=alice@example", "https://host?q=alice@example"],
+    ["https://host#alice@example", "https://host#alice@example"],
+  ])("redacts only URI userinfo in %s", (input, expected) => {
+    expect(redactCredentialText(input)).toBe(expected)
+  })
+
   it.each(["Bearer", "Basic", "Authorization: bearer", "Proxy-Authorization: BASIC"])("redacts quoted %s values", (scheme) => {
     for (const quote of ['"', "'"]) {
       const prefix = `${scheme} ${quote}`

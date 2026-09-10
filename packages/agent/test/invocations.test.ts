@@ -3401,6 +3401,16 @@ describe("Agent Invocations", () => {
   })
 
   it.each([
+    ...Array.from({ length: "postgres://alice:hunter2".length }, (_, split) => ({
+      head: "postgres://alice:hunter2".slice(0, split + 1),
+      tail: "postgres://alice:hunter2@db.example/app".slice(split + 1),
+      expected: "postgres://[REDACTED]@db.example/app",
+    })),
+    { head: "postgres://alice:" + "x".repeat(2048), tail: "more-secret@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
+    { head: "postgres://alice:hun", tail: "'ter2@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
+    { head: "postgres://alice:", tail: "hunter2@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
+    { head: "postgres:", tail: "//alice:hunter2@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
+    { head: "postgres:/", tail: "/alice:hunter2@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
     { head: '{"password":', tail: ' "sensitive-value","status":"ok"}', expected: '{"password":[REDACTED],"status":"ok"}' },
     { head: "password ", tail: '= "correct horse";status=ok', expected: 'password = "[REDACTED]";status=ok' },
   ])("redacts structured credentials after a bounded $head chunk", async ({ head, tail, expected }) => {
