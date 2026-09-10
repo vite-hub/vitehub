@@ -1448,6 +1448,8 @@ export async function applyCapabilityToolTransforms(
   let current = tools
   let originalNames = new Map(Object.keys(tools ?? {}).map(name => [name, name]))
   for (const transform of transforms) {
+    // Each key needs its own identity, even when contributions share a definition.
+    if (current) current = Object.fromEntries(Object.entries(current).map(([name, tool]) => [name, { ...tool }]))
     // Copy provenance before a transform can mutate the original tool objects.
     const previous = new Map(Object.entries(current ?? {}).map(([name, tool]) => [name, inspectMcpToolProvenance(tool)]))
     const localTools = new Set(Object.entries(current ?? {}).filter(([name]) => !previous.get(name)).map(([, tool]) => tool))

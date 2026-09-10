@@ -180,6 +180,34 @@ describe("Capability inspection snapshots", () => {
     expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "local_new", description: "Local tool" })])
   })
 
+  it.each([
+    { shareDuringTransform: false, renameBoth: false },
+    { shareDuringTransform: true, renameBoth: false },
+    { shareDuringTransform: false, renameBoth: true },
+    { shareDuringTransform: true, renameBoth: true },
+  ])("preserves distinct Capability owners for shared tool aliases: %j", async ({ shareDuringTransform, renameBoth }) => {
+    const invocations = journal()
+    const languageModel = model()
+    const shared = { name: "shared", execute: async () => "shared" }
+    const secondName = renameBoth ? "renamed_b" : "b"
+    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+      defineCapability({ id: "first", tools: { a: shareDuringTransform ? { ...shared } : shared } }),
+      defineCapability({ id: "second", tools: { b: shareDuringTransform ? { ...shared } : shared } }),
+      defineCapability({ id: "rename", resolve(context) {
+        if (shareDuringTransform) context.tools.transform(() => ({ a: shared, b: shared }))
+        context.tools.transform(current => ({ renamed_a: current!.a!, [secondName]: current!.b! }))
+      } }),
+    ], driver: { model: languageModel }, invocations }), runtime("shared-tool-aliases"), { prompt: "Use tools" })
+    expect(configuration(await invocations.getByRunId("shared-tool-aliases"))).toMatchObject({ tools: expect.arrayContaining([
+      expect.objectContaining({ name: "renamed_a", capabilityId: "first" }),
+      expect.objectContaining({ name: secondName, capabilityId: "second" }),
+    ]) })
+    expect(languageModel.doGenerateCalls[0]?.tools).toHaveLength(2)
+    expect(languageModel.doGenerateCalls[0]?.tools).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "renamed_a" }), expect.objectContaining({ name: secondName }),
+    ]))
+  })
+
   it.each(["resolve", "discover"])("retains MCP %s failure state without reconnecting or hiding the failure", async (phase) => {
     const invocations = journal()
     const failure = new Error("Discovery unavailable")

@@ -1018,7 +1018,11 @@ export interface AgentDriverContribution {
   names?: string[]
 }
 
-/** MCP renames must retain metadata.mcpServer and metadata.originalName. Same-key replacements inherit them. Existing non-MCP tool objects may move to new keys without metadata. */
+/**
+ * Each callback receives shallow copies of tool definitions, one per key.
+ * Rename non-MCP tools using the supplied definitions to retain Capability ownership.
+ * MCP renames must retain metadata.mcpServer and metadata.originalName. Same-key replacements inherit them.
+ */
 export type AgentToolTransform = (tools: AgentToolSet | undefined) => MaybePromise<AgentToolSet | undefined>
 export interface AgentProviderToolContribution {
   args?: Record<string, unknown>
