@@ -13,7 +13,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { normalizeBlobOptions } from "../config.ts"
 import { filesSdkDriverPeers } from "./files-sdk-peers.ts"
 
-import type { BlobDriver, BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputGeneration, ProviderDeploymentOutputWriter, ProviderOutputCatalog, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
