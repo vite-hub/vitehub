@@ -2,6 +2,304 @@
   "version": 1,
   "invocations": [
     {
+      "id": "ainv_capabilities_mcp_title",
+      "traceId": "trace_capabilities_mcp_title",
+      "agentName": "product-reviewer",
+      "title": "Inspect MCP tools and title",
+      "status": "completed",
+      "origin": "console",
+      "createdAt": "2026-09-10T09:00:00.000Z",
+      "startedAt": "2026-09-10T09:00:00.000Z",
+      "updatedAt": "2026-09-10T09:00:00.000Z",
+      "completedAt": "2026-09-10T09:00:00.000Z",
+      "configuration": {
+        "agent": {
+          "name": "product-reviewer"
+        },
+        "driver": {
+          "kind": "model",
+          "model": {
+            "id": "example-model",
+            "provider": "example"
+          }
+        },
+        "runtime": {
+          "name": "node"
+        },
+        "capabilities": [
+          {
+            "id": "mcp",
+            "inspection": {
+              "label": "MCP",
+              "view": {
+                "root": "root",
+                "elements": {
+                  "root": {
+                    "type": "Stack",
+                    "props": {},
+                    "children": [
+                      "empty",
+                      "servers"
+                    ]
+                  },
+                  "empty": {
+                    "type": "Text",
+                    "props": {
+                      "text": {
+                        "$state": "/empty"
+                      }
+                    }
+                  },
+                  "servers": {
+                    "type": "Stack",
+                    "props": {},
+                    "repeat": {
+                      "statePath": "/servers",
+                      "key": "name"
+                    },
+                    "children": [
+                      "server"
+                    ]
+                  },
+                  "server": {
+                    "type": "Section",
+                    "props": {
+                      "title": {
+                        "$item": "/name"
+                      }
+                    },
+                    "children": [
+                      "status",
+                      "connection",
+                      "tools"
+                    ]
+                  },
+                  "status": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Discovery",
+                      "value": {
+                        "$item": "/status"
+                      }
+                    }
+                  },
+                  "connection": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Connection",
+                      "value": {
+                        "$item": "/connection"
+                      }
+                    }
+                  },
+                  "tools": {
+                    "type": "Tools",
+                    "props": {
+                      "names": {
+                        "$item": "/tools"
+                      }
+                    }
+                  }
+                }
+              },
+              "state": {
+                "empty": "",
+                "servers": [
+                  {
+                    "name": "docs",
+                    "status": "Resolved",
+                    "connection": {
+                      "transport": {
+                        "type": "http",
+                        "url": "https://docs.example.com/mcp"
+                      }
+                    },
+                    "tools": [
+                      "mcp_docs_search"
+                    ]
+                  },
+                  {
+                    "name": "optional-analytics",
+                    "status": "Skipped",
+                    "tools": []
+                  },
+                  {
+                    "name": "empty-server",
+                    "status": "Resolved",
+                    "tools": []
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "id": "title",
+            "inspection": {
+              "label": "Title",
+              "view": {
+                "root": "title",
+                "elements": {
+                  "title": {
+                    "type": "Stack",
+                    "props": {},
+                    "children": [
+                      "status",
+                      "result",
+                      "generation",
+                      "model",
+                      "maxLength",
+                      "timeout",
+                      "trigger",
+                      "delivery"
+                    ]
+                  },
+                  "status": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Generation",
+                      "value": {
+                        "$state": "/status"
+                      }
+                    }
+                  },
+                  "result": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Title",
+                      "value": {
+                        "$state": "/title"
+                      }
+                    }
+                  },
+                  "generation": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Method",
+                      "value": {
+                        "$state": "/generation"
+                      }
+                    }
+                  },
+                  "model": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Model",
+                      "value": {
+                        "$state": "/model"
+                      }
+                    }
+                  },
+                  "maxLength": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Maximum characters",
+                      "value": {
+                        "$state": "/maxLength"
+                      }
+                    }
+                  },
+                  "timeout": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Timeout (ms)",
+                      "value": {
+                        "$state": "/timeoutMs"
+                      }
+                    }
+                  },
+                  "trigger": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Trigger",
+                      "value": {
+                        "$state": "/trigger"
+                      }
+                    }
+                  },
+                  "delivery": {
+                    "type": "KeyValue",
+                    "props": {
+                      "label": "Channel delivery",
+                      "value": {
+                        "$state": "/channelDelivery"
+                      }
+                    }
+                  }
+                }
+              },
+              "state": {
+                "status": "Completed",
+                "title": "Inspect MCP tools and title",
+                "generation": "Model",
+                "model": "example-title-model",
+                "maxLength": 39,
+                "timeoutMs": 20000,
+                "trigger": "Any trigger",
+                "channelDelivery": "once-per-thread"
+              }
+            }
+          }
+        ],
+        "tools": [
+          {
+            "capabilityId": "mcp",
+            "name": "mcp_docs_search",
+            "mcp": {
+              "server": "docs",
+              "name": "search"
+            },
+            "description": "Search the documentation index.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "Search terms."
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "object",
+              "properties": {
+                "results": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "observations": [
+        {
+          "name": "vitehub.agent.configured",
+          "type": "lifecycle",
+          "sequence": 1,
+          "timestamp": "2026-09-10T09:00:00.000Z",
+          "trace": {
+            "id": "trace_capabilities_mcp_title"
+          },
+          "attributes": {
+            "vitehub.activity.body": "Captured MCP discovery and Title generation."
+          }
+        }
+      ]
+    },
+    {
       "id": "ainv_history_math",
       "traceId": "trace_history_math",
       "agentName": "product-reviewer",

@@ -2008,6 +2008,12 @@ importers:
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
+      '@json-render/core':
+        specifier: 0.20.0
+        version: 0.20.0(zod@4.5.4)
+      '@json-render/vue':
+        specifier: 0.20.0
+        version: 0.20.0(vue@3.5.40(typescript@6.0.3))(zod@4.5.4)
       '@nuxt/kit':
         specifier: 4.5.2
         version: 4.5.2(magic-string@1.2.3)(magicast@0.5.4)(oxc-parser@0.147.0)(rolldown@1.2.7)(unplugin@3.3.0)
@@ -2042,6 +2048,9 @@ importers:
       '@types/markdown-it':
         specifier: ^14.1.2
         version: 14.2.0
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -5185,6 +5194,17 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
+
+  '@json-render/core@0.20.0':
+    resolution: {integrity: sha512-cXAXn7h3QaylefQgh85AEGPuVq4C8SJ3k9JqigWLJhaBSozF1Fmsrm43DP16RmkqNiVgj5pBRdmB48lEO5qlow==}
+    peerDependencies:
+      zod: ^4.0.0
+
+  '@json-render/vue@0.20.0':
+    resolution: {integrity: sha512-vASy4ygzrv/h2yxwiEUkX/HomYcJ30T3oYL1LMknvAdNu4bwljDHEkx0tLxvYiogmwDQfT9nfFI5UzpbpHtVEQ==}
+    peerDependencies:
+      vue: 3.5.40
+      zod: ^4.0.0
 
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
@@ -19132,6 +19152,16 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@json-render/core@0.20.0(zod@4.5.4)':
+    dependencies:
+      zod: 4.5.4
+
+  '@json-render/vue@0.20.0(vue@3.5.40(typescript@6.0.3))(zod@4.5.4)':
+    dependencies:
+      '@json-render/core': 0.20.0(zod@4.5.4)
+      vue: 3.5.40(typescript@6.0.3)
+      zod: 4.5.4
 
   '@keyv/serialize@1.1.1': {}
 

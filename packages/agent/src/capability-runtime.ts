@@ -19,6 +19,7 @@ import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
 import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
 import { agentInvocationTraceIdContextKey } from "./trace.ts"
+import { setAgentCapabilityInspection } from "./internal/agent-telemetry.ts"
 import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesResolverContext,
@@ -1220,6 +1221,15 @@ export async function resolveAgentCapabilities<
               throw agentDiagnostics.AGENT_R0337({ message: `[vitehub] Capability "${capability.id}" telemetry.metadata() requires a metadata object.` })
             }
             registries.telemetryMetadata.push({ capabilityId: capability.id, metadata })
+          },
+        },
+        inspection: {
+          async set(state) {
+            await setAgentCapabilityInspection(invocationContext, capability.id, {
+              label: capability.inspection?.label ?? capability.id,
+              ...capability.inspection,
+              state,
+            })
           },
         },
         tools: {

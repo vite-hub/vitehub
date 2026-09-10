@@ -55,6 +55,25 @@ export function mcp<
   assertMcpIntegrityOptions(options)
   return defineMcpToolCapability({
     id: "mcp",
+    inspection: {
+      label: "MCP",
+      view: {
+        root: "root",
+        elements: {
+          root: { type: "Stack", props: {}, children: ["empty", "servers"] },
+          empty: { type: "Text", props: { text: { $state: "/empty" } } },
+          servers: { type: "Stack", props: {}, repeat: { statePath: "/servers", key: "name" }, children: ["server"] },
+          server: {
+            type: "Section",
+            props: { title: { $item: "/name" } },
+            children: ["status", "connection", "tools"],
+          },
+          status: { type: "KeyValue", props: { label: "Discovery", value: { $item: "/status" } } },
+          connection: { type: "KeyValue", props: { label: "Connection", value: { $item: "/connection" } } },
+          tools: { type: "Tools", props: { names: { $item: "/tools" } } },
+        },
+      },
+    },
     integrityLabel: "mcp({ integrity })",
     invalidServerMessage: "[vitehub] mcp({ servers }) entries must resolve to an MCP client or MCP client config.",
     metadata: { servers: sanitizeMcpMetadata(options.servers) as Record<string, unknown> },

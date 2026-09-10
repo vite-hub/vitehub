@@ -1,10 +1,13 @@
 import { defineCapability } from "../capability-runtime.ts"
 import { hasRuntimeType, isRuntimeObject, isRuntimeRecord } from "./runtime-type.ts"
 import { ViteHubError } from "@vite-hub/runtime"
+import { safeAgentTelemetryMetadata } from "./agent-telemetry.ts"
 import { loadAiSdk } from "./ai-sdk-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
+  AgentCapabilityInspectionDefinition,
+  AgentInspectionValue,
   AgentCapabilityRuntimeContext,
   AgentRuntimeConfig,
   AgentToolDefinition,
@@ -40,6 +43,7 @@ export interface McpToolCapabilityOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   id: string
+  inspection?: AgentCapabilityInspectionDefinition
   integrityLabel: string
   invalidServerMessage: string
   metadata?: Record<string, unknown>
@@ -152,19 +156,27 @@ export function defineMcpToolCapability<
   const clientsByContext = new WeakMap<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, Array<McpClient | undefined>>()
   return defineCapability({
     id: options.id,
+    ...(options.inspection ? { inspection: options.inspection } : {}),
     metadata: options.metadata,
     async resolve(context) {
       const tools: AgentToolSet = {}
       const clients: McpClient[] = []
+      const servers: Array<Record<string, AgentInspectionValue>> = options.servers.map(server => ({ name: server.name, status: "Not resolved", tools: [] }))
+      const publishInspection = async () => {
+        if (options.inspection) await context.inspection.set({ servers, empty: servers.length ? "" : "No MCP servers configured." })
+      }
       clientsByContext.set(context, clients)
+      await publishInspection()
       const definitions = await Promise.allSettled(options.servers.map(async server => await server.resolve(context)))
       for (const [index, definition] of definitions.entries()) {
+        servers[index]!.status = definition.status === "rejected" ? "Resolution failed" : definition.value ? "Not discovered" : "Skipped"
         if (definition.status !== "fulfilled" || !definition.value) continue
         if (isMcpClient(definition.value.connection) && definition.value.owned !== false) {
           clients[index] = definition.value.connection
         }
       }
       const definitionFailure = definitions.find(result => result.status === "rejected")
+      await publishInspection()
       if (definitionFailure?.status === "rejected") throw definitionFailure.reason
       const needsMcpRuntime = definitions.some(result => result.status === "fulfilled"
         && result.value
@@ -186,8 +198,15 @@ export function defineMcpToolCapability<
         if (serverDefinition.integrity) {
           await assertMcpToolIntegrity(server.name, serverTools, serverDefinition.integrity, options.integrityLabel)
         }
+        servers[index]!.connection = safeAgentTelemetryMetadata(metadata) ?? {}
+        servers[index]!.tools = Object.keys(serverTools || {}).map(name => options.toolName(server.name, name))
         return { metadata, server, serverTools }
       }))
+      for (const [index, result] of results.entries()) {
+        if (result.status === "rejected") servers[index]!.status = "Discovery failed"
+        else if (result.value) servers[index]!.status = "Resolved"
+      }
+      await publishInspection()
       const failure = results.find(result => result.status === "rejected")
       if (failure?.status === "rejected") throw failure.reason
       for (const result of results) {

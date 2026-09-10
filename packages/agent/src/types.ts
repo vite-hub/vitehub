@@ -329,8 +329,38 @@ export interface AgentCapabilityTelemetryContext {
   metadata: (metadata: Record<string, unknown>) => void
 }
 
+export type AgentCapabilityInspectionBinding = { $state: string } | { $item: string }
+
+export type AgentCapabilityInspectionElement = {
+  children?: string[]
+  repeat?: { statePath: string, key?: string }
+} & (
+  | { type: "Stack", props: Record<string, never> }
+  | { type: "Section", props: { title: string | AgentCapabilityInspectionBinding } }
+  | { type: "Text", props: { text: string | AgentCapabilityInspectionBinding } }
+  | { type: "KeyValue", props: { label: string | AgentCapabilityInspectionBinding, value: AgentInspectionValue } }
+  | { type: "Tools", props: { names?: string[] | AgentCapabilityInspectionBinding } }
+)
+
+/** Read-only JSON Render spec. The inspector owns the component catalog. */
+export interface AgentCapabilityInspectionView {
+  root: string
+  elements: Record<string, AgentCapabilityInspectionElement>
+}
+
+export interface AgentCapabilityInspectionDefinition {
+  label: string
+  view?: AgentCapabilityInspectionView
+}
+
+export interface AgentCapabilityInspection extends AgentCapabilityInspectionDefinition {
+  truncated?: boolean
+  state?: Record<string, AgentInspectionValue>
+}
+
 export interface AgentTelemetryCapabilityMetadata {
   id: string
+  inspection?: AgentCapabilityInspection
   metadata?: Record<string, AgentInspectionValue>
 }
 
@@ -340,6 +370,7 @@ export interface AgentToolInspection {
   description?: string
   inputSchema?: AgentInspectionValue
   name: string
+  mcp?: { server: string, name: string }
   outputSchema?: AgentInspectionValue
 }
 
@@ -1020,6 +1051,10 @@ export interface AgentCapabilityRuntimeContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCapabilityContext<TRuntimeConfig, Name> {
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
+  inspection: {
+    /** Replace this Capability's captured state without running inspection-time work. */
+    set: (state: Record<string, AgentInspectionValue>) => Promise<void>
+  }
   input: AgentCapabilityInputContext
   invocation: { input: AgentCapabilityInputContext, kind: "run" | "stream" }
   delivery: {
@@ -1074,6 +1109,7 @@ export interface AgentCapabilityDefinition<
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
+  inspection?: AgentCapabilityInspectionDefinition
   /** Set to false when the Capability has no model-facing behavior to explain in Agent Driver Instructions. */
   instructionCoverage?: boolean
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
