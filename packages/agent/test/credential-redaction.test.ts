@@ -509,8 +509,8 @@ it.each(["Cookie", "Set-Cookie", "cookie", "SET-COOKIE"])("redacts %s headers an
     expect(credentialTextMayContinue(first)).toBe(true)
     const state = pendingAuthorizationState(first)
     const rest = credential.slice(split) + suffix
-    if (state) expect(rest.slice(consumeAuthorization(rest, state))).toBe(suffix)
-    else expect(redactCredentialText(first + rest)).toBe(prefix + "[REDACTED]" + suffix)
+    expect(state?.cookie).toBe(true)
+    expect(rest.slice(consumeAuthorization(rest, state!))).toBe(suffix)
   }
   for (let split = 1; split <= header.length; split++) {
     expect(pendingCredentialTextSuffix(header.slice(0, split))).toBe(header.slice(0, split))

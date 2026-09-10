@@ -102,7 +102,7 @@ export function pendingAuthorizationState(value: string): AuthorizationState | u
     // Retain a bounded possible scheme until its separator arrives. A raw token
     // is redacted on final flush, or enters continuation mode beyond this bound.
     const content = value.slice(entry.start)
-    if (!entry.scheme && content.length < 64 && /^[!#$%&'*+.^_`|~A-Za-z0-9-]*$/.test(content)) continue
+    if (!entry.state.cookie && !entry.scheme && content.length < 64 && /^[!#$%&'*+.^_`|~A-Za-z0-9-]*$/.test(content)) continue
     return entry.state
   }
 }
