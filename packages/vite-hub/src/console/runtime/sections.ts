@@ -2,7 +2,12 @@ export const consoleSectionIds = ["agents", "usage", "blob", "database", "databa
 
 export type ConsoleSectionId = (typeof consoleSectionIds)[number]
 
-export const consoleSectionDetails = {
+export const consoleSectionDetails: Readonly<Record<ConsoleSectionId, {
+  readonly description: string
+  readonly icon: string
+  readonly label: string
+  readonly routeName: string
+}>> = {
   agents: {
     description: "Inspect Agent sessions and invocation details.",
     icon: "i-ph-robot-light",
@@ -75,12 +80,7 @@ export const consoleSectionDetails = {
     label: "Schedules",
     routeName: "vitehub-console-schedules",
   },
-} as const satisfies Record<ConsoleSectionId, {
-  description: string
-  icon: string
-  label: string
-  routeName: string
-}>
+}
 
 interface ConsoleSectionStorage {
   getItem(key: string): string | null
