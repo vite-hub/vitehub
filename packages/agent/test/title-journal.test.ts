@@ -73,6 +73,28 @@ describe("title journal ownership", () => {
     }))
   })
 
+  it("redacts streamed title observations while preserving application titles", async () => {
+    const invocations = journal()
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => "password=hunter2" })],
+      driver: { run: () => (async function* () {
+        yield { text: "Done.", type: "text-delta" as const }
+        yield { type: "finish" as const }
+      })() },
+      invocations,
+    })
+    const stream = await streamAgent(agent, runtime("stream-secret-title"), { prompt: "Explain safety stock." })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+    expect(JSON.stringify(events)).toContain("password=hunter2")
+    const invocation = await invocations.getByRunId("stream-secret-title")
+    expect(invocation?.title).toBe("password=[REDACTED]")
+    const titles = invocation!.observations.filter(event => event.name === "agent.title.recorded")
+    expect(titles.length).toBeGreaterThan(1)
+    for (const event of titles) expect(event.attributes?.["vitehub.session.title"]).toBe("password=[REDACTED]")
+    expect(JSON.stringify(invocation)).not.toContain("hunter2")
+  })
+
   it("uses the T3 editorial prompt and normalizes a structured title", async () => {
     const invocations = journal()
     const generate = vi.fn((_context: unknown) => '{"title":"Resolve snapshot mismatch"}')

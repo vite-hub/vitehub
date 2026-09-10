@@ -1,6 +1,8 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { emitTraceEvent } from "@vite-hub/runtime"
 
+import { redactCredentialText } from "./internal/credential-redaction.ts"
+
 import { agentErrorDetails } from "./agent-error.ts"
 import { agentInvokerLabel } from "./invoker.ts"
 import { isAttachmentPart, type AgentActivity, type Message, type StreamEvent } from "./messages.ts"
@@ -435,7 +437,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
   const title = streamTitle(streamEvent)
   if (title) {
     await traceAgentEvent(context, {
-      attributes: { "vitehub.session.title": title },
+      attributes: { "vitehub.session.title": redactCredentialText(title) },
       name: "agent.title.recorded",
       type: "run",
     })
