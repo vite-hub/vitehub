@@ -661,9 +661,24 @@ async function materializeWorkspaceSourcesInternal(
     await reportMaterializationProgress(options, source, { status: "started" })
     let configHash: string
     let existing: SourceSnapshotMetadata | undefined
+    const completeSource = materializesCompleteSource(source, options)
+    let cacheHit = false
     try {
       configHash = await sourceConfigHash(source)
       existing = await readSourceSnapshotMetadata(store, source.key)
+      cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
+      if (cacheHit && source.mountPath && (await store.stat(source.mountPath))?.type !== "directory") cacheHit = false
+      // A scoped refresh of another Source can overwrite these files while the
+      // snapshot remains fresh. Recheck its content and attributes before accepting it.
+      if (cacheHit) {
+        for (const [path, item] of Object.entries(existing?.items || {})) {
+          const file = await store.readFile(path)
+          if (!await materializedFileMatches(file, item)) {
+            cacheHit = false
+            break
+          }
+        }
+      }
     }
     catch (error) {
       const durationMs = Date.now() - sourceStarted
@@ -676,20 +691,6 @@ async function materializeWorkspaceSourcesInternal(
       await reportMaterializationProgress(options, source, { counts: failed.counts, durationMs, error: message, status: "failed" })
       if (options.abortSignal?.aborted) throw error
       continue
-    }
-    const completeSource = materializesCompleteSource(source, options)
-    let cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
-    if (cacheHit && source.mountPath && (await store.stat(source.mountPath))?.type !== "directory") cacheHit = false
-    // A scoped refresh of another Source can overwrite these files while the
-    // snapshot remains fresh. Recheck its content and attributes before accepting it.
-    if (cacheHit) {
-      for (const [path, item] of Object.entries(existing?.items || {})) {
-        const file = await store.readFile(path)
-        if (!await materializedFileMatches(file, item)) {
-          cacheHit = false
-          break
-        }
-      }
     }
     const cacheStatus = materializationCacheStatus(source, completeSource, cacheHit)
     if (cacheHit) {

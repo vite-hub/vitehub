@@ -600,14 +600,14 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
-  it("reports mount stat errors per Source while materializing other Sources", async () => {
+  it.each([false, true])("reports mount stat errors per Source while materializing other Sources (cached: %s)", async (cached) => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)
     const definition = {
       name: "startup-mount-stat-error",
       sources: {
-        blocked: custom({ materialize: "startup" as const, mount: "parent/docs", files: [] }),
         healthy: custom({ materialize: "startup" as const, mount: "healthy", files: [{ path: "ok.md", content: "ready" }] }),
+        blocked: custom({ cache: cached ? { maxAge: 60_000 } : undefined, materialize: "startup" as const, mount: "parent/docs", files: [] }),
       },
     }
     await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["blocked"] })
@@ -617,8 +617,8 @@ describe("lazy sources", () => {
     const result = await createWorkspaceSourceView({ ...definition }, store).materializeSources()
 
     expect(result.sources).toEqual([
-      expect.objectContaining({ source: "blocked", status: "error", error: expect.stringContaining("ENOTDIR") }),
       expect.objectContaining({ source: "healthy", status: "ready" }),
+      expect.objectContaining({ source: "blocked", status: "error", error: expect.stringContaining("ENOTDIR") }),
     ])
     expect(await readFile(join(root, "healthy/ok.md"), "utf8")).toBe("ready")
     expect(await readFile(join(root, "parent"), "utf8")).toBe("user replacement")
