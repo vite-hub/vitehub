@@ -461,3 +461,21 @@ it.each(["correct horse battery", "correct horse#battery", "correct, horse; batt
     }
   }
 })
+
+it.each(["password", "secret", "api_key"])("redacts YAML flow mapping %s values", (key) => {
+  for (const prefix of ["{ ", "{ status: ok, ", "{ nested: { "]) {
+    for (const scalar of ["hunter2", "correct horse battery", '"correct horse"', "'correct horse'"]) {
+      const assignment = `${key}: ${scalar}`
+      const quote = /^["']/.exec(scalar)?.[0] ?? ""
+      expect(redactCredentialText(`${prefix}${assignment}, status: ok }`)).toBe(`${prefix}${key}: ${quote}[REDACTED]${quote}, status: ok }`)
+      const context = credentialTextLineContext(prefix)
+      expect(redactCredentialText(assignment, context)).toBe(`${key}: ${quote}[REDACTED]${quote}`)
+      for (let split = `${key}: `.length; split < assignment.length; split++) {
+        const state = pendingCredentialAssignmentState(assignment.slice(0, split), context)!
+        expect(state).toBeDefined()
+        const rest = assignment.slice(split) + ", status: ok }"
+        expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(", status: ok }")
+      }
+    }
+  }
+})

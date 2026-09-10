@@ -19,9 +19,9 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   if (!prefix.trimEnd().endsWith(":")) return true
   // Generic token/key fields also describe parser tokens and object identifiers.
   if (/^(?:key|token)$/i.test(key)) return false
-  // Quoted fields and line-start YAML keys establish assignments; inline prose labels do not.
+  // Quoted fields, YAML line starts, and flow mapping boundaries establish assignments.
   if (/^(?:password|secret)$/i.test(key)) {
-    return /["']\s*:\s*$/.test(prefix) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText)
+    return /["']\s*:\s*$/.test(prefix) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText) || /[{,]\s*$/.test(precedingText)
   }
   return true
 }
@@ -135,6 +135,7 @@ export interface CredentialAssignmentState {
   escaped: boolean
   started: boolean
   quote?: string
+  yamlFlow?: boolean
   yamlIndent?: number
   yamlPlain?: { whitespace: boolean }
   yamlProperty?: boolean
@@ -144,7 +145,8 @@ export interface CredentialAssignmentState {
 function assignmentState(source: string, offset: number, prefix: string): CredentialAssignmentState {
   const line = source.slice(0, offset).split("\n").at(-1) ?? ""
   const yamlIndent = /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
-  return { escaped: false, started: false, ...(yamlIndent === undefined ? {} : { yamlIndent }) }
+  const yamlFlow = /[{,]\s*$/.test(source.slice(0, offset)) && prefix.trimEnd().endsWith(":")
+  return { escaped: false, started: false, ...(yamlFlow ? { yamlFlow } : {}), ...(yamlIndent === undefined ? {} : { yamlIndent }) }
 }
 
 function redactCredentialAssignments(value: string, precedingText: string): string {
@@ -185,12 +187,12 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     if (!state.started && state.yamlIndent !== undefined && (character === "|" || character === ">")) {
       state.yaml = { header: true, modifiers: true, line: false, spaces: 0, whitespace: "" }
     }
-    if (!state.started && state.yamlIndent !== undefined && !state.yaml && character !== '"' && character !== "'") {
+    if (!state.started && (state.yamlIndent !== undefined || state.yamlFlow) && !state.yaml && character !== '"' && character !== "'") {
       state.yamlPlain = { whitespace: false }
     }
     state.started = true
     if (state.yamlPlain) {
-      if (/[\r\n]/.test(character) || (character === "#" && state.yamlPlain.whitespace)) return index
+      if ((state.yamlFlow && /[,}\]]/.test(character)) || /[\r\n]/.test(character) || (character === "#" && state.yamlPlain.whitespace)) return index
       state.yamlPlain.whitespace = /[\t ]/.test(character)
       continue
     }
@@ -281,5 +283,6 @@ export function pendingCredentialQuote(value: string, precedingText = ""): strin
 export function credentialTextLineContext(value: string): string {
   const lastLine = value.split(/[\r\n]/).at(-1) ?? ""
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
+  if (/[{,]\s*$/.test(lastLine)) return lastLine.trimEnd().slice(-1) + " "
   return authorizationHeader ? "Authorization: " : /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
 }
