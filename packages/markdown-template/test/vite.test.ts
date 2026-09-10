@@ -75,8 +75,8 @@ describe("hubMarkdownTemplate", () => {
     const template = join(root, "prompt.template.md")
     const partial = join(root, "context.template.md")
     const outfile = join(root, "dist", "schedule.mjs")
-    await writeFile(template, "# Babysitter\n\n{{{ detail }}}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
-    await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
+    await writeFile(template, "# Babysitter\n\n:markdown{:value=\"data.detail\"}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n:markdown{:value=\"data.blocker\"}\n", "utf8")
+    await writeFile(partial, "Review PR {{ data.context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.template.md"`,
       `import detail from "./context.template.md"`,
@@ -103,7 +103,7 @@ describe("hubMarkdownTemplate", () => {
     await Promise.all([rm(template), rm(partial)])
     // SAFETY: The fixture entry exports the declared default function and is built immediately above.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n    @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
     const typesPath = join(root, ".vitehub", "types", "markdown-template.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain(`declare module "*.template.md"`)
 
@@ -128,7 +128,7 @@ describe("hubMarkdownTemplate", () => {
     await mkdir(join(root, ".vitehub", "markdown-template"), { recursive: true })
     await mkdir(join(root, ".vitehub", "types"), { recursive: true })
     await writeFile(join(app, "package.json"), "{}", "utf8")
-    await writeFile(join(app, "prompt.template.md"), "Hello {{ name }}.", "utf8")
+    await writeFile(join(app, "prompt.template.md"), "Hello {{ data.name }}.", "utf8")
     await writeFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "stale catalog", "utf8")
     await writeFile(join(root, ".vitehub", "types", "templates.d.ts"), "stale catalog types", "utf8")
     await writeFile(join(app, "entry.ts"), [

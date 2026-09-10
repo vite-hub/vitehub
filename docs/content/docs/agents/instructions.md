@@ -72,12 +72,12 @@ Text such as `@./path.md` stays literal in instruction documents.
 
 ## Insert trusted invocation values
 
-Read explicit `context.*` values with double braces for scalars and triple braces for trusted Markdown.
+Read invocation values through `data.context.*` bindings. Use the `Markdown` component for trusted Markdown.
 
 ```md [server/agents/support/instructions.md]
-Answer for {{ context.customerName }}.
+Answer for {{ data.context.customerName }}.
 
-{{{ context.supportPolicy }}}
+:markdown{:value="data.context.supportPolicy"}
 ```
 
 The caller or a Capability must set these values before composition. Missing bindings fail instead of rendering empty text; templates cannot read arbitrary request fields, environment variables, or JavaScript expressions.
@@ -85,14 +85,15 @@ The caller or a Capability must set these values before composition. Missing bin
 Use conditions for small policy branches:
 
 ```md [server/agents/support/instructions.md]
-::if{condition="context.audience === 'technical'"}
+::if{:value="data.context.audience" eq="technical"}
 Include implementation details and cite file paths.
 ::else
 Prefer customer-facing language and next actions.
 ::
+::
 ```
 
-Conditions support `context.*` paths, scalar literals, equality, `&&`, `||`, `!`, and parentheses.
+Conditions bind `data.context.*` paths and support `eq`, `neq`, `gt`, `gte`, `lt`, and `lte` props. Compute compound conditions in TypeScript and pass a boolean. See [Markdown templates](/docs/reference/markdown-templates) for the syntax migration.
 
 ## Insert Workspace bindings
 
@@ -105,8 +106,8 @@ export default defineAgent({
   driver: {
     model: 'openai/gpt-5.1-mini',
     instructions: [
-      'Use {{ workspace.tone }} tone.',
-      '{{{ workspace.policy }}}',
+      'Use {{ data.workspace.tone }} tone.',
+      ':markdown{:value="data.workspace.policy"}',
     ],
   },
   workspace: {
@@ -118,7 +119,7 @@ export default defineAgent({
 })
 ```
 
-`{{{ workspace.policy }}}` inserts the declared Markdown without evaluating bindings, conditions, or coverage directives inside it. Render any dynamic content before passing it as a fragment. ViteHub does not scan or auto-load every Markdown file in the Workspace.
+`:markdown{:value="data.workspace.policy"}` inserts the declared Markdown without evaluating bindings, conditions, or coverage directives inside it. Render any dynamic content before passing it as a fragment. ViteHub does not scan or auto-load every Markdown file in the Workspace.
 
 ## Cover configured primitives
 

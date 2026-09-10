@@ -4,11 +4,11 @@ import { renderEmailMarkdown } from "../src/markdown.ts"
 describe("renderEmailMarkdown", () => {
   it("composes Dynamic Markdown into HTML and a portable text fallback", async () => {
     const rendered = await renderEmailMarkdown([
-      "# Hello {{ customer.name }}",
+      "# Hello {{ data.customer.name }}",
       "",
       "Welcome to **ViteHub**.",
       "",
-      "::if{customer.trial}",
+      "::if{:condition=\"data.customer.trial\"}",
       "Your trial is active.",
       "::",
     ].join("\n"), {
@@ -22,7 +22,7 @@ describe("renderEmailMarkdown", () => {
   })
 
   it("renders explicitly supplied Markdown fragments", async () => {
-    await expect(renderEmailMarkdown("Hello\n\n{{{ footer }}}", {
+    await expect(renderEmailMarkdown("Hello\n\n:markdown{:value=\"data.footer\"}", {
       data: { footer: "Regards, **ViteHub**" },
     })).resolves.toEqual({
       html: "<p>Hello</p>\n<p>Regards, <strong>ViteHub</strong></p>",
@@ -31,7 +31,7 @@ describe("renderEmailMarkdown", () => {
   })
 
   it("renders a scalar Markdown link destination as one anchor", async () => {
-    await expect(renderEmailMarkdown("[Open and share your visual recap]({{ url }})", {
+    await expect(renderEmailMarkdown("[Open and share your visual recap](){:href=\"data.url\"}", {
       data: { url: "https://prs.onmax.me/recap/2026-07" },
     })).resolves.toEqual({
       html: "<p><a href=\"https://prs.onmax.me/recap/2026-07\">Open and share your visual recap</a></p>",
@@ -40,13 +40,13 @@ describe("renderEmailMarkdown", () => {
   })
 
   it("rejects a scalar link destination whose meaning would change", async () => {
-    await expect(renderEmailMarkdown("[Open recap]({{ url }})", {
+    await expect(renderEmailMarkdown("[Open recap](){:href=\"data.url\"}", {
       data: { url: "https://example.com/?x=&#x29;*Injected*" },
     })).rejects.toThrow("must resolve to a safe destination")
   })
 
   it("preserves backslash data in a scalar link query", async () => {
-    await expect(renderEmailMarkdown("[Open recap]({{ url }})", {
+    await expect(renderEmailMarkdown("[Open recap](){:href=\"data.url\"}", {
       data: { url: "https://example.com/?q=a\\b" },
     })).resolves.toEqual({
       html: "<p><a href=\"https://example.com/?q=a%5Cb\">Open recap</a></p>",
@@ -55,28 +55,28 @@ describe("renderEmailMarkdown", () => {
   })
 
   it("preserves backslash data in an opaque scalar destination", async () => {
-    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+    await expect(renderEmailMarkdown("[Open item](){:href=\"data.url\"}", {
       data: { url: "web+demo:folder\\item" },
     })).resolves.toEqual({
       html: "<p><a href=\"web+demo:folder%5Citem\">Open item</a></p>",
       text: "[Open item](web+demo:folder%5Citem)",
     })
 
-    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+    await expect(renderEmailMarkdown("[Open item](){:href=\"data.url\"}", {
       data: { url: "web+demo:\\folder\\item" },
     })).resolves.toEqual({
       html: "<p><a href=\"web+demo:%5Cfolder%5Citem\">Open item</a></p>",
       text: "[Open item](web+demo:%5Cfolder%5Citem)",
     })
 
-    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+    await expect(renderEmailMarkdown("[Open item](){:href=\"data.url\"}", {
       data: { url: "web+demo:/folder\\item" },
     })).resolves.toEqual({
       html: "<p><a href=\"web+demo:/folder%5Citem\">Open item</a></p>",
       text: "[Open item](web+demo:/folder%5Citem)",
     })
 
-    await expect(renderEmailMarkdown("[Open item]({{ url }})", {
+    await expect(renderEmailMarkdown("[Open item](){:href=\"data.url\"}", {
       data: { url: "web+demo://host/folder\\item" },
     })).resolves.toEqual({
       html: "<p><a href=\"web+demo://host/folder%5Citem\">Open item</a></p>",

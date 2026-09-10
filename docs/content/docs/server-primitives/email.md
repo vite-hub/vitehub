@@ -154,11 +154,11 @@ import { email } from 'vite-hub/email/server'
 
 export async function sendWelcome(name: string, to: string) {
   const body = await renderEmailMarkdown([
-    '# Welcome {{ user.name }}',
+    '# Welcome {{ data.user.name }}',
     '',
     'Your **ViteHub** workspace is ready.',
     '',
-    '::if{user.trial}',
+    '::if{:condition="data.user.trial"}',
     'Your trial is active.',
     '::',
   ].join('\n'), {
@@ -182,7 +182,7 @@ Put reusable templates under `server/emails`. ViteHub discovers Markdown files
 recursively and creates a typed `#vitehub/emails/<name>` import from each path.
 
 ```md [server/emails/welcome.md]
-# Welcome {{ user.name }}
+# Welcome {{ data.user.name }}
 
 Your workspace is ready.
 ```
@@ -215,7 +215,7 @@ export async function sendWelcome(name: string, to: string) {
 | `data` | `Record<string, unknown>` | `{}` | Supplies scalar bindings, Markdown fragments, and conditional values. |
 
 ::warning
-`renderEmailMarkdown()` does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `{{{ fragment }}}` binding.
+`renderEmailMarkdown()` does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `:markdown{:value="data.fragment"}` binding.
 ::
 
 ## Provider behavior for Resend

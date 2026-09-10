@@ -34,53 +34,22 @@ interface InstructionTemplateTags {
 }
 
 const contextConditionPathPattern = /^context(?:\.[A-Za-z_$][\w$-]*)+$/
-const instructionTripleBindingPattern = /\{\{\{\s*([A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 
 export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
   const state = { context: options.context || {}, workspace: options.workspace || {} }
-  await validateInstructionMarkdownBindings(content)
   const coverageMarker = createInstructionCoverageMarker()
   const marked = await markInstructionCoverage(content, coverageMarker)
 
   try {
     const rendered = await renderMarkdownTemplateInternal(marked, {
       data: state,
+      validateFragmentPath: path => path.startsWith("context.") || path.startsWith("workspace."),
       validateConditionPath: path => contextConditionPathPattern.test(path),
     })
     return await stripMarkedInstructionCoverage(rendered, coverageMarker, options.coverage)
   }
   catch (error) {
     rethrowInstructionCompositionError(error)
-  }
-}
-
-async function validateInstructionMarkdownBindings(content: string): Promise<void> {
-  if (!content.includes("{{{")) return
-  const { tags, tree } = await parseInstructionTemplate(content)
-  validateInstructionMarkdownBindingNodes(tree.nodes, tags)
-}
-
-function validateInstructionMarkdownBindingNodes(nodes: ComarkNode[], tags: InstructionTemplateTags): void {
-  for (const node of nodes) {
-    if (typeof node === "string") {
-      validateInstructionMarkdownBindingValue(node)
-      for (const match of node.matchAll(new RegExp(`${tags.prefix}(\\d+)END`, "g"))) {
-        const tag = tags.values[Number(match[1])]
-        if (tag) validateInstructionMarkdownBindingValue(tag)
-      }
-      continue
-    }
-    if (!isElement(node) || node[0] === "code") continue
-    validateInstructionMarkdownBindingNodes(node.slice(2) as ComarkNode[], tags)
-  }
-}
-
-function validateInstructionMarkdownBindingValue(value: string): void {
-  for (const match of value.matchAll(instructionTripleBindingPattern)) {
-    const path = match[1]!
-    if (!path.startsWith("context.") && !path.startsWith("workspace.")) {
-      throw agentDiagnostics.AGENT_R0445({ message: `[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* or workspace.* path.` })
-    }
   }
 }
 
@@ -129,7 +98,7 @@ async function markInstructionCoverage(
     }
 
     const directive = line.match(/^\s*(:{2,})([A-Za-z][\w-]*)(?:\{.*\})?\s*$/)
-    if (!directive || directive[2] === "else" || directive[2] === "else-if") {
+    if (!directive) {
       lines.push(line)
       continue
     }

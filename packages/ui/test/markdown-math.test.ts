@@ -16,21 +16,23 @@ async function render(value: string) {
 }
 
 describe("AgentMarkdown math", () => {
-  it("registers top-level and option plugins once alongside math", async () => {
+  it("registers caller plugins once alongside math", async () => {
     const topLevelPlugin = vi.fn();
-    const optionPlugin = vi.fn();
+    const secondPlugin = vi.fn();
     const wrapper = mount(defineComponent({
       setup() {
         return () => h(Suspense, null, { default: () => h(AgentMarkdown, {
           value: "Plugin registration $x^2$",
-          plugins: [{ name: "top-level-test", markdownItPlugins: [topLevelPlugin] }],
-          options: { plugins: [{ name: "option-test", markdownItPlugins: [optionPlugin] }] },
+          plugins: [
+            { name: "first-test", markdownItPlugins: [topLevelPlugin] },
+            { name: "second-test", markdownItPlugins: [secondPlugin] },
+          ],
         }) });
       },
     }));
     await vi.waitFor(() => expect(wrapper.find(".katex").exists()).toBe(true));
     expect(topLevelPlugin).toHaveBeenCalledTimes(1);
-    expect(optionPlugin).toHaveBeenCalledTimes(1);
+    expect(secondPlugin).toHaveBeenCalledTimes(1);
     expect(wrapper.findComponent(Markdown).props("options")).not.toHaveProperty("plugins");
     wrapper.unmount();
   });
@@ -62,6 +64,7 @@ SS = z\sqrt{L\sigma_w^2 + \mu_w^2\sigma_L^2} + A
     expect(wrapper.get(".vh-math-fallback").text()).toContain("notARealMathCommand");
     await wrapper.setProps({ value: "\\[x", streaming: true });
     await flushPromises();
+    expect(wrapper.findComponent(Markdown).props("streaming")).toBe(true);
     expect(wrapper.text()).toContain("x");
     await wrapper.setProps({ value: "\\[x^2\\]", streaming: false });
     await vi.waitFor(() => expect(wrapper.find(".katex-display").exists()).toBe(true));
