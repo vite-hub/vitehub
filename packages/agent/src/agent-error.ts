@@ -204,7 +204,7 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
     if (readAgentErrorProperty(error, "code") === "AGENT_R0726") {
       const message = readAgentErrorProperty(error, "message")
       if (hasRuntimeType(message, "string")
-        && /usage limit|quota (?:is )?(?:exhausted|exceeded)|insufficient (?:quota|credits)|credit balance.*(?:low|exhausted)|spend(?:ing)? limit|spend.?cap|budget.*exceed/i.test(message)) {
+        && /usage limit|quota (?:is )?(?:exhausted|exceeded)|insufficient (?:quota|credits)|credit balance.*(?:low|exhausted)|spend(?:ing)? limit|spend.?cap|(?:billing|spending) budget (?:is )?exceeded/i.test(message)) {
         return publicError("PROVIDER_QUOTA_EXHAUSTED", "AI provider quota is exhausted.")
       }
     }

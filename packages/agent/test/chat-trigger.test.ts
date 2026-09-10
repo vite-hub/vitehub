@@ -45,6 +45,9 @@ describe("chat error fallback", () => {
     "Provider disconnected",
     "Too many requests",
     "The model requires a newer version of Codex",
+    "Context budget exceeded",
+    "Token budget exceeded",
+    "Tool execution budget exceeded",
   ])("keeps unrelated wrapped provider errors private: %s", async (message) => {
     const error = agentDiagnostics.AGENT_R0726({ message })
     const publicError = toAgentPublicError(error, "invocation")
@@ -53,7 +56,7 @@ describe("chat error fallback", () => {
       .toBe("Sorry, I couldn't process that message.")
   })
 
-  it.each(["Quota exhausted", "Insufficient credits", "Workspace spending limit exceeded"])(
+  it.each(["Quota exhausted", "Insufficient credits", "Workspace spending limit exceeded", "Billing budget exceeded", "Spending budget is exceeded"])(
     "classifies wrapped provider quota failures: %s", (message) => {
       const error = agentDiagnostics.AGENT_R0726({ message: JSON.stringify({ error: { message } }) })
       expect(toAgentPublicError(error, "invocation").code).toBe("PROVIDER_QUOTA_EXHAUSTED")
