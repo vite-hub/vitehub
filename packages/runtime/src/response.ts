@@ -10,7 +10,7 @@ export interface SerializedResponse {
   readonly headers: readonly (readonly [string, string])[]
   readonly status: number
   readonly statusText: string
-  readonly type?: "error"
+  readonly type?: "error" | "opaque" | "opaqueredirect"
 }
 
 import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
@@ -42,14 +42,14 @@ export async function serializeResponse(response: Response): Promise<SerializedR
     headers: Array.from(response.headers, ([name, value]) => [name, value] as const),
     status: response.status,
     statusText: response.statusText,
-    ...(response.type === "error" ? { type: "error" as const } : {}),
+    ...((response.type === "error" || response.type === "opaque" || response.type === "opaqueredirect") ? { type: response.type } : {}),
   }
 }
 
 /** Reconstruct a native Response from a durable response record. */
 export function deserializeResponse(value: SerializedResponse): Response {
   if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
-  if (value.type === "error") return Response.error()
+  if (value.type !== undefined) return createStatusZeroResponse(value.type)
   const bytes = base64ToBytes(value.body.data)
   const body = value.body.isNull === true || ([204, 205, 304].includes(value.status) && bytes.length === 0) ? null : bytes
   return new Response(body, {
@@ -69,8 +69,8 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
   if (!hasRuntimeType(body.data, "string") || body.encoding !== "base64" || !hasRuntimeType(body.mediaType, "string")) return false
   if (body.isNull !== undefined && !hasRuntimeType(body.isNull, "boolean")) return false
   if (body.isNull === true && body.data !== "") return false
-  if (record.type !== undefined && record.type !== "error") return false
-  if (record.type === "error") {
+  if (record.type !== undefined && record.type !== "error" && record.type !== "opaque" && record.type !== "opaqueredirect") return false
+  if (record.type !== undefined) {
     return record.status === 0 && record.statusText === "" && Array.isArray(record.headers)
       && record.headers.length === 0 && body.isNull === true && body.data === ""
   }
@@ -92,4 +92,17 @@ function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
   return bytes
+}
+
+// The Web API cannot construct opaque responses. Use the native status-zero,
+// null-body response and preserve the durable type on it and its clones.
+function createStatusZeroResponse(type: NonNullable<SerializedResponse["type"]>): Response {
+  const response = Response.error()
+  if (type !== "error") {
+    Object.defineProperties(response, {
+      type: { value: type, enumerable: true },
+      clone: { value: () => createStatusZeroResponse(type) },
+    })
+  }
+  return response
 }

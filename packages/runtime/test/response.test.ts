@@ -34,13 +34,24 @@ describe("durable Response representation", () => {
     expect(await restored.text()).toBe("")
   })
 
-  it("preserves native error responses and rejects malformed error records", async () => {
-    const serialized = await serializeResponse(Response.error())
+  it.each(["error", "opaque", "opaqueredirect"] as const)("preserves %s responses and rejects malformed status-zero records", async (type) => {
+    // Node cannot fetch opaque responses; model their observable filtered state.
+    const original = Response.error()
+    Object.defineProperty(original, "type", { value: type })
+    const serialized = await serializeResponse(original)
     const restored = deserializeResponse(serialized)
-    expect(restored.type).toBe("error")
+    expect(restored.type).toBe(type)
+    expect(restored).toBeInstanceOf(Response)
+    expect(restored.ok).toBe(false)
+    expect(restored.clone().type).toBe(type)
+    expect(await serializeResponse(restored.clone())).toEqual(serialized)
+    expect(() => restored.headers.set("x-test", "value")).toThrow(TypeError)
     expect(restored.status).toBe(0)
     expect(restored.body).toBeNull()
     expect(isSerializedResponse({ ...serialized, type: undefined })).toBe(false)
+    expect(isSerializedResponse({ ...serialized, type: "basic" })).toBe(false)
+    expect(isSerializedResponse({ ...serialized, statusText: "OK" })).toBe(false)
+    expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, isNull: false } })).toBe(false)
     expect(isSerializedResponse({ ...serialized, status: 200 })).toBe(false)
     expect(isSerializedResponse({ ...serialized, headers: [["x-test", "value"]] })).toBe(false)
     expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, data: "YQ==" } })).toBe(false)

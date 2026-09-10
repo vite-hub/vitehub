@@ -56,6 +56,22 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
+  it.each(["opaque", "opaqueredirect"])("preserves a %s response across the child process", async (type) => {
+    const execution = await executePackageEntry(
+      `export default () => Object.defineProperty(Response.error(), 'type', { value: '${type}' })`,
+    )
+    expect(execution.code).toBe(0)
+    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
+    const response = await decodeSandboxValue(sandbox, execution.output.result, "", "result")
+    expect(response).toBeInstanceOf(Response)
+    if (!(response instanceof Response)) throw new TypeError("Expected Response")
+    expect(response.type).toBe(type)
+    expect(response.clone().type).toBe(type)
+    expect(response.status).toBe(0)
+    expect(response.body).toBeNull()
+    expect(await response.text()).toBe("")
+  })
+
   it.each([201, 422, 204, 205, 304])("preserves a handler Response with status %s across the child process", async (status) => {
     const empty = [204, 205, 304].includes(status)
     const execution = await executePackageEntry(

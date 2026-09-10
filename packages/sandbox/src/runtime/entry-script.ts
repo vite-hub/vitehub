@@ -98,7 +98,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     `      headers: Array.from(value.headers),`,
     `      status: value.status,`,
     `      statusText: value.statusText,`,
-    `      ...(value.type === 'error' ? { type: 'error' } : {}),`,
+    `      ...(['error', 'opaque', 'opaqueredirect'].includes(value.type) ? { type: value.type } : {}),`,
     `    } } }`,
     `  }`,
     `  const blob = typeof Blob !== 'undefined' && value instanceof Blob`,
