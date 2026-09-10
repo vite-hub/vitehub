@@ -2671,6 +2671,39 @@ cli_auth_credentials_store = "keyring"
     expect(result.usageRecord?.usage?.inputTokens).toBeUndefined()
   })
 
+  it.each(["itemId", "eventId"] as const)("replaces progressive Codex snapshots for one %s", async (identityKey) => {
+    const threadId = "thread-progressive-usage"
+    const identity = { [identityKey]: "response-1" }
+    const corrected = { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 45 } }, identity),
+      event("thread.token-usage.updated", threadId, { usage: corrected }, identity),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 1, totalProcessedTokens: 51 } }, { [identityKey]: "response-2" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord?.calls).toHaveLength(2)
+    expect(result.usageRecord?.calls?.[0]).toMatchObject({ raw: corrected, usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 } })
+    expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 8, outputTokens: 3, totalTokens: 11 })
+  })
+
+  it.each([undefined, "response-1"])("replaces corrected same-total Codex partitions: %s", async (itemId) => {
+    const threadId = "thread-corrected-partition"
+    const identity = itemId ? { itemId } : {}
+    const corrected = { inputTokens: 5, outputTokens: 1, totalProcessedTokens: 46 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 2, totalProcessedTokens: 46 } }, identity),
+      event("thread.token-usage.updated", threadId, { usage: corrected }, identity),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    expect(result.usageRecord?.calls).toHaveLength(1)
+    expect(result.usageRecord?.calls?.[0]).toMatchObject({ raw: corrected, usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 } })
+    expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 1, totalTokens: 6 })
+  })
+
   it("merges enriched and corrected same-total Codex usage snapshots", async () => {
     const threadId = "thread-enriched-usage"
     const partition = { inputTokens: 4, outputTokens: 2, totalProcessedTokens: 40 }

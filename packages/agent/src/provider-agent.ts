@@ -1816,13 +1816,11 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
     : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
   const cumulative = usage.totalProcessedTokens
-  const changed = responseIdentity !== undefined && responseIdentity !== options.accumulator.lastResponseIdentity
-    ? true
+  const changed = responseIdentity !== undefined
+    ? responseIdentity !== options.accumulator.lastResponseIdentity
     : cumulative !== undefined
       ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
-      : responseIdentity !== undefined
-        ? responseIdentity !== options.accumulator.lastResponseIdentity
-        : options.accumulator.lastSignature !== signature
+      : options.accumulator.lastSignature !== signature
   const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed
   if (options.provider === "codex" && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
@@ -1870,11 +1868,16 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   if (options.provider === "codex" && !changed && (sameResponse || (responseIdentity === undefined && options.accumulator.lastCallIdentity === undefined && cumulative !== undefined)) && previousCall?.usage) {
     const cachedInputTokens = usage.cachedInputTokens ?? previousCall.usage.details?.cachedInputTokens
     const reasoningOutputTokens = usage.reasoningOutputTokens ?? previousCall.usage.details?.reasoningOutputTokens
+    if (partitionTotal !== undefined) {
+      options.accumulator.inputTokens += inputTokens! - previousCall.usage.inputTokens!
+      options.accumulator.outputTokens += outputTokens! - previousCall.usage.outputTokens!
+    }
     options.accumulator.calls[options.accumulator.calls.length - 1] = {
       ...previousCall,
       raw: usage,
       usage: {
         ...previousCall.usage,
+        ...(partitionTotal === undefined ? {} : { inputTokens, outputTokens, totalTokens: partitionTotal }),
         details: {
           ...previousCall.usage.details,
           ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
