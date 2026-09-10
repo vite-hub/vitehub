@@ -4124,6 +4124,40 @@ describe("lazy sources", () => {
     await expect(store.readFile("shared.md")).resolves.toMatchObject({ metadata: { source: "generated" } })
   })
 
+  it("retains concurrently materialized paths after build snapshot invalidation", async () => {
+    const definition = {
+      name: "startup-concurrent-build-snapshot",
+      sources: {
+        built: custom({ materialize: "build", mount: "", files: [{ path: "shared.md", content: "build" }] }),
+        generated: custom({ materialize: "startup", mount: "", files: [
+          { path: "shared.md", content: "startup" },
+          { path: "nested/new.md", content: "new" },
+        ] }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources({ sources: ["generated"], path: "shared.md" })
+    const read = store.readFile.bind(store)
+    let interleaved = false
+    vi.spyOn(store, "readFile").mockImplementation(async (path) => {
+      const file = await read(path)
+      if (!interleaved && path === "shared.md" && file?.metadata?.source === "built") {
+        interleaved = true
+        await view.materializeSources({ sources: ["generated"], path: "nested/new.md" })
+      }
+      return file
+    })
+
+    await syncWorkspaceDefinition(definition, store)
+    expect(interleaved).toBe(true)
+    const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSource("generated", definition.sources.generated))
+    expect(snapshot?.items).toHaveProperty("nested/new.md")
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
+    await expect(store.stat("nested/new.md")).resolves.toBeUndefined()
+    await expect(store.stat("nested")).resolves.toBeUndefined()
+  })
+
   it.each(["error", "updating"] as const)("restores startup files overwritten by build sync from a %s snapshot", async (status) => {
     let fail = true
     const definition = {
