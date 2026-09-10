@@ -160,7 +160,6 @@ export interface CredentialAssignmentState {
   yamlFlowQuote?: string
   yamlFlowEscaped?: boolean
   yamlIndent?: number
-  diagnostic?: boolean
   yamlPlain?: { whitespace: boolean, line?: boolean, spaces?: number, pending?: string }
   yamlProperty?: boolean
   yaml?: { header: boolean, modifiers: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
@@ -170,10 +169,9 @@ function assignmentState(source: string, offset: number, prefix: string): Creden
   const line = source.slice(0, offset).split(/\r\n|[\r\n]/).at(-1) ?? ""
   const yamlIndent = /^ *(?:- +)?$/.test(line) && prefix.trimEnd().endsWith(":") ? line.length : undefined
   const yamlFlow = /[{,[]\s*$/.test(source.slice(0, offset)) && prefix.trimEnd().endsWith(":")
-  // Unindented compound credential names also occur in diagnostic assignments.
-  // Their semicolon-delimited suffix is evidence outside the credential value.
-  const diagnostic = line === "" && /^[A-Za-z]+(?:[_-][A-Za-z]+)+\s*:\s*$/.test(prefix)
-  return { escaped: false, started: false, ...(/\\+["']\s*:/.test(prefix) ? { serialized: true } : {}), ...(diagnostic ? { diagnostic } : {}), ...(yamlFlow ? { yamlFlow } : {}), ...(yamlIndent === undefined ? {} : { yamlIndent }) }
+  // A line-start assignment is YAML even when its key is hyphenated.
+  // Diagnostic assignments need surrounding text to distinguish their suffixes.
+  return { escaped: false, started: false, ...(/\\+["']\s*:/.test(prefix) ? { serialized: true } : {}), ...(yamlFlow ? { yamlFlow } : {}), ...(yamlIndent === undefined ? {} : { yamlIndent }) }
 }
 
 function redactCredentialAssignments(value: string, precedingText: string): string {
@@ -281,9 +279,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
           continue
         }
       }
-      if ((state.diagnostic && character === ";") || (state.yamlFlow && /[,}\]]/.test(character)) || /[\r\n]/.test(character) || (character === "#" && state.yamlPlain.whitespace)) return index
-      // Multi-word plain scalars belong to YAML, including their punctuation.
-      if (/\s/.test(character)) delete state.diagnostic
+      if ((state.yamlFlow && /[,}\]]/.test(character)) || /[\r\n]/.test(character) || (character === "#" && state.yamlPlain.whitespace)) return index
       state.yamlPlain.whitespace = /[\t ]/.test(character)
       continue
     }

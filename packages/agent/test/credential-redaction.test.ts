@@ -138,7 +138,8 @@ it.each(["basic", "BASIC", "bAsIc"])("redacts contextual %s authorization across
 
 it.each([
   ['{"password":"sensitive-value","status":"ok"}', '{"password":"[REDACTED]","status":"ok"}'],
-  ["api_token: sensitive-value;status=ok", "api_token: [REDACTED];status=ok"],
+  ["api_token: sensitive-value;status=ok", "api_token: [REDACTED]"],
+  ["request failed: api_token: sensitive-value;status=ok", "request failed: api_token: [REDACTED];status=ok"],
   ['password = "correct horse";status=ok', 'password = "[REDACTED]";status=ok'],
   ["API_TOKEN = sensitive-value", "API_TOKEN = [REDACTED]"],
   ["'secret' : 'private & words';status=ok", "'secret' : '[REDACTED]';status=ok"],
@@ -234,7 +235,7 @@ it("recognizes a quoted credential key after its opening quote was flushed", () 
 })
 
 it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY"])("redacts hyphenated %s credentials and retains every name prefix", (key) => {
-  expect(redactCredentialText(`${key}: sensitive-value;status=ok`)).toBe(`${key}: [REDACTED];status=ok`)
+  expect(redactCredentialText(`request failed: ${key}: sensitive-value;status=ok`)).toBe(`request failed: ${key}: [REDACTED];status=ok`)
   expect(redactCredentialText(`"${key}":"sensitive-value"`)).toBe(`"${key}":"[REDACTED]"`)
   expect(pendingCredentialAssignment(`${key}: sensitive`)).toBe("unquoted")
   expect(pendingCredentialQuote(`"${key}":"sensitive`)).toBe('"')
@@ -245,12 +246,12 @@ it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY"]
   }
 })
 
-it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY", "api_token"])("preserves streamed %s header suffixes and indented YAML scalars", (key) => {
+it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY", "api_token"])("preserves streamed %s diagnostic suffixes and YAML scalars", (key) => {
   const prefix = `${key}: `
   const secret = "sensitive-value"
   const suffix = ";status=ok"
   for (let split = 0; split <= secret.length; split++) {
-    const state = pendingCredentialAssignmentState(prefix + secret.slice(0, split))!
+    const state = pendingCredentialAssignmentState("request failed: " + prefix + secret.slice(0, split))!
     const rest = secret.slice(split) + suffix
     expect(rest.slice(consumeCredentialAssignment(rest, state)), `split ${split}`).toBe(suffix)
   }
@@ -258,6 +259,22 @@ it.each(["X-API-Key", "api-key", "x-access-token", "client-secret", "X-API-KEY",
     .toBe(`config:\n  ${prefix}[REDACTED]\nstatus: ok`)
   expect(redactCredentialText(`${prefix}correct horse; battery\nstatus: ok`))
     .toBe(`${prefix}[REDACTED]\nstatus: ok`)
+})
+
+it.each(["api-key", "X-API-Key", "api_token", "client-secret"])("redacts complete and streamed %s YAML scalars with early semicolons", (key) => {
+  const prefix = `${key}: `
+  const secret = "sensitive;still-secret words"
+  const suffix = "\nstatus: ok"
+  expect(redactCredentialText(prefix + secret + suffix)).toBe(`${prefix}[REDACTED]${suffix}`)
+  for (let split = 0; split <= secret.length; split++) {
+    const state = pendingCredentialAssignmentState(prefix + secret.slice(0, split))!
+    const rest = secret.slice(split) + suffix
+    const consumed = consumeCredentialAssignment(rest, state)
+    expect((state.yamlPlain?.pending ?? "") + rest.slice(consumed), `split ${split}`).toBe(suffix)
+  }
+  const state = pendingCredentialAssignmentState(prefix)!
+  for (const character of secret) expect(consumeCredentialAssignment(character, state)).toBe(1)
+  expect(consumeCredentialAssignment(suffix, state)).toBe(1)
 })
 
 it.each(["api-key", "x-access-token", "password", "API_TOKEN"])("redacts CLI credential flag --%s", (key) => {
