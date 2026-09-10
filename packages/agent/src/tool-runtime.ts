@@ -14,8 +14,27 @@ import type {
 } from "./types.ts"
 
 export function copyToolWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides): Omit<T, keyof Overrides> & Overrides {
+  const descriptors = Object.getOwnPropertyDescriptors(tool)
+  const seen = new Set(Reflect.ownKeys(descriptors))
+  for (let prototype = Object.getPrototypeOf(tool); prototype; prototype = Object.getPrototypeOf(prototype)) {
+    for (const key of Reflect.ownKeys(prototype)) {
+      if (seen.has(key)) continue
+      seen.add(key)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, key)!
+      if (descriptor.get || descriptor.set) {
+        Object.defineProperty(descriptors, key, { configurable: true, enumerable: true, value: descriptor })
+      }
+    }
+  }
+  for (const key of Reflect.ownKeys(descriptors)) {
+    const descriptor = Object.getOwnPropertyDescriptor(descriptors, key)!.value as PropertyDescriptor
+    // Accessors may use private fields or WeakMap state on the contributed instance.
+    // Bind lazily so copying a tool never evaluates unrelated getters.
+    if (descriptor.get) descriptor.get = descriptor.get.bind(tool)
+    if (descriptor.set) descriptor.set = descriptor.set.bind(tool)
+  }
   return Object.create(Object.getPrototypeOf(tool), {
-    ...Object.getOwnPropertyDescriptors(tool),
+    ...descriptors,
     ...Object.getOwnPropertyDescriptors(overrides),
   })
 }
