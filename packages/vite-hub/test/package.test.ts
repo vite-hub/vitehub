@@ -383,7 +383,7 @@ describe("framework package contract", () => {
       consolePage.indexOf("onMounted(() =>"),
     );
     expect(consolePage).toContain(
-      'v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"',
+      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
     );
     expect(consolePage).toContain(
       'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
@@ -539,7 +539,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain('window.matchMedia("(min-width: 981px)")');
     expect(consolePage).toContain("root: 'md:flex'");
     expect(consolePage).toContain("content: 'md:hidden'");
-    expect(consolePage).toContain("detailsOpen.value = isDesktop.value");
+    expect(consolePage).toContain("const detailsOpen = ref(false)");
     expect(consolePage).toContain("}, 60_000);");
     expect(consolePage).toContain(
       "if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();",

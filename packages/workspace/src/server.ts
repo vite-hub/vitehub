@@ -191,7 +191,7 @@ function isNotFoundError(error: unknown): boolean {
 
 class WorkspaceCollectionRequestError extends Diagnostic {
   constructor(message: string) {
-    super({ code: "WORKSPACE_R0067", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, WorkspaceCollectionRequestError)
+    super({ code: "WORKSPACE_R0067", docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, WorkspaceCollectionRequestError)
     this.name = "WorkspaceCollectionRequestError"
   }
 }

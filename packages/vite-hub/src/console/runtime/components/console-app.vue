@@ -836,7 +836,6 @@ if (pageVisible.value) void loadAgents();
 onMounted(() => {
   media = window.matchMedia("(min-width: 981px)");
   updateDesktop();
-  detailsOpen.value = isDesktop.value;
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
@@ -1046,8 +1045,6 @@ onBeforeUnmount(() => {
           role="status"
         >
           <div
-            v-for="index in 6"
-            :key="index"
             class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 gap-y-2 rounded-md px-2 py-2.5"
           >
             <USkeleton class="mt-0.5 size-4 rounded" />
@@ -1056,7 +1053,7 @@ onBeforeUnmount(() => {
                 <USkeleton class="h-3 w-16 rounded" />
                 <USkeleton class="h-3 w-14 rounded" />
               </div>
-              <USkeleton class="h-4 rounded" :class="index % 3 === 0 ? 'w-3/4' : 'w-full'" />
+              <USkeleton class="h-4 w-full rounded" />
               <USkeleton class="h-3 w-2/3 rounded" />
             </div>
           </div>
@@ -1202,7 +1199,7 @@ onBeforeUnmount(() => {
             />
           </div>
           <USplitter
-            v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"
+            v-else-if="isDesktop && detailsOpen && selectedInvocationId"
             id="agent-session-layout"
             auto-save-id="vitehub-agent-session-layout-v2"
             :items="splitterItems"
