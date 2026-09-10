@@ -3846,6 +3846,31 @@ describe("lazy sources", () => {
     expect(getKeys).toHaveBeenCalledTimes(2)
   })
 
+  it.each([false, true])("preserves directories replacing indexed startup files with local=%s", async (local) => {
+    for (const operation of ["readFile", "stat", "exists"] as const) {
+      const getKeys = vi.fn(async () => ["ready.md"])
+      const definition = {
+        name: "startup-point-directory",
+        sources: { docs: custom({ materialize: "startup", getKeys, async getItem(key) { return { key, content: "ready" } } }) },
+      }
+      const root = local ? await createRoot() : undefined
+      const store = root ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+      await createWorkspaceSourceView(definition, store).materializeSources()
+      await store.rm("docs/ready.md")
+      await store.mkdir("docs/ready.md")
+      await store.writeFile("docs/ready.md/user.txt", { path: "docs/ready.md/user.txt", content: "user content" })
+      const reopened = root ? createLocalWorkspaceStore(root) : store
+      const view = createWorkspaceSourceView(definition, reopened, { reuseStartupSnapshots: true })
+
+      if (operation === "exists") await expect(view.exists("docs/ready.md")).resolves.toBe(false)
+      else await expect(view[operation]("docs/ready.md")).rejects.toThrow("does not exist")
+      await expect(reopened.stat("docs/ready.md")).resolves.toMatchObject({ type: "directory" })
+      expect(Buffer.from((await reopened.readFile("docs/ready.md/user.txt"))!.content).toString()).toBe("user content")
+      await expect(view.stat("docs")).resolves.toMatchObject({ type: "directory" })
+      expect(getKeys).toHaveBeenCalledOnce()
+    }
+  })
+
   it.each(["readFile", "stat", "exists"] as const)("does not refresh unknown startup paths for %s", async (operation) => {
     const getKeys = vi.fn(async () => ["ready.md"])
     const definition = {

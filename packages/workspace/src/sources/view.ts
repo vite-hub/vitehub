@@ -356,6 +356,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const entry = await store.stat(path)
     const snapshot = await readCurrentSourceSnapshot(store, source)
     const item = snapshot?.items?.[path]
+    // A directory replacing an indexed file belongs to the external writer.
+    // Keep it intact and report the Source file as unavailable.
+    if (entry && entry.type !== "file" && item) return false
     if (entry && (entry.type !== "file" || !item || await materializedFileMatches(await store.readFile(path), item))) return true
 
     const indexed = Object.keys(snapshot?.items || {}).some(item => item === path || item.startsWith(`${path}/`))
