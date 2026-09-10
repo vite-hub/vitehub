@@ -1,3 +1,4 @@
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
@@ -114,6 +115,9 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
           id,
           metadata,
           provider: "cloudflare",
+          result: metadata && hasRuntimeType(metadata, "object") && "output" in metadata && isSerializedResponse(metadata.output)
+            ? deserializeResponse(metadata.output)
+            : undefined,
           status: normalizeCloudflareStatus(metadata),
         }
       }

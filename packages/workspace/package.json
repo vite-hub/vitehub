@@ -131,7 +131,6 @@
   "dependencies": {
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
-    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
@@ -152,6 +151,7 @@
     "@vercel/blob": "catalog:storage",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
     "ocache": "catalog:unjs",
