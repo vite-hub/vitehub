@@ -680,6 +680,33 @@ describe("Cloudflare Artifacts workspace store", () => {
     ])
   })
 
+  describe.each(["ordinary", "conditional"] as const)("%s metadata writes", (mode) => {
+    it.each([{ source: 42 }, { source: null }, { source: false }, { source: {} }, { source: [] }, { optional: undefined }, { value: 1n }])("rejects invalid metadata before publication: %o", async (metadata) => {
+      const attributes = { mediaType: "text/plain", metadata: { source: "agent" } }
+      let filesystem: MemoryFS | undefined
+      gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
+      gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
+        const { fs } = options as { fs: MemoryFS }
+        filesystem = fs
+        await fs.promises.writeFile("/workspace/result.txt", "original")
+        await fs.promises.writeFile("/workspace/.vitehub/files.json", JSON.stringify({ "result.txt": attributes }))
+      })
+      const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+      const original = await store.readFile("result.txt")
+      const entries = structuredClone(filesystem!.entries)
+      const replacement = { path: "result.txt", content: "replacement", mediaType: "application/json", metadata }
+
+      await expect(mode === "ordinary"
+        ? store.writeFile("result.txt", replacement)
+        : store.writeFileConditional!("result.txt", replacement, await sha256("original")))
+        .rejects.toThrow("Invalid Workspace metadata")
+
+      expect(filesystem!.entries).toEqual(entries)
+      await expect(store.readFile("result.txt")).resolves.toEqual(original)
+      await expect(store.stat("result.txt")).resolves.toMatchObject(attributes)
+    })
+  })
+
   it.each([42, null, false, {}, []])("rejects invalid persisted Source ownership: %j", async (source) => {
     gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
     gitMock.clone.mockImplementationOnce(async (options?: unknown) => {

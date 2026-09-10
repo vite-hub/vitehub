@@ -2,6 +2,7 @@ import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflar
 import { boolean, check, object, optional, parse, pipe, record, string, unknown } from "valibot"
 
 import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts"
+import { assertJsonFileMetadata } from "../../core/file-metadata.ts"
 import { contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { MemoryFS } from "../../storage/memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
@@ -61,6 +62,7 @@ type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
 
 const fileMetadataSchema = object({
   mediaType: optional(string()),
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the reserved ownership field while parsing persisted JSON at the Store boundary.
   metadata: optional(pipe(record(string(), unknown()), check(value => value.source === undefined || typeof value.source === "string", "metadata.source must be a string when provided"))),
 })
 const fileMetadataFilesSchema = record(string(), fileMetadataSchema)
@@ -440,6 +442,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    assertJsonFileMetadata(path, file.metadata)
     const existed = await this.#fs!.promises.stat(this.#absolute(path)).then(stat => stat.isFile()).catch(() => false)
     const content = contentToBytes(file.content)
     const digest = await sha256(content)
