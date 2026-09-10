@@ -37,10 +37,13 @@ describe("durable Response representation", () => {
   it.each(["error", "opaque", "opaqueredirect"] as const)("preserves %s responses and rejects malformed status-zero records", async (type) => {
     // Node cannot fetch opaque responses; model their observable filtered state.
     const original = Response.error()
-    Object.defineProperty(original, "type", { value: type })
+    const url = type === "opaqueredirect" ? "https://example.com/manual-redirect" : ""
+    Object.defineProperties(original, { type: { value: type }, url: { value: url } })
     const serialized = await serializeResponse(original)
     const restored = deserializeResponse(serialized)
     expect(restored.type).toBe(type)
+    expect(restored.url).toBe(url)
+    expect(restored.clone().url).toBe(url)
     expect(restored).toBeInstanceOf(Response)
     expect(restored.ok).toBe(false)
     expect(restored.clone().type).toBe(type)
@@ -50,6 +53,7 @@ describe("durable Response representation", () => {
     expect(restored.body).toBeNull()
     expect(isSerializedResponse({ ...serialized, type: undefined })).toBe(false)
     expect(isSerializedResponse({ ...serialized, type: "basic" })).toBe(false)
+    expect(isSerializedResponse({ ...serialized, url: 42 })).toBe(false)
     expect(isSerializedResponse({ ...serialized, statusText: "OK" })).toBe(false)
     expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, isNull: false } })).toBe(false)
     expect(isSerializedResponse({ ...serialized, status: 200 })).toBe(false)

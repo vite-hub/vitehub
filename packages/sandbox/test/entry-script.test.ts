@@ -57,8 +57,9 @@ async function executePackageEntry(definitionSource: string, options: {
 
 describe("package entry result transport", () => {
   it.each(["opaque", "opaqueredirect"])("preserves a %s response across the child process", async (type) => {
+    const url = type === "opaqueredirect" ? "https://example.com/manual-redirect" : ""
     const execution = await executePackageEntry(
-      `export default () => Object.defineProperty(Response.error(), 'type', { value: '${type}' })`,
+      `export default () => Object.defineProperties(Response.error(), { type: { value: '${type}' }, url: { value: '${url}' } })`,
     )
     expect(execution.code).toBe(0)
     const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
@@ -66,6 +67,8 @@ describe("package entry result transport", () => {
     expect(response).toBeInstanceOf(Response)
     if (!(response instanceof Response)) throw new TypeError("Expected Response")
     expect(response.type).toBe(type)
+    expect(response.url).toBe(url)
+    expect(response.clone().url).toBe(url)
     expect(response.clone().type).toBe(type)
     expect(response.status).toBe(0)
     expect(response.body).toBeNull()
