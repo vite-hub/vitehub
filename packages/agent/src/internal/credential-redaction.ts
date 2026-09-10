@@ -64,7 +64,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS?|AUTHORIZATION))["']?(?:\s*[:=]\s*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS?|AUTHORIZATION))(?:\\*["'])?(?:\s*[:=]\s*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
@@ -153,6 +153,8 @@ export interface CredentialAssignmentState {
   escaped: boolean
   started: boolean
   quote?: string
+  serialized?: boolean
+  serializedQuote?: { delimiter: string, slashes: number }
   yamlFlow?: boolean
   yamlFlowDepth?: number
   yamlFlowQuote?: string
@@ -171,7 +173,7 @@ function assignmentState(source: string, offset: number, prefix: string): Creden
   // Unindented compound credential names also occur in diagnostic assignments.
   // Their semicolon-delimited suffix is evidence outside the credential value.
   const diagnostic = line === "" && /^[A-Za-z]+(?:[_-][A-Za-z]+)+\s*:\s*$/.test(prefix)
-  return { escaped: false, started: false, ...(diagnostic ? { diagnostic } : {}), ...(yamlFlow ? { yamlFlow } : {}), ...(yamlIndent === undefined ? {} : { yamlIndent }) }
+  return { escaped: false, started: false, ...(/\\+["']\s*:/.test(prefix) ? { serialized: true } : {}), ...(diagnostic ? { diagnostic } : {}), ...(yamlFlow ? { yamlFlow } : {}), ...(yamlIndent === undefined ? {} : { yamlIndent }) }
 }
 
 function redactCredentialAssignments(value: string, precedingText: string): string {
@@ -185,8 +187,8 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
     const state = assignmentState(precedingText + value, precedingText.length + match.index, match[1]!)
     const length = consumeCredentialAssignment(content, state)
     if (!length) continue
-    const quote = /^["']/.exec(content)?.[0] ?? ""
-    result += value.slice(offset, start) + quote + "[REDACTED]" + (quote && !state.quote ? quote : "")
+    const quote = (state.serialized ? /^(?:\\+)?["']/ : /^["']/).exec(content)?.[0] ?? ""
+    result += value.slice(offset, start) + quote + "[REDACTED]" + (quote && !state.quote && !state.serializedQuote ? quote : "")
     if (state.yamlPlain && content[length] === "#") result += " "
     if (state.yamlPlain && length < content.length) result += state.yamlPlain.pending ?? ""
     if (state.yaml && length < content.length) result += state.yaml.whitespace
@@ -198,8 +200,29 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
 // Shell assignments concatenate adjacent quoted and unquoted segments.
 // YAML scalar assignments continue through indented lines until their dedent.
 export function consumeCredentialAssignment(value: string, state: CredentialAssignmentState): number {
-  for (let index = 0; index < value.length; index++) {
+  let start = 0
+  if (!state.started && state.serialized) {
+    const delimiter = /^\\+["']/.exec(value)?.[0]
+    if (delimiter) {
+      state.serializedQuote = { delimiter, slashes: 0 }
+      state.started = true
+      start = delimiter.length
+    }
+  }
+  for (let index = start; index < value.length; index++) {
     const character = value[index]!
+    if (state.serializedQuote) {
+      const quoted = state.serializedQuote
+      if (character === "\\") quoted.slashes++
+      else {
+        if (character === quoted.delimiter.at(-1) && quoted.slashes === quoted.delimiter.length - 1) {
+          delete state.serializedQuote
+          return index + 1
+        }
+        quoted.slashes = 0
+      }
+      continue
+    }
     // YAML anchors and tags precede the value, including across chunk boundaries.
     if (state.yamlProperty) {
       if (!/\s/.test(character)) continue
