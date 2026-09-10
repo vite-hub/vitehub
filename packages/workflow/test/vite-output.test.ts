@@ -204,7 +204,6 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
     instructions,
     mixedHandler,
     mixedStep,
-    policy,
     skillsRoot,
     step,
     workspaceRoot,
@@ -220,7 +219,7 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   await expect(readFile(retained.resolve(mixedDependency), "utf8")).resolves.toContain('value = "retained"')
 })
 
-it("carries resolved parent Agent Workflow instructions into retained entries", async () => {
+it("preserves literal parent Agent Workflow references without retaining their targets", async () => {
   const container = await createWorkspaceTempDir("vitehub-workflow-parent-instructions-")
   const rootDir = join(container, "apps", "web")
   const agentRoot = join(rootDir, "server", "agents", "review")
@@ -237,6 +236,7 @@ it("carries resolved parent Agent Workflow instructions into retained entries", 
   ])
 
   const providerSources = discoverWorkflowProviderSources(rootDir)
+  expect(providerSources.paths).not.toContain(policy)
   const artifactDir = join(rootDir, ".vitehub", "workflow-generations", "test")
   const retained = await retainProviderOutputSources({
     artifactDir: join(artifactDir, "sources"),
@@ -260,7 +260,8 @@ it("carries resolved parent Agent Workflow instructions into retained entries", 
   )
 
   const registry = await readFile(artifacts.registryFile, "utf8")
-  expect(registry).toContain("Follow the shared Workflow policy.")
+  expect(registry).not.toContain("Follow the shared Workflow policy.")
+  expect(registry).toContain(`@${relative(agentRoot, policy)}`)
   expect(registry).toContain("Review the change.")
 })
 
@@ -1237,11 +1238,11 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain("/server/agents/nuxt/workspace")
     expect(registry).not.toContain(JSON.stringify(join(agentDir, "workspace")))
     expect(registry).toContain("Keep answers concise")
-    expect(registry).toContain("Use shared policy")
+    expect(registry).not.toContain("Use shared policy")
     expect(registry).toContain("Use flat Agent instructions.")
     expect(registry).toContain("/server/agents/workspace")
     expect(registry).not.toContain(JSON.stringify(join(rootDir, "server", "agents", "workspace")))
-    expect(registry).not.toContain("@./shared.md")
+    expect(registry).toContain("@./shared.md")
     expect(registry).toContain("@./inline-example.md")
     expect(registry).toContain("@./fenced-example.md")
     expect(registry).toContain("@./indented-example.md")
