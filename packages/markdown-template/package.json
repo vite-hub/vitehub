@@ -27,8 +27,6 @@
   "exports": {
     ".": "./dist/index.js",
     "./internal/composition": "./dist/internal/composition.js",
-    "./internal/vite": "./dist/internal/vite.js",
-    "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -43,21 +41,12 @@
     "nostics": "catalog:runtime"
   },
   "devDependencies": {
-    "@vite-hub/internal": "workspace:*",
     "@types/node": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
-  },
-  "peerDependencies": {
-    "vite": "catalog:vite-compat"
-  },
-  "peerDependenciesMeta": {
-    "vite": {
-      "optional": true
-    }
   },
   "engines": {
     "node": ">=24.0.0"

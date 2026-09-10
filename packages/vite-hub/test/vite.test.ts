@@ -41,7 +41,6 @@ const integrationMocks = vi.hoisted(() => ({
   })),
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
-  hubMarkdownTemplate: vi.fn(() => ({ name: "@vite-hub/markdown-template/vite" })),
   resolveKVViteConfig: vi.fn((kv?: { driver?: string, stores?: Record<string, { driver: string }> }, input?: { hosting?: string }) => ({
     kv: kv?.stores
       ? { stores: kv.stores }
@@ -90,7 +89,6 @@ vi.mock("@vite-hub/kv/vite", () => ({
   hubKvOptionalPeerResolver: integrationMocks.hubKvOptionalPeerResolver,
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
-vi.mock("@vite-hub/markdown-template/vite", () => ({ hubMarkdownTemplate: integrationMocks.hubMarkdownTemplate }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
 vi.mock("@vite-hub/rate-limit/vite", () => ({ hubRateLimit: integrationMocks.hubRateLimit }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
@@ -556,7 +554,6 @@ describe("vitehub", () => {
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/dependencies",
-      "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
@@ -582,7 +579,6 @@ describe("vitehub", () => {
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/dependencies",
-      "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox/vite",
@@ -613,9 +609,6 @@ describe("vitehub", () => {
       workspace: true,
     })
 
-    expect(integrationMocks.hubMarkdownTemplate).toHaveBeenLastCalledWith({
-      runtimeImport: "vite-hub/_internal/markdown-template",
-    })
     expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({}, {
       importBase: "vite-hub/auth",
     })

@@ -1,8 +1,10 @@
 import { expectTypeOf, it } from "vitest"
 
 import {
+  renderMarkdownFile,
   renderMarkdownTemplate,
   type MarkdownTemplateImport,
+  type RenderMarkdownFileOptions,
   type RenderMarkdownTemplateOptions,
   type ResolveMarkdownTemplateImport,
 } from "../src/index.ts"
@@ -14,6 +16,11 @@ import {
 } from "../src/internal/composition.ts"
 
 it("exports the Markdown template contract", () => {
+  expectTypeOf(renderMarkdownFile).parameters.toEqualTypeOf<[
+    path: string | URL,
+    options?: RenderMarkdownFileOptions,
+  ]>()
+  expectTypeOf(renderMarkdownFile).returns.toEqualTypeOf<Promise<string>>()
   expectTypeOf(renderMarkdownTemplate).parameters.toEqualTypeOf<[
     template: string,
     options?: RenderMarkdownTemplateOptions,

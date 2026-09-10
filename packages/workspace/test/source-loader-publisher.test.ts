@@ -752,14 +752,14 @@ describe("sources, loaders, and publishers", () => {
     }])
   })
 
-  it("renders caller-relative Markdown template imports in Workspace Definitions", async () => {
+  it("renders Markdown file URLs in Workspace Definitions", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, "prompt.template.md"), "Workspace {{ context.name }}\n")
+    await writeFile(join(directory, "prompt.md"), "Workspace {{ context.name }}\n")
     await writeFile(join(directory, "config.ts"), [
-      `import prompt from "./prompt.template.md"`,
-      `export default { rootDir: await prompt({ context: { name: "review" } }) }`,
+      `import { renderMarkdownFile } from ${JSON.stringify(import.meta.resolve("@vite-hub/markdown-template"))}`,
+      `export default { rootDir: await renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data: { context: { name: "review" } } }) }`,
       ``,
     ].join("\n"))
 
