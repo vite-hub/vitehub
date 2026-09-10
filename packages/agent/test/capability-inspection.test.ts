@@ -208,11 +208,16 @@ describe("Capability inspection snapshots", () => {
     ]))
   })
 
-  it("keeps a class-backed tool model-visible and executable after an identity transform", async () => {
+  it.each([false, true])("keeps private tool state readable and executable after preparation, own accessor=%s", async (ownAccessor) => {
     const execute = vi.fn((name: string) => `Executed ${name}`)
     class ReadTool {
+      #description = "Read using private state"
+      constructor() {
+        if (ownAccessor) Object.defineProperty(this, "description", { configurable: true, enumerable: true, get(this: ReadTool) { return this.#description } })
+      }
+      get description() { return this.#description }
       get name() { return "read" }
-      execute() { return execute(this.name) }
+      execute() { return execute(this.#description) }
     }
     const response = await model().doGenerate({ prompt: [] })
     const languageModel = new MockLanguageModelV3({ doGenerate: [
@@ -224,8 +229,8 @@ describe("Capability inspection snapshots", () => {
       id: "local", tools: { read: new ReadTool() }, resolve(context) { context.tools.transform(current => current) },
     })], driver: { model: languageModel }, invocations }), runtime("class-tool"), { prompt: "Read" })
     expect(configuration(await invocations.getByRunId("class-tool"))).toMatchObject({ tools: [{ name: "read", capabilityId: "local" }] })
-    expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "read" })])
-    expect(execute).toHaveBeenCalledWith("read")
+    expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "read", description: "Read using private state" })])
+    expect(execute).toHaveBeenCalledWith("Read using private state")
   })
 
   it.each([false, true])("retains final MCP inspection with non-enumerable replacement metadata, accessor=%s", async (accessor) => {

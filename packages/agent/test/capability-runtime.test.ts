@@ -313,7 +313,8 @@ describe("agent capability runtime", () => {
     for (const tool of Object.values(result.tools!)) {
       expect(Object.getPrototypeOf(tool)).toBe(ReadTool.prototype)
       for (const key of ["description", "hidden", marker]) {
-        expect(Object.getOwnPropertyDescriptor(tool, key)).toEqual(Object.getOwnPropertyDescriptor(shared, key))
+        const original = Object.getOwnPropertyDescriptor(shared, key)!
+        expect(Object.getOwnPropertyDescriptor(tool, key)).toEqual(original.get ? { ...original, get: expect.any(Function) } : original)
       }
       expect(tool.execute?.(undefined)).toBe("read")
     }
@@ -324,8 +325,13 @@ describe("agent capability runtime", () => {
     const { applyCapabilityToolTransforms } = await import("../src/capability-runtime.ts")
     const computed = vi.fn(() => "computed")
     const marker = Symbol("metadata-marker")
-    const prototype = { inherited: "prototype value" }
-    let metadata: Record<string, unknown> = Object.create(prototype, {
+    class Metadata {
+      [key: string]: unknown
+      #inherited = "prototype value"
+      get inherited() { return this.#inherited }
+    }
+    const prototype = Metadata.prototype
+    let metadata: Record<string, unknown> = Object.defineProperties(new Metadata(), {
       hidden: { value: "hidden value" },
       computed: { configurable: true, enumerable: true, get: computed },
       [marker]: { value: "symbol value" },
@@ -344,10 +350,11 @@ describe("agent capability runtime", () => {
     expect(computed).not.toHaveBeenCalled()
     expect(Object.getOwnPropertyDescriptor(tool, "metadata")).toMatchObject(kind === "data"
       ? { configurable: false, enumerable: false, writable: false }
-      : { configurable: false, enumerable: false, get: expect.any(Function), set: setter })
+      : { configurable: false, enumerable: false, get: expect.any(Function), set: expect.any(Function) })
     expect(Object.getPrototypeOf(restored)).toBe(prototype)
     for (const key of ["hidden", "computed", marker]) {
-      expect(Object.getOwnPropertyDescriptor(restored, key)).toEqual(Object.getOwnPropertyDescriptor(originalMetadata, key))
+      const original = Object.getOwnPropertyDescriptor(originalMetadata, key)!
+      expect(Object.getOwnPropertyDescriptor(restored, key)).toEqual(original.get ? { ...original, get: expect.any(Function) } : original)
     }
     expect(restored.inherited).toBe("prototype value")
     expect(restored.computed).toBe("computed")
@@ -358,6 +365,25 @@ describe("agent capability runtime", () => {
       expect(setter).toHaveBeenCalledWith({ updated: true })
       expect(tool.metadata).toEqual({ updated: true, mcpServer: "docs", originalName: "original" })
     }
+  })
+
+  it("preserves WeakMap-backed accessor receivers through tool preparation without eager reads", async () => {
+    const { withAgentToolStepReporting, withJsonCompatibleToolOutputs } = await import("../src/tool-runtime.ts")
+    const original = { name: "lookup", execute: () => "result" }
+    const state = new WeakMap<object, string>([[original, "before"]])
+    const getter = vi.fn(function (this: object) { return state.get(this) })
+    Object.defineProperty(original, "description", {
+      enumerable: true,
+      get: getter,
+      set(this: object, value: string) { state.set(this, value) },
+    })
+    const tools = withAgentToolStepReporting(withJsonCompatibleToolOutputs({ lookup: original }), vi.fn())!
+    expect(getter).not.toHaveBeenCalled()
+    expect(Reflect.get(tools.lookup, "description")).toBe("before")
+    Reflect.set(tools.lookup, "description", "after")
+    expect(state.get(original)).toBe("after")
+    expect(Reflect.get(tools.lookup, "description")).toBe("after")
+    expect(Object.getOwnPropertyDescriptor(tools.lookup, "description")).toMatchObject({ enumerable: true, configurable: false, get: expect.any(Function), set: expect.any(Function) })
   })
 
   it("preserves output extension scope when final renderers run last", async () => {

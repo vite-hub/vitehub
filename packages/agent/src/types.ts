@@ -1020,6 +1020,7 @@ export interface AgentDriverContribution {
 
 /**
  * Each callback receives copies of tool definitions, one per key, preserving prototypes and property descriptors.
+ * Accessors and executors retain their contributed instance as receiver.
  * Rename non-MCP tools using the supplied definitions to retain Capability ownership.
  * MCP renames must retain metadata.mcpServer and metadata.originalName. Same-key replacements inherit them.
  */

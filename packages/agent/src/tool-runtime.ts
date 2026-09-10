@@ -1,4 +1,5 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import {
   formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
@@ -13,30 +14,44 @@ import type {
   AgentToolStepItem,
 } from "./types.ts"
 
-export function copyToolWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides): Omit<T, keyof Overrides> & Overrides {
-  const descriptors = Object.getOwnPropertyDescriptors(tool)
-  const seen = new Set(Reflect.ownKeys(descriptors))
-  for (let prototype = Object.getPrototypeOf(tool); prototype; prototype = Object.getPrototypeOf(prototype)) {
-    for (const key of Reflect.ownKeys(prototype)) {
+function copyWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides, bindExecute: boolean): Omit<T, keyof Overrides> & Overrides {
+  const descriptors: Record<PropertyKey, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool)
+  const seen = new Set<PropertyKey>()
+  // Accessors can depend on private fields or WeakMap state on the constructed instance.
+  for (let owner: object | null = tool; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
+    const inherited = Object.getOwnPropertyDescriptors(owner)
+    for (const key of Reflect.ownKeys(inherited)) {
       if (seen.has(key)) continue
       seen.add(key)
-      const descriptor = Object.getOwnPropertyDescriptor(prototype, key)!
+      if (Object.hasOwn(overrides, key)) continue
+      const descriptor = Object.getOwnPropertyDescriptor(owner, key)!
+      const bindMethod = bindExecute && key === "execute"
       if (descriptor.get || descriptor.set) {
-        Object.defineProperty(descriptors, key, { configurable: true, enumerable: true, value: descriptor })
+        Object.defineProperty(descriptors, key, { configurable: true, enumerable: true, writable: true, value: {
+          ...descriptor,
+          get: descriptor.get ? () => {
+            const value: unknown = descriptor.get!.call(tool)
+            return bindMethod && hasRuntimeType(value, "function") ? value.bind(tool) : value
+          } : undefined,
+          set: descriptor.set ? (value: unknown) => { descriptor.set!.call(tool, value) } : undefined,
+        } })
+      } else if (bindMethod && hasRuntimeType(descriptor.value, "function")) {
+        Object.defineProperty(descriptors, key, { configurable: true, enumerable: true, writable: true, value: { ...descriptor, value: descriptor.value.bind(tool) } })
       }
     }
-  }
-  for (const key of Reflect.ownKeys(descriptors)) {
-    const descriptor = Object.getOwnPropertyDescriptor(descriptors, key)!.value as PropertyDescriptor
-    // Accessors may use private fields or WeakMap state on the contributed instance.
-    // Bind lazily so copying a tool never evaluates unrelated getters.
-    if (descriptor.get) descriptor.get = descriptor.get.bind(tool)
-    if (descriptor.set) descriptor.set = descriptor.set.bind(tool)
   }
   return Object.create(Object.getPrototypeOf(tool), {
     ...descriptors,
     ...Object.getOwnPropertyDescriptors(overrides),
   })
+}
+
+export function copyToolWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides): Omit<T, keyof Overrides> & Overrides {
+  return copyWithOverrides(tool, overrides, true)
+}
+
+export function copyToolMetadataWithOverrides(metadata: Record<string, unknown>, overrides: Record<string, unknown>): Record<string, unknown> {
+  return copyWithOverrides(metadata, overrides, false)
 }
 
 function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
@@ -82,7 +97,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
     async execute(input: unknown, context?: AgentToolExecutionContext) {
       if (approvedInputs.delete(input)) {
         context?.abortSignal?.throwIfAborted()
-        return await execute(input, context)
+        return await execute.call(tool, input, context)
       }
       const decision = typeof policy === "function"
         ? await policy({
@@ -114,7 +129,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       }
 
       context?.abortSignal?.throwIfAborted()
-      return await execute(input, context)
+      return await execute.call(tool, input, context)
     },
   })
 }

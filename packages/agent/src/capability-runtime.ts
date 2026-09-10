@@ -21,7 +21,7 @@ import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
 import { agentInvocationTraceIdContextKey } from "./trace.ts"
 import { setAgentCapabilityInspection } from "./internal/agent-telemetry.ts"
 import { inspectMcpToolProvenance } from "./tool-inspection.ts"
-import { copyToolWithOverrides } from "./tool-runtime.ts"
+import { copyToolMetadataWithOverrides, copyToolWithOverrides } from "./tool-runtime.ts"
 import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesResolverContext,
@@ -1445,24 +1445,21 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
 
 function withMcpMetadata(metadata: unknown, source: NonNullable<AgentToolInspection["mcp"]>): Record<string, unknown> {
   const value = isRuntimeRecord(metadata) ? metadata : {}
-  return Object.create(Object.getPrototypeOf(value), {
-    ...Object.getOwnPropertyDescriptors(value),
-    mcpServer: { configurable: true, enumerable: true, writable: true, value: source.server },
-    originalName: { configurable: true, enumerable: true, writable: true, value: source.name },
-  })
+  return copyToolMetadataWithOverrides(value, { mcpServer: source.server, originalName: source.name })
 }
 
 function withMcpToolProvenance(tool: AgentToolSet[string], source: NonNullable<AgentToolInspection["mcp"]>): AgentToolSet[string] {
+  const definition = copyToolWithOverrides(tool, {})
   let metadataDescriptor: PropertyDescriptor | undefined
-  for (let owner: object | null = tool; owner && !metadataDescriptor; owner = Object.getPrototypeOf(owner)) {
+  for (let owner: object | null = definition; owner && !metadataDescriptor; owner = Object.getPrototypeOf(owner)) {
     metadataDescriptor = Object.getOwnPropertyDescriptor(owner, "metadata")
   }
   const descriptor = metadataDescriptor ?? { configurable: true, enumerable: true, writable: true }
   const attributedMetadata: PropertyDescriptor = "get" in descriptor || "set" in descriptor
     ? { ...descriptor, get(this: AgentToolSet[string]) { return withMcpMetadata(descriptor.get?.call(this), source) } }
     : { ...descriptor, value: withMcpMetadata(descriptor.value, source) }
-  return Object.create(Object.getPrototypeOf(tool), {
-    ...Object.getOwnPropertyDescriptors(tool),
+  return Object.create(Object.getPrototypeOf(definition), {
+    ...Object.getOwnPropertyDescriptors(definition),
     metadata: attributedMetadata,
   })
 }

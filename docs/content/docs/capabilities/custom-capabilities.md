@@ -307,7 +307,7 @@ MCP and Title provide custom views. Other official Capabilities use the default 
 
 ### Transform MCP tools
 
-Each transform receives a copy of each tool definition that preserves its prototype and property descriptors. Shared definitions registered under different keys remain separate contributions. Rename local tools using the definitions supplied to the callback so inspection can retain their Capability ownership.
+Each transform receives a copy of each tool definition that preserves its prototype and property descriptors. Accessors and executors retain their contributed instance as receiver, including when they use private fields. Shared definitions registered under different keys remain separate contributions. Rename local tools using the definitions supplied to the callback so inspection can retain their Capability ownership.
 
 Tool transforms may remove MCP tools, replace them under the same key, or rename them. Replacements under an existing key inherit its MCP provenance. A rename must preserve `metadata.mcpServer` and `metadata.originalName`, including when it reconstructs the tool:
 

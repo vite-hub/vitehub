@@ -52,4 +52,14 @@ describe("tool accessor receivers", () => {
     expect(copyToolWithOverrides(tool, { description: "override" }).description).toBe("override")
     expect(getter).not.toHaveBeenCalled()
   })
+
+  it("preserves inherited accessors named __proto__ without changing the copy prototype", () => {
+    const state = new WeakMap<object, string>()
+    const prototype = Object.defineProperty({}, "__proto__", { get(this: object) { return state.get(this) } })
+    const tool: object = Object.create(prototype)
+    state.set(tool, "original state")
+    const copy = copyToolWithOverrides(tool, {})
+    expect(Object.getPrototypeOf(copy)).toBe(prototype)
+    expect(Reflect.get(copy, "__proto__")).toBe("original state")
+  })
 })
