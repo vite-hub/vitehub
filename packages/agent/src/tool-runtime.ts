@@ -8,9 +8,17 @@ import {
 import type {
   AgentRuntimeContext,
   AgentToolDefinition,
+  AgentToolExecutionContext,
   AgentToolSet,
   AgentToolStepItem,
 } from "./types.ts"
+
+export function copyToolWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides): Omit<T, keyof Overrides> & Overrides {
+  return Object.create(Object.getPrototypeOf(tool), {
+    ...Object.getOwnPropertyDescriptors(tool),
+    ...Object.getOwnPropertyDescriptors(overrides),
+  })
+}
 
 function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
   return typeof value === "object" && value !== null && "name" in value && typeof (value as { name?: unknown }).name === "string"
@@ -48,12 +56,11 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
   const approvedInputs = new Set<unknown>()
 
   // SAFETY: The wrapper preserves the tool fields and execute signature, and adds an internal approval symbol.
-  return {
-    ...tool,
+  return copyToolWithOverrides(tool, {
     [agentToolPolicyApproveSymbol](input: unknown) {
       approvedInputs.add(input)
     },
-    async execute(input, context) {
+    async execute(input: unknown, context?: AgentToolExecutionContext) {
       if (approvedInputs.delete(input)) {
         context?.abortSignal?.throwIfAborted()
         return await execute(input, context)
@@ -90,7 +97,7 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       context?.abortSignal?.throwIfAborted()
       return await execute(input, context)
     },
-  } as AgentToolDefinition
+  })
 }
 
 export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(tools: TTools | undefined): TTools | undefined {
@@ -109,18 +116,18 @@ export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(t
 export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools: TTools): TTools {
   if (!tools || typeof tools !== "object") return tools
 
+  // SAFETY: Each key and definition is preserved; execute retains its call signature while normalizing the output.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
       return [name, tool]
     }
 
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
-    return [name, {
-      ...tool,
+    return [name, copyToolWithOverrides(tool, {
       async execute(input: unknown, ...args: unknown[]) {
         return toJsonCompatibleValue(await execute.call(tool, input, ...args))
       },
-    }]
+    })]
   })) as TTools
 }
 
@@ -198,8 +205,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
     }
 
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
-    return [name, {
-      ...tool,
+    return [name, copyToolWithOverrides(tool, {
       async execute(input: unknown, ...args: unknown[]) {
         const toolCall: AgentToolStepItem = {
           input,
@@ -220,6 +226,6 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
           throw error
         }
       },
-    }]
+    })]
   })) as TTools
 }

@@ -320,6 +320,46 @@ describe("agent capability runtime", () => {
     if (replaceMcp) expect(result.tools!.a!.metadata).toEqual({ mcpServer: "docs", originalName: "read" })
   })
 
+  it.each(["data", "accessor", "inherited accessor"])("preserves %s metadata behavior while restoring MCP provenance", async (kind) => {
+    const { applyCapabilityToolTransforms } = await import("../src/capability-runtime.ts")
+    const computed = vi.fn(() => "computed")
+    const marker = Symbol("metadata-marker")
+    const prototype = { inherited: "prototype value" }
+    let metadata: Record<string, unknown> = Object.create(prototype, {
+      hidden: { value: "hidden value" },
+      computed: { configurable: true, enumerable: true, get: computed },
+      [marker]: { value: "symbol value" },
+    })
+    const originalMetadata = metadata
+    const setter = vi.fn((value: Record<string, unknown>) => { metadata = value })
+    const descriptor: PropertyDescriptor = kind === "data"
+      ? { configurable: false, enumerable: false, writable: false, value: metadata }
+      : { configurable: false, enumerable: false, get: () => metadata, set: setter }
+    const replacement = { name: "read" }
+    if (kind === "inherited accessor") Object.setPrototypeOf(replacement, Object.defineProperty({}, "metadata", descriptor))
+    else Object.defineProperty(replacement, "metadata", descriptor)
+    const result = await applyCapabilityToolTransforms({ read: { name: "read", metadata: { mcpServer: "docs", originalName: "original" } } }, [() => ({ read: replacement })])
+    const tool = result.tools!.read!
+    const restored = tool.metadata!
+    expect(computed).not.toHaveBeenCalled()
+    expect(Object.getOwnPropertyDescriptor(tool, "metadata")).toMatchObject(kind === "data"
+      ? { configurable: false, enumerable: false, writable: false }
+      : { configurable: false, enumerable: false, get: expect.any(Function), set: setter })
+    expect(Object.getPrototypeOf(restored)).toBe(prototype)
+    for (const key of ["hidden", "computed", marker]) {
+      expect(Object.getOwnPropertyDescriptor(restored, key)).toEqual(Object.getOwnPropertyDescriptor(originalMetadata, key))
+    }
+    expect(restored.inherited).toBe("prototype value")
+    expect(restored.computed).toBe("computed")
+    expect(restored).toMatchObject({ mcpServer: "docs", originalName: "original" })
+    expect(originalMetadata.mcpServer).toBeUndefined()
+    if (kind !== "data") {
+      tool.metadata = { updated: true }
+      expect(setter).toHaveBeenCalledWith({ updated: true })
+      expect(tool.metadata).toEqual({ updated: true, mcpServer: "docs", originalName: "original" })
+    }
+  })
+
   it("preserves output extension scope when final renderers run last", async () => {
     const {
       applyOutputRenderers,

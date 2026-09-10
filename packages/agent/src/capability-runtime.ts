@@ -21,6 +21,7 @@ import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
 import { agentInvocationTraceIdContextKey } from "./trace.ts"
 import { setAgentCapabilityInspection } from "./internal/agent-telemetry.ts"
 import { inspectMcpToolProvenance } from "./tool-inspection.ts"
+import { copyToolWithOverrides } from "./tool-runtime.ts"
 import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesResolverContext,
@@ -55,6 +56,7 @@ import type {
   AgentRunInput,
   AgentRuntimeConfig,
   AgentStaticCapabilitiesList,
+  AgentToolInspection,
   AgentToolSet,
   AgentToolStandardSchema,
   AgentToolTransform,
@@ -1441,6 +1443,30 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
   }
 }
 
+function withMcpMetadata(metadata: unknown, source: NonNullable<AgentToolInspection["mcp"]>): Record<string, unknown> {
+  const value = isRuntimeRecord(metadata) ? metadata : {}
+  return Object.create(Object.getPrototypeOf(value), {
+    ...Object.getOwnPropertyDescriptors(value),
+    mcpServer: { configurable: true, enumerable: true, writable: true, value: source.server },
+    originalName: { configurable: true, enumerable: true, writable: true, value: source.name },
+  })
+}
+
+function withMcpToolProvenance(tool: AgentToolSet[string], source: NonNullable<AgentToolInspection["mcp"]>): AgentToolSet[string] {
+  let metadataDescriptor: PropertyDescriptor | undefined
+  for (let owner: object | null = tool; owner && !metadataDescriptor; owner = Object.getPrototypeOf(owner)) {
+    metadataDescriptor = Object.getOwnPropertyDescriptor(owner, "metadata")
+  }
+  const descriptor = metadataDescriptor ?? { configurable: true, enumerable: true, writable: true }
+  const attributedMetadata: PropertyDescriptor = "get" in descriptor || "set" in descriptor
+    ? { ...descriptor, get(this: AgentToolSet[string]) { return withMcpMetadata(descriptor.get?.call(this), source) } }
+    : { ...descriptor, value: withMcpMetadata(descriptor.value, source) }
+  return Object.create(Object.getPrototypeOf(tool), {
+    ...Object.getOwnPropertyDescriptors(tool),
+    metadata: attributedMetadata,
+  })
+}
+
 export async function applyCapabilityToolTransforms(
   tools: AgentToolSet | undefined,
   transforms: AgentToolTransform[] = [],
@@ -1449,10 +1475,7 @@ export async function applyCapabilityToolTransforms(
   let originalNames = new Map(Object.keys(tools ?? {}).map(name => [name, name]))
   for (const transform of transforms) {
     // Each key needs its own identity, even when contributions share a definition.
-    if (current) current = Object.fromEntries(Object.entries(current).map(([name, tool]) => {
-      const copy: AgentToolSet[string] = Object.create(Object.getPrototypeOf(tool), Object.getOwnPropertyDescriptors(tool))
-      return [name, copy]
-    }))
+    if (current) current = Object.fromEntries(Object.entries(current).map(([name, tool]) => [name, copyToolWithOverrides(tool, {})]))
     // Copy provenance before a transform can mutate the original tool objects.
     const previous = new Map(Object.entries(current ?? {}).map(([name, tool]) => [name, inspectMcpToolProvenance(tool)]))
     const localTools = new Set(Object.entries(current ?? {}).filter(([name]) => !previous.get(name)).map(([, tool]) => tool))
@@ -1478,15 +1501,7 @@ export async function applyCapabilityToolTransforms(
     current = Object.fromEntries(Object.entries(transformed).map(([name, tool]) => {
       const source = previous.get(name)
       if (!source || inspectMcpToolProvenance(tool)) return [name, tool]
-      const attributed: AgentToolSet[string] = Object.create(Object.getPrototypeOf(tool), {
-        ...Object.getOwnPropertyDescriptors(tool),
-        metadata: { configurable: true, enumerable: true, writable: true, value: {
-          ...tool.metadata,
-          mcpServer: source.server,
-          originalName: source.name,
-        } },
-      })
-      return [name, attributed]
+      return [name, withMcpToolProvenance(tool, source)]
     }))
     originalNames = transformedNames
   }

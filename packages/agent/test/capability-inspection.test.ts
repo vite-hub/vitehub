@@ -228,6 +228,23 @@ describe("Capability inspection snapshots", () => {
     expect(execute).toHaveBeenCalledWith("read")
   })
 
+  it.each([false, true])("retains final MCP inspection with non-enumerable replacement metadata, accessor=%s", async (accessor) => {
+    const invocations = journal()
+    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+      mcp({ servers: { docs: { tools: async () => ({ read: { execute: async () => "original" } }), close: vi.fn() } } }),
+      defineCapability({ id: "replace", resolve(context) {
+        context.tools.transform(() => {
+          const replacement = { name: "mcp_docs_read", execute: async () => "replacement" }
+          Object.defineProperty(replacement, "metadata", accessor ? { get: () => ({ custom: true }) } : { value: { custom: true } })
+          return { mcp_docs_read: replacement }
+        })
+      } }),
+    ], driver: { model: model() }, invocations }), runtime("metadata-descriptors"), { prompt: "Read" })
+    expect(configuration(await invocations.getByRunId("metadata-descriptors"))).toMatchObject({ tools: [
+      { name: "mcp_docs_read", capabilityId: "mcp", mcp: { server: "docs", name: "read" } },
+    ] })
+  })
+
   it.each(["resolve", "discover"])("retains MCP %s failure state without reconnecting or hiding the failure", async (phase) => {
     const invocations = journal()
     const failure = new Error("Discovery unavailable")

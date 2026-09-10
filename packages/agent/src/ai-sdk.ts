@@ -25,6 +25,7 @@ import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import {
   applyAgentToolPolicies,
+  copyToolWithOverrides,
   reportWorkspaceMaterialization,
   withAgentToolStepReporting,
   withJsonCompatibleToolOutputs,
@@ -596,8 +597,7 @@ function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefin
 
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
-    return [name, {
-      ...tool,
+    return [name, copyToolWithOverrides(tool, {
       async execute(input: unknown, ...args: unknown[]) {
         try {
           const output = await execute.call(tool, input, ...args)
@@ -609,7 +609,7 @@ function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefin
           throw error
         }
       },
-    }]
+    })]
   })) as TTools
 }
 
@@ -840,8 +840,7 @@ function withToolDiagnosticMessages(tools: AgentToolSet | undefined): AgentToolS
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     const execute = tool?.execute
     if (!hasRuntimeType(execute, "function")) return [name, tool]
-    return [name, {
-      ...tool,
+    return [name, copyToolWithOverrides(tool, {
       async execute(...args: Parameters<typeof execute>) {
         try {
           return await execute.apply(tool, args)
@@ -857,7 +856,7 @@ function withToolDiagnosticMessages(tools: AgentToolSet | undefined): AgentToolS
           throw error
         }
       },
-    }]
+    })]
   }))
 }
 
@@ -876,17 +875,15 @@ function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | un
       if (!hasRuntimeType(inputSchema, "object") || inputSchema === null || "~standard" in inputSchema || "jsonSchema" in inputSchema) {
         return [name, tool]
       }
-      return [name, {
-        ...record,
+      return [name, copyToolWithOverrides(record, {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         inputSchema: createJsonSchema(inputSchema as JSONSchema7),
-      }]
+      })]
     }
     defaultToolInputSchema ??= createJsonSchema(defaultToolInputSchemaJson)
-    return [name, {
-      ...record,
+    return [name, copyToolWithOverrides(record, {
       inputSchema: defaultToolInputSchema,
-    }]
+    })]
   })) as TTools
 }
 
