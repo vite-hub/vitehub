@@ -20,6 +20,7 @@ import { materializeAgentModel } from "./internal/agent-model.ts"
 import { openAgentCapabilityScope } from "./internal/capability-scope.ts"
 import { agentInvocationTraceIdContextKey } from "./trace.ts"
 import { setAgentCapabilityInspection } from "./internal/agent-telemetry.ts"
+import { inspectMcpToolProvenance } from "./tool-inspection.ts"
 import type {
   AgentCapabilitiesInput,
   AgentCapabilitiesResolverContext,
@@ -1446,16 +1447,27 @@ export async function applyCapabilityToolTransforms(
 ): Promise<AgentToolSet | undefined> {
   let current = tools
   for (const transform of transforms) {
-    const previous = { ...current }
-    current = await transform(current)
-    if (!current) continue
-    current = Object.fromEntries(Object.entries(current).map(([name, tool]) => {
-      const source = previous?.[name]
-      if (!source?.metadata?.mcpServer || tool.metadata?.mcpServer) return [name, tool]
+    // Copy provenance before a transform can mutate the original tool objects.
+    const previous = new Map(Object.entries(current ?? {}).map(([name, tool]) => [name, inspectMcpToolProvenance(tool)]))
+    const transformed = await transform(current)
+    if (!transformed) {
+      current = transformed
+      continue
+    }
+    const removesMcpTools = [...previous].some(([name, origin]) => origin && !Object.hasOwn(transformed, name))
+    const unattributedNames = Object.entries(transformed)
+      .filter(([name, tool]) => !previous.has(name) && !inspectMcpToolProvenance(tool))
+      .map(([name]) => name)
+    if (removesMcpTools && unattributedNames.length) {
+      throw agentDiagnostics.AGENT_R0923({ names: unattributedNames })
+    }
+    current = Object.fromEntries(Object.entries(transformed).map(([name, tool]) => {
+      const source = previous.get(name)
+      if (!source || inspectMcpToolProvenance(tool)) return [name, tool]
       return [name, { ...tool, metadata: {
         ...tool.metadata,
-        mcpServer: source.metadata.mcpServer,
-        originalName: source.metadata.originalName,
+        mcpServer: source.server,
+        originalName: source.name,
       } }]
     }))
   }

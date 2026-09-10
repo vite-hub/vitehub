@@ -3720,7 +3720,15 @@ async function createAgentInvocationContext<
       }
     }
     const originalToolContracts = inspectAgentTools(capabilities.tools)
-    const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms).catch(async (error) => {
+      try {
+        await capabilities.close()
+      }
+      catch (closeError) {
+        throw new AggregateError([error, closeError], "[vitehub] Agent tool transform failed and cleanup also failed.")
+      }
+      throw error
+    })
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(preparedTools, toolStepReporter)

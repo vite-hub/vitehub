@@ -105,7 +105,7 @@ export const AgentCapabilityInspector = defineComponent({
         const names = Array.isArray(props.names) ? props.names : undefined;
         const selectedTools = tools.value.filter(tool =>
           (!Object.hasOwn(props, "names") || names?.includes(tool.name))
-          && (!Object.hasOwn(props, "mcpServer") || typeof props.mcpServer === "string" && tool.mcp?.server === props.mcpServer));
+          && (!Object.hasOwn(props, "mcpServer") || hasRuntimeType(props.mcpServer, "string") && tool.mcp?.server === props.mcpServer));
         return selectedTools.length ? h(AgentToolList, { tools: selectedTools }) : h("p", { class: "vh-capability-inspector__empty" }, "No tool contracts recorded.");
       }),
     };

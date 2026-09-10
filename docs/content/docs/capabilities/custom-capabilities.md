@@ -304,3 +304,21 @@ Use `{ $state: '/path' }` to read a state value. A container can repeat its chil
 Inspection state and view specs follow the Invocation journal's configuration retention policy. Use `configuration: 'content'` to retain them independently of prompts and model output. Credential-shaped state keys are redacted. Existing observation limits still apply; a truncated snapshot may not contain the complete view. A label remains available with metadata-only capture. Telemetry exporters retain custom inspection content only when their `instructions`, `inputs`, and `outputs` content options are all enabled, because custom state can contain any of these.
 
 MCP and Title provide custom views. Other official Capabilities use the default view.
+
+### Transform MCP tools
+
+Tool transforms may remove MCP tools, replace them under the same key, or rename them. Replacements under an existing key inherit its MCP provenance. A rename must preserve `metadata.mcpServer` and `metadata.originalName`, including when it reconstructs the tool:
+
+```ts
+context.tools.transform(tools => ({
+  lookup: {
+    name: 'lookup',
+    description: 'Look up a document',
+    inputSchema: tools!.mcp_docs_read!.inputSchema,
+    execute: tools!.mcp_docs_read!.execute,
+    metadata: { ...tools!.mcp_docs_read!.metadata },
+  },
+}))
+```
+
+A transform that removes MCP keys and introduces new keys without provenance fails with `AGENT_R0923`. The runtime cannot infer which server a reconstructed tool came from. To add unrelated tools while removing MCP tools, contribute the new tools with `context.tools.add()` and remove the MCP entries in the transform.

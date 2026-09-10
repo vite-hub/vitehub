@@ -104,6 +104,52 @@ describe("Capability inspection snapshots", () => {
     expect(tools).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    { preserve: false, failCleanup: false },
+    { preserve: true, failCleanup: false },
+    { preserve: false, failCleanup: true },
+  ])("requires explicit provenance for a reconstructed MCP rename: preserve=$preserve, failCleanup=$failCleanup", async ({ preserve, failCleanup }) => {
+    const invocations = journal()
+    const close = vi.fn(async () => { if (failCleanup) throw new Error("Cleanup failed") })
+    const languageModel = model()
+    const transform = defineCapability({ id: "transform", resolve(context) {
+      context.tools.transform(current => ({ lookup: {
+        name: "lookup", description: "Reconstructed", inputSchema: { type: "string" }, execute: async () => "replacement",
+        metadata: preserve ? { ...current!.mcp_docs_read!.metadata } : undefined,
+      } }))
+    } })
+    const result = runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+      mcp({ servers: { docs: () => ({ tools: async () => ({ read: { execute: async () => "original" } }), close }) } }),
+      transform,
+    ], driver: { model: languageModel }, invocations }), runtime("reconstructed-mcp"), { prompt: "Read docs" })
+    if (preserve) {
+      await result
+      expect(configuration(await invocations.getByRunId("reconstructed-mcp"))).toMatchObject({ tools: [
+        { name: "lookup", capabilityId: "mcp", mcp: { server: "docs", name: "read" }, description: "Reconstructed", inputSchema: { type: "string" } },
+      ] })
+      expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "lookup", description: "Reconstructed" })])
+    } else {
+      await expect(result).rejects.toMatchObject(failCleanup
+        ? { errors: [{ code: "AGENT_R0923" }, { message: "Cleanup failed" }] }
+        : { code: "AGENT_R0923" })
+      expect(languageModel.doGenerateCalls).toHaveLength(0)
+    }
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("allows contributing unrelated tools and removing MCP tools explicitly", async () => {
+    const invocations = journal()
+    const transform = defineCapability({ id: "local", resolve(context) {
+      context.tools.add({ local: { name: "local", execute: async () => "local" } })
+      context.tools.transform(current => ({ local: current!.local! }))
+    } })
+    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [
+      mcp({ servers: { docs: { tools: async () => ({ read: { execute: async () => "original" } }), close: vi.fn() } } }),
+      transform,
+    ], driver: { model: model() }, invocations }), runtime("local-tools"), { prompt: "Use local tools" })
+    expect(configuration(await invocations.getByRunId("local-tools"))).toMatchObject({ tools: [{ name: "local", capabilityId: "local" }] })
+  })
+
   it.each(["resolve", "discover"])("retains MCP %s failure state without reconnecting or hiding the failure", async (phase) => {
     const invocations = journal()
     const failure = new Error("Discovery unavailable")
