@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
-import { transform } from "esbuild"
+import { build, transform } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
 import type { Plugin } from "esbuild"
@@ -1315,4 +1315,20 @@ describe("bundleEsmEntry", () => {
     const requireLoaded = await import(`${pathToFileURL(requireOutfile).href}?t=${Date.now()}`) as { default: string }
     expect(requireLoaded.default).toBe("require")
   })
+})
+
+it.each(["browser", "neutral"] as const)("bundles the portable Markdown root for %s consumers", async (platform) => {
+  const result = await build({
+    stdin: {
+      contents: 'export { renderMarkdownTemplate } from "@vite-hub/markdown-template"',
+      resolveDir: resolve(import.meta.dirname, "../../.."),
+    },
+    bundle: true,
+    platform,
+    format: "esm",
+    write: false,
+    metafile: true,
+  })
+  expect(Object.keys(result.metafile.inputs).some(path => path.endsWith("markdown-template/dist/file.js"))).toBe(false)
+  expect(result.outputFiles[0]!.text).not.toMatch(/node:(?:fs|path)/)
 })

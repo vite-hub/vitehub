@@ -156,6 +156,8 @@ const markdown = await renderMarkdownFile(new URL("./review.md", import.meta.url
 
 Applications can import the same function from `vite-hub/markdown-template`.
 
+The root export selects the filesystem API only under the `node` export condition. Browser, edge, and neutral consumers receive the portable string renderer without Node built-ins.
+
 `renderMarkdownFile(path, options?)` accepts a filesystem path string or a `file:` URL and returns `Promise<string>`. Its `RenderMarkdownFileOptions` accepts `data` and `maxImportDepth`, which defaults to `4`. Relative path strings use the process working directory. File URLs constructed with `import.meta.url` use the executing module's directory. HTTP URLs are not supported.
 
 Each call reads the file and its relative fragments. Symlinks resolve to canonical paths; nested fragments resolve beside their canonical importer. Missing files reject with the filesystem error. Conditions, escaping, code literals, and import depth and cycle checks use the same renderer as template strings. Imports resolve before conditions, including imports in unselected branches.

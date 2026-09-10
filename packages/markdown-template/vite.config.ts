@@ -7,8 +7,13 @@ export default defineConfig({
       neverBundle: ["comark"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/internal/composition.ts"],
+    entry: ["src/index.ts", "src/portable.ts", "src/internal/composition.ts"],
     exports: {
+      customExports(exports) {
+        exports["."] = { types: "./dist/index.d.ts", node: "./dist/index.js", default: "./dist/portable.js" }
+        delete exports["./portable"]
+        return exports
+      },
       inlinedDependencies: false,
     },
     outExtensions: () => ({

@@ -115,7 +115,12 @@ export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<s
     get(_target, id) {
       if (typeof id !== "string" || !id.startsWith(rawImportVirtualModulePrefix)) return
       const reference = id.slice(rawImportVirtualModulePrefix.length)
-      const [importer, path] = JSON.parse(Buffer.from(reference, "base64url").toString("utf8")) as [string, string]
+      const decoded: unknown = JSON.parse(Buffer.from(reference, "base64url").toString("utf8"))
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Raw import references encode exactly two strings; validate both before resolving filesystem paths.
+      if (!Array.isArray(decoded) || decoded.length !== 2 || typeof decoded[0] !== "string" || typeof decoded[1] !== "string") {
+        throw new TypeError("Invalid Workspace raw import reference")
+      }
+      const [importer, path] = decoded
       const specifier = resolveWorkspaceRawSpecifier(path, rootDir)
       const resolved = loader.esmResolve(specifier, pathToFileURL(importer).href)
       const templatePath = fileURLToPath(resolved)

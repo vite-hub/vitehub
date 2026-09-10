@@ -25,7 +25,11 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "node": "./dist/index.js",
+      "default": "./dist/portable.js"
+    },
     "./internal/composition": "./dist/internal/composition.js",
     "./package.json": "./package.json"
   },
