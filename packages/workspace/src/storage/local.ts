@@ -723,10 +723,23 @@ class LocalWorkspaceStore implements WorkspaceStore {
         return options.recursive || !entry.path.slice(normalizedPrefix.length + 1).includes("/")
       })
     const entries: WorkspaceEntry[] = []
-    for (let index = 0; index < filtered.length; index += 64) {
-      const batch = await Promise.all(filtered.slice(index, index + 64).map(entry =>
-        withWorkspacePathLock(this.root, entry.path, () => this.#stat(entry.path, includeDigest), true)))
-      entries.push(...batch.filter((entry): entry is WorkspaceStat => entry !== undefined))
+    // Entries under one top-level path share reader gates. Visit each group
+    // sequentially, while independent groups can still read concurrently.
+    const groups = new Map<string, WorkspaceEntry[]>()
+    for (const entry of filtered) {
+      const key = entry.path.split("/")[0]!
+      const group = groups.get(key) ?? []
+      group.push(entry)
+      groups.set(key, group)
+    }
+    const independent = [...groups.values()]
+    for (let index = 0; index < independent.length; index += 64) {
+      await Promise.all(independent.slice(index, index + 64).map(async (group) => {
+        for (const entry of group) {
+          const info = await withWorkspacePathLock(this.root, entry.path, () => this.#stat(entry.path, includeDigest), true)
+          if (info) entries.push(info)
+        }
+      }))
     }
     return entries.sort((a, b) => a.path.localeCompare(b.path))
   }

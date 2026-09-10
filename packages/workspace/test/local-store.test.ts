@@ -219,6 +219,30 @@ describe("local workspace store", () => {
     await expect(readFile(`${root}/file.txt`, "utf8")).resolves.toBe("protected")
   })
 
+  it.each(["list", "snapshot"] as const)("avoids sibling reader-gate contention during %s", async (operation) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    await mkdir(`${root}/docs/nested`, { recursive: true })
+    for (let index = 0; index < 70; index++) await writeFile(`${root}/docs/nested/${index}.txt`, "hello")
+    const { mkdir: actualMkdir } = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let collisions = 0
+    vi.mocked(mkdir).mockImplementation(async (path, options) => {
+      try { return await actualMkdir(path, options as Parameters<typeof actualMkdir>[1]) }
+      catch (error) {
+        if (String(path).endsWith(".gate") && Reflect.get(Object(error), "code") === "EEXIST") collisions++
+        throw error
+      }
+    })
+    try {
+      const entries = operation === "list"
+        ? await store.list("", { recursive: true })
+        : Object.values((await store.snapshot()).entries)
+      expect(entries.filter(entry => entry.type === "file")).toHaveLength(70)
+      expect(collisions).toBe(0)
+    }
+    finally { vi.mocked(mkdir).mockImplementation(actualMkdir) }
+  })
+
   it("persists file attributes when only the configured root is writable", async () => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
