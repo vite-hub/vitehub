@@ -190,7 +190,12 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 }
 
+const sourceSyncStores = new WeakMap<WritableWorkspaceFacade, WorkspaceStore>()
+
 function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSync = false): WorkspaceStore {
+  // Nested resolution must keep syncing to the backing Store, not a prior overlay.
+  const backingSyncStore = sourceSync ? sourceSyncStores.get(workspace) : undefined
+  if (backingSyncStore) return backingSyncStore
   const meta = new Map<string, unknown>()
   const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
   const store: WorkspaceStore = {
@@ -569,6 +574,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       sync: writeWorkspace.sync,
       tools: writeTools,
     }
+    sourceSyncStores.set(writableWorkspace, syncStore)
     forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => overlayStore }, writableWorkspace)
 
     return {

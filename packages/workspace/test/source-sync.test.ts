@@ -28,7 +28,7 @@ afterEach(async () => {
 })
 
 describe("Workspace Source Sync", () => {
-  it.each(["memory", "local"])("preserves Source ownership through resolved writable facades: %s", async (provider) => {
+  it.each(["memory", "local"].flatMap(provider => [1, 2, 3].map(depth => ({ provider, depth }))))("preserves Source ownership through $depth resolved writable facades: $provider", async ({ provider, depth }) => {
     const root = await createRoot()
     const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
     let keys = ["README.md"]
@@ -44,10 +44,14 @@ describe("Workspace Source Sync", () => {
     })
     registerWorkspace("resolved-metadata", definition)
     const base = useWorkspace("resolved-metadata", { mode: "write" })
-    const { workspace } = await createWorkspaceSourceResolutionFacade(base, { ...definition, name: "resolved-metadata" }, {
-      invocation: { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false, toJSON: () => ({}) } },
-      overlay: true,
-    })
+    let workspace = base
+    for (let level = 0; level < depth; level++) {
+      const resolved = await createWorkspaceSourceResolutionFacade(workspace, { ...definition, name: "resolved-metadata" }, {
+        invocation: { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false, toJSON: () => ({}) } },
+        overlay: true,
+      })
+      workspace = resolved.workspace as WritableWorkspaceFacade
+    }
     await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({ status: "ready" })
     const reader = provider === "local" ? createLocalWorkspaceStore(root) : store
     await expect(reader.readFile("docs/README.md")).resolves.toMatchObject({ metadata: { title: "Docs", source: "docs" } })
@@ -55,7 +59,10 @@ describe("Workspace Source Sync", () => {
     await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({ status: "ready" })
     await expect(reader.readFile("docs/README.md")).resolves.toBeUndefined()
     await expect(reader.readFile("docs/next.md")).resolves.toMatchObject({ metadata: { title: "Docs", source: "docs" } })
-    await expect(base.fs.writeFile("forged.md", "forged", { metadata: { source: "docs" } })).rejects.toThrow()
+    await expect(workspace.fs.writeFile("forged.md", "forged", { metadata: { source: "docs" } })).rejects.toThrow()
+    await expect(workspace.fs.mkdir("docs/forged")).rejects.toThrow()
+    await expect(workspace.fs.rm("docs/next.md")).rejects.toThrow()
+    await expect(reader.readFile("docs/next.md")).resolves.toBeDefined()
   })
 
   it.each([
