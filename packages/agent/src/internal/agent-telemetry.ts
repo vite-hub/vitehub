@@ -25,7 +25,11 @@ export async function setAgentCapabilityInspection(
   _context: AgentInvocationContextStore,
   _id: string,
   _inspection: unknown,
-): Promise<void> {}
+): Promise<void> {
+  void _context
+  void _id
+  void _inspection
+}
 
 function secretMetadataKey(key: string): boolean {
   const normalized = key
