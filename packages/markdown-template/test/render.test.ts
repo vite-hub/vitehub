@@ -242,6 +242,14 @@ describe("renderMarkdownTemplate", () => {
     })).resolves.toBe(selected ? "Yes" : "No")
   })
 
+  it.each([false, 0, "", null, undefined, true, 1, "ready"])("requires both condition and value truthiness for %s", async (value) => {
+    const template = '::if{:condition="data.enabled" :value="data.value"}\nYes\n::else\nNo\n::\n::'
+    for (const enabled of [false, true]) {
+      await expect(renderMarkdownTemplate(template, { data: { enabled, value } }))
+        .resolves.toBe(enabled && value ? "Yes" : "No")
+    }
+  })
+
   it("requires all comparisons and the optional condition to match", async () => {
     const template = '::if{:condition="data.enabled" :value="data.count" :gte="2" :lt="5"}\nYes\n::else\nNo\n::\n::'
     for (const [enabled, count, expected] of [[true, 3, "Yes"], [false, 3, "No"], [true, 5, "No"]] as const) {

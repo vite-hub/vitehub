@@ -52,5 +52,5 @@ export function matchesCondition(
     return has("value") && props.value !== undefined
       && operators.every(operator => props[operator] !== undefined && comparisons[operator]!(props.value, props[operator]))
   }
-  return has("condition") || Boolean(props.value)
+  return !has("value") || Boolean(props.value)
 }
