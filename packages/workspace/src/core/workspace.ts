@@ -37,10 +37,17 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     const snapshot = await readCurrentSourceSnapshot(store, source)
     if (snapshot?.status !== "ready") continue
     for (const [path, item] of Object.entries(snapshot.items || {})) {
-      if ((await store.stat(path))?.type !== "file") continue
-      const file = await store.readFile(path)
-      if (file && (file.metadata?.source === source.key || fileAttributesUnavailable(file))
-        && await materializedFileMatches(file, item)) generatedFiles.add(path)
+      try {
+        if ((await store.stat(path))?.type !== "file") continue
+        const file = await store.readFile(path)
+        if (file && (file.metadata?.source === source.key || fileAttributesUnavailable(file))
+          && await materializedFileMatches(file, item)) generatedFiles.add(path)
+      }
+      catch (error) {
+        // A replaced ancestor makes the indexed file unavailable, not generated.
+        if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) continue
+        throw error
+      }
     }
     for (const path of [...(snapshot.ownedDirectories || []), ...(snapshot.ownedAncestors || []), ...(snapshot.ownsMount ? [source.mountPath] : [])]) {
       generatedDirectories.add(path)

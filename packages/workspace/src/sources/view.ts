@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
@@ -351,31 +352,38 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function ensureStartupPointPath(source: (typeof sources)[number], path: string) {
-    // Check persisted ownership before refreshing: a user may have replaced
-    // the indexed file with a directory since the previous invocation.
-    const existing = await store.stat(path)
-    if (existing && existing.type !== "file") {
-      const previous = await readCurrentSourceSnapshot(store, source)
-      if (previous?.items?.[path]) return false
+    try {
+      // Check persisted ownership before refreshing: a user may have replaced
+      // the indexed file with a directory since the previous invocation.
+      const existing = await store.stat(path)
+      if (existing && existing.type !== "file") {
+        const previous = await readCurrentSourceSnapshot(store, source)
+        if (previous?.items?.[path]) return false
+      }
+      const initial = await ensureMaterialized(source.key)
+      if (initial?.sources.some(item => item.status === "error")) return false
+      const entry = await store.stat(path)
+      const snapshot = await readCurrentSourceSnapshot(store, source)
+      const item = snapshot?.items?.[path]
+      // A directory replacing an indexed file belongs to the external writer.
+      // Keep it intact and report the Source file as unavailable.
+      if (entry && entry.type !== "file" && item) return false
+      if (entry && (entry.type !== "file" || !item || await materializedFileMatches(await store.readFile(path), item))) return true
+
+      const indexed = Object.keys(snapshot?.items || {}).some(item => item === path || item.startsWith(`${path}/`))
+      if (!indexed && !(path === source.mountPath && snapshot?.ownsMount)) return false
+
+      // Missing or overwritten persisted files need recovery, bypassing completion
+      // and refresh:false reuse. Unknown paths must not refresh a complete snapshot.
+      const recovery = await materializeSerialized({ sources: [source.key] })
+      if (recovery.sources.some(item => item.status === "error")) return false
+      return Boolean(await store.stat(path))
     }
-    const initial = await ensureMaterialized(source.key)
-    if (initial?.sources.some(item => item.status === "error")) return false
-    const entry = await store.stat(path)
-    const snapshot = await readCurrentSourceSnapshot(store, source)
-    const item = snapshot?.items?.[path]
-    // A directory replacing an indexed file belongs to the external writer.
-    // Keep it intact and report the Source file as unavailable.
-    if (entry && entry.type !== "file" && item) return false
-    if (entry && (entry.type !== "file" || !item || await materializedFileMatches(await store.readFile(path), item))) return true
-
-    const indexed = Object.keys(snapshot?.items || {}).some(item => item === path || item.startsWith(`${path}/`))
-    if (!indexed && !(path === source.mountPath && snapshot?.ownsMount)) return false
-
-    // Missing or overwritten persisted files need recovery, bypassing completion
-    // and refresh:false reuse. Unknown paths must not refresh a complete snapshot.
-    const recovery = await materializeSerialized({ sources: [source.key] })
-    if (recovery.sources.some(item => item.status === "error")) return false
-    return Boolean(await store.stat(path))
+    catch (error) {
+      // Preserve a file replacing an ancestor instead of refreshing through it.
+      if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return false
+      throw error
+    }
   }
 
   async function ensureMaterializedSources(items = sources) {

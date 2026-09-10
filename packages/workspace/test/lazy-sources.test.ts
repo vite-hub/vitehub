@@ -36,6 +36,45 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it("keeps a file replacing a startup ancestor in the default Local Store diff", async () => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    await store.snapshot({ name: "sync" })
+    const workspace = createWorkspace({
+      name: "startup-ancestor-diff",
+      store,
+      sources: { docs: custom({ materialize: "startup", getKeys: async () => ["child.md"], getItem: async key => ({ key, content: "generated" }) }) },
+    })
+    await workspace.readFile("docs/child.md")
+    await rm(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs"), "user replacement")
+
+    await expect(workspace.diff()).resolves.toMatchObject({
+      entries: expect.arrayContaining([expect.objectContaining({ path: "docs", after: expect.objectContaining({ type: "file" }) })]),
+    })
+    expect(await readFile(join(root, "docs"), "utf8")).toBe("user replacement")
+  })
+
+  it.each([false, true])("preserves a replaced startup ancestor during point reads with snapshot reuse=%s", async (reuseStartupSnapshots) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const getKeys = vi.fn(async () => ["child.md"])
+    const definition = {
+      name: "startup-ancestor-point",
+      sources: { docs: custom({ materialize: "startup", getKeys, getItem: async key => ({ key, content: "generated" }) }) },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await rm(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs"), "user replacement")
+    const view = createWorkspaceSourceView(definition, createLocalWorkspaceStore(root), { reuseStartupSnapshots })
+
+    await expect(view.exists("docs/child.md")).resolves.toBe(false)
+    await expect(view.readFile("docs/child.md")).rejects.toThrow("does not exist")
+    await expect(view.stat("docs/child.md")).rejects.toThrow("does not exist")
+    expect(await readFile(join(root, "docs"), "utf8")).toBe("user replacement")
+    expect(getKeys).toHaveBeenCalledOnce()
+  })
+
   it.each(["memory", "local"] as const)("excludes unchanged startup files from the default %s diff without hiding user edits", async (provider) => {
     const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
     const baseline = await store.snapshot({ name: "sync" })
