@@ -9,6 +9,7 @@ import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { fileAttributesUnavailable } from "../internal/file-attributes.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -205,7 +206,7 @@ export async function materializedFileMatches(file: Awaited<ReturnType<Workspace
   if (await sha256(file.content) !== item.materializedContentDigest) return false
   // Local Stores cannot restore instance-local attributes after reopening. Only
   // compare attributes the Store can observe; the content digest still applies.
-  if (!item.materializedAttributes) return true
+  if (!item.materializedAttributes || fileAttributesUnavailable(file)) return true
   return file.mediaType === item.materializedMediaType
     && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
 }

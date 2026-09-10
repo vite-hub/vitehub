@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
+import { markFileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
@@ -196,12 +197,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
     if (!bytes) return undefined
     const normalized = normalizeWorkspacePath(path)
     const metadata = this.#files.get(normalized)
-    return {
+    const file: WorkspaceFile = {
       path: normalized,
       content: new Uint8Array(bytes),
       mediaType: metadata?.mediaType,
       metadata: metadata?.metadata,
     }
+    return metadata ? file : markFileAttributesUnavailable(file)
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {

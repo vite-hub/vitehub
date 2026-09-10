@@ -84,9 +84,48 @@ describe("lazy sources", () => {
     const result = await materializeWorkspaceSources(definition, reopened)
 
     expect(result.sources[0]?.status).toBe("ready")
-    expect(getKeys).toHaveBeenCalledTimes(1)
-    expect(getItem).toHaveBeenCalledTimes(1)
+    expect(getKeys).toHaveBeenCalledTimes(changedContent ? 1 : 0)
+    expect(getItem).toHaveBeenCalledTimes(changedContent ? 1 : 0)
     expect(Buffer.from((await reopened.readFile("docs/guide.md"))!.content).toString()).toBe("guide")
+  })
+
+  it.each(["list", "glob", "search"] as const)("reuses attributed inspection snapshots after Local Store restart during %s", async (operation) => {
+    const root = await createRoot()
+    let content = "persisted needle"
+    const getItem = vi.fn(async (key: string) => ({ key, content, mediaType: "text/markdown", metadata: { label: "guide" } }))
+    const definition = {
+      name: "reopened-inspection",
+      sources: { docs: custom({ materialize: "startup", mount: "docs", getKeys: async () => ["guide.md"], getItem }) },
+    }
+    await materializeWorkspaceSources(definition, createLocalWorkspaceStore(root))
+    content = "upstream needle"
+    getItem.mockClear()
+    const reopened = createLocalWorkspaceStore(root)
+    const inspection = createWorkspaceSourceView(definition, reopened, { reuseStartupSnapshots: true })
+    if (operation === "search") {
+      await expect(inspection.search({ pattern: "needle" })).resolves.toEqual([
+        expect.objectContaining({ path: "docs/guide.md", text: "persisted needle" }),
+      ])
+    }
+    else if (operation === "glob") await inspection.glob("**/*.md")
+    else await inspection.list("docs", { recursive: true })
+    expect(getItem).not.toHaveBeenCalled()
+    expect(Buffer.from((await reopened.readFile("docs/guide.md"))!.content).toString()).toBe("persisted needle")
+  })
+
+  it.each(["memory", "local"])("revalidates explicitly cleared attributes in %s inspection snapshots", async (storeType) => {
+    const store = storeType === "local" ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const getItem = vi.fn(async (key: string) => ({ key, content: "needle", mediaType: "text/markdown", metadata: { label: "guide" } }))
+    const definition = {
+      name: "cleared-inspection-attributes",
+      sources: { docs: custom({ materialize: "startup", mount: "docs", getKeys: async () => ["guide.md"], getItem }) },
+    }
+    await materializeWorkspaceSources(definition, store)
+    await store.writeFile("docs/guide.md", { path: "docs/guide.md", content: "needle" })
+    getItem.mockClear()
+    await createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true }).list("docs", { recursive: true })
+    expect(getItem).toHaveBeenCalledOnce()
+    await expect(store.readFile("docs/guide.md")).resolves.toMatchObject({ mediaType: "text/markdown", metadata: { label: "guide", source: "docs" } })
   })
 
   it.each(["memory", "local"])("restores the selected startup Source before point reads on %s", async (storeType) => {
