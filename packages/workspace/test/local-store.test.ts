@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -36,6 +36,37 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each([".agents", ".agents/skills", ".vitehub", ".vitehub/tmp"])("rejects conditional persistence through a linked %s directory", async (linkedPath) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    const outside = await mkdtemp(join(tmpdir(), "vitehub-workspace-outside-"))
+    tempDirs.push(root, outside)
+    const store = createLocalWorkspaceStore(root)
+    await mkdir(join(root, linkedPath, ".."), { recursive: true })
+    await symlink(outside, join(root, linkedPath), "junction")
+    const path = ".agents/skills/browser/SKILL.md"
+
+    await expect(store.writeFileConditional!(path, { path, content: "browser instructions" }, null)).rejects.toThrow("symbolic link")
+    await expect(store.writeFile(path, { path, content: "browser instructions" })).rejects.toThrow("symbolic link")
+    await expect(store.writeFileStream!(path, { path, content: new ReadableStream({ start(controller) { controller.close() } }) })).rejects.toThrow("symbolic link")
+    expect(await readdir(outside)).toEqual([])
+    expect(await stat(join(root, ".agents/skills/browser/SKILL.md")).catch(() => undefined)).toBeUndefined()
+  })
+
+  it("rejects linked files and dangling ancestors without replacing outside content", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    const outside = await mkdtemp(join(tmpdir(), "vitehub-workspace-outside-"))
+    tempDirs.push(root, outside)
+    const store = createLocalWorkspaceStore(root)
+    await writeFile(join(outside, "SKILL.md"), "user edits")
+    await symlink(join(outside, "SKILL.md"), join(root, "SKILL.md"))
+    await expect(store.writeFile("SKILL.md", { path: "SKILL.md", content: "replacement" })).rejects.toThrow("symbolic link")
+    await symlink(join(outside, "missing"), join(root, ".agents"), "junction")
+    const path = ".agents/skills/browser/SKILL.md"
+    await expect(store.writeFileConditional!(path, { path, content: "browser instructions" }, null)).rejects.toThrow("symbolic link")
+    expect(await readFile(join(outside, "SKILL.md"), "utf8")).toBe("user edits")
+    expect(await readdir(outside)).toEqual(["SKILL.md"])
+  })
+
   it("supports file tree operations, snapshots, and diffs", async () => {
     const store = await createStore()
 

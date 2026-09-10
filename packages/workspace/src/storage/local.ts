@@ -204,13 +204,38 @@ class LocalWorkspaceStore implements WorkspaceStore {
     }
   }
 
+  async #assertWritePath(path: string): Promise<void> {
+    const { lstat } = await import("node:fs/promises")
+    const { dirname } = await import("node:path")
+    const root = resolveInside(this.root)
+    for (const target of [resolveInside(root, path), resolveInside(root, ".vitehub/tmp")]) {
+      const ancestors: string[] = []
+      for (let current = target; current !== root; current = dirname(current)) {
+        ancestors.push(current)
+      }
+      ancestors.push(root)
+      for (const ancestor of ancestors.reverse()) {
+        const info = await lstat(ancestor).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return undefined
+          throw error
+        })
+        if (info?.isSymbolicLink()) throw workspaceError(`[vitehub] Cannot write Workspace path through a symbolic link: ${path}.`)
+        if (!info) break
+      }
+    }
+  }
+
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    await withWorkspacePathLock(this.root, path, () => this.#writeFile(path, file))
+    await withWorkspacePathLock(this.root, path, async () => {
+      await this.#assertWritePath(path)
+      await this.#writeFile(path, file)
+    })
   }
 
   async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
     await withWorkspacePathLock(this.root, path, async () => {
       const normalized = normalizeWorkspacePath(path)
+      await this.#assertWritePath(normalized)
       const current = await this.stat(normalized)
       assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? current.digest : undefined)
       await this.#writeFile(normalized, file)
@@ -253,7 +278,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
-    return await withWorkspacePathLock(this.root, path, () => this.#writeFileStream(path, file))
+    return await withWorkspacePathLock(this.root, path, async () => {
+      await this.#assertWritePath(path)
+      return await this.#writeFileStream(path, file)
+    })
   }
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
