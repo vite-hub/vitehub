@@ -1,5 +1,5 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
-import { boolean, object, optional, parse, record, string, unknown } from "valibot"
+import { boolean, check, object, optional, parse, pipe, record, string, unknown } from "valibot"
 
 import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts"
 import { contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
@@ -61,7 +61,7 @@ type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
 
 const fileMetadataSchema = object({
   mediaType: optional(string()),
-  metadata: optional(record(string(), unknown())),
+  metadata: optional(pipe(record(string(), unknown()), check(value => value.source === undefined || typeof value.source === "string", "metadata.source must be a string when provided"))),
 })
 const fileMetadataFilesSchema = record(string(), fileMetadataSchema)
 const fileMetadataJournalSchema = object({
@@ -484,7 +484,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       return
     }
     try {
-      if (journal.path && journal.existed === false && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
+      if (journal.path && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
         const content = await this.#fs!.promises.readFile(this.#absolute(journal.path))
         if (await sha256(contentToBytes(content)) !== journal.digest) return
         if (journal.metadata && (journal.metadata.mediaType !== undefined || journal.metadata.metadata !== undefined)) this.#files.set(journal.path, journal.metadata)

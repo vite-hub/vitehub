@@ -680,6 +680,20 @@ describe("Cloudflare Artifacts workspace store", () => {
     ])
   })
 
+  it.each([42, null, false, {}, []])("rejects invalid persisted Source ownership: %j", async (source) => {
+    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
+    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
+      const { fs } = options as { fs: MemoryFS }
+      await fs.promises.writeFile("/workspace/result.json", "source content")
+      await fs.promises.writeFile("/workspace/.vitehub/files.json", JSON.stringify({
+        "result.json": { metadata: { source } },
+      }))
+    })
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+
+    await expect(store.readFile("result.json")).rejects.toThrow("metadata.source must be a string")
+  })
+
   it.each([
     ["truncated", '{"path":"result.json",'],
     ["schema-invalid", JSON.stringify({ path: "result.json", existed: "false", metadata: { source: "pending" } })],
@@ -709,11 +723,11 @@ describe("Cloudflare Artifacts workspace store", () => {
     await expect(filesystem?.promises.readFile("/workspace/.vitehub/files.json")).resolves.toEqual(new TextEncoder().encode(committed))
   })
 
-  it.each(["matching", "partial", "legacy", "previous"])("recovers only version-matched pending metadata after restart: %s", async (kind) => {
+  it.each(["matching", "replacement", "partial", "legacy", "previous"])("recovers only version-matched pending metadata after restart: %s", async (kind) => {
     const attributes = { mediaType: "application/json", metadata: { source: "agent" } }
     const content = '{"ok":true}'
     const published = kind === "previous" ? "old content" : kind === "partial" ? content.slice(0, 5) : content
-    const previousMetadata = kind === "previous" ? { source: "original" } : undefined
+    const previousMetadata = ["previous", "replacement"].includes(kind) ? { source: "original" } : undefined
     const digest = kind === "legacy" ? undefined : await sha256(content)
     let filesystem: MemoryFS | undefined
     gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
@@ -723,15 +737,15 @@ describe("Cloudflare Artifacts workspace store", () => {
       await fs.promises.writeFile("/workspace/result.json", published)
       await fs.promises.writeFile("/workspace/.vitehub/files.json", JSON.stringify({ "result.json": { metadata: previousMetadata } }))
       await fs.promises.writeFile("/workspace/.vitehub/files.pending.json", JSON.stringify({
-        path: "result.json", existed: kind === "previous", digest, metadata: attributes,
+        path: "result.json", existed: ["previous", "replacement"].includes(kind), digest, metadata: attributes,
       }))
     })
     const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
 
     const file = await store.readFile("result.json")
     expect(file?.content).toEqual(new TextEncoder().encode(published))
-    expect(file?.metadata).toEqual(kind === "matching" ? attributes.metadata : previousMetadata)
-    if (kind === "matching") expect(file?.mediaType).toBe(attributes.mediaType)
+    expect(file?.metadata).toEqual(["matching", "replacement"].includes(kind) ? attributes.metadata : previousMetadata)
+    if (["matching", "replacement"].includes(kind)) expect(file?.mediaType).toBe(attributes.mediaType)
     expect(filesystem?.entries.has("/workspace/.vitehub/files.pending.json")).toBe(false)
   })
 
