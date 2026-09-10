@@ -72,11 +72,15 @@ describe("local workspace store", () => {
     await store.writeFileConditional!("conditional.md", { path: "conditional.md", content: "conditional" }, null)
     await store.writeFileStream!("stream.md", {
       path: "stream.md",
+      mediaType: "text/plain",
+      metadata: { source: "stream" },
       content: new ReadableStream({ start(controller) {
         controller.enqueue(new TextEncoder().encode("stream"))
         controller.close()
       } }),
     })
+    const reopened = createLocalWorkspaceStore(root)
+    await expect(reopened.readFile("stream.md")).resolves.toMatchObject({ mediaType: "text/plain", metadata: { source: "stream" } })
     for (const name of ["regular", "conditional", "stream"]) {
       expect(await readFile(join(target, `${name}.md`), "utf8")).toBe(name)
     }
