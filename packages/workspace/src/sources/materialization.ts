@@ -480,7 +480,9 @@ async function reconcileRemovedStartupSourcesInternal(
           status: "updating",
         })
       }
-      if (!preserveDirectory) {
+      // A nonempty directory cannot be removed non-recursively. Do not attempt
+      // deletion: it may have been replaced since its descendants were listed.
+      if (!preserveDirectory && descendants.length === 0) {
         try {
           await control.mutate(() => store.rm(path, { force: true }))
           // Successful deletion leaves no directory ownership to transfer.
@@ -489,7 +491,12 @@ async function reconcileRemovedStartupSourcesInternal(
         catch {}
       }
       for (const transfer of ownershipTransfers) {
-        await control.checkpoint(() => writeSourceSnapshotMetadata(store, transfer))
+        await control.checkpoint(async () => {
+          const currentDescendants = await store.list(path, { recursive: true })
+          if (!currentDescendants.some(entry => entry.path !== path
+            && (entry.path === transfer.mountPath || Object.hasOwn(transfer.items || {}, entry.path)))) return
+          await writeSourceSnapshotMetadata(store, transfer)
+        })
       }
     }
     await control.checkpoint(async () => {

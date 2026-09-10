@@ -1057,11 +1057,12 @@ describe("lazy sources", () => {
     await view.materializeSources({ sources: ["removed"] })
     await view.materializeSources({ sources: ["retained"] })
 
-    const originalRm = store.rm.bind(store)
-    const remove = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
-      // The retained file disappears after descendant evidence was collected.
-      if (path === "docs") await originalRm("docs/retained.md", { force: true })
-      await originalRm(path, options)
+    const originalList = store.list.bind(store)
+    const remove = vi.spyOn(store, "list").mockImplementation(async (path, options) => {
+      const entries = await originalList(path, options)
+      // The mount disappears after descendant evidence was collected.
+      if (path === "docs") await store.rm(path, { recursive: true, force: true })
+      return entries
     })
     await syncWorkspaceDefinition({ name: initial.name, sources: { retained } }, store)
     remove.mockRestore()
@@ -1194,6 +1195,38 @@ describe("lazy sources", () => {
     await store.mkdir("docs/nested")
 
     await syncWorkspaceDefinition({ name: initial.name, sources: { retained } }, store)
+    await expect(store.stat("docs/nested")).resolves.toMatchObject({ type: "directory" })
+    const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSources({ retained })[0]!)
+    expect(snapshot?.ownedDirectories || []).not.toContain("docs/nested")
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs/nested")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each([false, true])("preserves a shared directory replaced after descendant listing with local=%s", async (local) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const source = (path: string) => custom({
+      materialize: "startup",
+      mount: "docs",
+      files: [{ path, content: path }],
+    })
+    const retained = source("nested/retained.md")
+    const initial = { name: "racing-transfer-directory", sources: { removed: source("nested/removed.md"), retained } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    const list = store.list.bind(store)
+    let replaced = false
+    vi.spyOn(store, "list").mockImplementation(async (path, options) => {
+      const entries = await list(path, options)
+      if (path === "docs/nested" && !replaced) {
+        replaced = true
+        await store.rm(path, { recursive: true })
+        await store.mkdir(path)
+      }
+      return entries
+    })
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: { retained } }, store)
+    expect(replaced).toBe(true)
     await expect(store.stat("docs/nested")).resolves.toMatchObject({ type: "directory" })
     const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSources({ retained })[0]!)
     expect(snapshot?.ownedDirectories || []).not.toContain("docs/nested")
