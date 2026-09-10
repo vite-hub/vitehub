@@ -204,8 +204,9 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       // Keep this state across journal chunks without retaining credential text.
       if (!state.yamlFlow && plain.line) {
         if (character === " " || character === "\r" || character === "\n") {
-          plain.pending = (plain.pending ?? "") + character
-          plain.spaces = character === "\n" ? 0 : (plain.spaces ?? 0) + (character === " " ? 1 : 0)
+          // Excess blank-line formatting may be dropped, but retain the safe suffix.
+          plain.pending = ((plain.pending ?? "") + character).slice(-4096)
+          plain.spaces = character === "\n" ? 0 : Math.min(state.yamlIndent! + 1, (plain.spaces ?? 0) + (character === " " ? 1 : 0))
           continue
         }
         if ((plain.spaces ?? 0) <= state.yamlIndent!) return index

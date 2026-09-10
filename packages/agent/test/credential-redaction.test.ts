@@ -534,3 +534,17 @@ it.each(["Cookie", "Set-Cookie", "cookie", "SET-COOKIE"])("redacts %s headers an
     expect(pendingCredentialTextSuffix(header.slice(0, split))).toBe(header.slice(0, split))
   }
 })
+
+it("bounds streamed YAML plain credential whitespace while preserving dedents", () => {
+  const state = pendingCredentialAssignmentState("config:\n  password: sensitive")!
+  for (const chunk of ["\n", ...Array.from({ length: 100 }, () => " ".repeat(1000)), ...Array.from({ length: 100 }, () => "\r\n".repeat(1000))]) {
+    expect(consumeCredentialAssignment(chunk, state)).toBe(chunk.length)
+    expect(state.yamlPlain!.pending!.length).toBeLessThanOrEqual(4096)
+    expect(state.yamlPlain!.spaces).toBeLessThanOrEqual(3)
+  }
+  expect(consumeCredentialAssignment("    more secret", state)).toBe(15)
+  expect(state.yamlPlain!.pending).toBe("")
+  const suffix = "\r\n  status: ok"
+  const boundary = consumeCredentialAssignment(suffix, state)
+  expect(state.yamlPlain!.pending + suffix.slice(boundary)).toBe(suffix)
+})
