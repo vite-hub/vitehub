@@ -38,6 +38,7 @@ export function copyJsonFileMetadata(path: string, metadata: Record<string, unkn
   try {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Reject non-object JavaScript inputs before recursively validating the metadata contract.
     if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)) {
+      // SAFETY: The non-null, non-array input is copied into a plain object; copyJsonValue rejects unsupported prototypes and recursively validates every property.
       copy = copyJsonValue(metadata, new Set()) as Record<string, unknown>
     }
   }
