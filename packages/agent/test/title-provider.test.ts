@@ -104,7 +104,10 @@ describe("title provider inheritance", () => {
     });
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "Explain model routing" })],
-    })).rejects.toThrow("requires an inherited Codex provider");
+    })).rejects.toMatchObject({
+      code: "AGENT_R0924",
+      message: expect.stringContaining("requires an inherited Codex provider"),
+    });
     expect(mocks.adapters.every(adapter => adapter.model === "claude-main")).toBe(true);
   });
 

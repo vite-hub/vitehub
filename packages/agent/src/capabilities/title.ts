@@ -1037,7 +1037,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       const driver = context.agentDriver as NormalizedAgentDriver | undefined
       if (!options.execute && !options.driver && (options.model === undefined || hasRuntimeType(options.model, "string"))
         && driver?.kind === "provider" && driver.provider !== "codex" && options.reasoningEffort !== undefined) {
-        throw agentDiagnostics.AGENT_R0923({ message: "[vitehub] title({ reasoningEffort }) requires an inherited Codex provider." })
+        throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] title({ reasoningEffort }) requires an inherited Codex provider." })
       }
       let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
       const getChannelDeliveryAttempt = () => {
