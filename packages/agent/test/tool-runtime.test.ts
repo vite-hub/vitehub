@@ -62,4 +62,14 @@ describe("tool accessor receivers", () => {
     expect(Object.getPrototypeOf(copy)).toBe(prototype)
     expect(Reflect.get(copy, "__proto__")).toBe("original state")
   })
+
+  it("keeps platform prototype accessors on the copy's prototype chain", () => {
+    const tool = { name: "lookup" }
+    const copy = copyToolWithOverrides(tool, {})
+    expect(Object.hasOwn(copy, "__proto__")).toBe(false)
+    const prototype = { changed: true }
+    Reflect.set(copy, "__proto__", prototype)
+    expect(Object.getPrototypeOf(copy)).toBe(prototype)
+    expect(Object.getPrototypeOf(tool)).toBe(Object.prototype)
+  })
 })
