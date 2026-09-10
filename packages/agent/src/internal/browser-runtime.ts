@@ -1,6 +1,6 @@
 import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { basename, dirname, join, resolve } from "node:path"
 import { spawn } from "node:child_process"
 import { lock } from "proper-lockfile"
 
@@ -160,6 +160,12 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
 async function provisionLocked(root: string, npmCommand: string, platform: NodeJS.Platform, assertLock: () => void): Promise<PreparedBrowserRuntime> {
   if (platform !== "linux" && platform !== "darwin") throw new Error("[vitehub] Managed browser() supports Linux and macOS. Use runtime: external for a prepared browser runtime.")
   if (platform === "linux" && process.arch !== "x64") throw new Error("[vitehub] Managed browser() currently requires Linux x64. Use runtime: external for other architectures.")
+  const stagingPrefix = `${basename(root)}.install-`
+  for (const entry of await readdir(dirname(root))) {
+    if (!entry.startsWith(stagingPrefix)) continue
+    assertLock()
+    await rm(join(dirname(root), entry), { force: true, recursive: true })
+  }
   const packageRoot = join(root, "package")
   const binRoot = join(packageRoot, "node_modules", ".bin")
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")

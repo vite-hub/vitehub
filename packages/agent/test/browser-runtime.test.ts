@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { isAbsolute, join, relative } from "node:path"
 import { execFile } from "node:child_process"
@@ -92,6 +92,25 @@ describe("browser runtime", () => {
     expect(one.skillContent).not.toContain("hidden: true")
     expect(one.skillContent).toContain("Keep the configured `AGENT_BROWSER_SESSION`")
     await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
+  })
+
+  it.each([false, true])("reclaims interrupted staging directories with a ready cache: %s", async (ready) => {
+    const value = await fixture()
+    const options = { cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" as const }
+    if (ready) await prepareBrowserRuntime(options)
+    const abandoned = `${value.cache}.install-123-abandoned`
+    const unrelated = join(value.root, "other-cache.install-123-abandoned")
+    await mkdir(abandoned)
+    await writeFile(join(abandoned, "partial-browser"), "interrupted payload")
+    await mkdir(unrelated)
+    await writeFile(join(unrelated, "keep"), "other runtime")
+    resetBrowserRuntimePreparationForTest()
+
+    await prepareBrowserRuntime(options)
+
+    expect(await readdir(value.root)).not.toContain("cache.install-123-abandoned")
+    expect(await readFile(join(unrelated, "keep"), "utf8")).toBe("other runtime")
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
   })
 
