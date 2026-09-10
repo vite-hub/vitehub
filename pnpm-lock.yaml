@@ -76,7 +76,7 @@ catalogs:
       specifier: ^1.1.4
       version: 1.1.4
     '@t3tools/provider-runtime':
-      specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d51cae5616d8e0689aeb164f9505a517e29457b3
+      specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@f603ba290f3fba0706137f485bdda71e6a0dec7c
       version: 0.0.33
     remark-gfm:
       specifier: ^4.0.1
@@ -694,7 +694,7 @@ importers:
         version: 1.1.0
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d51cae5616d8e0689aeb164f9505a517e29457b3(ioredis@5.11.1)
+        version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@f603ba290f3fba0706137f485bdda71e6a0dec7c
       '@vercel/connect':
         specifier: 2.0.1
         version: 2.0.1(@ai-sdk/mcp@2.0.36(zod@4.5.4))(ai@7.0.58(zod@4.5.4))(better-auth@1.7.2(@cloudflare/workers-types@5.20260904.1)(@opentelemetry/api@1.9.1)(better-sqlite3@12.9.0)(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260904.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.38.3)(better-sqlite3@12.9.0)(bun-types@1.4.0)(kysely@0.29.3)(postgres@3.4.9)(sql.js@1.14.1))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.40(typescript@6.0.3)))(eve@0.46.1(6415e810754b7f4cdac920de9f089ca6))
@@ -3577,19 +3577,6 @@ packages:
 
   '@dxup/unimport@0.1.2':
     resolution: {integrity: sha512-/B8YJGPzaYq1NbsQmwgP8EZqg40NpTw4ZB3suuI0TplbxKHeK94jeaawLmVhCv+YwUnOpiWEz9U6SeThku/8JQ==}
-
-  '@effect/platform-node-shared@4.0.0-rc.111':
-    resolution: {integrity: sha512-iES0Q9vmjhaUKqeW9ceonuD45MUg/Ouk08LzRSptZ+B5qB0w9WlRjDmUz5TJmY2betNop5FRI5k4AD4mtQt3Bw==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      effect: ^4.0.0-rc.111
-
-  '@effect/platform-node@4.0.0-beta.103':
-    resolution: {integrity: sha512-VD8fbpendwFokMwzC7/MxazjhEVDihPC5NZtomYEyZwGaA1LXMvwP1y8pfXwfshUkG56TN4EMQqzu72c0B9FhA==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      effect: ^4.0.0-beta.103
-      ioredis: ^5.7.0
 
   '@effect/platform@0.90.3':
     resolution: {integrity: sha512-XvQ37yzWQKih4Du2CYladd1i/MzqtgkTPNCaN6Ku6No4CK83hDtXIV/rP03nEoBg2R3Pqgz6gGWmE2id2G81HA==}
@@ -8112,14 +8099,14 @@ packages:
   '@swc/types@0.1.27':
     resolution: {integrity: sha512-K6h3iUlqeM946U4sXFYeahefR1YBbXJvko+hv8WS8/0BNJ4OHiHRywMnQUJCqkR7Y9+hqQ1TvEpiKqUhz7NEFg==}
 
-  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d51cae5616d8e0689aeb164f9505a517e29457b3':
-    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d51cae5616d8e0689aeb164f9505a517e29457b3}
+  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@f603ba290f3fba0706137f485bdda71e6a0dec7c':
+    resolution: {integrity: sha512-5/6KJ5SRsv8fU6r18GmIScaeHjo3nG6QVGXHy3cvTnBS1R7kBTOg7o6AyMih6sdi1EZ0QuD0qQ+80MpzfVGNEQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@f603ba290f3fba0706137f485bdda71e6a0dec7c}
     version: 0.0.38
     peerDependencies:
       effect: 4.0.0-beta.103
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d51cae5616d8e0689aeb164f9505a517e29457b3':
-    resolution: {integrity: sha512-4x3k4052iQZiFOuO46OA+miyfj4LgKGkoXzNV/dLL8QpVRb0GO7cP9VdFYcBvVKsZVhge7d84T545JokDJhuNA==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d51cae5616d8e0689aeb164f9505a517e29457b3}
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@f603ba290f3fba0706137f485bdda71e6a0dec7c':
+    resolution: {integrity: sha512-7Avm6+BxhQSoJ5cUjyPnfp82T+U2izQOVGdC/EYaklxC6DG8GQgPJYpTKQJJv9rG58wq15jot6n34pCaFUgGhA==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@f603ba290f3fba0706137f485bdda71e6a0dec7c}
     version: 0.0.33
     engines: {node: ^22.16 || ^23.11 || >=24.10}
 
@@ -17723,26 +17710,6 @@ snapshots:
 
   '@dxup/unimport@0.1.2': {}
 
-  '@effect/platform-node-shared@4.0.0-rc.111(effect@4.0.0-beta.103)':
-    dependencies:
-      '@types/ws': 8.18.1
-      effect: 4.0.0-beta.103
-      ws: 8.21.3
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
-  '@effect/platform-node@4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)':
-    dependencies:
-      '@effect/platform-node-shared': 4.0.0-rc.111(effect@4.0.0-beta.103)
-      effect: 4.0.0-beta.103
-      ioredis: 5.11.1
-      mime: 4.1.0
-      undici: 8.10.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
   '@effect/platform@0.90.3(effect@3.17.7)':
     dependencies:
       '@opentelemetry/semantic-conventions': 1.43.0
@@ -23906,19 +23873,14 @@ snapshots:
     dependencies:
       '@swc/counter': 0.1.3
 
-  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d51cae5616d8e0689aeb164f9505a517e29457b3(effect@4.0.0-beta.103)':
+  '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@f603ba290f3fba0706137f485bdda71e6a0dec7c(effect@4.0.0-beta.103)':
     dependencies:
       effect: 4.0.0-beta.103
 
-  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@d51cae5616d8e0689aeb164f9505a517e29457b3(ioredis@5.11.1)':
+  '@t3tools/provider-runtime@https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@f603ba290f3fba0706137f485bdda71e6a0dec7c':
     dependencies:
-      '@effect/platform-node': 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
-      '@t3tools/contracts': https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@d51cae5616d8e0689aeb164f9505a517e29457b3(effect@4.0.0-beta.103)
+      '@t3tools/contracts': https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@f603ba290f3fba0706137f485bdda71e6a0dec7c(effect@4.0.0-beta.103)
       effect: 4.0.0-beta.103
-    transitivePeerDependencies:
-      - bufferutil
-      - ioredis
-      - utf-8-validate
 
   '@tailwindcss/node@4.3.3':
     dependencies:
