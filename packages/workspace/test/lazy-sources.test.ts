@@ -232,6 +232,31 @@ describe("lazy sources", () => {
     await expect(view.search({ pattern: "second needle|root needle", regex: true, paths })).resolves.toEqual([])
   })
 
+  it.each([false, true].flatMap(local => [false, true].map(sameContent => ({ local, sameContent }))))("revalidates overwritten inspection snapshots with local=$local and same content=$sameContent", async ({ local, sameContent }) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "inspection-overwritten-snapshot",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", cache: { maxAge: 3600 }, files: [{ path: "shared.md", content: "first needle", mediaType: "text/markdown", metadata: { label: "first" } }] }),
+        second: custom({ materialize: "startup", mount: "docs", cache: { maxAge: 3600 }, files: [{ path: "shared.md", content: sameContent ? "first needle" : "second needle", mediaType: "text/plain", metadata: { label: "second" } }] }),
+      },
+    }
+    const writer = createWorkspaceSourceView(definition, store)
+    await writer.materializeSources()
+    await writer.materializeSources({ sources: ["second"], path: "docs/shared.md" })
+    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ metadata: { source: "second" } })
+
+    const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+    await expect(inspection.search({ pattern: "needle" })).resolves.toEqual([
+      expect.objectContaining({ path: "docs/shared.md", text: "first needle" }),
+    ])
+    // Check the Store before a point read can repair ownership itself.
+    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({
+      mediaType: "text/markdown",
+      metadata: { source: "first", label: "first" },
+    })
+  })
+
   it.each(["search", "list"].flatMap(operation => [false, true].flatMap(local => ["", "docs"].map(mount => ({ operation, local, mount })))))("preserves overlapping inspection snapshots during $operation with local=$local and mount=$mount", async ({ operation, local, mount }) => {
     const rootDir = await mkdtemp(join(tmpdir(), "workspace-inspection-overlap-"))
     tempDirs.push(rootDir)

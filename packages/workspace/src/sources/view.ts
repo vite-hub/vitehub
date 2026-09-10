@@ -390,9 +390,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           continue
         }
         const files: WorkspaceFile[] = []
-        for (const path of Object.keys(snapshot.items || {})) {
+        for (const [path, item] of Object.entries(snapshot.items || {})) {
           const file = await store.readFile(path)
-          if (!file) {
+          if (!file || !await materializedFileMatches(file, item)) {
             incomplete.add(source.key)
             break
           }
