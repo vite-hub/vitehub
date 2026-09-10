@@ -141,7 +141,8 @@ describe("Effect ownership", () => {
       const manifestPath = join(packageDir, "package.json")
       const manifest = parseJsonObject(await readFile(manifestPath, "utf8"), manifestPath)
       const dependencies = manifest.dependencies
-      const declaredEffect = isJsonObject(dependencies) ? dependencies.effect : undefined
+      const devDependencies = manifest.devDependencies
+      const declaredEffect = isJsonObject(dependencies) ? dependencies.effect : isJsonObject(devDependencies) ? devDependencies.effect : undefined
       expect(declaredEffect, manifestPath).toBe("catalog:effect")
 
       const effectPackage = createRequire(manifestPath).resolve("effect/package.json")
