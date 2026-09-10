@@ -63,6 +63,7 @@ interface MaterializedStartupSource {
 
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string, Set<ResolvedWorkspaceSource>>>()
+const currentStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string, ResolvedWorkspaceSource[]>>()
 
 export interface MaterializationControl {
   isCurrent(): boolean
@@ -387,6 +388,9 @@ export async function reconcileRemovedStartupSources(
   },
   materializationStore = store,
 ) {
+  const currentWorkspaces = currentStartupSourcesByStore.get(materializationStore) ?? new Map<string, ResolvedWorkspaceSource[]>()
+  currentWorkspaces.set(workspaceName, currentSources)
+  currentStartupSourcesByStore.set(materializationStore, currentWorkspaces)
   // Per-source materializations share removed owners, so finish their cleanup
   // before another source can observe and delete the same files.
   const previous = startupReconciliationByStore.get(materializationStore)
@@ -642,6 +646,12 @@ export async function materializeWorkspaceSources(
     for (const source of selectedSources) activeSources.delete(source)
     if (!activeSources.size) activeWorkspaces.delete(definition.name)
     if (!activeWorkspaces.size) activeStartupSourcesByStore.delete(store)
+    const currentSources = currentStartupSourcesByStore.get(store)?.get(definition.name)
+    if (currentSources && selectedSources.some(source => !currentSources.some(current => current.key === source.key && current.mountPath === source.mountPath))) {
+      // A newer definition deferred cleanup while this owner was writing.
+      // Retire it now and invalidate retained snapshots for any overwritten paths.
+      await reconcileRemovedStartupSources(definition.name, store, currentSources)
+    }
   }
 }
 

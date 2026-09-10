@@ -1467,11 +1467,55 @@ describe("lazy sources", () => {
       release()
     }
     await materialization
-    await expect(store.readFile("late.md")).resolves.toMatchObject({ content: "late write" })
+    await expect(store.stat("late.md")).resolves.toBeUndefined()
 
     await syncWorkspaceDefinition(next, store)
     await expect(store.stat("late.md")).resolves.toBeUndefined()
     await expect(store.getMeta!(`workspace:${initial.name}:startup-sources`)).resolves.toEqual([])
+  })
+
+  it("repairs a retained startup snapshot after a removed active owner overwrites it", async () => {
+    const store = createMemoryWorkspaceStore()
+    let release!: () => void
+    const resumed = new Promise<void>((resolve) => { release = resolve })
+    let signalStarted!: () => void
+    const started = new Promise<void>((resolve) => { signalStarted = resolve })
+    const oldView = createWorkspaceSourceView({
+      name: "active-startup-overlap",
+      sources: { removed: custom({
+        materialize: "startup",
+        mount: "",
+        async getKeys() { return ["shared.md"] },
+        async getItem(key) {
+          signalStarted()
+          await resumed
+          return { key, content: "old" }
+        },
+      }) },
+    }, store)
+    const pending = oldView.materializeSources()
+    await started
+    const currentView = createWorkspaceSourceView({
+      name: "active-startup-overlap",
+      sources: { retained: custom({
+        materialize: "startup",
+        mount: "",
+        async getKeys() { return ["shared.md"] },
+        async getItem(key) { return { key, content: "current" } },
+      }) },
+    }, store)
+    try {
+      await currentView.materializeSources()
+      await expect(currentView.readFile("shared.md")).resolves.toBe("current")
+    }
+    finally {
+      release()
+    }
+    await pending
+    await expect(store.stat("shared.md")).resolves.toBeUndefined()
+    await expect(store.getMeta!("source:retained:snapshot")).resolves.toMatchObject({ status: "updating" })
+    await expect(currentView.readFile("shared.md")).resolves.toBe("current")
+    await expect(store.getMeta!("workspace:active-startup-overlap:startup-sources")).resolves.toEqual([{ key: "retained", mountPath: "" }])
   })
 
   it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
