@@ -118,7 +118,7 @@ describe("Browser Run actions", () => {
       const action = runBrowserContent({ actionTimeout: 60_000, url: "https://example.com" })
       await vi.advanceTimersByTimeAsync(31_000)
 
-      await expect(action).resolves.toEqual([null, "complete"])
+      await expect(action).resolves.toBe("complete")
     }
     finally {
       vi.useRealTimers()
@@ -136,7 +136,7 @@ describe("Browser Run actions", () => {
       const action = runBrowserContent({ actionTimeout: 300_000, goToOptions: { timeout: 60_000 }, url: "https://example.com" })
       await vi.advanceTimersByTimeAsync(331_000)
 
-      await expect(action).resolves.toEqual([null, "complete"])
+      await expect(action).resolves.toBe("complete")
     }
     finally {
       vi.useRealTimers()

@@ -80,7 +80,7 @@ describe("Browser Definitions", () => {
       })
 
       const invocation = executeBrowserDefinition(definition, { url: "https://example.com" })
-      const result = expect(invocation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      const result = expect(invocation).rejects.toThrow("Browser content request failed with status 500")
       await vi.advanceTimersByTimeAsync(30_000)
 
       await result
