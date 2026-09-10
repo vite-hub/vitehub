@@ -260,6 +260,25 @@ describe("Provider Agent Driver", () => {
     expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
   })
 
+  it.each([false, true])("keeps the primary browser environment out of auxiliary providers with launcher %s", async (customLaunch) => {
+    const threadId = "thread-browser-auxiliary"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId)
+    const environment = { PATH: "/managed/bin", AGENT_BROWSER_SESSION: "primary-session" }
+    provideBrowserRuntimeEnvironment(runContext.context as never, environment)
+    const launch = vi.fn(() => ({ command: "ssh", args: ["host"] }))
+
+    await createProviderAgentAdapter({
+      provider: "codex",
+      ...(customLaunch ? { launch } : {}),
+    }).generate(markAuxiliaryMessageChannelInstructionContext(runContext) as never)
+
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("AGENT_BROWSER_SESSION")
+    expect(createProviderRuntime.mock.lastCall?.[0].environment?.PATH).not.toContain("/managed/bin")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+    expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
+  })
+
   it("rejects managed browser environment with a custom or remote launcher", async () => {
     const threadId = "thread-browser-remote-launch"
     const runContext = context(threadId)
