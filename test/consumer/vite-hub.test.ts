@@ -539,7 +539,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           }
         `),
         writeFile(join(appDir, "server/api/markdown.get.ts"), `
-          import { renderMarkdownFile } from "vite-hub/markdown-template"
+          import { renderMarkdownFile } from "vite-hub/markdown-template/file"
           export default () => renderMarkdownFile(
             ${JSON.stringify(join(appDir, ".output/server/templates/prompt.md"))},
             { data: { name: "Nitro" } },

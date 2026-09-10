@@ -147,16 +147,18 @@ Check correctness and regression coverage.
 ```
 
 ```ts
-import { renderMarkdownFile } from "@vite-hub/markdown-template"
+import { renderMarkdownFile } from "@vite-hub/markdown-template/file"
 
 const markdown = await renderMarkdownFile(new URL("./review.md", import.meta.url), {
   data: { number: 42, summary: "Ready for review." },
 })
 ```
 
-Applications can import the same function from `vite-hub/markdown-template`.
+Applications can import the same function from `vite-hub/markdown-template/file`.
 
 The root export selects the filesystem API only under the `node` export condition. Browser, edge, and neutral consumers receive the portable string renderer without Node built-ins.
+
+Use the `/file` subpath in server projects, including TypeScript projects using Bundler module resolution. It requires a local filesystem; the root string renderer remains portable.
 
 `renderMarkdownFile(path, options?)` accepts a filesystem path string or a `file:` URL and returns `Promise<string>`. Its `RenderMarkdownFileOptions` accepts `data` and `maxImportDepth`, which defaults to `4`. Relative path strings use the process working directory. File URLs constructed with `import.meta.url` use the executing module's directory. HTTP URLs are not supported.
 
@@ -182,7 +184,8 @@ The direct renderer has no loops, helpers, macros, compile step, implicit filesy
 
 | Import | Purpose |
 | --- | --- |
-| `@vite-hub/markdown-template` | `renderMarkdownFile()`, `renderMarkdownTemplate()`, and their public option and import-resolver types. |
+| `@vite-hub/markdown-template` | `renderMarkdownTemplate()` and its public option and import-resolver types. |
+| `@vite-hub/markdown-template/file` | `renderMarkdownFile()` and `RenderMarkdownFileOptions` for local filesystem rendering. |
 
 ## Learn more
 

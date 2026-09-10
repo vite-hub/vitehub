@@ -16,7 +16,7 @@ it("renders shipped Markdown files from a Vite server build without a template p
     await writeFile(join(source, "templates/policy.md"), "Review {{ repository }}.")
     const entry = join(source, "entry.ts")
     await writeFile(entry, [
-      `import { renderMarkdownFile } from ${JSON.stringify(fileURLToPath(new URL("../dist/index.js", import.meta.url)))}`,
+      `import { renderMarkdownFile } from ${JSON.stringify(fileURLToPath(new URL("../dist/file.js", import.meta.url)))}`,
       `export default () => renderMarkdownFile(new URL("./templates/prompt.md", import.meta.url), { data: { repository: "ViteHub" } })`,
     ].join("\n"))
     await build({

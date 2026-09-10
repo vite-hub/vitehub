@@ -114,6 +114,7 @@ describe("package manifest contracts", () => {
           node: "./dist/index.js",
           default: "./dist/portable.js",
         })
+        expect(manifest.exports?.["./file"]).toBe("./dist/file.js")
         expect(Object.keys(manifest.exports?.["."] ?? {})).toEqual(["types", "node", "default"])
       }
       else {

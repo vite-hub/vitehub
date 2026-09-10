@@ -118,7 +118,8 @@ Vite config resolution and builds also refresh the entry. Defining `files` in th
 import { defineAgent } from "vite-hub/agent";
 import { workspaceShell } from "vite-hub/agent/capabilities";
 import { env } from "vite-hub/env";
-import { renderMarkdownFile, renderMarkdownTemplate } from "vite-hub/markdown-template";
+import { renderMarkdownFile } from "vite-hub/markdown-template/file";
+import { renderMarkdownTemplate } from "vite-hub/markdown-template";
 import { defineWorkspace } from "vite-hub/workspace";
 import { defineWorkflow } from "vite-hub/workflow";
 ```

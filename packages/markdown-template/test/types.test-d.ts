@@ -1,10 +1,10 @@
 import { expectTypeOf, it } from "vitest"
 
+import { renderMarkdownFile, type RenderMarkdownFileOptions } from "../src/file.ts"
+
 import {
-  renderMarkdownFile,
   renderMarkdownTemplate,
   type MarkdownTemplateImport,
-  type RenderMarkdownFileOptions,
   type RenderMarkdownTemplateOptions,
   type ResolveMarkdownTemplateImport,
 } from "../src/index.ts"

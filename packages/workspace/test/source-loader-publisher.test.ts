@@ -758,7 +758,7 @@ describe("sources, loaders, and publishers", () => {
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, "prompt.md"), "Workspace {{ context.name }}\n")
     await writeFile(join(directory, "config.ts"), [
-      `import { renderMarkdownFile } from ${JSON.stringify(import.meta.resolve("@vite-hub/markdown-template"))}`,
+      `import { renderMarkdownFile } from ${JSON.stringify(import.meta.resolve("@vite-hub/markdown-template/file"))}`,
       `export default { rootDir: await renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data: { context: { name: "review" } } }) }`,
       ``,
     ].join("\n"))

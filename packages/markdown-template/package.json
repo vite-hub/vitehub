@@ -33,6 +33,7 @@
       "node": "./dist/index.js",
       "default": "./dist/portable.js"
     },
+    "./file": "./dist/file.js",
     "./internal/composition": "./dist/internal/composition.js",
     "./package.json": "./package.json"
   },

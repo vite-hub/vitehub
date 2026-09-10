@@ -937,7 +937,7 @@ describe("bundleEsmEntry", () => {
     const output = join(rootDir, "deployed")
     const outfile = join(output, "bundle.mjs")
     await writeFile(entry, [
-      `import { renderMarkdownFile } from ${JSON.stringify(import.meta.resolve("@vite-hub/markdown-template"))}`,
+      `import { renderMarkdownFile } from ${JSON.stringify(import.meta.resolve("@vite-hub/markdown-template/file"))}`,
       `export default () => renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data: { number: 42 } })`,
     ].join("\n"))
 

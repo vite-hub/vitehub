@@ -2,6 +2,8 @@ import { renderMarkdownTemplate } from "./render.ts"
 
 import type { RenderMarkdownFileOptions } from "./types.ts"
 
+export type { RenderMarkdownFileOptions } from "./types.ts"
+
 /** Read a local Markdown file and its relative fragments on each render. */
 export async function renderMarkdownFile(path: string | URL, options: RenderMarkdownFileOptions = {}): Promise<string> {
   // Keep filesystem access out of the string renderer's module initialization.

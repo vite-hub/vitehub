@@ -33,7 +33,7 @@ Check correctness and regression coverage.
 ```
 
 ```ts [server/agents/reviewer/agent.ts]
-import { renderMarkdownFile } from 'vite-hub/markdown-template'
+import { renderMarkdownFile } from 'vite-hub/markdown-template/file'
 
 const prompt = await renderMarkdownFile(
   new URL('./prompt.md', import.meta.url),
