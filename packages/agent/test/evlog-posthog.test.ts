@@ -15,6 +15,15 @@ it("requires an acknowledgement and preserves retry identities", async () => {
   await exporter.flush()
 })
 
+it("infers the distinct ID from event metadata and accepts an explicit override", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ status: "Ok" }))
+  vi.stubGlobal("fetch", fetch)
+  await posthogAgentExporter({ apiKey: "secret" }).capture("summary", { service: "inferred-service" })
+  await posthogAgentExporter({ apiKey: "secret", service: "override" }).capture("summary", { service: "ignored" })
+  const batches = fetch.mock.calls.map(call => JSON.parse(String(call[1]?.body)).batch[0])
+  expect(batches.map(batch => batch.distinct_id)).toEqual(["inferred-service", "override"])
+})
+
 it.each([200, 401])("rejects HTTP %s without an acknowledgement and hides response content", async (status) => {
   const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ detail: "secret", status: "wrong" }, { status }))
   vi.stubGlobal("fetch", fetch)

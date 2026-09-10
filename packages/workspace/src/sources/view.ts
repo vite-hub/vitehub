@@ -1,3 +1,4 @@
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
@@ -8,6 +9,7 @@ import {
   hasCurrentSourceSnapshot,
   hasFreshSourceSnapshot,
   materializesCompleteSource,
+  materializedFileMatches,
   materializeWorkspaceSources,
   readCurrentSourceSnapshot,
   readResolvedSourceFile,
@@ -27,6 +29,7 @@ import type {
   WorkspaceContent,
   WorkspaceDefinition,
   WorkspaceEntry,
+  WorkspaceFile,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceMaterializeSourcesResult,
@@ -321,7 +324,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const pending = pendingBySource.get(sourceKey)
     if (pending?.fullSource) {
       try {
-        await pending.promise
+        const result = await pending.promise
+        if (source.materialize === "startup" && result.sources.some(item => item.source === sourceKey && item.status === "error")) return result
       }
       catch {
         // A lazy consumer owns its fallback independently from a preparation
@@ -344,21 +348,117 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       completedSources.delete(sourceKey)
       reusedStartupSources.delete(sourceKey)
     }
-    await materializeSerialized({ sources: [sourceKey] })
+    return await materializeSerialized({ sources: [sourceKey] })
+  }
+
+  async function ensureStartupPointPath(source: (typeof sources)[number], path: string) {
+    try {
+      // Check persisted ownership before refreshing: a user may have replaced
+      // the indexed file with a directory since the previous invocation.
+      const existing = await store.stat(path)
+      if (existing && existing.type !== "file") {
+        const previous = await readCurrentSourceSnapshot(store, source)
+        if (previous?.items?.[path]) return false
+      }
+      const initial = await ensureMaterialized(source.key)
+      if (initial?.sources.some(item => item.status === "error")) return false
+      const entry = await store.stat(path)
+      const snapshot = await readCurrentSourceSnapshot(store, source)
+      const item = snapshot?.items?.[path]
+      // A directory replacing an indexed file belongs to the external writer.
+      // Keep it intact and report the Source file as unavailable.
+      if (entry && entry.type !== "file" && item) return false
+      if (entry && (entry.type !== "file" || !item || await materializedFileMatches(await store.readFile(path), item))) return true
+
+      const indexed = Object.keys(snapshot?.items || {}).some(item => item === path || item.startsWith(`${path}/`))
+      if (!indexed && !(path === source.mountPath && snapshot?.ownsMount)) return false
+
+      // Missing or overwritten persisted files need recovery, bypassing completion
+      // and refresh:false reuse. Unknown paths must not refresh a complete snapshot.
+      const recovery = await materializeSerialized({ sources: [source.key] })
+      if (recovery.sources.some(item => item.status === "error")) return false
+      return Boolean(await store.stat(path))
+    }
+    catch (error) {
+      // Preserve a file replacing an ancestor instead of refreshing through it.
+      if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return false
+      throw error
+    }
   }
 
   async function ensureMaterializedSources(items = sources) {
     await Promise.all(items.map(async source => await ensureMaterialized(source.key)))
   }
 
+  async function materializeStartupSourcesInPrecedenceOrder(items: typeof sources) {
+    if (!items.length) {
+      // Reconcile removed owners even when no current Source needs a refresh.
+      await materializeSerialized({ sources: [] })
+      return
+    }
+    const preserved = new Map<string, WorkspaceFile[]>()
+    const incomplete = new Set<string>()
+    // Capture reusable files before any overlapping lower-priority Source writes.
+    if (options.reuseStartupSnapshots) {
+      for (const source of items) {
+        const snapshot = await readCurrentSourceSnapshot(store, source)
+        if (snapshot?.status !== "ready") continue
+        if (source.mountPath && (await store.stat(source.mountPath))?.type !== "directory") {
+          incomplete.add(source.key)
+          continue
+        }
+        const files: WorkspaceFile[] = []
+        for (const [path, item] of Object.entries(snapshot.items || {})) {
+          const file = await store.readFile(path)
+          if (!file || !await materializedFileMatches(file, item)) {
+            incomplete.add(source.key)
+            break
+          }
+          files.push(file)
+        }
+        if (incomplete.has(source.key)) continue
+        preserved.set(source.key, files)
+        reusedStartupSources.add(source.key)
+      }
+    }
+    const refreshedSources: typeof sources = []
+    let recoveryError: unknown
+    for (const source of [...items].reverse()) {
+      const generation = generationBySource.get(source.key)
+      try {
+        await ensurePrepared(source.key)
+        const result = incomplete.has(source.key) || !preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))
+          ? await materializeSerialized({ sources: [source.key] })
+          : await ensureMaterialized(source.key)
+        if (result?.sources.some(item => item.status === "error")) {
+          recoveryError = workspaceError(`[vitehub] Workspace Source recovery failed: ${source.key}.`)
+        }
+      }
+      catch (error) {
+        recoveryError = error
+      }
+      finally {
+        if (generationBySource.get(source.key) !== generation) {
+          refreshedSources.push(source)
+          // Restore persisted content, even after a partial failed refresh, without
+          // asking the higher-priority provider for a newer inspection snapshot.
+          for (const owner of items.slice(0, items.indexOf(source)).reverse()) {
+            for (const file of preserved.get(owner.key) || []) {
+              if (source.mountPath && !sourceMountContainsPath(source, file.path)) continue
+              await store.writeFile(file.path, file)
+            }
+          }
+        }
+      }
+    }
+    if (recoveryError) throw recoveryError
+  }
+
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const normalized = normalizeWorkspacePath(path)
     if (!isDescriptorPath(normalized)) {
-      for (const source of getLazySourcesForPath(normalized)) {
-        if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
-        await ensurePrepared(source.key)
-        if (!usesLiveProvider(source)) await ensureMaterialized(source.key)
-      }
+      await materializeStartupSourcesInPrecedenceOrder(getLazySourcesForPath(normalized)
+        .filter(source => source.materialize === "startup" && !isExcludedWorkspacePath(source.mountPath, options.exclude)))
     }
     const storeEntries = isDescriptorPath(normalized) ? [] : await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
@@ -426,11 +526,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       sourcePaths.set(resolution.sourceKey, list)
     }
 
-    for (const source of sources) {
-      if (source.materialize !== "startup" || !requestedPaths.some(path => sourceMountIntersectsPath(source, normalizeWorkspacePath(path)))) continue
-      await ensurePrepared(source.key)
-      await ensureMaterialized(source.key)
-    }
+    await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => source.materialize === "startup"
+      && requestedPaths.some(path => sourceMountIntersectsPath(source, normalizeWorkspacePath(path)))))
 
     const results: WorkspaceSearchHit[] = await searchMaterializedStore(store, {
       ...query,
@@ -494,14 +591,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function materializeRootStartupSources() {
-    for (const source of sources.filter(source => !source.mountPath && source.materialize === "startup")) {
-      await ensurePrepared(source.key)
-      await ensureMaterialized(source.key)
-    }
+    await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => !source.mountPath && source.materialize === "startup"))
   }
 
   async function materializeRootSourceForPath(path: string) {
-    for (const source of sources.filter(source => !source.mountPath)) {
+    const rootSources = sources.filter(source => !source.mountPath)
+    // Reconcile removed startup Sources before probing any remaining lazy roots.
+    // Otherwise an unrelated lazy Source can mask stale files from a prior startup definition.
+    await materializeStartupSourcesInPrecedenceOrder([])
+    for (const source of rootSources) {
       await ensurePrepared(source.key)
       await ensureMaterialized(source.key)
       const file = await store.readFile(path)
@@ -569,7 +667,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           return decodeFile(await sourceItemContent(item), options)
         }
         if (resolution.source.materialize === "startup") {
-          await ensureMaterialized(resolution.sourceKey)
+          if (!await ensureStartupPointPath(resolution.source, resolution.workspacePath)) {
+            throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+          }
+          const file = await store.readFile(resolution.workspacePath)
+          if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+          return decodeFile(file.content, options)
         }
         const cacheMaxAge = resolution.source.cache && resolution.source.cache.maxAge
         let shouldRefreshCachedLazy = false
@@ -625,7 +728,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     async glob(pattern, options) {
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
       await ensurePreparedSources()
-      await ensureMaterializedSources(sources.filter(source => !usesLiveProvider(source)))
+      await ensureMaterializedSources(sources.filter(source => source.materialize !== "startup" && !usesLiveProvider(source)))
+      await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => source.materialize === "startup" && !usesLiveProvider(source)))
 
       const result = new Map<string, WorkspaceEntry>()
       for (const entry of await store.glob(patterns, options)) {
@@ -658,12 +762,16 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
           return result
         }
-        if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
+        if (resolution.source.materialize === "startup") {
+          if (!await ensureStartupPointPath(resolution.source, resolution.workspacePath)) {
+            throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+          }
+          const result = await store.stat(resolution.workspacePath)
+          if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
+          return result
+        }
         const stored = await store.stat(resolution.workspacePath)
         if (stored) return stored
-        if (resolution.source.materialize === "startup" && (completedSources.has(resolution.sourceKey) || reusedStartupSources.has(resolution.sourceKey))) {
-          throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
-        }
         await ensureMaterialized(resolution.sourceKey)
         const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source))
         if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
@@ -693,9 +801,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           if (!resolution.workspacePath) return true
           return Boolean(liveSourceStat(resolution.source, resolution.workspacePath))
         }
-        if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
+        if (resolution.source.materialize === "startup") {
+          return await ensureStartupPointPath(resolution.source, resolution.workspacePath)
+        }
         if (await store.stat(resolution.workspacePath)) return true
-        if (resolution.source.materialize === "startup" && (completedSources.has(resolution.sourceKey) || reusedStartupSources.has(resolution.sourceKey))) return false
         await ensureMaterialized(resolution.sourceKey)
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
       }

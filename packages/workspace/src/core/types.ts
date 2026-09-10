@@ -50,6 +50,8 @@ export interface WorkspaceSearchHit {
 }
 
 export interface MkdirOptions {
+  /** Optional creation evidence. Supporting Stores report only directories created by this call, including before failure. */
+  onCreate?: (path: string) => void
   recursive?: boolean
 }
 
@@ -792,5 +794,6 @@ export interface WorkspaceMaterializeSourcesResult {
   durationMs: number
   files: number
   path: string
+  /** Selected Sources in resolution order: longest mount path first, then Source key alphabetically. */
   sources: WorkspaceSourceMaterializationStatus[]
 }

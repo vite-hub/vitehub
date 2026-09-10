@@ -1,3 +1,5 @@
+import { channelIcon } from "../internal/channel-icon.ts";
+import { useMounted, useNow } from "@vueuse/core";
 import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "../types.ts";
 import {
@@ -37,7 +39,7 @@ function compactCommand(command: string): string {
 }
 
 function formatTokens(value: number | undefined): string | undefined {
-  if (value === undefined) return;
+  if (value === undefined || value <= 0) return;
   if (value < 1_000) return `${value} tokens`;
   return `${new Intl.NumberFormat("en", { maximumFractionDigits: 1, notation: "compact" }).format(value)} tokens`;
 }
@@ -183,6 +185,16 @@ function markdown(value: string | undefined, className: string) {
   });
 }
 
+export function workspaceArtifactPath(value: string): string | undefined {
+  // Separate URL metadata before decoding literal filename delimiters.
+  const pathname = value.split(/[?#]/, 1)[0]!;
+  const match = /^\/workspace\/[^/]+\/(.+)$/.exec(pathname);
+  if (!match) return;
+  const path = (() => { try { return decodeURIComponent(match[1]!); } catch { return match[1]!; } })();
+  if (!path || path.startsWith("/") || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) return;
+  return path;
+}
+
 function renderFolderIcon() {
   return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [
     h("path", { d: "M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "stroke-linecap": "round", "stroke-linejoin": "round" }),
@@ -190,6 +202,7 @@ function renderFolderIcon() {
 }
 
 type InspectTarget = "agent" | "workspace";
+type InspectHandler = (target: InspectTarget, path?: string) => void;
 
 function payloadText(value: unknown): string {
   if (hasRuntimeType(value, "string")) return value;
@@ -394,7 +407,7 @@ const InvocationPayload = defineComponent({
       h("summary", [
         h("strong", props.label),
         h("code", payloadPreview(props.value, text.value)),
-        renderChevronDown("vh-invocation-event__disclosure"),
+        renderDisclosureChevron("vh-invocation-event__disclosure"),
       ]),
       open.value ? h("div", { class: "vh-invocation-payload__content" }, [
         h("div", { class: "vh-invocation-payload__toolbar" }, [
@@ -444,29 +457,50 @@ const messageRoleLabels: Record<NonNullable<InvocationActivity["role"]>, string>
   user: "User",
 };
 
+interface MessageRendering {
+  author?: string;
+  copy: (activity: InvocationActivity) => void;
+  copiedId?: string;
+  copyStatus?: "copied" | "failed";
+  promptId?: string;
+  sentAt?: string;
+  now: Date;
+  mounted: boolean;
+}
+
 function renderMessage(
   activity: InvocationActivity,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
+  messageRendering: MessageRendering,
+  insideWork = false,
 ) {
   const body = activity.body ?? "";
   const collapsible = activity.role === "user" && (body.length > 720 || body.split(/\r?\n/).length > 12);
   const isExpanded = expanded.has(activity.id);
+  const sentAt = messageTimestamp(activity, messageRendering.now, messageRendering.mounted, activity.id === messageRendering.promptId ? messageRendering.sentAt : undefined);
+  const copyStatus = messageRendering.copiedId === activity.id ? messageRendering.copyStatus : undefined;
+  const commentary = activity.attributes["message.phase"] === "commentary";
+  const hasMessageMeta = (activity.role === "user" || activity.role === "assistant") && !(insideWork && commentary);
   return h(
     "li",
     {
       class: "vh-invocation-message",
+      "data-phase": commentary ? "commentary" : undefined,
       "data-role": activity.role,
       key: activity.id,
     },
     [
       h("span", { class: "vh-visually-hidden" }, `${messageRoleLabels[activity.role ?? "assistant"]} message`),
+      activity.attributes["input.mode"] === "steer"
+        ? h("small", { class: "vh-invocation-message__method" }, "Steered")
+        : null,
       h("div", {
         class: "vh-invocation-message__content",
         "data-collapsed": collapsible && !isExpanded ? "true" : undefined,
       }, [markdown(body, "vh-invocation-message__body")]),
       activity.truncated
-        ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+        ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
         : null,
       collapsible
         ? h("button", {
@@ -476,14 +510,61 @@ function renderMessage(
             type: "button",
           }, isExpanded ? "Show less" : "Read more")
         : null,
+      hasMessageMeta
+        ? h("footer", { class: "vh-invocation-message__meta" }, [
+            activity.id === messageRendering.promptId && messageRendering.author ? h("span", messageRendering.author) : null,
+            sentAt ? h("time", { datetime: sentAt.value, title: sentAt.title }, sentAt.short) : null,
+            h("button", {
+              "aria-label": copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy message",
+              class: "vh-invocation-message__copy",
+              onClick: () => messageRendering.copy(activity),
+              title: copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy message",
+              type: "button",
+            }, copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : [renderCopyIcon()]),
+            copyStatus ? h("span", { class: "vh-visually-hidden", "aria-live": "polite", role: "status" }, copyStatus === "copied" ? "Message copied" : "Message could not be copied") : null,
+          ])
+        : null,
     ],
   );
+}
+
+function messageTimestamp(activity: InvocationActivity, now: Date, mounted: boolean, sentAt?: string): { short: string; title: string; value: string } | undefined {
+  const value = sentAt ?? stringAttribute(activity.attributes, "channel.sentAt")
+    ?? stringAttribute(activity.attributes, "input.sentAt")
+    ?? activity.startedAt;
+  if (!value || !Number.isFinite(Date.parse(value))) return;
+  const date = new Date(value);
+  if (!mounted) return { short: date.toISOString(), title: date.toISOString(), value };
+  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const dayDifference = Math.round((startOfToday - startOfMessageDay) / 86_400_000);
+  const dateOptions: Intl.DateTimeFormatOptions = { day: "numeric", month: "numeric" };
+  if (date.getFullYear() !== now.getFullYear()) dateOptions.year = "numeric";
+  const short = dayDifference <= 0
+    ? time
+    : dayDifference === 1
+      ? `Yesterday at ${time}`
+      : `${new Intl.DateTimeFormat(undefined, dateOptions).format(date)} ${time}`;
+  return {
+    short,
+    title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
+    value,
+  };
+}
+
+function renderCopyIcon() {
+  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [
+    h("rect", { height: "13", rx: "2", width: "13", x: "8", y: "8" }),
+    h("path", { d: "M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" }),
+  ]);
 }
 
 type ActivityIcon =
   | "activity"
   | "action"
   | "approval"
+  | "brain"
   | "change"
   | "check"
   | "command"
@@ -504,7 +585,8 @@ function activityIcon(activity: InvocationActivity): ActivityIcon {
   if (activity.kind === "change") return "change";
   if (name.includes("read") || name.includes("image") || name.includes("view")) return "eye";
   if (name.includes("search") || name.includes("find")) return "search";
-  if (activity.kind === "reasoning" || activity.kind === "model" || activity.kind === "run") return "activity";
+  if (activity.kind === "reasoning" || activity.kind === "model") return "brain";
+  if (activity.kind === "run") return "activity";
   if (activity.kind === "approval") return "approval";
   if (activity.kind === "delivery") {
     const delivery = String(activity.attributes["channel.effect.kind"] ?? "").toLocaleLowerCase();
@@ -530,6 +612,7 @@ const activityIconPaths: Record<ActivityIcon, readonly string[]> = {
   activity: ["M12 12h.01"],
   action: ["M13 2 3 14h9l-1 8 10-12h-9z"],
   approval: ["M12 3v12", "m8 11 4 4 4-4", "M5 21h14"],
+  brain: ["M9.5 4.5A3 3 0 0 0 4 6a3 3 0 0 0-1 5.25A3.5 3.5 0 0 0 6.5 17H9", "M14.5 4.5A3 3 0 0 1 20 6a3 3 0 0 1 1 5.25A3.5 3.5 0 0 1 17.5 17H15", "M9 4.5V20", "M15 4.5V20", "M9 9H7", "M15 9h2", "M9 14H6.5", "M15 14h2.5"],
   change: ["M12 20h9", "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"],
   check: ["m5 12 4 4L19 6"],
   command: ["m4 17 6-6-6-6", "M12 19h8"],
@@ -588,12 +671,43 @@ function renderActivityIconSvg(icon: ActivityIcon) {
   })));
 }
 
-function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
+function imageViewPath(activity: InvocationActivity): string | undefined {
+  const name = String(activity.attributes["tool.name"] ?? "").trim().toLocaleLowerCase();
+  if (name !== "image view" && name !== "view image" && name !== "view_image") return;
+  for (const key of ["tool.input", "tool.output"]) {
+    const payload = activity.attributes[key];
+    if (!hasRuntimeType(payload, "object") || payload === null || Array.isArray(payload)) continue;
+    const item = "item" in payload && hasRuntimeType(payload.item, "object") && payload.item !== null && !Array.isArray(payload.item) ? payload.item : payload;
+    if ("path" in item && hasRuntimeType(item.path, "string") && item.path) return item.path;
+    if (!("commandActions" in item) || !Array.isArray(item.commandActions)) continue;
+    for (const value of item.commandActions) {
+      if (hasRuntimeType(value, "object") && value !== null && !Array.isArray(value) && "path" in value && hasRuntimeType(value.path, "string") && value.path) return value.path;
+    }
+  }
+  return activity.preview?.startsWith("/") ? activity.preview : undefined;
+}
+
+function imageViewDetails(activity: InvocationActivity, path: string) {
+  const evidence: Record<string, unknown> = { path };
+  if (activity.attributes["tool.input"] !== undefined) evidence.input = activity.attributes["tool.input"];
+  if (activity.attributes["tool.output"] !== undefined) evidence.output = activity.attributes["tool.output"];
+  if (activity.attributes["tool.error"] !== undefined) evidence.error = activity.attributes["tool.error"];
+  return h("section", { class: "vh-invocation-image-details", "aria-label": "Image view details" }, [
+    h("strong", "Path"),
+    h("code", path),
+    h("strong", "Raw details"),
+    h("pre", payloadText(evidence)),
+  ]);
+}
+
+function renderEvent(activity: InvocationActivity, inspect: InspectHandler) {
   const command = activity.command;
+  const viewedImagePath = imageViewPath(activity);
   const tokenLabel = activity.kind === "reasoning" || activity.kind === "model"
     ? formatTokens(activity.reasoningTokens)
     : undefined;
-  const suffix = agentConfigurationSummary(activity)
+  const suffix = viewedImagePath?.split("/").filter(Boolean).at(-1)
+    ?? agentConfigurationSummary(activity)
     ?? channelDeliverySummary(activity)
     ?? (activity.preview ? compactCommand(activity.preview) : tokenLabel);
   const hasPayloads = activity.kind === "tool" && (
@@ -613,21 +727,37 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     : undefined;
   const hasDetails = Boolean(deliveryFailure || activity.truncated)
     || (!visibleDelivery && (activity.patches.length > 0 || Boolean(command || hasPayloads || activity.body || activity.truncated)));
-  const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
+  const skillReads = activity.skills ?? (activity.skill ? [activity.skill] : []);
+  const inspectTarget = skillReads.length === 1 ? "workspace" : activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
+  const inspectPath = activity.skill?.path;
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
+  const title = skillReads.length
+    ? h("span", { class: "vh-invocation-event__title" }, skillReads.flatMap((skill, index) => [
+        index ? h("span", { "aria-hidden": "true" }, " · ") : null,
+        h("button", {
+        class: "vh-invocation-event__title vh-invocation-event__title-link",
+        onClick: (event: Event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          inspect("workspace", skill.path);
+        },
+        type: "button",
+        }, `Read ${skill.name} skill`),
+      ]))
+    : h("span", { class: "vh-invocation-event__title" }, viewedImagePath ? "View image" : invocationActivityTitle(activity));
   const summaryContent = [
-    renderActivityIcon(activity),
-    h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
+    activity.name === "vitehub.agent.configured" ? frameworkMark() : activity.kind === "delivery" ? channelIcon(activityChannel(activity)) : renderActivityIcon(activity),
+    title,
     activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
     hasDetails
-      ? renderChevronDown("vh-invocation-event__disclosure")
+      ? renderDisclosureChevron("vh-invocation-event__disclosure")
       : null,
   ];
   const summary = inspectable && !hasDetails
     ? h("button", {
         class: "vh-invocation-event__summary",
-        onClick: () => inspect(inspectTarget),
+        onClick: () => inspect(inspectTarget, inspectPath),
         type: "button",
       }, summaryContent)
     : h(hasDetails ? "summary" : "div", { class: "vh-invocation-event__summary" }, summaryContent);
@@ -648,7 +778,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
           ? h("p", { class: "vh-invocation-event__failure" }, deliveryFailure)
           : null,
         activity.truncated
-          ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+          ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
           : null,
         activity.patches.length
           ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(AgentPatchDiff, { key: index, patch })))
@@ -664,6 +794,8 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
               command.output ? h("pre", terminalText(command.output)) : null,
               renderCommandError(activity.attributes["tool.error"]),
             ])
+          : viewedImagePath
+            ? imageViewDetails(activity, viewedImagePath)
           : hasPayloads
             ? h("div", { class: "vh-invocation-event__payloads" }, [
                 renderEventPayload("Input", activity.attributes["tool.input"]),
@@ -676,7 +808,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
         inspectable
           ? h("button", {
               class: "vh-invocation-event__inspect",
-              onClick: () => inspect(inspectTarget),
+              onClick: () => inspect(inspectTarget, inspectPath),
               type: "button",
             }, `Inspect ${inspectTarget}`)
           : null,
@@ -706,7 +838,7 @@ function activityDetail(activity: InvocationActivity): string | undefined {
   return activity.preview ?? stringAttribute(activity.attributes, "vitehub.activity.detail");
 }
 
-function renderPreparationAction(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
+function renderPreparationAction(activity: InvocationActivity, inspect: InspectHandler) {
   const target = activity.attributes["vitehub.inspect.target"];
   if (target !== "workspace" && target !== "agent") return;
   return h("button", {
@@ -753,16 +885,30 @@ function renderPreparationDetail(activity: InvocationActivity, url: string | und
   ]);
 }
 
-function renderChevronDown(className: string) {
+function renderDisclosureChevron(className: string) {
   return h("svg", { "aria-hidden": "true", class: className, viewBox: "0 0 256 256" }, [
-    h("path", { d: "m212.24 100.24-80 80a6 6 0 0 1-8.48 0l-80-80a6 6 0 0 1 8.48-8.48L128 167.51l75.76-75.75a6 6 0 0 1 8.48 8.48", fill: "currentColor" }),
+    h("path", { d: "m100.24 43.76 80 80a6 6 0 0 1 0 8.48l-80 80a6 6 0 0 1-8.48-8.48L167.51 128 91.76 52.24a6 6 0 0 1 8.48-8.48", fill: "currentColor" }),
   ]);
+}
+
+function frameworkMark() {
+  return h("svg", { viewBox: "0 0 20 18", fill: "currentColor", "aria-hidden": "true", class: "vh-invocation-framework-mark" }, [
+    h("path", { d: "M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z" }),
+  ]);
+}
+
+function activityChannel(activity: InvocationActivity): string {
+  const channel = stringAttribute(activity.attributes, "channel.delivery.provider")
+    ?? stringAttribute(activity.attributes, "channel.provider")
+    ?? stringAttribute(activity.attributes, "channel.id")
+    ?? "chat";
+  return channel.toLocaleLowerCase() === "msteams" ? "teams" : channel;
 }
 
 function renderPreparationGroup(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
-  inspect: (target: InspectTarget) => void,
+  inspect: InspectHandler,
 ) {
   const url = agentInvocationExternalUrl(invocation);
   const failedActivity = activities.find(activity => activity.status === "failed");
@@ -772,34 +918,81 @@ function renderPreparationGroup(
   }, [
     h("details", { class: "vh-invocation-preparation__details" }, [
       h("summary", { class: "vh-invocation-preparation__summary" }, [
-        failedActivity ? renderActivityIcon(failedActivity) : renderNamedActivityIcon("check"),
-        h("strong", failedActivity ? "Session preparation failed" : "Session prepared"),
-        renderPreparationContext(invocation, url),
-        h("small", `${activities.length} steps`),
-        renderChevronDown("vh-invocation-preparation__disclosure"),
+        renderDisclosureChevron("vh-invocation-preparation__disclosure"),
+        failedActivity ? renderActivityIcon(failedActivity) : null,
+        h("strong", failedActivity ? "Session preparation failed" : "Prepared workspace"),
+        failedActivity ? renderPreparationContext(invocation, url) : null,
+        failedActivity ? h("small", `${activities.length} steps`) : null,
       ]),
-      h("ol", { class: "vh-invocation-preparation__steps" }, activities.map(activity => h("li", {
-        "data-activity-id": activity.id,
-        "data-kind": "preparation",
-        key: activity.id,
-      }, [
-        renderActivityIcon(activity),
-        h("strong", invocationActivityTitle(activity)),
-        renderPreparationDetail(activity, url),
-        renderPreparationAction(activity, inspect),
-        activity.body
-          ? h("p", { class: "vh-invocation-preparation__body" }, activity.body)
-          : null,
-        activity.truncated
-          ? h("p", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
-          : null,
-      ]))),
+      h("ol", { class: "vh-invocation-preparation__steps" }, activities.map(activity => renderPreparationStep(activity, url, inspect))),
     ]),
   ]);
 }
 
+function renderPreparationStep(activity: InvocationActivity, url: string | undefined, inspect: InspectHandler) {
+  return h("li", {
+    class: "vh-invocation-preparation__step",
+    "data-activity-id": activity.id,
+    "data-kind": "preparation",
+    key: activity.id,
+  }, [
+    renderActivityIcon(activity),
+    h("strong", invocationActivityTitle(activity)),
+    renderPreparationDetail(activity, url),
+    renderPreparationAction(activity, inspect),
+    activity.body ? h("p", { class: "vh-invocation-preparation__body" }, activity.body) : null,
+    activity.truncated ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.") : null,
+  ]);
+}
+
 function activityGroup(activity: InvocationActivity | undefined): string | undefined {
-  return activity ? stringAttribute(activity.attributes, "vitehub.activity.group") : undefined;
+  if (!activity) return;
+  if (activity.name === "vitehub.agent.configured") return "agent-configuration-lifecycle";
+  if (/^agent\.capability\.(?:input|output|configure|prepare|resolve|close)$/.test(activity.name)) return "agent-capability-lifecycle";
+  return stringAttribute(activity.attributes, "vitehub.activity.group");
+}
+
+function renderCapabilityGroup(activities: readonly InvocationActivity[], inspect: InspectHandler) {
+  const capabilities = [...new Set(activities.flatMap(activity => {
+    const id = stringAttribute(activity.attributes, "agent.capability.id");
+    return id ? [id] : [];
+  }))];
+  const failures = activities.filter(activity => activity.status === "failed").length;
+  const phases = new Set(activities.map(activity => activity.name.split(".").at(-1)));
+  const summary = capabilities.length
+    ? `${capabilities.length} ${capabilities.length === 1 ? "capability" : "capabilities"}`
+    : `${activities.length} ${activities.length === 1 ? "event" : "events"}`;
+  return h("li", { class: "vh-invocation-capabilities", key: `capabilities:${activities[0]?.id}` }, [
+    h("details", { class: "vh-invocation-capabilities__details" }, [
+      h("summary", { class: "vh-invocation-capabilities__summary" }, [
+        renderDisclosureChevron("vh-invocation-capabilities__disclosure"),
+        h("span", failures
+          ? `Capability activity failed · ${summary}`
+          : !capabilities.length
+            ? `Capability activity · ${summary}`
+            : [...phases].every(phase => phase === "close")
+              ? `Closed ${summary}`
+              : [...phases].every(phase => phase === "output" || phase === "close")
+                ? `Finalized ${summary}`
+                : `Prepared ${summary}`),
+      ]),
+      h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(activity => renderEvent(activity, inspect))),
+    ]),
+  ]);
+}
+
+function renderAgentConfigurationGroup(activities: readonly InvocationActivity[], inspect: InspectHandler) {
+  const activity = activities[0]!;
+  return h("li", { class: "vh-invocation-capabilities", key: `configuration:${activity.id}` }, [
+    h("details", { class: "vh-invocation-capabilities__details" }, [
+      h("summary", { class: "vh-invocation-capabilities__summary" }, [
+        renderDisclosureChevron("vh-invocation-capabilities__disclosure"),
+        h("span", "Agent configured"),
+        agentConfigurationSummary(activity) ? h("small", agentConfigurationSummary(activity)) : null,
+      ]),
+      h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(item => renderEvent(item, inspect))),
+    ]),
+  ]);
 }
 
 function labelStyle(color: string | undefined): Record<string, string> {
@@ -851,14 +1044,14 @@ function renderGroupedActivityIcon(activity: InvocationActivity) {
         : { label: "eyes", value: "👀" };
     return h("span", { "aria-label": reaction.label, class: "vh-invocation-lifecycle__emoji", role: "img" }, reaction.value);
   }
-  if (["reply", "status", "update"].includes(delivery ?? "")) return renderNamedActivityIcon("message");
+  if (["reply", "status", "update"].includes(delivery ?? "")) return channelIcon(activityChannel(activity));
   return renderActivityIcon(activity);
 }
 
 function renderActivityGroup(
   group: string,
   activities: readonly InvocationActivity[],
-  inspect: (target: InspectTarget) => void,
+  inspect: InspectHandler,
 ) {
   return h("li", {
     class: "vh-invocation-lifecycle",
@@ -879,7 +1072,7 @@ function renderActivityGroup(
           ? h("span", { class: "vh-invocation-lifecycle__failure" }, activity.body)
           : null,
         activity.truncated
-          ? h("span", { class: "vh-invocation-event__notice" }, "Some trace content was truncated by the invocation journal.")
+          ? h("span", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
           : null,
       ];
       return h("li", {
@@ -1021,32 +1214,39 @@ function statusIcon(status: AgentInvocationView["status"]) {
   );
 }
 
-function inspectorCollection(title: string, items: readonly string[]) {
+function sourcePresentation(source: string | { id: string; repository?: string }) {
+  const id = hasRuntimeType(source, "string") ? source : source.id;
+  const repository = hasRuntimeType(source, "string")
+    ? /^gh:([\w.-]+\/[\w.-]+)(?:\/.*)?$/.exec(source)?.[1]
+    : /^[\w.-]+\/[\w.-]+$/.test(source.repository ?? "") ? source.repository : undefined;
+  return repository
+    ? { href: `https://github.com/${repository}`, icon: channelIcon("github"), label: id }
+    : { label: id };
+}
+
+function inspectorSources(sources: NonNullable<AgentInvocationConfiguration["workspace"]>["sources"] & readonly unknown[]) {
   return h("div", { class: "vh-invocation-inspector__group" }, [
-    h("div", { class: "vh-invocation-inspector__group-heading" }, [
-      h("strong", title),
-      h("small", items.length),
-    ]),
-    h(
-      "ul",
-      { class: "vh-invocation-inspector__items" },
-      items.map((item) => h("li", { key: item }, [h("code", item)])),
-    ),
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Sources"), h("small", sources.length)]),
+    h("div", { class: "vh-invocation-inspector__badges" }, sources.map((source) => {
+      const presentation = sourcePresentation(source);
+      const children = [presentation.icon, h("span", presentation.label)];
+      return presentation.href
+        ? h("a", { class: "vh-invocation-inspector__badge", href: presentation.href, rel: "noreferrer", target: "_blank" }, children)
+        : h("span", { class: "vh-invocation-inspector__badge" }, children);
+    })),
   ]);
 }
 
-function workspaceIcon() {
-  return h("svg", {
-    "aria-hidden": "true",
-    fill: "none",
-    stroke: "currentColor",
-    "stroke-width": 1.5,
-    viewBox: "0 0 24 24"
-  }, [h("path", {
-    d: "M3 7.5A2.5 2.5 0 0 1 5.5 5h3l2 2H18.5A2.5 2.5 0 0 1 21 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z",
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round"
-  })]);
+function inspectorChannels(channels: NonNullable<AgentInvocationConfiguration["channels"]>) {
+  return h("div", { class: "vh-invocation-inspector__group" }, [
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Channels"), h("small", channels.length)]),
+    h("div", { class: "vh-invocation-inspector__badges" }, channels.map((channel) => {
+      return h("span", { class: "vh-invocation-inspector__badge" }, [
+        channelIcon(channel.kind),
+        h("span", channel.id),
+      ]);
+    })),
+  ]);
 }
 
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
@@ -1057,11 +1257,10 @@ function inspectorExecution(configuration: AgentInvocationConfiguration) {
       ?? configuration.driver?.provider
       ?? (modelId?.includes("/") ? modelId.split("/")[0] : undefined),
   );
-  const workspace = configuration.workspace;
   const runtime = configuration.runtime?.name;
-  if (!modelId && !provider && !workspace) return null;
+  if (!modelId && !provider && (!runtime || runtime === "unknown")) return null;
   return h("div", { class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution" }, [
-    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Model and workspace")]),
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Model")]),
     h("div", { class: "vh-invocation-execution" }, [
       modelId || provider ? h("div", { class: "vh-invocation-execution__model" }, [
         invocationBrandMark(provider ?? { id: "fallback", label: "Model" }, "vh-invocation-execution__model-icon"),
@@ -1070,13 +1269,6 @@ function inspectorExecution(configuration: AgentInvocationConfiguration) {
           modelId && provider ? h("span", { class: "vh-invocation-execution__provider" }, [
             invocationBrandMark(provider, "vh-invocation-execution__provider-icon"), provider.label,
           ]) : null,
-        ]),
-      ]) : null,
-      workspace ? h("div", { class: "vh-invocation-execution__workspace" }, [
-        workspaceIcon(),
-        h("div", { class: "vh-invocation-execution__details" }, [
-          h("strong", workspace.name || "Workspace"),
-          workspace.mode ? h("span", workspace.mode === "write" ? "Read and write" : "Read only") : null,
         ]),
       ]) : null,
       runtime && runtime !== "unknown" ? h("dl", { class: "vh-invocation-inspector__list vh-invocation-execution__runtime" }, [
@@ -1116,7 +1308,7 @@ function inspectorDisclosure(
       h("summary", { class: "vh-invocation-inspector__group-heading" }, [
         h("strong", title),
         h("small", summary),
-        renderChevronDown("vh-invocation-inspector__chevron"),
+        renderDisclosureChevron("vh-invocation-inspector__chevron"),
       ]),
       body,
     ],
@@ -1147,15 +1339,10 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
         ])
       : null,
     configuration.workspace?.sources?.length
-      ? inspectorCollection("Sources", configuration.workspace.sources)
+      ? inspectorSources(configuration.workspace.sources)
       : null,
     configuration.channels?.length
-      ? inspectorCollection(
-          "Channels",
-          configuration.channels.map((channel) =>
-            channel.id === channel.kind ? channel.id : `${channel.id} · ${channel.kind}`,
-          ),
-        )
+      ? inspectorChannels(configuration.channels)
       : null,
     configuration.capabilities?.length
       ? h("div", { class: "vh-invocation-inspector__group" }, [
@@ -1172,7 +1359,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
                 h("summary", [
                   h("code", capability.id),
                   h("small", tools.length ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "Configuration"),
-                  renderChevronDown("vh-invocation-inspector__chevron"),
+                  renderDisclosureChevron("vh-invocation-inspector__chevron"),
                 ]),
                 tools.length ? h(AgentToolList, { tools, calls: Object.fromEntries(invocationToolUsage(invocation)) }) : null,
                 capability.metadata ? h("details", { class: "vh-invocation-inspector__settings" }, [
@@ -1215,10 +1402,12 @@ function renderInvocationActivity(
   activity: InvocationActivity,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: InspectHandler,
+  messageRendering: MessageRendering,
+  insideWork = false,
 ) {
   return activity.kind === "message"
-    ? renderMessage(activity, expanded, toggleExpanded)
+    ? renderMessage(activity, expanded, toggleExpanded, messageRendering, insideWork)
     : renderEvent(activity, inspect);
 }
 
@@ -1227,7 +1416,9 @@ function renderActivitySequence(
   invocation: AgentInvocationView,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: InspectHandler,
+  messageRendering: MessageRendering,
+  insideWork = false,
 ) {
   const rendered = [];
   for (let index = 0; index < activities.length;) {
@@ -1235,12 +1426,16 @@ function renderActivitySequence(
     if (group) {
       let end = index + 1;
       while (activityGroup(activities[end]) === group) end += 1;
-      rendered.push(renderActivityGroup(group, activities.slice(index, end), inspect));
+      rendered.push(group === "agent-capability-lifecycle"
+        ? renderCapabilityGroup(activities.slice(index, end), inspect)
+        : group === "agent-configuration-lifecycle"
+          ? renderAgentConfigurationGroup(activities.slice(index, end), inspect)
+        : renderActivityGroup(group, activities.slice(index, end), inspect));
       index = end;
       continue;
     }
     if (activities[index]!.kind !== "preparation") {
-      rendered.push(renderInvocationActivity(activities[index]!, expanded, toggleExpanded, inspect));
+      rendered.push(renderInvocationActivity(activities[index]!, expanded, toggleExpanded, inspect, messageRendering, insideWork));
       index += 1;
       continue;
     }
@@ -1252,13 +1447,6 @@ function renderActivitySequence(
   return rendered;
 }
 
-function isExternalActivity(activity: InvocationActivity): boolean {
-  return activity.kind === "preparation"
-    || activity.kind === "delivery"
-    || activity.kind === "action"
-    || activity.kind === "system";
-}
-
 function renderWorkSummary(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
@@ -1266,9 +1454,12 @@ function renderWorkSummary(
   open: boolean,
   setOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: InspectHandler,
+  messageRendering: MessageRendering,
 ) {
   if (!activities.length) return null;
+  const active = invocation.status === "pending" || invocation.status === "running";
+  const detailsOpen = active || open;
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
   const duration = formatDuration(invocation.startedAt, endedAt);
   return h("li", { class: "vh-invocation-work", key: "invocation-work" }, [
@@ -1276,45 +1467,85 @@ function renderWorkSummary(
       class: "vh-invocation-work__details",
       // SAFETY: DOM toggle events for this details element expose HTMLDetailsElement as currentTarget.
       onToggle: (event: Event) => setOpen((event.currentTarget as HTMLDetailsElement).open),
-      open,
+      open: detailsOpen,
     }, [
       h("summary", { class: "vh-invocation-work__summary" }, [
-        h("span", { class: "vh-invocation-work__title" }, duration ? `Worked for ${duration}` : "Work details"),
-        renderChevronDown("vh-invocation-work__disclosure"),
+        renderDisclosureChevron("vh-invocation-work__disclosure"),
+        h("span", { class: "vh-invocation-work__title" }, active ? "Working…" : duration ? `Worked for ${duration}` : "Work details"),
       ]),
       h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
-      open
-        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect))
+      detailsOpen
+        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect, messageRendering, true))
         : null,
     ]),
   ]);
 }
 
-function orderSessionThread(activities: readonly InvocationActivity[]): readonly InvocationActivity[] {
-  const firstPreparation = activities.findIndex(activity => activity.kind === "preparation");
-  if (firstPreparation < 0) return activities;
-  const firstRuntimeWork = activities.findIndex(activity =>
-    activity.kind === "reasoning"
-    || activity.kind === "model"
-    || activity.kind === "tool"
-    || (
-      activity.kind === "message"
-      && activity.role === "assistant"
+function promptActivityIndex(activities: readonly InvocationActivity[]): number {
+  for (let index = 0; index < activities.length; index += 1) {
+    const activity = activities[index]!;
+    if (activity.kind === "message"
+      && activity.role === "user"
       && activity.name !== "agent.input.message"
-    ),
-  );
-  if (firstRuntimeWork >= 0 && firstPreparation > firstRuntimeWork) return activities;
+      && activity.attributes["input.mode"] !== "steer") return index;
+  }
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    const activity = activities[index]!;
+    if (activity.kind === "message" && activity.role === "user" && activity.attributes["input.mode"] !== "steer") return index;
+  }
+  return -1;
+}
 
-  let preparationEnd = firstPreparation + 1;
-  while (activities[preparationEnd]?.kind === "preparation") preparationEnd += 1;
-  const initialConfiguration = activities.findIndex((activity, index) =>
-    index < firstPreparation && activity.name === "vitehub.agent.configured",
-  );
-  return [
-    ...activities.slice(firstPreparation, preparationEnd),
-    ...activities.slice(0, firstPreparation).filter((_activity, index) => index !== initialConfiguration),
-    ...activities.slice(preparationEnd),
-  ];
+function isVisibleMessage(activity: InvocationActivity): boolean {
+  return activity.kind === "message" && Boolean(activity.body?.trim());
+}
+
+function coalesceAgentConfiguration(activities: readonly InvocationActivity[]): InvocationActivity[] {
+  let latestConfiguration = -1;
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    if (activities[index]!.name === "vitehub.agent.configured") {
+      latestConfiguration = index;
+      break;
+    }
+  }
+  return latestConfiguration < 0
+    ? [...activities]
+    : activities.filter((activity, index) => activity.name !== "vitehub.agent.configured" || index === latestConfiguration);
+}
+
+function renderPreviousMessages(
+  messages: readonly InvocationActivity[],
+  invocation: AgentInvocationView,
+  expanded: ReadonlySet<string>,
+  toggleExpanded: (id: string) => void,
+  inspect: InspectHandler,
+  messageRendering: MessageRendering,
+) {
+  if (!messages.length) return null;
+  return h("li", { class: "vh-invocation-history", key: "invocation-history" }, [
+    h("details", { class: "vh-invocation-history__details" }, [
+      h("summary", { class: "vh-invocation-history__summary" }, [
+        renderDisclosureChevron("vh-invocation-history__disclosure"),
+        h("span", `${messages.length} previous ${messages.length === 1 ? "message" : "messages"}`),
+      ]),
+      h("ol", { class: "vh-invocation-history__messages" },
+        renderActivitySequence(messages, invocation, expanded, toggleExpanded, inspect, messageRendering)),
+    ]),
+  ]);
+}
+
+function invocationPromptMetadata(invocation: AgentInvocationView, activities: readonly InvocationActivity[]) {
+  const prompt = activities[promptActivityIndex(activities)];
+  if (!prompt) return {};
+  const triggeredBy = stringAttribute(invocation.annotations ?? {}, "triggeredBy");
+  const observationAttributes = invocation.observations
+    .map(observation => observation.attributes ?? {})
+    .find(attributes => stringAttribute(attributes, "agent.invoker.label") || stringAttribute(attributes, "agent.invoker.id"));
+  const author = triggeredBy?.trim()
+    ? triggeredBy.trim()
+    : stringAttribute(observationAttributes ?? {}, "agent.invoker.label")
+      ?? stringAttribute(observationAttributes ?? {}, "agent.invoker.id");
+  return { author, promptId: prompt.id, sentAt: stringAttribute(invocation.annotations ?? {}, "channel.sentAt") };
 }
 
 function renderInvocationActivities(
@@ -1324,62 +1555,72 @@ function renderInvocationActivities(
   workOpen: boolean,
   setWorkOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: InspectHandler,
+  messageRendering: MessageRendering,
 ) {
-  const orderedActivities = orderSessionThread(activities);
-  if (invocation.status === "pending" || invocation.status === "running") {
-    return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect);
-  }
-  const firstUser = orderedActivities.findIndex(activity => activity.kind === "message" && activity.role === "user");
-  let lastUser = -1;
-  for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
-    if (orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "user") {
-      lastUser = index;
-      break;
-    }
-  }
+  const orderedActivities = activities.filter(activity => activity.kind !== "message" || isVisibleMessage(activity));
+  const firstUser = promptActivityIndex(orderedActivities);
+  const lastUser = orderedActivities.findLastIndex(activity => activity.kind === "message" && activity.role === "user");
   let lastAssistant = -1;
   for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
-    if (index > lastUser && orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "assistant") {
+    const activity = orderedActivities[index]!;
+    if (index > lastUser && activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] !== "commentary") {
       lastAssistant = index;
       break;
     }
   }
-  if (firstUser < 0) return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect);
+  if (firstUser < 0) return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect, messageRendering);
 
-  const prefix = orderedActivities.slice(0, firstUser + 1);
+  const history = orderedActivities.slice(0, firstUser).filter(isVisibleMessage);
+  const workBeforePrompt = orderedActivities.slice(0, firstUser).filter(activity => activity.kind !== "message");
+  const prompt = orderedActivities[firstUser]!;
   const tail = orderedActivities.slice(firstUser + 1);
-  const terminal = tail.filter(activity => activity.name === "vitehub.observation.truncated");
-  const visibleBeforeFinal = tail.filter((activity, offset) =>
-    activity.name !== "vitehub.observation.truncated"
-    && (activity.kind === "message" || isExternalActivity(activity))
-    && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
-  );
-  const visibleAfterFinal = tail.filter((activity, offset) =>
-    activity.name !== "vitehub.observation.truncated"
-    && (activity.kind === "message" || isExternalActivity(activity))
-    && lastAssistant >= 0
-    && firstUser + 1 + offset > lastAssistant,
-  );
-  const work = tail.filter((activity, offset) => {
-    const index = firstUser + 1 + offset;
-    return activity.kind !== "message" && index !== lastAssistant && !isExternalActivity(activity);
-  });
+  const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
+  const finalDelivery = tail.findLast(activity => activity.kind === "delivery"
+    && activity.status === "completed"
+    && activity.attributes["channel.effect.supported"] !== false
+    && !stringAttribute(activity.attributes, "channel.effect.skipped")
+    && stringAttribute(activity.attributes, "channel.effect.kind")?.toLocaleLowerCase() === "reply"
+    && finalBody !== undefined
+    && stringAttribute(activity.attributes, "channel.effect.content") === finalBody);
+  const finalDeliveryReceipt = finalDelivery
+    ? { ...finalDelivery, attributes: Object.fromEntries(Object.entries(finalDelivery.attributes).filter(([key]) => key !== "channel.effect.content")) }
+    : undefined;
+  const hasLaterCommentary = lastAssistant >= 0 && orderedActivities.slice(lastAssistant + 1).some(activity =>
+    activity.kind === "message" && activity.role === "assistant" && activity.attributes["message.phase"] === "commentary");
+  if (hasLaterCommentary) {
+    const beforeAnswer = orderedActivities.slice(firstUser + 1, lastAssistant);
+    const work = coalesceAgentConfiguration([...workBeforePrompt, ...beforeAnswer.filter(activity => activity !== finalDelivery)]);
+    const answerAndFollowup = orderedActivities.slice(lastAssistant).map(activity =>
+      activity === finalDelivery ? finalDeliveryReceipt! : activity);
+    return [
+      renderPreviousMessages(history, invocation, expanded, toggleExpanded, inspect, messageRendering),
+      renderInvocationActivity(prompt, expanded, toggleExpanded, inspect, messageRendering),
+      renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering),
+      ...(finalDeliveryReceipt && beforeAnswer.includes(finalDelivery!)
+        ? [renderInvocationActivity(finalDeliveryReceipt, expanded, toggleExpanded, inspect, messageRendering)] : []),
+      ...renderActivitySequence(answerAndFollowup, invocation, expanded, toggleExpanded, inspect, messageRendering),
+    ].filter(item => item !== null);
+  }
+  const work = coalesceAgentConfiguration([...workBeforePrompt, ...tail.filter((activity, offset) => {
+    if (firstUser + 1 + offset === lastAssistant) return false;
+    if (activity === finalDelivery) return false;
+    return true;
+  })]);
 
   return [
-    ...renderActivitySequence(prefix, invocation, expanded, toggleExpanded, inspect),
-    ...renderActivitySequence(visibleBeforeFinal, invocation, expanded, toggleExpanded, inspect),
-    renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect),
-    ...(lastAssistant >= 0 ? [renderInvocationActivity(orderedActivities[lastAssistant]!, expanded, toggleExpanded, inspect)] : []),
-    ...renderActivitySequence(visibleAfterFinal, invocation, expanded, toggleExpanded, inspect),
-    ...renderActivitySequence(terminal, invocation, expanded, toggleExpanded, inspect),
+    renderPreviousMessages(history, invocation, expanded, toggleExpanded, inspect, messageRendering),
+    renderInvocationActivity(prompt, expanded, toggleExpanded, inspect, messageRendering),
+    renderWorkSummary(work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering),
+    ...(finalDeliveryReceipt ? [renderInvocationActivity(finalDeliveryReceipt, expanded, toggleExpanded, inspect, messageRendering)] : []),
+    ...(lastAssistant >= 0 ? [renderInvocationActivity(orderedActivities[lastAssistant]!, expanded, toggleExpanded, inspect, messageRendering)] : []),
   ].filter(item => item !== null);
 }
 
 export const AgentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
-    inspect: (target: InspectTarget) => target === "agent" || target === "workspace",
+    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
   },
   props: {
     header: { default: true, type: Boolean },
@@ -1389,15 +1630,19 @@ export const AgentInvocation = defineComponent({
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation).map((activity) => {
-      if (props.workspaceInspectable || activity.attributes["vitehub.inspect.target"] !== "workspace") return activity;
+      if (props.workspaceInspectable) return activity;
       const attributes = { ...activity.attributes };
       delete attributes["vitehub.inspect.target"];
-      return { ...activity, attributes };
+      return { ...activity, attributes, skill: undefined, skills: undefined };
     }));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
+    const mounted = useMounted();
+    const now = useNow({ interval: 60_000 });
     const workOpen = ref(false);
+    const messageCopy = ref<{ id: string; status: "copied" | "failed" }>();
     const root = ref<HTMLElement>();
     let selectedElement: HTMLElement | undefined;
+    let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
     function toggleExpanded(id: string) {
       const next = new Set(expandedMessages.value);
@@ -1406,11 +1651,40 @@ export const AgentInvocation = defineComponent({
       expandedMessages.value = next;
     }
 
+    function inspectWorkspaceArtifact(event: MouseEvent) {
+      if (!props.workspaceInspectable || event.defaultPrevented || event.button !== 0) return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : undefined;
+      const path = target ? workspaceArtifactPath(target.getAttribute("href") || "") : undefined;
+      if (!path) return;
+      event.preventDefault();
+      emit("inspect", "workspace", path);
+    }
+
     function clearSelectedElement() {
       if (!selectedElement) return;
       selectedElement.removeAttribute("data-selected");
       selectedElement.removeAttribute("tabindex");
       selectedElement = undefined;
+    }
+
+    async function copyMessage(activity: InvocationActivity) {
+      try {
+        if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+        const url = agentInvocationExternalUrl(props.invocation);
+        const metadata = [
+          `Invocation ID: ${props.invocation.id}`,
+          `Trace ID: ${props.invocation.traceId}`,
+          props.invocation.agentName ? `Agent: ${props.invocation.agentName}` : undefined,
+          url ? `URL: ${url}` : undefined,
+        ].filter((value): value is string => value !== undefined);
+        await navigator.clipboard.writeText(`${activity.body ?? ""}\n\n${metadata.join("\n")}`);
+        messageCopy.value = { id: activity.id, status: "copied" };
+      }
+      catch {
+        messageCopy.value = { id: activity.id, status: "failed" };
+      }
+      if (copyTimer) clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => messageCopy.value = undefined, 2_000);
     }
 
     async function focusActivity(id: string | undefined) {
@@ -1438,14 +1712,24 @@ export const AgentInvocation = defineComponent({
     watch([() => props.selectedActivityId, activities], ([id]) => void focusActivity(id), { flush: "post", immediate: true });
     watch(() => props.invocation.id, () => {
       workOpen.value = false;
+      messageCopy.value = undefined;
     });
-    onBeforeUnmount(clearSelectedElement);
+    watch(() => props.invocation.status, (status, previousStatus) => {
+      if ((previousStatus === "pending" || previousStatus === "running")
+        && status !== "pending" && status !== "running") workOpen.value = false;
+    });
+    onBeforeUnmount(() => {
+      clearSelectedElement();
+      if (copyTimer) clearTimeout(copyTimer);
+    });
 
     return () => {
+      const promptMetadata = invocationPromptMetadata(props.invocation, activities.value);
       return h("article", {
         class: ["vh-invocation-session", { "vh-invocation-session--headerless": !props.header }],
         "data-status": props.invocation.status,
         "data-slot": "invocation",
+        onClick: inspectWorkspaceArtifact,
         ref: root,
       }, [
         props.header ? h("header", { class: "vh-invocation-header" }, [
@@ -1472,7 +1756,17 @@ export const AgentInvocation = defineComponent({
               workOpen.value,
               open => workOpen.value = open,
               toggleExpanded,
-              target => emit("inspect", target),
+              (target, path) => path === undefined
+                ? emit("inspect", target)
+                : emit("inspect", target, path),
+              {
+                ...promptMetadata,
+                now: now.value,
+                mounted: mounted.value,
+                copy: activity => void copyMessage(activity),
+                copiedId: messageCopy.value?.id,
+                copyStatus: messageCopy.value?.status,
+              },
             ))]),
             activities.value.length
               ? null
@@ -1544,11 +1838,6 @@ export const AgentInvocationInspector = defineComponent({
         },
         [
           h("span", { class: "vh-invocation-inspector__copy-label" }, label),
-          h(
-            "span",
-            { class: "vh-invocation-inspector__copy-state" },
-            didCopy ? "Copied" : "Copy",
-          ),
           h("span", { class: "vh-invocation-inspector__copy-icon" }, [copyIcon(didCopy)]),
         ],
       );
@@ -1561,6 +1850,12 @@ export const AgentInvocationInspector = defineComponent({
     return () => {
       const configuration = props.invocation.configuration;
       const agentName = configuration?.agent?.name ?? props.invocation.agentName;
+      const usage = props.invocation.usage;
+      // Older sessions can pair a thread total with only the last response's counts.
+      const partition = usage?.inputTokens !== undefined && usage.outputTokens !== undefined
+        && (usage.totalTokens === undefined || usage.inputTokens + usage.outputTokens === usage.totalTokens)
+        ? usage
+        : undefined;
       const endedAt =
         props.invocation.completedAt ?? props.invocation.failedAt ?? props.invocation.cancelledAt;
       const duration =
@@ -1609,7 +1904,10 @@ export const AgentInvocationInspector = defineComponent({
                   h("small", duration),
                 ],
               ) : null,
-              h("h4", { class: "vh-invocation-inspector__title" }, agentInvocationTitle(props.invocation)),
+              h("div", { class: "vh-invocation-inspector__title-row" }, [
+                h("h4", { class: "vh-invocation-inspector__title" }, agentInvocationTitle(props.invocation)),
+                slots.identityActions?.({ invocation: props.invocation }),
+              ]),
               agentInvocationContext(props.invocation) !== props.invocation.id
                 ? h("p", agentInvocationContext(props.invocation))
                 : null,
@@ -1632,12 +1930,21 @@ export const AgentInvocationInspector = defineComponent({
                 metrics.value.changes
                   ? h("div", [h("dt", "Changes"), h("dd", metrics.value.changes)])
                   : null,
-                metrics.value.tokens !== undefined
-                  ? h("div", [
-                      h("dt", "Tokens"),
-                      h("dd", new Intl.NumberFormat("en").format(metrics.value.tokens)),
-                    ])
-                  : null,
+                inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
+                  ? "Unknown"
+                  : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
+                inspectorRow("Cost", usage?.cost?.display
+                  ? `${usage.cost.display}${usage.cost.estimated === true ? " (estimated)" : usage.cost.estimated === false ? " (reported)" : ""}`
+                  : "Unknown"),
+                ...([
+                  ["Input", partition?.inputTokens],
+                  ["Output", partition?.outputTokens],
+                  ["Cached", partition?.cachedInputTokens],
+                  ["Cache writes", partition?.cacheWriteTokens],
+                  ["Reasoning", partition?.reasoningTokens],
+                ] as const).flatMap(([label, value]) => value === undefined
+                  ? []
+                  : [inspectorRow(label, new Intl.NumberFormat("en").format(value))]),
               ]),
             ),
             props.showTimeline

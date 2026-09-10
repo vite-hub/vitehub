@@ -108,13 +108,20 @@ Use `defineChannel()` when an application-owned Channel Kind prepares its own ev
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { defineChannel } from 'vite-hub/agent/channels'
+import { defineChannel, defineChannelTrigger } from 'vite-hub/agent/channels'
+import * as v from 'valibot'
+
+const ticketOpened = v.object({
+  ticketId: v.string(),
+  summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+})
 
 const ticketing = defineChannel('ticketing', {
   messages: false,
   triggers: {
-    'ticket.opened': {
-      invoke(context, event: { ticketId: string, summary: string }) {
+    'ticket.opened': defineChannelTrigger({
+      input: ticketOpened,
+      invoke(context, event) {
         return {
           input: {
             prompt: `Triage ticket ${event.ticketId}: ${event.summary}`,
@@ -126,7 +133,7 @@ const ticketing = defineChannel('ticketing', {
           },
         }
       },
-    },
+    }),
   },
 })
 
@@ -136,7 +143,9 @@ export default defineAgent({
 })
 ```
 
-The Trigger translates the event and attaches trusted context. Keep model selection, tools, and execution behavior in the Agent Definition.
+`defineChannelTrigger()` infers `event` from any [Standard Schema](https://standardschema.dev/) implementation. ViteHub validates and applies schema transforms before `invoke()`. Webhook authentication runs first, and invalid webhook input receives a generic `400 invalid_payload` response without exposing schema details.
+
+The Trigger translates the validated event and attaches trusted context. Keep model selection, tools, and execution behavior in the Agent Definition.
 
 ## Choose how to call the Agent
 

@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
+import { fileAttributesUnavailable, markFileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
@@ -196,12 +197,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
     if (!bytes) return undefined
     const normalized = normalizeWorkspacePath(path)
     const metadata = this.#files.get(normalized)
-    return {
+    const file: WorkspaceFile = {
       path: normalized,
       content: new Uint8Array(bytes),
       mediaType: metadata?.mediaType,
       metadata: metadata?.metadata,
     }
+    return metadata ? file : markFileAttributesUnavailable(file)
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
@@ -217,6 +219,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
   }
 
+  #recordFileAttributes(path: string, file: WorkspaceFile): void {
+    // Restoring a file read after restart must retain its unavailable attributes.
+    if (fileAttributesUnavailable(file)) this.#files.delete(path)
+    else this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
+  }
+
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
@@ -228,10 +236,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const digest = await sha256(bytes)
     const existing = await this.stat(normalized)
     if (existing?.type === "file" && existing.digest === digest) {
-      this.#files.set(normalized, {
-        mediaType: file.mediaType,
-        metadata: file.metadata,
-      })
+      this.#recordFileAttributes(normalized, file)
       return
     }
     await Promise.all([
@@ -246,10 +251,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
-    this.#files.set(normalized, {
-      mediaType: file.mediaType,
-      metadata: file.metadata,
-    })
+    this.#recordFileAttributes(normalized, file)
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
@@ -371,8 +373,26 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
-    const { mkdir } = await import("node:fs/promises")
-    await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
+    const { mkdir, stat } = await import("node:fs/promises")
+    if (!options.onCreate) {
+      await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
+      return
+    }
+    const normalized = normalizeWorkspacePath(path)
+    const parts = normalized.split("/").filter(Boolean)
+    const directories = options.recursive === false ? [normalized] : parts.map((_, index) => parts.slice(0, index + 1).join("/"))
+    await mkdir(this.root, { recursive: true })
+    for (const directory of directories) {
+      const absolute = resolveInside(this.root, directory)
+      try {
+        await mkdir(absolute)
+      }
+      catch (error) {
+        if (Reflect.get(Object(error), "code") !== "EEXIST" || !(await stat(absolute)).isDirectory()) throw error
+        continue
+      }
+      options.onCreate(directory)
+    }
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {

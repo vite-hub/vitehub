@@ -220,20 +220,11 @@ onBeforeUnmount(() => request?.abort());
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed" class="flex items-end justify-between px-4 pb-3 pt-5">
-          <div>
-            <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted"
-              >Discovered</span
-            >
-            <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Definitions</h1>
-          </div>
-          <span class="text-xs text-muted">{{ definitions.length }}</span>
-        </div>
-        <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
+        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
           <UDashboardSearchButton
             :collapsed="collapsed"
             block
-            class="w-full bg-transparent ring-default"
+            class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60"
             label="Search console"
           />
         </div>

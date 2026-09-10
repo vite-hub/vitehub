@@ -1,3 +1,4 @@
+import { channelIcon } from "../internal/channel-icon.ts";
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "../types.ts";
 
@@ -38,12 +39,6 @@ function relativeTime(value: string | undefined, now: number | undefined): Relat
   };
 }
 
-function folderIcon() {
-  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [
-    h("path", { d: "M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", "stroke-linecap": "round", "stroke-linejoin": "round" }),
-  ]);
-}
-
 function statusIcon(status: AgentInvocationStatus) {
   const paths: Record<AgentInvocationStatus, readonly string[]> = {
     cancelled: ["M7 7l10 10", "M17 7 7 17", "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"],
@@ -59,30 +54,6 @@ function statusIcon(status: AgentInvocationStatus) {
   })));
 }
 
-function metadataIcon(kind: "agent" | "provider") {
-  return h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, kind === "agent"
-    ? [h("path", { d: "M4 8h16v10H4z" }), h("path", { d: "M12 8V4M8 12h.01M16 12h.01" })]
-    : [h("path", { d: "M5 7h14M5 12h14M5 17h14" }), h("path", { d: "M7 5v4M17 10v4M10 15v4" })]);
-}
-
-const invocationStatusPriority: Record<AgentInvocationStatus, number> = {
-  running: 0,
-  pending: 1,
-  completed: 2,
-  failed: 2,
-  cancelled: 2,
-};
-
-function invocationUpdatedAt(item: AgentInvocationListItem): number {
-  const timestamp = Date.parse(item.updatedAt ?? item.startedAt ?? "");
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function sortInvocationItems(items: readonly AgentInvocationListItem[]): AgentInvocationListItem[] {
-  return [...items].sort((left, right) => invocationStatusPriority[left.status] - invocationStatusPriority[right.status]
-    || invocationUpdatedAt(right) - invocationUpdatedAt(left));
-}
-
 function renderItem(
   item: AgentInvocationListItem,
   selectedId: string | undefined,
@@ -93,13 +64,10 @@ function renderItem(
 ) {
   const timestamp = item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt;
   const time = relativeTime(timestamp, now);
-  const harness = harnessSlot?.({ item }) ?? [
-    item.provider ? h("span", { title: `Provider: ${item.provider}` }, [metadataIcon("provider"), h("span", { class: "vh-visually-hidden" }, `Provider ${item.provider}`)]) : null,
-    item.agent ? h("span", { title: `Agent: ${item.agent}` }, [metadataIcon("agent"), h("span", { class: "vh-visually-hidden" }, `Agent ${item.agent}`)]) : null,
-  ];
   return h("li", { key: item.id }, [
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
+      "aria-description": item.description,
       class: "vh-invocation-list__item",
       "data-invocation-id": item.id,
       "data-relative-time": time?.short,
@@ -107,23 +75,20 @@ function renderItem(
       onClick: () => select(item),
       type: "button",
     }, [
-      h("span", { class: "vh-invocation-list__context" }, [
-        h("span", { class: "vh-invocation-list__project-icon" }, projectIconSlot?.({ item }) ?? [folderIcon()]),
-        h("span", { class: "vh-invocation-list__project" }, item.project ?? "Project"),
-        h("span", { class: "vh-invocation-list__state" }, [
-          h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
-          h("span", statusLabel(item.status)),
+      h("strong", { class: "vh-invocation-list__title", title: item.title }, item.title),
+      h("span", { class: "vh-invocation-list__meta" }, [
+        projectIconSlot ? h("span", { class: "vh-invocation-list__project-icon" }, projectIconSlot({ item })) : null,
+        item.context ? h("span", { class: "vh-invocation-list__branch" }, item.context) : null,
+        harnessSlot ? h("span", { class: "vh-invocation-list__harness" }, harnessSlot({ item })) : null,
+        h("span", { class: "vh-invocation-list__state", title: item.description }, [
+          item.status === "completed"
+            ? h("span", { class: "vh-visually-hidden" }, statusLabel(item.status))
+            : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
+          item.status === "completed" ? null : h("span", statusLabel(item.status)),
           time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,
         ]),
+        item.channel ? channelIcon(item.channel) : null,
       ]),
-      h("strong", { class: "vh-invocation-list__title" }, item.title),
-      item.context || item.agent || item.provider
-        ? h("span", { class: "vh-invocation-list__meta" }, [
-            item.context ? h("span", { class: "vh-invocation-list__branch" }, item.context) : null,
-            h("span", { class: "vh-invocation-list__harness" }, harness),
-          ])
-        : null,
-      item.description ? h("span", { class: "vh-invocation-list__description" }, item.description) : null,
     ]),
   ]);
 }
@@ -134,6 +99,7 @@ export const AgentInvocationList = defineComponent({
     ariaLabel: { default: "Agent sessions", type: String },
     continuationKey: [Number, String],
     hasMore: Boolean,
+    /** @deprecated The flat list paginates independently of lifecycle status. */
     remainingStatuses: { default: () => [], type: Array as PropType<readonly AgentInvocationStatus[]> },
     items: { required: true, type: Array as PropType<readonly AgentInvocationListItem[]> },
     loading: Boolean,
@@ -148,32 +114,8 @@ export const AgentInvocationList = defineComponent({
   setup(props, { emit, slots }) {
     const viewport = ref<HTMLElement | null>(null);
     const requestedLength = ref<number>();
-    const automaticallyRequestedVisibleKey = ref<string>();
-    const continuedHiddenPageForVisibleKey = ref<string>();
-    const queuedOpen = ref(true);
-    const doneOpen = ref(props.items.some(item => item.id === props.selectedId
-      && item.status !== "running"
-      && item.status !== "pending"));
     let focusedItemBeforeUpdate: { element: HTMLButtonElement; id: string; status: string | undefined } | undefined;
-    const groups = computed(() => {
-      const sorted = sortInvocationItems(props.items);
-      return [
-        { collapsible: false, hasMore: props.hasMore && props.remainingStatuses.includes("running"), items: sorted.filter(item => item.status === "running"), key: "working", label: "Working" },
-        { collapsible: true, defaultOpen: true, hasMore: props.hasMore && props.remainingStatuses.includes("pending"), items: sorted.filter(item => item.status === "pending"), key: "queued", label: "Queued" },
-        { collapsible: true, defaultOpen: false, hasMore: props.hasMore && props.remainingStatuses.some(status => status !== "running" && status !== "pending"), items: sorted.filter(item => item.status !== "running" && item.status !== "pending"), key: "done", label: "Done" },
-      ].filter(group => group.items.length > 0);
-    });
-    const visibleItems = computed(() => props.items.filter((item) => {
-      if (item.status === "running") return true;
-      if (item.status === "pending") return queuedOpen.value;
-      return doneOpen.value;
-    }));
-    const visibleKey = computed(() => visibleItems.value.map(item => `${item.id}:${item.status}`).join("\0"));
-    const activeKey = computed(() => props.items
-      .filter(item => item.status === "running" || item.status === "pending")
-      .map(item => `${item.id}:${item.status}`)
-      .join("\0"));
-    const paginationKey = computed(() => props.remainingStatuses.length > 0 ? visibleKey.value : activeKey.value);
+    const paginationKey = computed(() => props.items.map(item => `${item.id}:${item.status}`).join("\0"));
     let resizeObserver: ResizeObserver | undefined;
     const requestMoreIfNeeded = () => {
       const element = viewport.value;
@@ -186,28 +128,9 @@ export const AgentInvocationList = defineComponent({
       }
       return false;
     };
-    const requestMoreAutomatically = () => {
-      if (props.remainingStatuses.length === 0) {
-        const hasCollapsedGroup = Boolean(viewport.value?.querySelector("details:not([open])"));
-        const key = activeKey.value;
-        if (hasCollapsedGroup && (!visibleItems.value.length || (automaticallyRequestedVisibleKey.value === key && continuedHiddenPageForVisibleKey.value === key))) return;
-        if (requestMoreIfNeeded()) {
-          continuedHiddenPageForVisibleKey.value = automaticallyRequestedVisibleKey.value === key ? key : undefined;
-          automaticallyRequestedVisibleKey.value = key;
-        }
-        return;
-      }
-      const hasMoreVisible = props.remainingStatuses.length === 0 || props.remainingStatuses.some((status) => {
-        if (status === "running") return true;
-        if (status === "pending") return queuedOpen.value;
-        return doneOpen.value;
-      });
-      if (hasMoreVisible) requestMoreIfNeeded();
-    };
-    const requestMoreOnScroll = () => props.remainingStatuses.length > 0
-      ? requestMoreAutomatically()
-      : requestMoreIfNeeded();
-    watch([() => props.items.length, paginationKey, () => props.hasMore, () => props.loading, () => props.remainingStatuses], ([length, key], [previous, previousKey]) => {
+    const requestMoreAutomatically = () => requestMoreIfNeeded();
+    const requestMoreOnScroll = () => requestMoreIfNeeded();
+    watch([() => props.items.length, paginationKey, () => props.hasMore, () => props.loading], ([length, key], [previous, previousKey]) => {
       if (length < previous || (length === previous && key !== previousKey)) requestedLength.value = undefined;
       requestMoreAutomatically();
     }, { flush: "post" });
@@ -218,14 +141,6 @@ export const AgentInvocationList = defineComponent({
     watch(() => props.continuationKey, () => {
       requestedLength.value = undefined;
       requestMoreAutomatically();
-    });
-    watch([
-      () => props.selectedId,
-      () => props.items.find(item => item.id === props.selectedId)?.status,
-    ], ([selectedId, status], [previousSelectedId, previousStatus]) => {
-      if ((selectedId === previousSelectedId && status === previousStatus) || status === undefined || status === "running") return;
-      if (status === "pending") queuedOpen.value = true;
-      else doneOpen.value = true;
     });
     onMounted(() => {
       requestMoreAutomatically();
@@ -253,41 +168,8 @@ export const AgentInvocationList = defineComponent({
       const element = [...(viewport.value?.querySelectorAll<HTMLButtonElement>("[data-invocation-id]") ?? [])]
         .find(candidate => candidate.dataset.invocationId === focused.id);
       if (!element || element.dataset.status === focused.status) return;
-      if (element.dataset.status === "pending") queuedOpen.value = true;
-      else if (element.dataset.status !== "running") doneOpen.value = true;
-      const disclosure = element.closest("details");
-      if (disclosure) disclosure.open = true;
       element.focus();
     };
-    const renderRows = (group: (typeof groups.value)[number]) => h("ul", {
-      class: "vh-invocation-list__group-items",
-      "data-group": group.key,
-    }, group.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)));
-    const renderGroupHeading = (group: (typeof groups.value)[number]) => [
-      h("span", { class: "vh-invocation-list__group-label" }, group.label),
-      h("span", {
-        "aria-label": `${group.hasMore ? "At least " : ""}${group.items.length} ${group.items.length === 1 ? "session" : "sessions"}${group.hasMore ? "; more available" : ""}`,
-        class: "vh-invocation-list__group-count",
-      }, `${group.items.length}${group.hasMore ? "+" : ""}`),
-    ];
-    const renderGroup = (group: (typeof groups.value)[number]) => group.collapsible
-      ? h("details", {
-          class: "vh-invocation-list__group vh-invocation-list__group--collapsible",
-          "data-group": group.key,
-          key: group.key,
-          onToggle: (event: Event) => {
-            if (!(event.currentTarget instanceof HTMLDetailsElement)) return;
-            if (group.key === "queued") queuedOpen.value = event.currentTarget.open;
-            else doneOpen.value = event.currentTarget.open;
-            if (event.currentTarget.open) requestMoreAutomatically();
-          },
-          open: group.key === "queued" ? queuedOpen.value : doneOpen.value,
-        }, [h("summary", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)])
-      : h("section", {
-          class: "vh-invocation-list__group vh-invocation-list__group--static",
-          "data-group": group.key,
-          key: group.key,
-        }, [h("header", { class: "vh-invocation-list__group-heading" }, renderGroupHeading(group)), renderRows(group)]);
 
     return () => h("nav", {
       "aria-label": props.ariaLabel,
@@ -302,7 +184,7 @@ export const AgentInvocationList = defineComponent({
         ? slots.empty?.() ?? h("p", { class: "vh-invocation-list__empty" }, "No sessions yet.")
         : null,
       props.items.length
-        ? h("div", { "aria-busy": props.loading ? "true" : undefined, class: "vh-invocation-list__groups" }, groups.value.map(renderGroup))
+        ? h("ul", { "aria-busy": props.loading ? "true" : undefined, class: "vh-invocation-list__group-items" }, props.items.map(item => renderItem(item, props.selectedId, props.now, select, slots.projectIcon, slots.harness)))
         : null,
       props.loading && props.items.length ? slots.loading?.() ?? h("p", { class: "vh-invocation-list__loading", role: "status" }, "Loading sessions…") : null,
       slots.footer?.({ items: props.items }),

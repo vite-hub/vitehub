@@ -6,6 +6,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 export default async function consoleInvocationCapabilitiesHandler(event: ConsoleRequestEvent): Promise<{
   capabilities: readonly string[]
+  triggeredBy: readonly string[]
 }> {
   assertConsoleRequest(event)
   const agentName = consoleRequestURL(event).searchParams.get("agent")?.trim() || undefined
@@ -15,5 +16,10 @@ export default async function consoleInvocationCapabilitiesHandler(event: Consol
       statusMessage: "Invalid Agent name",
     })
   }
-  return { capabilities: await getConsoleInvocations().listCapabilityIds(agentName) }
+  const invocations = getConsoleInvocations()
+  const [capabilities, triggeredBy] = await Promise.all([
+    invocations.listCapabilityIds(agentName),
+    invocations.listTriggeredBy(agentName),
+  ])
+  return { capabilities, triggeredBy }
 }

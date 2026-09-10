@@ -144,7 +144,7 @@ that inspect the Error instance.
 
 ### Developer diagnostics
 
-Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Expected portable failures keep the `ViteHubError` public contract. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
+Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Expected portable failures keep the `ViteHubError` public contract. See [Errors and diagnostics](https://vitehub.dev/docs/reference/diagnostics).
 
 `normalizeRuntimeDiagnosticError(error)` creates a bounded diagnostic record. It
 preserves Nostics codes, fixes, documentation links, and source locations from

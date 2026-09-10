@@ -292,6 +292,18 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
+  // Explicit Workspace sources take precedence over colocated Skills. Keep the
+  // legacy symbol in sync so provider-side fallback materialization cannot
+  // overwrite an explicit source.
+  if (colocatedSkills) {
+    const remainingSkills = Object.fromEntries(Object.entries(colocatedSkills).filter(([key]) => !Object.hasOwn(ownedWorkspace.sources ?? {}, key)))
+    if (Object.keys(remainingSkills).length) {
+      Object.defineProperty(decoratedAgent, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })
+    } else {
+      // SAFETY: The decorated agent is a mutable record, and this symbol is removed only when no skills remain.
+      delete (decoratedAgent as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]
+    }
+  }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent

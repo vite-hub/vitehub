@@ -2,6 +2,8 @@ import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { normalizeWorkspaceSources } from "../sources/config.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
+import { materializedFileMatches, readCurrentSourceSnapshot } from "../sources/materialization.ts"
+import { fileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
@@ -11,6 +13,7 @@ import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
   WorkspaceDefinition,
+  WorkspaceDiff,
   WorkspaceSession,
   WorkspaceStore,
 } from "./types.ts"
@@ -23,6 +26,45 @@ type WorkspaceWithDefinitionSync = Workspace & {
 
 function getStore(definition: WorkspaceDefinition) {
   return getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
+}
+
+async function filterStartupSourceChanges(definition: WorkspaceDefinition, store: WorkspaceStore, diff: WorkspaceDiff): Promise<WorkspaceDiff> {
+  if (!diff.entries.length) return diff
+  const generatedFiles = new Set<string>()
+  const generatedDirectories = new Set<string>()
+  for (const source of normalizeWorkspaceSources(definition.sources)) {
+    if (source.materialize !== "startup") continue
+    const snapshot = await readCurrentSourceSnapshot(store, source)
+    if (snapshot?.status !== "ready") continue
+    for (const [path, item] of Object.entries(snapshot.items || {})) {
+      try {
+        if ((await store.stat(path))?.type !== "file") continue
+        const file = await store.readFile(path)
+        if (file && (file.metadata?.source === source.key || fileAttributesUnavailable(file))
+          && await materializedFileMatches(file, item)) generatedFiles.add(path)
+      }
+      catch (error) {
+        // A replaced ancestor makes the indexed file unavailable, not generated.
+        if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) continue
+        throw error
+      }
+    }
+    for (const path of [...(snapshot.ownedDirectories || []), ...(snapshot.ownedAncestors || []), ...(snapshot.ownsMount ? [source.mountPath] : [])]) {
+      generatedDirectories.add(path)
+    }
+  }
+  const entries: WorkspaceDiff["entries"] = []
+  for (const entry of diff.entries) {
+    if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
+    if (entry.type === "added" && entry.after?.type === "directory" && generatedDirectories.has(entry.path)) {
+      const descendants = await store.list(entry.path, { recursive: true })
+      if (descendants.every(child => child.type === "directory"
+        ? generatedDirectories.has(child.path)
+        : generatedFiles.has(child.path))) continue
+    }
+    entries.push(entry)
+  }
+  return { ...diff, entries }
 }
 
 export function createWorkspace(definition: WorkspaceDefinition, options: { reuseStartupSnapshots?: boolean } = {}): Workspace {
@@ -90,7 +132,9 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
       await store.rebase(options)
     },
     async diff(options) {
-      return await store.diff(options)
+      const diff = await store.diff(options)
+      // Explicit historical comparisons retain the Store's complete snapshot diff.
+      return options?.from ? diff : await filterStartupSourceChanges(definition, store, diff)
     },
     async startSession(options): Promise<WorkspaceSession> {
       const host = options?.host
