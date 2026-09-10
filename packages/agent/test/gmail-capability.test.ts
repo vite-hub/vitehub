@@ -34,10 +34,25 @@ function result(stdout: string, exitCode = 0, stderr = ""): ExecResult {
 }
 
 describe("gmail capability", () => {
+  it.each([true, false])("describes effective Skill persistence when conditional writes are %s", async (conditionalWrites) => {
+    const capability = gmail()
+    if (typeof capability.workspace !== "function") throw new Error("expected workspace resolver")
+    const contribution = await capability.workspace({ workspace: {
+      fs: { writeFile: vi.fn() },
+      capabilities: async () => ({ conditionalWrites }),
+    } } as never)
+    if (!contribution) throw new Error("expected workspace contribution")
+    const content = contribution.sources!["skill.gmail"]!.content
+    expect(content).toContain(conditionalWrites ? "This Skill persists between invocations." : "This Skill is available only for this invocation.")
+    expect(content).toContain("check that both `gmail_search` and `gmail_auth` are available")
+  })
+
   it("defines the read and draft tool boundaries with explicit runtime requirements", async () => {
     const read = gmail()
     const readRuntime = await capabilityTools(read, () => result('{"accounts":[]}'))
-    const readWorkspace = read.workspace as { sources: Record<string, { content: string }> }
+    if (typeof read.workspace !== "function") throw new Error("expected workspace resolver")
+    const readWorkspace = await read.workspace({} as never)
+    if (!readWorkspace) throw new Error("expected workspace contribution")
 
     expect(read).toMatchObject({
       id: "gmail",
@@ -48,11 +63,11 @@ describe("gmail capability", () => {
       ],
     })
     expect(Object.keys(readRuntime.tools).sort()).toEqual(["gmail_auth", "gmail_search"])
-    expect(readWorkspace.sources["skill.gmail"]!.content).toContain("Use `gmail_search`")
-    expect(readWorkspace.sources["skill.gmail"]!.content).toContain("authorization codes separately from the required full redirect URL")
-    expect(readWorkspace.sources["skill.gmail"]!.content).toContain("using the `access` returned")
-    expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("gog")
-    expect(readWorkspace.sources["skill.gmail"]!.content).not.toContain("shell")
+    expect(readWorkspace.sources!["skill.gmail"]!.content).toContain("Use `gmail_search`")
+    expect(readWorkspace.sources!["skill.gmail"]!.content).toContain("authorization codes separately from the required full redirect URL")
+    expect(readWorkspace.sources!["skill.gmail"]!.content).toContain("using the `access` returned")
+    expect(readWorkspace.sources!["skill.gmail"]!.content).not.toContain("gog")
+    expect(readWorkspace.sources!["skill.gmail"]!.content).not.toContain("shell")
     expect(() => gmail({ mode: "send" as never })).toThrow('must be "read" or "draft"')
     expect(() => validateAgentCapabilityComposition([read], { driverKind: "provider", hasWorkspace: true, workspaceMode: "write" })).not.toThrow()
     expect(() => validateAgentCapabilityComposition([read], { driverKind: "model", hasWorkspace: true, workspaceMode: "write" }))
@@ -62,10 +77,12 @@ describe("gmail capability", () => {
 
     const draft = gmail({ mode: "draft" })
     const draftRuntime = await capabilityTools(draft, () => result('{"accounts":[]}'))
-    const draftWorkspace = draft.workspace as { sources: Record<string, { content: string }> }
+    if (typeof draft.workspace !== "function") throw new Error("expected workspace resolver")
+    const draftWorkspace = await draft.workspace({} as never)
+    if (!draftWorkspace) throw new Error("expected workspace contribution")
     expect(draft).toMatchObject({ metadata: { mode: "draft" }, mode: "write" })
     expect(Object.keys(draftRuntime.tools).sort()).toEqual(["gmail_auth", "gmail_draft", "gmail_search"])
-    expect(draftWorkspace.sources["skill.gmail"]!.content).toContain("create an unsent draft")
+    expect(draftWorkspace.sources!["skill.gmail"]!.content).toContain("create an unsent draft")
 
     const inspected = createAgentInspectionMetadata(defineAgent({
       capabilities: [draft],

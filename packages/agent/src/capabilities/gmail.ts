@@ -1,3 +1,4 @@
+import { skillPersistenceGuidance, supportsSkillPersistence } from "../internal/skill-persistence.ts"
 import { defineCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "../capability-runtime.ts"
 import { defineInternalTool } from "./internal.ts"
 import { executeWorkspaceCommand } from "./workspace-command.ts"
@@ -98,10 +99,10 @@ const gmailReadScopes = new Set([
   "https://www.googleapis.com/auth/gmail.readonly",
 ])
 
-function gmailSkillContent(mode: GmailCapabilityMode): string {
+function gmailSkillContent(mode: GmailCapabilityMode, persistent: boolean): string {
   return `# Gmail
 
-This Skill persists between invocations. Before following any instructions below, check that both \`gmail_search\` and \`gmail_auth\` are available in this invocation's tool list. If either is absent, Gmail is inactive: do not follow this Skill or attempt Gmail operations. Ask the caller to enable gmail() for this Agent. Use \`gmail_draft\` only when it is also available in the current tool list, even if this retained Skill describes draft access.
+${skillPersistenceGuidance(persistent)} Before following any instructions below, check that both \`gmail_search\` and \`gmail_auth\` are available in this invocation's tool list. If either is absent, Gmail is inactive: do not follow this Skill or attempt Gmail operations. Ask the caller to enable gmail() for this Agent. Use \`gmail_draft\` only when it is also available in the current tool list, even if this retained Skill describes draft access.
 
 Use \`gmail_search\` for Gmail searches and inbox listings. It does not retrieve full message bodies.
 
@@ -388,15 +389,15 @@ export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefi
           }
         : {}),
     }),
-    workspace: {
+    workspace: async context => ({
       sources: {
         [sourceKey]: {
-          content: gmailSkillContent(mode),
+          content: gmailSkillContent(mode, await supportsSkillPersistence(context.workspace)),
           mediaType: "text/markdown",
           workspacePath: skillPath,
         },
       },
-    },
+    }),
   }), {
     [workspaceMaterializationPathsSymbol]: [skillPath],
     [workspacePersistencePathsSymbol]: [skillPath],

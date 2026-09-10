@@ -965,9 +965,9 @@ describe("agent capability runtime", () => {
     await rm(workspaceRoot, { force: true, recursive: true })
   })
 
-  it("keeps browser Skills invocation-local when the Store lacks conditional writes", async () => {
+  it("keeps Browser and Gmail Skills invocation-local when the Store lacks conditional writes", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { browser } = await import("../src/capabilities.ts")
+    const { browser, gmail } = await import("../src/capabilities.ts")
     const workspaceName = `nonconditional-browser-${crypto.randomUUID()}`
     registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
     const workspace = useWorkspace(workspaceName, { mode: "write" })
@@ -977,12 +977,18 @@ describe("agent capability runtime", () => {
 
     for (const skillContent of ["# Browser\nUse bash.\n", "# Browser\nUpdated guidance.\n"]) {
       const resolved = await resolveAgentCapabilities({
-        capabilities: [browser({ runtime: "external", skillContent })],
+        capabilities: [browser({ runtime: "external", skillContent }), gmail()],
       }, runtime(), {}, workspace as never, "write", {
         driverKind: "provider",
         workspaceDefinition: { name: workspaceName, sources: {} },
       })
-      await expect(resolved.workspace!.fs.readFile(skillPath)).resolves.toBe(browserSkillContent(skillContent, skillPath))
+      await expect(resolved.workspace!.fs.readFile(skillPath)).resolves.toBe(browserSkillContent(skillContent, skillPath, false))
+      const gmailGuidance = await resolved.workspace!.fs.readFile("skills/gmail/SKILL.md")
+      expect(gmailGuidance).toContain("This Skill is available only for this invocation.")
+      expect(gmailGuidance).not.toContain("persists between invocations")
+      expect(gmailGuidance).toContain("gmail_search")
+      expect(gmailGuidance).toContain("gmail_auth")
+      await expect(workspace.fs.exists("skills/gmail/SKILL.md")).resolves.toBe(false)
       await expect(workspace.fs.exists(skillPath)).resolves.toBe(false)
       await resolved.close()
     }

@@ -195,7 +195,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     return {
       command,
       environment: Object.freeze(environment),
-      skillContent: `${await readFile(skillPath, "utf8")}\n## Managed runtime\n\nThis Skill persists between invocations. Before following any browser instructions, check that \`AGENT_BROWSER_SESSION\` is set. If it is absent, the managed browser capability is inactive: do not run browser commands or installation steps from this Skill. Ask the caller to enable browser() for this Agent. If it is set, ViteHub has prepared the CLI and browser and assigned an isolated session for this invocation. Use \`agent-browser\` directly. Keep the configured \`AGENT_BROWSER_SESSION\`; skip installation and session setup examples in the CLI guide. Do not use \`npx\` or override \`--session\`. ViteHub closes the session when this invocation finishes.\n`,
+      skillContent: `${await readFile(skillPath, "utf8")}\n## Managed runtime\n\nBefore following any browser instructions, check that \`AGENT_BROWSER_SESSION\` is set. If it is absent, the managed browser capability is inactive: do not run browser commands or installation steps from this Skill. Ask the caller to enable browser() for this Agent. If it is set, ViteHub has prepared the CLI and browser and assigned an isolated session for this invocation. Use \`agent-browser\` directly. Keep the configured \`AGENT_BROWSER_SESSION\`; skip installation and session setup examples in the CLI guide. Do not use \`npx\` or override \`--session\`. ViteHub closes the session when this invocation finishes.\n`,
     }
   }
   let invalidCache = false

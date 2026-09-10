@@ -1,3 +1,4 @@
+import { supportsSkillPersistence } from "../internal/skill-persistence.ts"
 import { defineCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "../capability-runtime.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentWorkspaceDiff } from "../agent-workspace-runtime.ts"
@@ -163,13 +164,13 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
       const environment = browserRuntimeEnvironment(context.context)
       if (environment) await closeBrowserRuntimeSession(environment)
     },
-    workspace: () => ({
+    workspace: async context => ({
       rules: {
         [`${screenshotRoot}/**`]: { commit: true, write: true },
       },
       sources: {
         [sourceKey]: {
-          content: browserSkillContent(skillContent, skillPath),
+          content: browserSkillContent(skillContent, skillPath, await supportsSkillPersistence(context.workspace)),
           mediaType: "text/markdown",
           workspacePath: skillPath,
         },

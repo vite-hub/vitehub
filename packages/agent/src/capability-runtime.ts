@@ -1,3 +1,4 @@
+import { supportsSkillPersistence } from "./internal/skill-persistence.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
@@ -928,9 +929,7 @@ async function applyCapabilityWorkspaceContributions<
       writeFile(path: string, content: string | Uint8Array, options?: { ifDigest?: string | null, mediaType?: string, metadata?: Record<string, unknown> }): Promise<string>
     }
   }
-  if (persistencePaths.length
-    && hasRuntimeType(retainedWorkspace.fs.writeFile, "function")
-    && (await retainedWorkspace.capabilities?.())?.conditionalWrites) {
+  if (persistencePaths.length && await supportsSkillPersistence(retainedWorkspace)) {
     await Promise.all(persistencePaths.map(({ path }) => sourceResolution.workspace.fs.materializeSources?.({ path })))
     const pending: Array<{ capabilityId: string, path: string, ifDigest: string | null }> = []
     const desired = new Map<string, { content: string | Uint8Array, digest: string }>()
