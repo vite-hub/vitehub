@@ -225,6 +225,9 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain('import "@vite-hub/env/vite"')
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain('@cloudflare/workers-types')
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types")
+    const consolePage = readFileSync(`${packageRoot}/dist/console/runtime/components/console-app.vue`, "utf8")
+    expect(consolePage).toContain('v-else-if="isDesktop && detailsOpen && selectedInvocationId"')
+    expect(consolePage).toContain("const detailsOpen = ref(false)")
   })
 
   it("derives deduplicated binary entries from the package manifest", () => {
