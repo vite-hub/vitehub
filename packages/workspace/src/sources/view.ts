@@ -37,6 +37,13 @@ import type {
   WriteFileOptions,
 } from "../core/types.ts"
 
+function assertPublicFileMetadata(path: string, metadata: Record<string, unknown> | undefined): void {
+  assertJsonFileMetadata(path, metadata)
+  if (metadata && Object.hasOwn(metadata, "source")) {
+    throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. metadata.source is reserved for Source materialization.`)
+  }
+}
+
 export interface WorkspaceSourceView {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
@@ -567,7 +574,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return decodeFile(file.content, options)
     },
     async writeFile(path, content, options) {
-      assertJsonFileMetadata(path, options?.metadata)
+      assertPublicFileMetadata(path, options?.metadata)
       const resolution = await assertWritablePath(path)
       const input = await writePolicy.before({
         content,
@@ -583,7 +590,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${resolution.workspacePath} -> ${input.path}.`)
         }
         const file = { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: input.metadata }
-        assertJsonFileMetadata(input.path, file.metadata)
+        assertPublicFileMetadata(input.path, file.metadata)
         if (options?.ifDigest !== undefined) {
           if (!store.writeFileConditional) throw workspaceError("[vitehub] This Workspace Store does not support conditional writes.")
           await store.writeFileConditional(input.path, file, options.ifDigest)

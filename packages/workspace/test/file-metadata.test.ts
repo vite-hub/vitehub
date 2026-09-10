@@ -65,6 +65,30 @@ describe("portable file metadata", () => {
     expect((await createLocalWorkspaceStore(root).readFile("file"))?.metadata).toEqual(metadata)
   })
 
+  it.each([undefined, null])("rejects caller-supplied Source ownership before dispatch (ifDigest: %s)", async (ifDigest) => {
+    const store = createMemoryWorkspaceStore()
+    const write = vi.spyOn(store, "writeFile")
+    const conditionalWrite = vi.spyOn(store, "writeFileConditional")
+    const workspace = createWorkspace({ name: "test", store })
+    await expect(workspace.writeFile("file", "content", { metadata: { source: "docs" }, ifDigest })).rejects.toThrow("reserved for Source materialization")
+    expect(write).not.toHaveBeenCalled()
+    expect(conditionalWrite).not.toHaveBeenCalled()
+    expect(await store.stat("file")).toBeUndefined()
+    await store.writeFile("file", { path: "file", content: "materialized", metadata: { source: "docs" } })
+    expect((await store.readFile("file"))?.metadata).toEqual({ source: "docs" })
+  })
+
+  it("rejects Source ownership introduced by a write validator", async () => {
+    const store = createMemoryWorkspaceStore()
+    const workspace = createWorkspace({
+      name: "test",
+      store,
+      rules: { "**": { write: true, validate: input => ({ ...input, metadata: { source: "docs" } }) } },
+    })
+    await expect(workspace.writeFile("file", "content")).rejects.toThrow("reserved for Source materialization")
+    expect(await store.stat("file")).toBeUndefined()
+  })
+
   it("rejects invalid values before dispatching to a custom provider", async () => {
     const store = createMemoryWorkspaceStore()
     const write = vi.spyOn(store, "writeFile")
