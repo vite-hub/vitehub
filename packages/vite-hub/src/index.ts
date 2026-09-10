@@ -1,3 +1,4 @@
+import { consoleDatabaseUrl, withDataDir } from "./storage-config.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -243,6 +244,8 @@ function frameworkDependencyResolver(
 }
 
 export interface ViteHubOptions {
+  /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
+  dataDir?: string
   preset: DeploymentPreset
   name?: string
   agent?: boolean | AgentModuleOptions
@@ -703,6 +706,7 @@ function presetBlobOptions(
 
 export function vitehub(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
+  options = withDataDir(options)
   const plan = resolveDeploymentPlan(options.preset)
   if (options.schedule && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." })
@@ -764,6 +768,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     plugins.push(consoleVitePlugin({
       blobStores: consoleBlobStores,
       console: options.console === true ? true : options.console,
+      databaseUrl: consoleDatabaseUrl(options),
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
       kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
       preset: plan.preset,

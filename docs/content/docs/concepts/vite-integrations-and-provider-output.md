@@ -37,3 +37,25 @@ Inspect generated output to verify routes, bindings, or host wiring. Import it f
 | Server code access | A documented package or generated import. |
 
 Read [Definition discovery](/docs/concepts/definitions-and-discovery), [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports), and [Provider Output](/docs/reference/provider-output) for more detail.
+
+## Persistent Node storage
+
+Set `dataDir` in `vitehub()` to select a shared local storage directory on a Node host:
+
+```ts
+vitehub({
+  preset: "node",
+  dataDir: "/var/lib/app",
+  agent: true,
+  console: { exposure: "host-managed" },
+  kv: true,
+  blob: true,
+  workspace: true,
+})
+```
+
+Enabled integrations use `agent-state.sqlite`, `console.sqlite`, `kv/`, `blob/`, and `workspaces/` under this directory. Named local KV and Blob stores get separate subdirectories. Explicit paths and remote providers take precedence; disabled services stay disabled. Relative paths resolve from the configuration process's working directory.
+
+The host must provide a persistent, writable filesystem at this path. The option does not create a volume or make an ephemeral filesystem durable, and it is rejected for other presets. Keep the existing provider configuration for hosted storage.
+
+Use `agent.providers.state.url`, `console.databaseUrl`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.
