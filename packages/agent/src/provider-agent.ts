@@ -2388,6 +2388,9 @@ async function* runProvider<
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...providerEnvironmentOverrides,
       ...capabilityEnvironment,
+      ...(capabilityEnvironment?.LD_LIBRARY_PATH
+        ? { LD_LIBRARY_PATH: [capabilityEnvironment.LD_LIBRARY_PATH, providerEnvironmentOverrides?.LD_LIBRARY_PATH].filter(Boolean).join(delimiter) }
+        : {}),
       ...(capabilityEnvironment?.PATH
         ? { PATH: `${capabilityEnvironment.PATH}${delimiter}${providerEnvironmentOverrides?.PATH || process.env.PATH || ""}` }
         : {}),

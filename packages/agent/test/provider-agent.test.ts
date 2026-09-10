@@ -228,7 +228,7 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
-  it("keeps managed browser lifecycle values consistent while preserving caller PATH", async () => {
+  it("keeps managed browser lifecycle values consistent while preserving caller search paths", async () => {
     const browserThread = "thread-browser-environment"
     runtime(browserThread, [event("turn.completed", browserThread, { state: "completed" }, { turnId: "turn-1" })])
     const browserContext = context(browserThread)
@@ -237,9 +237,10 @@ describe("Provider Agent Driver", () => {
       AGENT_BROWSER_SOCKET_DIR: "/managed/sockets",
       AGENT_BROWSER_SESSION: "managed-session",
       PATH: "/managed/bin",
+      LD_LIBRARY_PATH: "/managed/lib",
     })
     await createProviderAgentAdapter({
-      env: { AGENT_BROWSER_SOCKET_DIR: "/caller/sockets", AGENT_BROWSER_SESSION: "caller-session", PATH: "/caller/bin" },
+      env: { AGENT_BROWSER_SOCKET_DIR: "/caller/sockets", AGENT_BROWSER_SESSION: "caller-session", PATH: "/caller/bin", LD_LIBRARY_PATH: "/caller/lib" },
       provider: "codex",
     }).generate(browserContext as never)
     expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
@@ -247,6 +248,7 @@ describe("Provider Agent Driver", () => {
       AGENT_BROWSER_SOCKET_DIR: "/managed/sockets",
       AGENT_BROWSER_SESSION: "managed-session",
       PATH: `/managed/bin${process.platform === "win32" ? ";" : ":"}/caller/bin`,
+      LD_LIBRARY_PATH: `/managed/lib${process.platform === "win32" ? ";" : ":"}/caller/lib`,
     })
 
     expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain('allow_login_shell=false')

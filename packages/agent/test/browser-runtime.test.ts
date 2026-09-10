@@ -5,7 +5,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { lock } from "proper-lockfile"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { browserRuntimeEnvironment, prepareBrowserRuntime, provideBrowserRuntimeEnvironment, resetBrowserRuntimePreparationForTest } from "../src/internal/browser-runtime.ts"
+import { closeBrowserRuntimeSession, browserRuntimeEnvironment, prepareBrowserRuntime, provideBrowserRuntimeEnvironment, resetBrowserRuntimePreparationForTest } from "../src/internal/browser-runtime.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
 vi.mock("proper-lockfile", async (importOriginal) => {
@@ -50,6 +50,18 @@ describe("browser runtime", () => {
     provideBrowserRuntimeEnvironment(context, environment)
     context.set("vitehub.browser.runtime.environment", { PATH: "/replacement/bin" }, { overwrite: true })
     expect(browserRuntimeEnvironment(context)).toBe(environment)
+  })
+
+  it("reports browser session cleanup failures", async () => {
+    const value = await fixture()
+    const command = join(value.root, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
+    const environment = { PATH: value.root, AGENT_BROWSER_SESSION: "cleanup-test" }
+    await expect(closeBrowserRuntimeSession(environment)).rejects.toThrow("ENOENT")
+    await writeFile(command, "#!/usr/bin/env node\nprocess.exit(7)\n")
+    await chmod(command, 0o755)
+    await expect(closeBrowserRuntimeSession(environment)).rejects.toThrow("exit 7")
+    await writeFile(command, "#!/usr/bin/env node\nprocess.exit(0)\n")
+    await expect(closeBrowserRuntimeSession(environment)).resolves.toBeUndefined()
   })
 
   it("scopes prepared environment to one invocation", () => {

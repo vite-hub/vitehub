@@ -332,5 +332,5 @@ export async function closeBrowserRuntimeSession(environment: Readonly<Record<st
   await run(command, ["close"], {
     env: { ...installEnvironment, ...environment, PATH: `${binRoot}${process.platform === "win32" ? ";" : ":"}${installEnvironment.PATH || ""}` },
     timeoutMs: 15_000,
-  }).catch(() => undefined)
+  })
 }
