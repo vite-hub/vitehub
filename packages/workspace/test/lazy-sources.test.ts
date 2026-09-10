@@ -325,8 +325,8 @@ describe("lazy sources", () => {
     await expect(store.getMeta?.("source:first:snapshot")).resolves.toMatchObject({ status: "error" })
   })
 
-  it("restores higher-priority startup content before reporting a lower-priority recovery failure", async () => {
-    const store = createMemoryWorkspaceStore()
+  it.each([false, true].flatMap(local => [false, true].flatMap(reuseStartupSnapshots => (["second", "third"] as const).map(failedSource => ({ local, reuseStartupSnapshots, failedSource })))))("restores higher-priority startup content after a partial $failedSource recovery failure with local=$local and snapshot reuse=$reuseStartupSnapshots", async ({ local, reuseStartupSnapshots, failedSource }) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
     const definition = {
       name: "inspection-recovery-precedence",
       sources: {
@@ -337,11 +337,17 @@ describe("lazy sources", () => {
     }
     await createWorkspaceSourceView(definition, store).readFile("docs/shared.md")
     await store.rm("docs/shared.md")
-    const middle = definition.sources.second
-    middle.getKeys = async () => ["shared.md"]
-    middle.getItem = async () => { throw new Error("provider unavailable") }
-    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots: true })
-    await expect(view.list("docs", { recursive: true })).rejects.toThrow("Workspace Source recovery failed: second")
+    const failing = definition.sources[failedSource]
+    failing.getKeys = async () => ["shared.md", "unavailable.md"]
+    failing.getItem = async (key) => {
+      if (key === "unavailable.md") throw new Error("provider unavailable")
+      return { key, content: "partial failed source" }
+    }
+    const writeFile = vi.spyOn(store, "writeFile")
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+    await expect(view.list("docs", { recursive: true })).rejects.toThrow(`Workspace Source recovery failed: ${failedSource}`)
+    expect(writeFile).toHaveBeenCalledWith("docs/shared.md", expect.objectContaining({ content: "partial failed source" }))
+    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "higher" })
     await expect(view.readFile("docs/shared.md")).resolves.toBe("higher")
   })
 
