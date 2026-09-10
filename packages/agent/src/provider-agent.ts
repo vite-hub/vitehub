@@ -2076,6 +2076,7 @@ async function* runProvider<
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
   const generatedProviderFiles: GeneratedProviderFile[] = []
+  let claudeInstructionArgs: string | undefined
   let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
   let deferredSessionConsume: Promise<void> | undefined
   let runtimeCleanupDeferred = false
@@ -2217,7 +2218,15 @@ async function* runProvider<
     }
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
-      const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
+      const literalClaudeInstructions = options.provider === "claude-code" && !preserveNativeInstructions
+      if (literalClaudeInstructions) {
+        // CLAUDE.md expands @file references natively. A system prompt file
+        // delivers ViteHub instructions verbatim, including literal references.
+        const promptFile = `.vitehub-claude-instructions-${crypto.randomUUID()}.md`
+        generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, promptFile), instructions))
+        claudeInstructionArgs = `--append-system-prompt-file ${promptFile}`
+      }
+      const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), literalClaudeInstructions ? "" : instructions)
       if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
         // Remove only the injected text so native instruction edits reach Workspace write-back.
         generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
@@ -2347,6 +2356,7 @@ async function* runProvider<
       options.providerSettings?.launchArgs,
       auxiliaryLaunchArgs,
       generatedLaunchArgs,
+      claudeInstructionArgs,
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
     // The runtime prefers environment arguments over settings, so auxiliary
