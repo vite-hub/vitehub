@@ -184,7 +184,8 @@ async function captureStartupFiles(store: WorkspaceStore, sources: ResolvedWorks
   for (const source of sources) {
     const snapshot = await readCurrentSourceSnapshot(store, source)
     for (const path of Object.keys(snapshot?.items || {})) {
-      if (!baseline.has(path)) baseline.set(path, await startupFileEvidence(store, path))
+      const key = `${source.key}\0${path}`
+      if (!baseline.has(key)) baseline.set(key, await startupFileEvidence(store, path))
     }
   }
   return baseline
@@ -195,7 +196,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
     const snapshot = await readCurrentSourceSnapshot(store, source)
     if (!snapshot) continue
     for (const [path, recorded] of Object.entries(snapshot.items || {})) {
-      if (isDeepStrictEqual(baseline.get(path), await startupFileEvidence(store, path))) continue
+      if (isDeepStrictEqual(baseline.get(`${source.key}\0${path}`), await startupFileEvidence(store, path))) continue
       const file = await readStartupSnapshotFile(store, path)
       if (await materializedFileMatches(file, recorded)) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
@@ -204,7 +205,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
       const items = { ...current.items }
       for (const [itemPath, recordedItem] of Object.entries(items)) {
         const item = await readStartupSnapshotFile(store, itemPath)
-        if (!isDeepStrictEqual(baseline.get(itemPath), await startupFileEvidence(store, itemPath))
+        if (!isDeepStrictEqual(baseline.get(`${source.key}\0${itemPath}`), await startupFileEvidence(store, itemPath))
           && !await materializedFileMatches(item, recordedItem)) delete items[itemPath]
       }
       // Keep cleanup evidence for paths that build synchronization did not replace.
