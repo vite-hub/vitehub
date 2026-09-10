@@ -60,6 +60,31 @@ describe("lazy sources", () => {
     expect(paths).not.toContain(".agents/skills/browser/SKILL.md")
   })
 
+  it.each(["memory", "local"] as const)("excludes only owned empty startup mounts from the default %s diff", async (provider) => {
+    const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const baseline = await store.snapshot({ name: "sync" })
+    await store.mkdir("preexisting")
+    const workspace = createWorkspace({
+      name: "empty-startup-auto-commit",
+      store,
+      sources: Object.fromEntries(["generated", "preexisting"].map(mount => [mount, custom({
+        materialize: "startup",
+        mount,
+        getKeys: async () => [],
+        getItem: async key => ({ key, content: "" }),
+      })])),
+    })
+
+    await workspace.materializeSources()
+    expect((await workspace.diff()).entries.map(entry => entry.path)).toEqual(["preexisting"])
+    expect((await workspace.diff({ from: baseline })).entries.map(entry => entry.path)).toContain("generated")
+
+    await store.writeFile("generated/notes.md", { path: "generated/notes.md", content: "user notes" })
+    const paths = (await workspace.diff()).entries.map(entry => entry.path)
+    expect(paths).toContain("generated")
+    expect(paths).toContain("generated/notes.md")
+  })
+
   it.each([false, true])("refreshes legacy cached snapshots without content digests with attributes=%s", async (attributes) => {
     const store = createMemoryWorkspaceStore()
     const getItem = vi.fn(async (key: string) => ({ key, content: "generated" }))

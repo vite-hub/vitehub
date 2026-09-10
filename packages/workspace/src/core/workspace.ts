@@ -51,7 +51,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
     if (entry.type === "added" && entry.after?.type === "directory" && generatedDirectories.has(entry.path)) {
       const descendants = await store.list(entry.path, { recursive: true })
-      if (descendants.length && descendants.every(child => child.type === "directory"
+      if (descendants.every(child => child.type === "directory"
         ? generatedDirectories.has(child.path)
         : generatedFiles.has(child.path))) continue
     }
