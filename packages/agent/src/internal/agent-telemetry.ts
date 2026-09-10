@@ -18,6 +18,15 @@ function compareCodeUnits(left: string, right: string): number {
 
 const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTelemetryConfigurationState>()
 
+// Capability inspection is optional telemetry; retain the boundary export so
+// runtimes can report inspections without making telemetry configuration a
+// hard dependency during initialization.
+export async function setAgentCapabilityInspection(
+  _context: AgentInvocationContextStore,
+  _id: string,
+  _inspection: unknown,
+): Promise<void> {}
+
 function secretMetadataKey(key: string): boolean {
   const normalized = key
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
