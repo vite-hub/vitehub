@@ -56,6 +56,16 @@ describe("UI server rendering", () => {
     expect(html).toContain("message");
   });
 
+  it("preserves non-HTML Markdown defaults", async () => {
+    const app = createSSRApp({
+      render: () => h(AgentMarkdown, { value: "- [x] completed" }),
+    });
+
+    const html = await renderToString(app);
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("completed");
+  });
+
   it("renders runtime Nuxt UI components through the Vue plugin", async () => {
     const app = createSSRApp({
       render: () =>
