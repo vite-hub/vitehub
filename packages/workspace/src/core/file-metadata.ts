@@ -35,4 +35,9 @@ export function assertJsonFileMetadata(path: string, metadata: Record<string, un
   }
   catch { /* Deep or exotic objects are not a portable metadata representation. */ }
   if (!valid) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. File metadata must contain only JSON-safe plain objects, dense arrays, strings, booleans, null, and finite numbers other than negative zero.`)
+  const source = Object.getOwnPropertyDescriptor(metadata, "source")
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Source ownership is a reserved string field at the shared metadata boundary.
+  if (source && typeof source.value !== "string") {
+    throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. metadata.source must be a string when provided.`)
+  }
 }

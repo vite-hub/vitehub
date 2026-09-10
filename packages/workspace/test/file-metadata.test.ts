@@ -16,6 +16,21 @@ cycle.self = cycle
 const invalid = [1n, cycle, { nested: undefined }, NaN, Infinity, -0, new Date(), () => {}, Symbol(), [undefined], Array(1)]
 
 describe("portable file metadata", () => {
+  it.each(["local", "memory"])("rejects invalid Source ownership in %s writes without replacing the file", async (provider) => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-metadata-"))
+    roots.push(root)
+    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    await store.writeFile("file", { path: "file", content: "original", metadata: { source: "original" } })
+    for (const source of [123, null, false, {}, []]) {
+      const file = { path: "file", content: "replacement", metadata: { source } }
+      await expect(store.writeFile("file", file)).rejects.toThrow("metadata.source must be a string")
+      await expect(store.writeFileConditional!("file", file, (await store.stat("file"))!.digest!)).rejects.toThrow("metadata.source must be a string")
+    }
+    expect((await store.readFile("file"))?.metadata).toEqual({ source: "original" })
+    const saved = await store.readFile("file")
+    expect(typeof saved?.content === "string" ? saved.content : new TextDecoder().decode(saved?.content as Uint8Array)).toBe("original")
+  })
+
   it.each(["local", "memory"])("rejects lossy %s metadata without replacing content or attributes", async (provider) => {
     const root = await mkdtemp(join(tmpdir(), "workspace-metadata-"))
     roots.push(root)
@@ -55,6 +70,7 @@ describe("portable file metadata", () => {
     const write = vi.spyOn(store, "writeFile")
     const workspace = createWorkspace({ name: "test", store })
     await expect(workspace.writeFile("file", "content", { metadata: { nested: { value: undefined } } })).rejects.toThrow("JSON-safe")
+    await expect(workspace.writeFile("file", "content", { metadata: { source: 123 } })).rejects.toThrow("metadata.source must be a string")
     expect(write).not.toHaveBeenCalled()
   })
 })
