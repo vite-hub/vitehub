@@ -8418,10 +8418,13 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       releaseRun()
       await vi.waitFor(async () => {
-        await expect(getWorkflowRun("support-agent", "github:delivery-workflow")).resolves.toMatchObject({
-          result: "accepted github delivery",
+        const completedRun = await getWorkflowRun("support-agent", "github:delivery-workflow")
+        expect(completedRun).toMatchObject({
+          result: expect.any(Response),
           status: "completed",
         })
+        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
+        await expect(completedRun.result.text()).resolves.toEqual("accepted github delivery")
       })
     } finally {
       resetWorkflowRuntime()
