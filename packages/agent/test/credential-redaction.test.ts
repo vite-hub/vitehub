@@ -413,6 +413,19 @@ describe("credential line context across journal chunks", () => {
 
 
 describe("ambiguous mapping punctuation", () => {
+  it.each(["config: ", "  config: ", "- config: "])("retains a mapping opener after a flushed label %j", (prefix) => {
+    const labelContext = credentialTextLineContext(prefix)
+    expect(labelContext).toBe("x: ")
+    const context = credentialTextLineContext(labelContext + "{status: ok, ")
+    for (const key of ["password", "secret"]) {
+      expect(redactCredentialText(`${key}: sensitive}`, context)).toBe(`${key}: [REDACTED]}`)
+      expect(pendingCredentialQuote(`${key}: "private`, context)).toBe('"')
+      expect(credentialTextMayContinue(`${key}: sensitive`, context)).toBe(true)
+    }
+    const proseContext = credentialTextLineContext(labelContext + "ordinary words { ")
+    expect(redactCredentialText("password: identifier", proseContext)).toBe("password: identifier")
+  })
+
   it.each(["Field labels, ", "Field labels { ", "{labels}, ", 'Example "{", '])("preserves prose after %j", (prefix) => {
     for (const key of ["password", "secret"]) {
       const suffix = `${key}: identifier`

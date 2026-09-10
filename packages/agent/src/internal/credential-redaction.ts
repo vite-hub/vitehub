@@ -298,5 +298,7 @@ export function credentialTextLineContext(value: string): string {
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
   const mappingContext = credentialMappingContext(value)
   if (mappingContext) return mappingContext
+  // A mapping value may start in the next chunk. Keep its colon, not its label.
+  if (/^ *(?:- +)?[^{}:,\r\n]+:[\t ]*$/.test(lastLine) && !authorizationHeader) return "x: "
   return authorizationHeader ? "Authorization: " : /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
 }
