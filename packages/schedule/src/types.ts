@@ -62,7 +62,13 @@ export interface RuntimeScheduleMetadata {
   updatedAt: Date
 }
 
+export interface ScheduleConsoleOptions {
+  enabled?: boolean
+  dispatch?: boolean
+}
+
 export interface RuntimeScheduleRecord<TInput = unknown> extends RuntimeScheduleMetadata {
+  console?: ScheduleConsoleOptions
   cron: string
   enabled: boolean
   id: string
@@ -77,6 +83,7 @@ export interface RuntimeScheduleWake {
 }
 
 export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
+  console?: ScheduleConsoleOptions
   cron: string
   enabled?: boolean
   id?: string
@@ -86,6 +93,7 @@ export interface RuntimeScheduleCreateInput<TTarget extends ScheduleTargetName =
 }
 
 export interface RuntimeScheduleUpdateInput<TTarget extends ScheduleTargetName = ScheduleTargetName, TInput = unknown> {
+  console?: ScheduleConsoleOptions
   cron?: string
   enabled?: boolean
   input?: TInput
@@ -121,10 +129,10 @@ export interface ScheduleRunRecord {
   error?: ScheduleRunError
   id: string
   scheduleId: string
+  response?: ScheduleRunResponse
   scheduledAt: Date
   startedAt?: Date
   status: ScheduleRunStatus
-  response?: ScheduleRunResponse
   target: ScheduleTargetName
   updatedAt: Date
 }

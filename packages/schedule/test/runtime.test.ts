@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { ViteHubError } from "@vite-hub/runtime"
+import { deserializeResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
 import { defineScheduleTarget, schedules, type ScheduleKVStorage } from "../src/index.ts"
 import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeRuntimeSchedule, executeStaticSchedule } from "../src/runtime.ts"
 import { loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
@@ -965,5 +965,26 @@ describe("KV Schedule Run Store", () => {
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
     expect(results.filter(result => result.status === "rejected")).toHaveLength(1)
     await expect(store.getAttempt("attempt/1")).resolves.toMatchObject({ id: "attempt/1" })
+  })
+})
+
+describe("Schedule response persistence", () => {
+  it.each(["memory", "kv"])("preserves binary bodies and header tuples in the %s store", async (kind) => {
+    const store = kind === "memory" ? createMemoryScheduleRunStore() : createKVScheduleRunStore({ kvStore: createTestKVStore() })
+    const now = new Date()
+    const response = await serializeResponse(new Response(new Uint8Array([0, 128, 255]), { headers: { "x-result": "saved" } }))
+    const run = await store.createRun({
+      id: "response-run", scheduleId: "schedule/response", attemptCount: 0, createdAt: now, scheduledAt: now,
+      status: "succeeded", target: "daily/report", updatedAt: now, response,
+    })
+    expect(run.response).toEqual(response)
+    const stored = await store.getRun(run.id)
+    expect(stored?.response).toEqual(response)
+    const restored = deserializeResponse(stored!.response!)
+    expect(restored.headers.get("x-result")).toBe("saved")
+    expect(new Uint8Array(await restored.arrayBuffer())).toEqual(new Uint8Array([0, 128, 255]))
+    Object.assign(run.response!.headers[0]!, { 1: "changed" })
+    expect((await store.getRun(run.id))?.response).toEqual(response)
+    expect((await store.listRuns())[0]?.response).toEqual(response)
   })
 })
