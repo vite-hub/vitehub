@@ -1387,7 +1387,7 @@ describe("agent Vite plugin", () => {
         externals: {
           inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
-        noExternals: [/existing/, "@t3tools/provider-runtime"],
+        noExternals: [/existing/, "@t3tools/provider-runtime", "effect", "@effect/platform-node", "@effect/platform-node-shared"],
         rollupConfig: {
           external: optionalAgentRuntimeExternals,
         },
