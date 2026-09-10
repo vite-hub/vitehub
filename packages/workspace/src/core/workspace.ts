@@ -132,6 +132,7 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
       await store.rebase(options)
     },
     async diff(options) {
+      if (!options?.from) await files.materializeSources({ sources: [] })
       const diff = await store.diff(options)
       // Explicit historical comparisons retain the Store's complete snapshot diff.
       return options?.from ? diff : await filterStartupSourceChanges(definition, store, diff)

@@ -1021,7 +1021,7 @@ describe("lazy sources", () => {
     }
   })
 
-  it.each(["list", "glob", "search", "stat", "exists", "readFile"] as const)("reconciles the final removed startup Source before direct %s", async (operation) => {
+  it.each(["list", "glob", "search", "stat", "exists", "readFile", "diff"] as const)("reconciles the final removed startup Source before direct %s", async (operation) => {
     const store = createMemoryWorkspaceStore()
     const initial = createWorkspace({
       name: "final-removed-startup-source",
@@ -1040,7 +1040,10 @@ describe("lazy sources", () => {
     await store.writeFile("user.md", { path: "user.md", content: "User file" })
     const workspace = createWorkspace({ name: initial.name, store, sources: {} })
 
-    if (operation === "list") {
+    if (operation === "diff") {
+      expect((await workspace.diff()).entries.map(entry => entry.path)).toEqual(["user.md"])
+    }
+    else if (operation === "list") {
       await expect(workspace.list("", { recursive: true })).resolves.not.toEqual(expect.arrayContaining([expect.objectContaining({ path: "AGENTS.md" })]))
     }
     else if (operation === "glob") {
