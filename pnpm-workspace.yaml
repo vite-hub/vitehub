@@ -123,7 +123,7 @@ catalogs:
     publint: ^0.3.24
     rollup: ^4.63.1
     typescript: ^6.0.3
-    vite-plus: ^0.1.24
+    vite-plus: ^0.3.1
     vitest: ^4.1.11
     vue-tsc: ^3.3.11
     yaml: ^2.9.0
@@ -177,7 +177,7 @@ overrides:
   "glob": ^13.0.6
   "parse-url>@types/parse-path": "-"
   "uuid": ^11.1.0
-  vite: npm:@voidzero-dev/vite-plus-core@0.1.24
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.1
   vitest: npm:@voidzero-dev/vite-plus-test@0.1.24
 
 packageExtensions:
@@ -188,7 +188,6 @@ packageExtensions:
     dependencies:
       h3: ^1.15.11
 patchedDependencies:
-  '@voidzero-dev/vite-plus-core@0.1.24': patches/@voidzero-dev__vite-plus-core@0.1.24.patch
   '@netlify/blobs@11.0.3': patches/@netlify__blobs@11.0.3.patch
   '@pierre/trees@1.0.0-beta.6': patches/@pierre__trees@1.0.0-beta.6.patch
   '@vercel/blob@2.8.0': patches/@vercel__blob@2.8.0.patch
