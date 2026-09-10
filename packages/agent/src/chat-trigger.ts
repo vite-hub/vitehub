@@ -88,7 +88,7 @@ function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string 
   // (for example AGENT_R0726), leaving the useful reset text only on `error`.
   // Surface that information when it is unambiguously a usage failure; keep
   // opaque internal errors on the safe generic message.
-  const raw = typeof args.error === "string"
+  const raw = hasRuntimeType(args.error, "string")
     ? args.error
     : (() => {
         try { return JSON.stringify(args.error) || "" } catch { return "" }
