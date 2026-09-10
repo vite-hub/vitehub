@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest"
 import { deserializeResponse, isSerializedResponse, serializeResponse } from "../src/response.ts"
 
 describe("durable Response representation", () => {
+  it.each([204, 205, 304])("round trips a bodyless response with status %s", async (status) => {
+    const restored = deserializeResponse(await serializeResponse(new Response(null, { status })))
+    expect(restored.status).toBe(status)
+    expect(restored.body).toBeNull()
+  })
+
   it("round trips status, duplicate headers, and binary body", async () => {
     const original = new Response(new Uint8Array([0, 127, 255]), {
       headers: [["set-cookie", "a=1, b=2"], ["content-type", "application/octet-stream"]],

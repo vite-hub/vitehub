@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createEntrySource } from "../src/runtime/entry-script.ts"
-import { SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
+import { decodeSandboxValue, SANDBOX_VALUE_MARKER } from "../src/runtime/binary-sidecars.ts"
 
 const tempDirs: string[] = []
 
@@ -56,6 +56,23 @@ async function executePackageEntry(definitionSource: string, options: {
 }
 
 describe("package entry result transport", () => {
+  it.each([201, 422, 204, 205, 304])("preserves a handler Response with status %s across the child process", async (status) => {
+    const empty = [204, 205, 304].includes(status)
+    const execution = await executePackageEntry(
+      `export default () => new Response(${empty ? 'null' : 'new Uint8Array([0, 127, 255])'}, { status: ${status}, statusText: 'Custom', headers: { 'x-result': 'preserved' } })`,
+    )
+    expect(execution.code).toBe(0)
+    // Response records carry their body inline and require no box file access.
+    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
+    const response = await decodeSandboxValue(sandbox, execution.output.result, '', 'result')
+    expect(response).toBeInstanceOf(Response)
+    if (!(response instanceof Response)) throw new TypeError('Expected Response')
+    expect(response.status).toBe(status)
+    expect(response.statusText).toBe('Custom')
+    expect(response.headers.get('x-result')).toBe('preserved')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(empty ? [] : [0, 127, 255]))
+  })
+
   it("calls the default function with payload and context", async () => {
     const execution = await executePackageEntry(
       "export default async function (payload, context) { return { payload, context } }\n",

@@ -45,7 +45,8 @@ export async function serializeResponse(response: Response): Promise<SerializedR
 export function deserializeResponse(value: SerializedResponse): Response {
   if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
   const bytes = base64ToBytes(value.body.data)
-  return new Response(bytes, {
+  const body = [204, 205, 304].includes(value.status) && bytes.length === 0 ? null : bytes
+  return new Response(body, {
     headers: value.headers.map(([name, headerValue]): [string, string] => [name, headerValue]),
     status: value.status,
     statusText: value.statusText,
