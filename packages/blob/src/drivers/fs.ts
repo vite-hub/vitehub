@@ -40,12 +40,13 @@ function resolveRoot(options: ResolvedFsBlobStoreConfig) {
 }
 
 function resolveBlobPath(root: string, pathname: string) {
-  if (pathname === ".vitehub" || pathname.startsWith(".vitehub/")) {
-    throw blobErrorDiagnostics.BLOB_R0005({ message: `Blob pathname uses a reserved internal path: ${pathname}` })
-  }
   const path = resolve(root, pathname)
   if (!isInside(root, path)) {
     throw blobErrorDiagnostics.BLOB_R0005({ message: `Blob pathname escapes the configured base: ${pathname}` })
+  }
+  const relativePath = relative(root, path)
+  if (relativePath === ".vitehub" || relativePath.startsWith(`.vitehub${sep}`)) {
+    throw blobErrorDiagnostics.BLOB_R0005({ message: `Blob pathname uses a reserved internal path: ${pathname}` })
   }
   return path
 }
