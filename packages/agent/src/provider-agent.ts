@@ -1809,11 +1809,14 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const inputTokens = usage.inputTokens ?? usage.lastInputTokens
   const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
   const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
-  const signature = JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
+  const responseIdentity = event.itemId ?? event.turnId
+  const signature = responseIdentity === undefined
+    ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
+    : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
   const cumulative = usage.totalProcessedTokens
   const changed = cumulative !== undefined
     ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
-    : event !== options.accumulator.lastUsageEvent
+    : options.accumulator.lastSignature !== signature
   const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed
   if (options.provider === "codex" && changed && partitionTotal === undefined) {
     options.accumulator.partitionComplete = false

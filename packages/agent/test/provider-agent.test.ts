@@ -2217,6 +2217,23 @@ cli_auth_credentials_store = "keyring"
     })
   })
 
+  it("ignores duplicate no-total usage updates", async () => {
+    const threadId = "thread-duplicate-no-total-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
+    expect(result.usageRecord).toMatchObject({
+      usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 },
+      raw: { inputTokens: 4, outputTokens: 1 },
+    })
+    expect(result.usageRecord.calls).toHaveLength(1)
+  })
+
   it("keeps accumulated usage unknown when a distinct response lacks its partition", async () => {
     const threadId = "thread-partial-usage-update"
     runtime(threadId, [
