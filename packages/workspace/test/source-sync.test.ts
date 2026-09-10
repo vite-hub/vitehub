@@ -345,6 +345,12 @@ describe("Workspace Source Sync", () => {
 
     metadata = { nested: { second: 2, first: 1 }, title: "Updated", absent: undefined }
     expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 0, unchanged: 1 })
+    metadata = { nested: { "\u00e9": 1, "e\u0301": 2 } }
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    metadata = { nested: { "e\u0301": 2, "\u00e9": 1 } }
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 0, unchanged: 1 })
+    metadata = { nested: { "e\u0301": 1, "\u00e9": 2 } }
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
     mediaType = "text/markdown"
     expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
     metadata = {}
