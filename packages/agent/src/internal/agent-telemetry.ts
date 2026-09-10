@@ -106,7 +106,6 @@ function redactConfigurationValue(
   const secret = secretAncestor || secretMetadataKey(key)
   if (hasRuntimeType(value, "string")) {
     if (secret) return "[redacted]"
-    if (key === "repo" || key === "repository") return value
     return redactCredentialText(value)
   }
   if (!value || !hasRuntimeType(value, "object")) return secret ? "[redacted]" : value
@@ -127,7 +126,17 @@ function redactConfigurationValue(
 
 function redactTelemetryConfiguration(configuration: AgentTelemetryConfiguration): AgentTelemetryConfiguration {
   // SAFETY: Redaction preserves configuration structure; secret primitive values become redaction markers.
-  return redactConfigurationValue(configuration) as AgentTelemetryConfiguration
+  const redacted = redactConfigurationValue(configuration) as AgentTelemetryConfiguration
+  if (configuration.workspace?.sources && redacted.workspace) {
+    redacted.workspace.sources = configuration.workspace.sources.map((source, index) => {
+      const safe = redacted.workspace!.sources![index]!
+      if (typeof source === "string" || typeof safe === "string") return safe
+      return source.repository && /^[\w.-]+\/[\w.-]+$/.test(source.repository)
+        ? { ...safe, repository: source.repository }
+        : safe
+    })
+  }
+  return redacted
 }
 
 export async function setAgentTelemetryConfiguration(

@@ -57,3 +57,33 @@ it("redacts secret schema descendants without changing ordinary shared defaults"
   await updateAgentTelemetryConfiguration(context, {})
   expect(getAgentTelemetryConfiguration(context)!.value).toEqual(initial)
 })
+
+
+it("redacts repository schema keywords while preserving validated workspace repositories", async () => {
+  const context = createAgentInvocationContextStore()
+  await setAgentTelemetryConfiguration(context, {
+    driver: { kind: "provider" },
+    runtime: { name: "node" },
+    tools: [{ name: "configure", inputSchema: {
+      repo: "Authorization: Bearer repo-secret",
+      repository: "Authorization: Bearer repository-secret",
+      nested: { repository: "Authorization: Bearer nested-secret" },
+    } }],
+    workspace: { mode: "read", sources: [
+      { id: "docs", repository: "owner/repo" },
+      { id: "token-name", repository: "owner/phc_123456789012345678901234567890" },
+      { id: "invalid", repository: "Authorization: Bearer source-secret" },
+    ] },
+  })
+  const value = getAgentTelemetryConfiguration(context)!.value
+  expect(value.tools?.[0]?.inputSchema).toEqual({
+    repo: "Authorization: Bearer [REDACTED]",
+    repository: "Authorization: Bearer [REDACTED]",
+    nested: { repository: "Authorization: Bearer [REDACTED]" },
+  })
+  expect(value.workspace?.sources).toEqual([
+    { id: "docs", repository: "owner/repo" },
+    { id: "token-name", repository: "owner/phc_123456789012345678901234567890" },
+    { id: "invalid", repository: "Authorization: Bearer [REDACTED]" },
+  ])
+})
