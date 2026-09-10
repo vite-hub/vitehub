@@ -97,7 +97,7 @@ class RuntimeShellSession implements ShellSession {
     if (!this.provider.startProcess || !this.boundary.processes.background) {
       throw shellErrorDiagnostics.SHELL_R0009({ message: "[vitehub] Shell provider does not support long-running processes." })
     }
-    if (typeof this.policy.maxProcesses === "number" && this.#processes.size >= this.policy.maxProcesses) {
+    if (typeof this.policy.maxProcesses === "number" && this.#processes.size + this.#starts.size >= this.policy.maxProcesses) {
       throw shellErrorDiagnostics.SHELL_R0010({ message: `[vitehub] Shell session process budget exhausted after ${this.policy.maxProcesses} processes.` })
     }
     let finishStart!: () => void
