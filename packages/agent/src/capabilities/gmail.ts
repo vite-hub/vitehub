@@ -101,6 +101,8 @@ const gmailReadScopes = new Set([
 function gmailSkillContent(mode: GmailCapabilityMode): string {
   return `# Gmail
 
+This Skill persists between invocations. Before following any instructions below, check that both \`gmail_search\` and \`gmail_auth\` are available in this invocation's tool list. If either is absent, Gmail is inactive: do not follow this Skill or attempt Gmail operations. Ask the caller to enable gmail() for this Agent. Use \`gmail_draft\` only when it is also available in the current tool list, even if this retained Skill describes draft access.
+
 Use \`gmail_search\` for Gmail searches and inbox listings. It does not retrieve full message bodies.
 
 - If \`gmail_search\` returns \`ok\`, answer from its result.
