@@ -2840,7 +2840,7 @@ export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: AgentChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  return defineChannel("teams", options)
+  return defineMessageChannelInstructions(defineChannel("teams", options), "Write formulas for Microsoft Teams as readable plain text, using words, Unicode symbols, or inline code. Teams does not render LaTeX math delimiters or Mermaid diagrams. Explain variables in short bullets; use a numbered flow instead of diagram syntax.")
 }
 
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(

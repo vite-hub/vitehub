@@ -383,7 +383,7 @@ describe("framework package contract", () => {
       consolePage.indexOf("onMounted(() =>"),
     );
     expect(consolePage).toContain(
-      'v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"',
+      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
     );
     expect(consolePage).toContain(
       'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
@@ -417,7 +417,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
-    expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
+    expect(consoleSessionNavbar).toContain('v-if="externalTarget.github"');
+    expect(consoleSessionNavbar).toContain('fill="currentColor"');
     expect(consoleSessionNavbar).toContain('label: "Open on GitHub"');
     expect(consolePage).toMatch(/scrollbar-width: none;/);
     expect(consolePage).toMatch(/::-webkit-scrollbar[\s\S]*?display: none;/);
@@ -538,7 +539,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain('window.matchMedia("(min-width: 981px)")');
     expect(consolePage).toContain("root: 'md:flex'");
     expect(consolePage).toContain("content: 'md:hidden'");
-    expect(consolePage).toContain("detailsOpen.value = isDesktop.value");
+    expect(consolePage).toContain("const detailsOpen = ref(false)");
     expect(consolePage).toContain("}, 60_000);");
     expect(consolePage).toContain(
       "if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();",

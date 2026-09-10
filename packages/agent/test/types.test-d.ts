@@ -1134,6 +1134,7 @@ describe("agent public types", () => {
       messages: {
         filter: ({ deliveryKind }) => {
           expectTypeOf(deliveryKind).toEqualTypeOf<AgentMessageDeliveryKind>()
+          expectTypeOf(deliveryKind).toEqualTypeOf<"direct" | "mention">()
           return deliveryKind === "direct" || deliveryKind === "mention"
         },
         identity: ({ adapter, author }) => `${adapter}:${author.userId}`,

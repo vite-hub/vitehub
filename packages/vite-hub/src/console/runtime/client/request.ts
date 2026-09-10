@@ -15,7 +15,7 @@ export class ConsoleRequestError extends Diagnostic {
   readonly status: number
 
   constructor(status: number, message = `Console request failed with status ${status}.`) {
-    super({ code: "VITE_HUB_R0110", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, ConsoleRequestError)
+    super({ code: "VITE_HUB_R0110", docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, ConsoleRequestError)
     this.name = "ConsoleRequestError"
     this.status = status
   }

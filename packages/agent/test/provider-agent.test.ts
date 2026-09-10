@@ -1,3 +1,5 @@
+import type { AgentProviderCredentialContext } from "../src/types.ts"
+import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
@@ -79,7 +81,7 @@ function event(type: string, threadId: string, payload: Record<string, unknown>,
 
 function runtime(threadId: string, events: unknown[], options: {
   afterEvents?: () => Promise<void>
-  onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
+  onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined, input: { input: string; threadId: string }) => Promise<void>
   onStartSession?: () => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
   resumeCursor?: string
@@ -101,8 +103,8 @@ function runtime(threadId: string, events: unknown[], options: {
     interruptTurn: vi.fn(async () => undefined),
     respondToRequest: vi.fn(async () => undefined),
     respondToUserInput: vi.fn(async () => undefined),
-    sendTurn: vi.fn(async () => {
-      await options.onSendTurn?.(mcp)
+    sendTurn: vi.fn(async (input: { input: string; threadId: string }) => {
+      await options.onSendTurn?.(mcp, input)
       return { resumeCursor: options.turnResumeCursor, threadId, turnId: "turn-1" }
     }),
     startSession: vi.fn(async (input: { mcp?: typeof mcp }) => {
@@ -150,6 +152,28 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
+  it.each([undefined, 30_000])("forwards parent Workspace metadata without mounting it (timeout: %s)", async (timeout) => {
+    const threadId = "title-parent-metadata"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const workspace = { fs: {}, startSession: vi.fn(), tools: {} }
+    const env = vi.fn((metadata: AgentProviderCredentialContext) => {
+      expect(metadata.workspace).toBe(workspace)
+      expect(metadata.fs).toBe(workspace.fs)
+      return { TITLE_METADATA: "available" }
+    })
+    const adapter = createProviderAgentAdapter({ provider: "codex", env })
+    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId, {
+      input: { prompt: "hello", timeout, abortSignal: new AbortController().signal },
+    }))
+    // SAFETY: The fixture provides the Workspace metadata used by the resolver.
+    withProviderCallbackMetadata(auxiliary, { workspace, fs: workspace.fs } as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(auxiliary as never)
+    expect(env).toHaveBeenCalled()
+    expect(workspace.startSession).not.toHaveBeenCalled()
+    expect(auxiliary).not.toHaveProperty("workspace")
+  })
+
   it("rejects provisioned Codex credentials on Windows before resolving them", async () => {
     const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32")
     const credentials = vi.fn(() => JSON.stringify({ OPENAI_API_KEY: "private" }))
@@ -897,6 +921,28 @@ describe("Provider Agent Driver", () => {
         launchArgs: '--enable responses_websockets_v2 -c "model_reasoning_effort=\\"high\\""',
       }),
     }))
+  })
+
+  it.each([false, true])("preserves auxiliary Codex environment and settings arguments (managed credentials: %s)", async (managed) => {
+    const threadId = "thread-auxiliary-launch-arguments"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const environmentArgs = '--sandbox read-only -c model_reasoning_effort="low"'
+    const settingsArgs = '--enable responses_websockets_v2 -c model_reasoning_effort="high"'
+    await createProviderAgentAdapter({
+      ...(managed ? { credentials: JSON.stringify({ OPENAI_API_KEY: "private" }) } : {}),
+      env: { T3CODE_CODEX_LAUNCH_ARGS: environmentArgs },
+      provider: "codex",
+      providerSettings: { launchArgs: settingsArgs },
+      // SAFETY: This fixture marks the provider invocation as an auxiliary title run.
+    }).generate(markAuxiliaryMessageChannelInstructionContext(context(threadId)) as never)
+    const runtimeOptions = createProviderRuntime.mock.lastCall![0]
+    const expected = [settingsArgs, environmentArgs,
+      ...(managed ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
+    ].join(" ")
+    // The pinned runtime selects this environment value before settings.launchArgs.
+    expect(runtimeOptions.environment?.T3CODE_CODEX_LAUNCH_ARGS).toBe(expected)
+    expect(runtimeOptions.settings?.launchArgs).toBe(expected)
+    if (managed) expect(runtimeOptions.settings?.homePath).toEqual(expect.any(String))
   })
 
   it("forces file credential storage after explicit Codex launch arguments", async () => {
@@ -2031,25 +2077,61 @@ cli_auth_credentials_store = "keyring"
     })
   })
 
-  it("keeps last-response usage raw when reporting a cumulative total", async () => {
-    const threadId = "thread-cumulative-usage"
+  it.each([
+    { inputTokens: 7 },
+    { lastOutputTokens: 5 },
+    {},
+  ])("keeps unavailable response fields unknown alongside a cumulative total: %j", async (partition) => {
+    const threadId = "thread-partial-cumulative-usage"
+    const usage = { ...partition, totalProcessedTokens: 100 }
     runtime(threadId, [
-      event("thread.token-usage.updated", threadId, { usage: {
-        cachedInputTokens: 2,
-        inputTokens: 7,
-        outputTokens: 5,
-        reasoningOutputTokens: 3,
-        totalProcessedTokens: 100,
-        usedTokens: 12,
-      } }),
+      event("thread.token-usage.updated", threadId, { usage }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
     expect(events.find(item => item.type === "usage")).toMatchObject({
       usageRecord: {
-        raw: { cachedInputTokens: 2, inputTokens: 7, outputTokens: 5, reasoningOutputTokens: 3, totalProcessedTokens: 100, usedTokens: 12 },
-        usage: { details: {}, inputTokens: undefined, outputTokens: undefined, totalTokens: 100 },
+        raw: usage,
+        usage: {
+          details: {},
+          inputTokens: undefined,
+          outputTokens: undefined,
+          totalTokens: 100,
+        },
+      },
+    })
+  })
+
+  it.each([
+    { inputTokens: 7, outputTokens: 5, usedTokens: 12 },
+    { inputTokens: 7, outputTokens: 5 },
+    { lastInputTokens: 7, lastOutputTokens: 5, usedTokens: 12 },
+    { lastInputTokens: 7, lastOutputTokens: 5 },
+  ])("preserves latest-response partitions independently of the cumulative total: %j", async (partition) => {
+    const threadId = "thread-cumulative-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: {
+        ...partition,
+        cachedInputTokens: 2,
+        reasoningOutputTokens: 3,
+        toolUses: 1,
+        totalProcessedTokens: 100,
+      } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    expect(events.find(item => item.type === "usage")).toEqual({
+      type: "usage",
+      usageRecord: {
+        raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100 },
+        usage: {
+          details: { cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1 },
+          inputTokens: 7,
+          outputTokens: 5,
+          totalTokens: 100,
+        },
       },
     })
   })
@@ -2378,6 +2460,27 @@ cli_auth_credentials_store = "keyring"
       }],
     })
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
+  })
+
+  it.each([undefined, 30_000])("does not replace primary telemetry configuration during an auxiliary provider run (timeout: %s)", async (timeout) => {
+    const threadId = "thread-auxiliary-configuration"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId, { input: { prompt: "hello", timeout } })
+    await setAgentTelemetryConfiguration(runContext.context, {
+      capabilities: [{ id: "support" }],
+      driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "codex" }, provider: "codex" },
+      runtime: { name: "vite" },
+      tools: [{ name: "support_search" }],
+    })
+    const primary = getAgentTelemetryConfiguration(runContext.context)?.value
+
+    await createProviderAgentAdapter({
+      instructions: "Generate a short title.",
+      model: "gpt-5.6-luna",
+      provider: "codex",
+    }).generate(markAuxiliaryMessageChannelInstructionContext(runContext) as never)
+
+    expect(getAgentTelemetryConfiguration(runContext.context)?.value).toEqual(primary)
   })
 
   it("persists provider-native activity through a complete Agent invocation", async () => {
@@ -2809,7 +2912,7 @@ cli_auth_credentials_store = "keyring"
     expect(resumed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue", threadId }))
   })
 
-  it("routes live approval and provider input responses without claiming steering", async () => {
+  it("routes live steering, approval, and provider input responses", async () => {
     const threadId = "thread-live-input"
     let release!: () => void
     const response = new Promise<void>((resolve) => {
@@ -2841,9 +2944,9 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = collect(await adapter.stream!(liveContext as never))
 
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
     await ready
-    await expect(sendAgentInvocationInput(invocationId, { prompt: "change course" }, { mode: "steer" })).resolves.toBe("unsupported")
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "change course" }, { mode: "steer" })).resolves.toBe("accepted")
     await expect(sendAgentInvocationInput(invocationId, {
       messages: [{
         id: "response-1",
@@ -2861,6 +2964,198 @@ cli_auth_credentials_store = "keyring"
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
   })
 
+  it.each(["text", "messages", "message", "multiple"] as const)("steers a running provider turn with a %s prompt and emits input plus method evidence", async (promptKind) => {
+    const threadId = "thread-live-steer"
+    let releaseTurn!: () => void
+    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], {
+      beforeEvent: () => turnReleased,
+    })
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
+
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    await expect(sendAgentInvocationInput(invocationId, promptKind === "message"
+        ? { message: { id: "steering-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "private follow-up" }] } }
+        : { prompt: promptKind === "text" ? "private follow-up" : [
+            { id: "steering-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "private follow-up" }] },
+            ...(promptKind === "multiple" ? [{ id: "second-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "second follow-up" }] }] : []),
+          ] }, { mode: "steer" })).resolves.toBe("accepted")
+    releaseTurn()
+
+    await expect(result).resolves.toEqual(expect.arrayContaining([{
+      ...(promptKind === "text" ? {} : { id: "steering-prompt" }),
+      data: {
+        kind: "input.message",
+        value: {
+          message: "private follow-up",
+          mode: "steer",
+        },
+      },
+      type: "data-agent-event",
+    }, {
+      data: { kind: "input.steered", value: { mode: "steer" } },
+      type: "data-agent-event",
+    }]))
+    if (promptKind === "multiple") {
+      expect(await result).toContainEqual({
+        type: "data-agent-event",
+        id: "second-prompt",
+        data: { kind: "input.message", value: { message: "second follow-up", mode: "steer" } },
+      })
+    }
+    expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: promptKind === "multiple" ? "private follow-up\nsecond follow-up" : "private follow-up", threadId })
+  })
+
+  it("drains late accepted steering evidence before the provider stream finishes", async () => {
+    const threadId = "thread-late-steering-evidence"
+    let releaseTerminal!: () => void
+    let releaseSteering!: () => void
+    const terminal = new Promise<void>(resolve => { releaseTerminal = resolve })
+    const steering = new Promise<void>(resolve => { releaseSteering = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { beforeEvent: () => terminal })
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
+    provider.sendTurn.mockImplementationOnce(async () => {
+      await steering
+      return { resumeCursor: undefined, threadId, turnId: "turn-1" }
+    })
+    const submitted = sendAgentInvocationInput(invocationId, { prompt: "late follow-up" }, { mode: "steer" })
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledTimes(2))
+    releaseTerminal()
+    try {
+      await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).not.toBe(true))
+      expect(provider.close).not.toHaveBeenCalled()
+    } finally {
+      releaseSteering()
+      await result
+    }
+    await expect(submitted).resolves.toBe("accepted")
+    const output = await result
+    const kinds = output.flatMap(item => isRuntimeRecord(item) && item.type === "data-agent-event" && isRuntimeRecord(item.data) ? [item.data.kind] : [])
+    expect(kinds).toEqual(expect.arrayContaining(["input.message", "input.steered"]))
+    expect(kinds.filter(kind => kind === "input.message")).toHaveLength(1)
+    expect(kinds.filter(kind => kind === "input.steered")).toHaveLength(1)
+  })
+
+  it("fails without a finish event when steering outlives the terminal drain", async () => {
+    const threadId = "thread-steering-drain-timeout"
+    let releaseTerminal!: () => void
+    let releaseSteering!: () => void
+    const terminal = new Promise<void>(resolve => { releaseTerminal = resolve })
+    const steering = new Promise<void>(resolve => { releaseSteering = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { beforeEvent: () => terminal })
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const output: StreamEvent[] = []
+    const result = (async () => {
+      const stream = await createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never)
+      // SAFETY: The provider adapter returns its normalized StreamEvent iterator.
+      for await (const item of stream as AsyncIterable<StreamEvent>) output.push(item)
+    })()
+    const failed = expect(result).rejects.toThrow("steering submission cleanup timed out")
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
+    provider.sendTurn.mockImplementationOnce(async () => {
+      await steering
+      return { resumeCursor: undefined, threadId, turnId: "turn-1" }
+    })
+    const submitted = sendAgentInvocationInput(invocationId, { prompt: "late follow-up" }, { mode: "steer" })
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledTimes(2))
+    vi.useFakeTimers()
+    try {
+      releaseTerminal()
+      await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).not.toBe(true))
+      await vi.advanceTimersByTimeAsync(10_000)
+      await failed
+      releaseSteering()
+      await expect(submitted).resolves.toBe("invalid-state")
+      expect(output.some(item => item.type === "finish")).toBe(false)
+      expect(JSON.stringify(output)).not.toContain("input.steered")
+      expect(provider.close).toHaveBeenCalledOnce()
+    } finally {
+      releaseSteering()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each(["messages", "prompt", "message"] as const)("falls back before submitting live steering with non-text parts in %s", async (inputField) => {
+    const threadId = "thread-steer-attachment"
+    let releaseTurn!: () => void
+    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
+    const provider = runtime(threadId, [
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { beforeEvent: () => turnReleased })
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
+
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
+    try {
+      for (const part of [
+        { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
+        { type: "data-selection", data: { value: "selected" } },
+        { type: "source", title: "Notes", url: "https://example.com/notes" },
+      ]) {
+        const message = { id: "message-steer-non-text", role: "user", parts: [
+          { type: "text", text: "inspect this input" }, part,
+        ] }
+        await expect(sendAgentInvocationInput(invocationId, {
+          [inputField]: inputField === "message" ? message : [message],
+        }, { mode: "steer" })).resolves.toBe("unsupported")
+      }
+      expect(provider.sendTurn).toHaveBeenCalledTimes(1)
+      expect(fetchData).not.toHaveBeenCalled()
+    } finally {
+      releaseTurn()
+      await result
+    }
+  })
+
+  it.each([false, true])("does not advertise steering when the provider opens another turn (cancellation fails: %s)", async (cancellationFails) => {
+    const threadId = "thread-false-steer"
+    let releaseTurn!: () => void
+    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
+    const provider = runtime(threadId, [
+      event("content.delta", threadId, { delta: "rejected output", streamKind: "assistant_text" }, { turnId: "turn-2" }),
+      event("item.started", threadId, { data: { command: "rejected command" }, itemType: "command_execution", title: "shell" }, { itemId: "rejected-tool", turnId: "turn-2" }),
+      event("turn.aborted", threadId, { reason: "rejected steering" }, { turnId: "turn-2" }),
+      event("content.delta", threadId, { delta: "original output", streamKind: "assistant_text" }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], {
+      beforeEvent: () => turnReleased,
+    })
+    provider.sendTurn.mockImplementationOnce(async () => ({ resumeCursor: undefined, threadId, turnId: "turn-1" }))
+    provider.sendTurn.mockImplementationOnce(async () => ({ resumeCursor: undefined, threadId, turnId: "turn-2" }))
+    if (cancellationFails) provider.interruptTurn.mockRejectedValueOnce(new Error("cancellation failed"))
+    const invocationId = `run-${threadId}`
+    const liveContext = context(threadId)
+    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
+    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
+
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "follow-up" }, { mode: "steer" })).resolves.toBe(cancellationFails ? "invalid-state" : "unsupported")
+    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-2")
+    releaseTurn()
+    const output = await result
+    expect(output).toContainEqual({ type: "text-delta", text: "original output", phase: "final" })
+    expect(JSON.stringify(output)).not.toContain("rejected")
+    expect(JSON.stringify(output)).not.toContain("input.steered")
+  })
+
   it("preserves the primary input handler during auxiliary provider runs", async () => {
     const primaryThreadId = "thread-primary-input"
     const controller = new AbortController()
@@ -2874,7 +3169,7 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const primaryResult = adapter.generate(primaryContext as never)
 
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
     const auxiliaryThreadId = "thread-auxiliary-input"
     runtime(auxiliaryThreadId, [event("turn.completed", auxiliaryThreadId, { state: "completed" }, { turnId: "turn-1" })])
     const auxiliaryContext = context(auxiliaryThreadId)
@@ -2882,7 +3177,7 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(markAuxiliaryMessageChannelInstructionContext(auxiliaryContext) as never)
 
-    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true })
+    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true })
     controller.abort("cancelled")
     await expect(primaryResult).rejects.toBe("cancelled")
     expect(primary.interruptTurn).toHaveBeenCalledWith(primaryThreadId, "turn-1")
@@ -3363,7 +3658,7 @@ cli_auth_credentials_store = "keyring"
     }) as never)).rejects.toThrow()
   })
 
-  it("reports native Claude Workspace instructions to invocation inspection", async () => {
+  it.each(["", "docs#v1", "docs?draft", "docs 100%/nested"])("reports native Claude Workspace instructions with source root %j to invocation inspection", async (sourceRoot) => {
     const threadId = "thread-native-claude-instructions"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     let root = ""
@@ -3394,7 +3689,7 @@ cli_auth_credentials_store = "keyring"
     }
     const runContext = context(threadId, {
       workspace,
-      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
+      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }) } },
       workspaceMode: "write",
     })
     await setAgentTelemetryConfiguration(runContext.context, {
@@ -3408,6 +3703,12 @@ cli_auth_credentials_store = "keyring"
     const [instructions] = getAgentTelemetryConfiguration(runContext.context)?.value.instructions || []
     expect(instructions).toMatch(/^native workspace instructions\n\nMounted source provenance/)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+    expect(instructions).toContain("<repository>/blob/<revision.id>/<root>/<relative-path>#L<line>")
+    expect(instructions).toContain(`"root": ${JSON.stringify(sourceRoot)}`)
+    expect(instructions).toContain("Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding.")
+    expect(instructions).toContain("root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor.")
+    expect(instructions).toContain("Never cite /workspace paths")
+    expect(instructions).toContain("If the mounted path cannot be mapped exactly to one provenance entry, cite no link.")
   })
 
   it.each([
@@ -3686,6 +3987,8 @@ cli_auth_credentials_store = "keyring"
 
   it.each([
     { sourceRoot: undefined, expectedRoot: "", conflicting: false },
+    { sourceRoot: "", expectedRoot: "", conflicting: false, nativeInstructions: "large instructions\n".repeat(10_000) },
+    { sourceRoot: "", expectedRoot: "", conflicting: false, launchArgs: '-c developer_instructions="caller"' },
     { sourceRoot: "/docs", expectedRoot: "docs", conflicting: false },
     { sourceRoot: "./docs", expectedRoot: "docs", conflicting: false },
     { sourceRoot: "\\docs\\.\\guide\\", expectedRoot: "docs/guide", conflicting: false },
@@ -3699,7 +4002,7 @@ cli_auth_credentials_store = "keyring"
     { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs/a" },
     { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "" },
     { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs-other" },
-  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount, selectedPaths = ["docs/a.md", "docs/b.md"] }) => {
+  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount, selectedPaths = ["docs/a.md", "docs/b.md"], nativeInstructions = "native Codex workspace instructions", launchArgs }) => {
     const threadId = "thread-native-codex-provenance"
     let root = ""
     let instructions = ""
@@ -3722,7 +4025,7 @@ cli_auth_credentials_store = "keyring"
       startSession: vi.fn(async (options: { target: string }) => {
         root = options.target
         await mkdir(root, { recursive: true })
-        await writeFile(`${root}/AGENTS.md`, "native Codex workspace instructions")
+        await writeFile(`${root}/AGENTS.md`, nativeInstructions)
         return session
       }),
       tools: {},
@@ -3744,17 +4047,18 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This fixture supplies the trusted access context expected by the helper.
     markTrustedWorkspaceAccessScope(runContext.context as never)
     // SAFETY: This fixture supplies the complete provider generation context.
-    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+    await createProviderAgentAdapter({ provider: "codex", providerSettings: { launchArgs } }).generate(runContext as never)
 
     expect(workspace.materializeSources).toHaveBeenCalledTimes(selectedPaths.length)
     if (expectedRoot === undefined) {
-      expect(instructions).toBe("native Codex workspace instructions")
+      expect(instructions).toBe(nativeInstructions)
       return
     }
     expect(instructions).toContain(`"root": "${expectedRoot}"`)
     expect(instructions.match(/"repository":/g)).toHaveLength(1)
-    expect(instructions).toMatch(/^native Codex workspace instructions\n\nMounted source provenance/)
+    expect(instructions.startsWith(`${nativeInstructions}\n\nMounted source provenance`)).toBe(true)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toBe(launchArgs)
   })
 
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {

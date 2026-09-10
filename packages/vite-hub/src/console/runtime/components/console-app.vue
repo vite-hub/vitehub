@@ -24,8 +24,10 @@ import {
   resolveConsoleRouteName,
 } from "../console-route";
 import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
+import { useConsoleConnectionUnavailable } from "./console-connection";
 import { consoleSectionDetails, rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
+import ConsoleConnectionState from "./console-connection-state.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -168,6 +170,11 @@ watch(
   },
   { flush: "sync", immediate: true },
 );
+
+const connectionUnavailable = useConsoleConnectionUnavailable(() => ({
+  errors: [agentsError.value, list.error.value, detail.error.value],
+  pending: refreshing.value || agentsLoading.value || list.isLoading.value || detail.isLoading.value,
+}));
 
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
@@ -829,7 +836,6 @@ if (pageVisible.value) void loadAgents();
 onMounted(() => {
   media = window.matchMedia("(min-width: 981px)");
   updateDesktop();
-  detailsOpen.value = isDesktop.value;
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
@@ -870,6 +876,7 @@ onBeforeUnmount(() => {
           <ConsoleMark class="size-4" />
           <span class="shrink-0 text-xs font-medium text-muted">ViteHub Agent</span>
           <UDropdownMenu
+            v-if="hasMultipleAgents"
             :items="agentMenuItems"
             :content="{ align: 'start', collisionPadding: 12 }"
             :ui="{ content: 'w-(--reka-dropdown-menu-trigger-width)' }"
@@ -878,21 +885,18 @@ onBeforeUnmount(() => {
               class="min-w-0 justify-start rounded-md border border-default px-1.5 hover:bg-elevated"
               color="neutral"
               :label="selectedAgentLabel"
-              :trailing-icon="hasMultipleAgents ? 'i-ph-caret-down-light' : undefined"
+              trailing-icon="i-ph-caret-down-light"
               size="xs"
               variant="ghost"
-              :aria-label="
-                hasMultipleAgents
-                  ? `Switch Agent. ${selectedAgentLabel} selected.`
-                  : selectedAgentLabel
-              "
+              :aria-label="`Switch Agent. ${selectedAgentLabel} selected.`"
             />
           </UDropdownMenu>
+          <span v-else class="min-w-0 truncate text-xs text-default">{{ selectedAgentLabel }}</span>
         </div>
       </template>
 
       <template #default>
-        <div v-if="errorMessage(agentsError)" class="px-3 pb-3">
+        <div v-if="!connectionUnavailable && errorMessage(agentsError)" class="px-3 pb-3">
           <UAlert
             color="error"
             variant="subtle"
@@ -1002,7 +1006,7 @@ onBeforeUnmount(() => {
           </UPopover>
         </div>
         <div
-          v-if="errorMessage(list.error.value || list.loadMoreError.value)"
+          v-if="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
           class="px-3"
         >
           <UAlert
@@ -1010,9 +1014,9 @@ onBeforeUnmount(() => {
             variant="subtle"
             icon="i-ph-cloud-slash-light"
             title="Could not load sessions"
-            :description="errorMessage(list.error.value || list.loadMoreError.value)"
+            :description="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
             :actions="
-              list.error.value
+              !connectionUnavailable && list.error.value
                 ? [
                     {
                       label: 'Try again',
@@ -1035,14 +1039,12 @@ onBeforeUnmount(() => {
           />
         </div>
         <div
-          v-if="(agentsLoading || list.isLoading.value) && !invocationItems.length"
+          v-if="!connectionUnavailable && (agentsLoading || list.isLoading.value) && !invocationItems.length"
           class="grid gap-1 px-2"
           aria-label="Loading sessions"
           role="status"
         >
           <div
-            v-for="index in 6"
-            :key="index"
             class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 gap-y-2 rounded-md px-2 py-2.5"
           >
             <USkeleton class="mt-0.5 size-4 rounded" />
@@ -1051,7 +1053,7 @@ onBeforeUnmount(() => {
                 <USkeleton class="h-3 w-16 rounded" />
                 <USkeleton class="h-3 w-14 rounded" />
               </div>
-              <USkeleton class="h-4 rounded" :class="index % 3 === 0 ? 'w-3/4' : 'w-full'" />
+              <USkeleton class="h-4 w-full rounded" />
               <USkeleton class="h-3 w-2/3 rounded" />
             </div>
           </div>
@@ -1149,7 +1151,15 @@ onBeforeUnmount(() => {
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
       <template #body>
-        <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
+        <div class="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-live="polite">
+          <ConsoleConnectionState
+            v-if="connectionUnavailable"
+            :compact="Boolean(invocationView)"
+            :retrying="refreshing"
+            @retry="refresh"
+            @open-sessions="sessionsOpen = true"
+          />
+          <div v-if="!connectionUnavailable || invocationView" class="min-h-0 w-full flex-1 overflow-hidden">
           <div
             v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"
             class="h-full min-h-0 overflow-hidden"
@@ -1189,7 +1199,7 @@ onBeforeUnmount(() => {
             />
           </div>
           <USplitter
-            v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"
+            v-else-if="isDesktop && detailsOpen && selectedInvocationId"
             id="agent-session-layout"
             auto-save-id="vitehub-agent-session-layout-v2"
             :items="splitterItems"
@@ -1213,7 +1223,7 @@ onBeforeUnmount(() => {
                   @toggle-details="detailsOpen = !detailsOpen"
                 />
                 <UAlert
-                  v-if="invocationView && errorMessage(detail.error.value)"
+                  v-if="!connectionUnavailable && invocationView && errorMessage(detail.error.value)"
                   class="m-3 shrink-0"
                   color="error"
                   variant="subtle"
@@ -1322,7 +1332,7 @@ onBeforeUnmount(() => {
             />
             <div v-else-if="invocationView" class="flex min-h-0 flex-1 flex-col">
               <UAlert
-                v-if="errorMessage(detail.error.value)"
+                v-if="!connectionUnavailable && errorMessage(detail.error.value)"
                 class="m-3 shrink-0"
                 color="error"
                 variant="subtle"
@@ -1373,6 +1383,7 @@ onBeforeUnmount(() => {
               </template>
             </USlideover>
           </div>
+          </div>
         </div>
       </template>
     </UDashboardPanel>
@@ -1415,7 +1426,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__search {
-  border: 1px solid var(--ui-border);
+  border: 0;
 }
 
 .vitehub-console__search-shortcut {

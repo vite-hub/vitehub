@@ -892,8 +892,9 @@ describe("Agent Invocation UI", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const invocation = {
-      annotations: { triggeredBy: "Maxi", "channel.sentAt": "2026-08-22T14:34:00.000Z" },
+      annotations: { triggeredBy: "Maxi", "channel.sentAt": "2026-08-22T14:34:00.000Z", "github.url": "https://github.com/vite-hub/vite-hub/issues/18807" },
       createdAt: timestamp,
+      agentName: "support-agent",
       id: "message-meta",
       observations: [
         {
@@ -935,7 +936,7 @@ describe("Agent Invocation UI", () => {
     expect(prompt.get(".vh-invocation-message__meta time").attributes("datetime")).toBe("2026-08-22T14:34:00.000Z");
     await prompt.get('button[aria-label="Copy message"]').trigger("click");
     await nextTick();
-    expect(writeText).toHaveBeenCalledWith("Check item 18807.");
+    expect(writeText).toHaveBeenCalledWith("Check item 18807.\n\nInvocation ID: message-meta\nTrace ID: trace\nAgent: support-agent\nURL: https://github.com/vite-hub/vite-hub/issues/18807");
     expect(prompt.get('button[aria-label="Copied"]').text()).toBe("Copied");
   });
 
@@ -1942,6 +1943,26 @@ describe("Agent Invocation UI", () => {
     ]);
   });
 
+  it.each(["commentary", "user"] as const)("does not use an earlier response after later %s", (laterMessage) => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      id: "missing-final", status: "completed", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      observations: [
+        { name: "agent.message.delta", sequence: 1, timestamp, type: "lifecycle", attributes: {
+          "message.id": "earlier", "message.content": JSON.stringify({ text: "Done" }), "message.role": "assistant", "message.phase": "final",
+        } },
+        { name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle", attributes: {
+          "message.id": "later", "message.content": "Check again", "message.role": laterMessage === "user" ? "user" : "assistant",
+          "message.phase": laterMessage === "commentary" ? "commentary" : undefined,
+        } },
+        { name: "agent.invocation.finish", sequence: 3, timestamp, type: "lifecycle", attributes: {
+          "result.text": "Done", "vitehub.observation.truncated": true,
+        } },
+      ],
+    };
+    expect(invocationActivities(invocation).find(activity => activity.name === "agent.invocation.finish")?.truncated).toBe(true);
+  });
+
   it("does not replay an aggregate final answer after matching deltas", () => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
@@ -1958,6 +1979,44 @@ describe("Agent Invocation UI", () => {
     } satisfies AgentInvocationView;
 
     expect(invocationActivities(invocation).map(activity => activity.body)).toEqual(["Final answer."]);
+  });
+
+  it.each([
+    { sourceText: JSON.stringify({ disposition: "complete", text: "Final answer." }), sourceTruncated: false, expectedTruncated: false },
+    { sourceText: JSON.stringify({ disposition: "complete", text: "Final answer." }), sourceTruncated: true, expectedTruncated: true },
+    { sourceText: JSON.stringify({ text: "Different answer." }), sourceTruncated: false, expectedTruncated: true },
+    { sourceText: '{"text":"Final answer."', sourceTruncated: false, expectedTruncated: true },
+  ].flatMap(testCase => [10, testCase.sourceText.indexOf(" answer"), testCase.sourceText.indexOf(" answer") + 1]
+    .filter(splitAt => splitAt > 0)
+    .map(splitAt => ({ ...testCase, splitAt }))))("checks preserved response content before applying a finish metadata warning: $expectedTruncated ($sourceText, $sourceTruncated, $splitAt)", ({ sourceText, sourceTruncated, expectedTruncated, splitAt }) => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      id: "structured-finish", status: "completed", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      observationsTruncated: true,
+      observations: [
+        { name: "agent.message.delta", sequence: 1, timestamp, type: "lifecycle", attributes: {
+          "message.content": "Checking the branch.", "message.role": "assistant", "message.phase": "commentary",
+        } },
+        { name: "agent.message.delta", sequence: 2, timestamp, type: "lifecycle", attributes: {
+          "message.content": sourceText.slice(0, splitAt), "message.role": "assistant", "message.phase": "final",
+        } },
+        { name: "agent.message.delta", sequence: 3, timestamp, type: "lifecycle", attributes: {
+          "message.content": sourceText.slice(splitAt), "message.role": "assistant", "message.phase": "final",
+          "vitehub.observation.truncated": sourceTruncated,
+        } },
+        { name: "agent.invocation.finish", sequence: 4, timestamp, type: "lifecycle", attributes: {
+          "result.text": "Final answer.", "result.kind": "object",
+          "usage.record": { raw: "[Truncated]" }, "vitehub.observation.truncated": true,
+        } },
+      ],
+    };
+    const activities = invocationActivities(invocation);
+    const result = activities.find(activity => activity.name === "agent.invocation.finish");
+    expect(result?.body).toBe("Final answer.");
+    expect(result?.truncated === true).toBe(expectedTruncated);
+    expect(activities.some(activity => activity.name === "vitehub.observation.truncated")).toBe(true);
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.findAll('[data-role="assistant"] .vh-invocation-event__notice').length > 0).toBe(expectedTruncated);
   });
 
   it("keeps an aggregate final answer when no matching deltas exist", () => {
