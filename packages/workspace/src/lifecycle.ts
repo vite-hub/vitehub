@@ -169,7 +169,7 @@ async function readStartupSnapshotFile(store: WorkspaceStore, path: string) {
   }
   catch (error) {
     // A loader can replace an ancestor directory with a file or remove it.
-    if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return undefined
+    if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) return undefined
     throw error
   }
 }
