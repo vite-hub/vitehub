@@ -3,9 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { WorkspaceStore } from "../src/index.ts"
+import type { WorkspaceDefinition, WorkspaceStore } from "../src/index.ts"
 
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
+import { decodeFile } from "../src/core/path.ts"
 import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } from "../src/sources/view.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { createWorkspace, custom, defineWorkspace, github, glob, resolveWorkspaceAutoCommit } from "../src/index.ts"
@@ -4288,6 +4289,72 @@ describe("lazy sources", () => {
     const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots })
     await expect(inspection.readFile("shared.md")).resolves.toBe("startup")
     await expect(store.readFile("shared.md")).resolves.toMatchObject({ metadata: { source: "generated" } })
+  })
+
+  it.each(["memory", "local"] as const)("invalidates startup files replaced by loader directories in a %s Store", async (provider) => {
+    const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const definition = {
+      name: "startup-loader-directory",
+      sources: {
+        generated: custom({ materialize: "startup", mount: "", files: [
+          { path: "docs", content: "startup" },
+          { path: "retained.md", content: "retained" },
+        ] }),
+      },
+      loaders: [{
+        name: "directory-replacement",
+        async load({ store }) {
+          await store.rm("docs")
+          await store.mkdir("docs")
+          await store.writeFile("docs/child.md", { path: "docs/child.md", content: "loader" })
+        },
+      }],
+    } satisfies WorkspaceDefinition
+    await createWorkspaceSourceView(definition, store).materializeSources()
+
+    await expect(syncWorkspaceDefinition(definition, store)).resolves.toBeUndefined()
+
+    const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSource("generated", definition.sources.generated))
+    expect(snapshot?.status).toBe("updating")
+    expect(snapshot?.items).not.toHaveProperty("docs")
+    expect(snapshot?.items).toHaveProperty("retained.md")
+    expect(decodeFile((await store.readFile("docs/child.md"))?.content ?? "", { encoding: "utf8" })).toBe("loader")
+  })
+
+  it.each(["memory", "local"] as const)("restores unattributed loader writes through an existing %s Workspace view", async (provider) => {
+    const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const definition = {
+      name: "startup-unattributed-loader",
+      sources: {
+        generated: custom({ materialize: "startup", mount: "", files: [
+          { path: "content.md", content: "startup" },
+          { path: "attributes.md", content: "same", mediaType: "text/markdown", metadata: { version: "startup" } },
+          { path: "retained.md", content: "retained" },
+        ] }),
+      },
+      loaders: [{
+        name: "unattributed-writes",
+        async load({ store }) {
+          await store.writeFile("content.md", { path: "content.md", content: "loader" })
+          await store.writeFile("attributes.md", { path: "attributes.md", content: "same", mediaType: "text/plain", metadata: { version: "loader" } })
+        },
+      }],
+    } satisfies WorkspaceDefinition
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+
+    await syncWorkspaceDefinition(definition, store)
+
+    const snapshot = await readCurrentSourceSnapshot(store, normalizeWorkspaceSource("generated", definition.sources.generated))
+    expect(snapshot?.status).toBe("updating")
+    expect(Object.keys(snapshot?.items || {})).toEqual(["retained.md"])
+    await view.list("", { recursive: true })
+    const content = await store.readFile("content.md")
+    expect(decodeFile(content?.content ?? "", { encoding: "utf8" })).toBe("startup")
+    expect(content?.metadata).toMatchObject({ source: "generated" })
+    const attributes = await store.readFile("attributes.md")
+    expect(decodeFile(attributes?.content ?? "", { encoding: "utf8" })).toBe("same")
+    expect(attributes).toMatchObject({ mediaType: "text/markdown", metadata: { version: "startup", source: "generated" } })
   })
 
   it("retains concurrently materialized paths after build snapshot invalidation", async () => {
