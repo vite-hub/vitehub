@@ -168,7 +168,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       path: normalized,
       content: content as Uint8Array,
       mediaType: fileMetadata?.mediaType,
-      metadata: fileMetadata?.metadata,
+      metadata: structuredClone(fileMetadata?.metadata),
     }
   }
 
@@ -212,7 +212,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         entries.push({
           digest: await sha256(entry.data),
           mediaType: fileMetadata?.mediaType,
-          metadata: fileMetadata?.metadata,
+          metadata: structuredClone(fileMetadata?.metadata),
           mtime: entry.mtimeMs,
           path,
           size: entry.data.byteLength,
@@ -247,7 +247,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     return {
       digest: bytes ? await sha256(bytes) : undefined,
       mediaType: fileMetadata?.mediaType,
-      metadata: fileMetadata?.metadata,
+      metadata: structuredClone(fileMetadata?.metadata),
       mtime: stat.mtimeMs,
       path: normalized,
       size: stat.isFile() ? stat.size : undefined,
@@ -443,6 +443,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     assertJsonFileMetadata(path, file.metadata)
+    file = { ...file, metadata: structuredClone(file.metadata) }
     const existed = await this.#fs!.promises.stat(this.#absolute(path)).then(stat => stat.isFile()).catch(() => false)
     const content = contentToBytes(file.content)
     const digest = await sha256(content)

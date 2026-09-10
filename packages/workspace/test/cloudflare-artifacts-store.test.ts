@@ -681,6 +681,43 @@ describe("Cloudflare Artifacts workspace store", () => {
   })
 
   describe.each(["ordinary", "conditional"] as const)("%s metadata writes", (mode) => {
+    it("detaches written and returned metadata from the persisted sidecar", async () => {
+      let filesystem: MemoryFS | undefined
+      gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
+      gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
+        const { fs } = options as { fs: MemoryFS }
+        filesystem = fs
+      })
+      const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+      const metadata = { source: "docs", nested: { tags: ["original"] } }
+      const file = { path: "doc.md", content: "content", metadata }
+      if (mode === "conditional") await store.writeFileConditional!(file.path, file, null)
+      else await store.writeFile(file.path, file)
+
+      metadata.source = "other"
+      metadata.nested.tags.push("changed")
+      const expected = { source: "docs", nested: { tags: ["original"] } }
+      expect((await store.readFile(file.path))?.metadata).toEqual(expected)
+      const outputs = [
+        (await store.readFile(file.path))?.metadata,
+        (await store.stat(file.path))?.metadata,
+        (await store.list())[0]?.metadata,
+        (await store.glob("*.md"))[0]?.metadata,
+        (await store.snapshot()).entries[file.path]?.metadata,
+      ]
+      for (const output of outputs) {
+        output!.source = 123
+        output!.cycle = output
+        ;(output!.nested as { tags: string[] }).tags.push("changed")
+      }
+      expect((await store.readFile(file.path))?.metadata).toEqual(expected)
+      expect((await store.stat(file.path))?.metadata).toEqual(expected)
+      // A later write serializes the entire retained map, including doc.md.
+      await store.writeFile("other.txt", { path: "other.txt", content: "other" })
+      const sidecar = await filesystem!.promises.readFile("/workspace/.vitehub/files.json")
+      expect(JSON.parse(new TextDecoder().decode(sidecar as Uint8Array))[file.path].metadata).toEqual(expected)
+    })
+
     it.each([{ source: 42 }, { source: null }, { source: false }, { source: {} }, { source: [] }, { optional: undefined }, { value: 1n }])("rejects invalid metadata before publication: %o", async (metadata) => {
       const attributes = { mediaType: "text/plain", metadata: { source: "agent" } }
       let filesystem: MemoryFS | undefined
