@@ -295,12 +295,12 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
       if (finished) return false
       finished = true
       generation.consumers--
+      if (generation.consumers === 0 && preparations.get(key) === generation) preparations.delete(key)
       signal?.removeEventListener("abort", onAbort)
       return true
     }
     const onAbort = () => {
       if (!finish()) return
-      if (generation.consumers === 0 && preparations.get(key) === generation) preparations.delete(key)
       reject(signal?.reason)
     }
     signal?.addEventListener("abort", onAbort, { once: true })

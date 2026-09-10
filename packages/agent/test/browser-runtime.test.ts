@@ -60,7 +60,7 @@ describe("browser runtime", () => {
     expect(browserRuntimeEnvironment(two)).toBeUndefined()
   })
 
-  it("deduplicates concurrent preparation and reuses a validated restart cache", async () => {
+  it("deduplicates concurrent preparation and revalidates a retained cache", async () => {
     const value = await fixture()
     const [one, two] = await Promise.all([prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" }), prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })])
     expect(two).toBe(one)
@@ -68,7 +68,6 @@ describe("browser runtime", () => {
     expect(one.skillContent).toContain("skills get core")
     expect(one.skillContent).not.toContain("hidden: true")
     expect(one.skillContent).toContain("Keep the configured `AGENT_BROWSER_SESSION`")
-    resetBrowserRuntimePreparationForTest()
     await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
   })
@@ -80,7 +79,6 @@ describe("browser runtime", () => {
     const marker = JSON.parse(await readFile(markerPath, "utf8"))
     expect(marker.browserVersion).toBe("149.0.7827.155")
     await writeFile(markerPath, JSON.stringify({ ...marker, browserVersion: "148.0.0.0" }))
-    resetBrowserRuntimePreparationForTest()
     await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(2)
     expect(JSON.parse(await readFile(markerPath, "utf8")).browserVersion).toBe("149.0.7827.155")
@@ -90,7 +88,6 @@ describe("browser runtime", () => {
     const value = await fixture()
     const ready = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     await chmod(ready.command, 0o600)
-    resetBrowserRuntimePreparationForTest()
     await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(2)
   })
@@ -137,13 +134,16 @@ describe("browser runtime", () => {
     second.abort(new Error("second cancelled"))
     await expect(two).rejects.toThrow("second cancelled")
 
+    let releaseReplacement!: () => void
+    vi.mocked(lock).mockImplementationOnce(() => new Promise(resolve => { releaseReplacement = () => resolve(async () => {}) }))
     const replacement = prepareBrowserRuntime(options)
     await vi.waitFor(() => expect(lock).toHaveBeenCalledTimes(2))
-    const ready = await replacement
     // A retired generation must not evict the replacement when it eventually fails.
     rejectLock(new Error("abandoned lock wait failed"))
     await new Promise(resolve => setImmediate(resolve))
-    await expect(prepareBrowserRuntime(options)).resolves.toBe(ready)
+    const sharedReplacement = prepareBrowserRuntime(options)
+    releaseReplacement()
+    await expect(sharedReplacement).resolves.toBe(await replacement)
     expect(lock).toHaveBeenCalledTimes(2)
   })
 
@@ -168,7 +168,6 @@ describe("browser runtime", () => {
     await expect(prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })).rejects.toThrow("exit 7")
     const ready = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     await unlink(ready.environment.AGENT_BROWSER_EXECUTABLE_PATH!)
-    resetBrowserRuntimePreparationForTest()
     const repaired = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     expect(repaired.environment.AGENT_BROWSER_EXECUTABLE_PATH).toBe(ready.environment.AGENT_BROWSER_EXECUTABLE_PATH)
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(3)
