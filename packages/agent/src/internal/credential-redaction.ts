@@ -143,7 +143,7 @@ export interface CredentialAssignmentState {
   yamlFlowQuote?: string
   yamlFlowEscaped?: boolean
   yamlIndent?: number
-  yamlPlain?: { whitespace: boolean }
+  yamlPlain?: { whitespace: boolean, line?: boolean, spaces?: number, pending?: string }
   yamlProperty?: boolean
   yaml?: { header: boolean, modifiers: boolean, indent?: number, line: boolean, spaces: number, whitespace: string }
 }
@@ -169,6 +169,7 @@ function redactCredentialAssignments(value: string, precedingText: string): stri
     const quote = /^["']/.exec(content)?.[0] ?? ""
     result += value.slice(offset, start) + quote + "[REDACTED]" + (quote && !state.quote ? quote : "")
     if (state.yamlPlain && content[length] === "#") result += " "
+    if (state.yamlPlain && length < content.length) result += state.yamlPlain.pending ?? ""
     if (state.yaml && length < content.length) result += state.yaml.whitespace
     offset = start + length
   }
@@ -198,6 +199,25 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     }
     state.started = true
     if (state.yamlPlain) {
+      const plain = state.yamlPlain
+      // Delay whitespace until indentation identifies a continuation or a safe suffix.
+      // Keep this state across journal chunks without retaining credential text.
+      if (!state.yamlFlow && plain.line) {
+        if (character === " " || character === "\r" || character === "\n") {
+          plain.pending = (plain.pending ?? "") + character
+          plain.spaces = character === "\n" ? 0 : (plain.spaces ?? 0) + (character === " " ? 1 : 0)
+          continue
+        }
+        if ((plain.spaces ?? 0) <= state.yamlIndent!) return index
+        plain.line = false
+        plain.pending = ""
+      }
+      if (!state.yamlFlow && /[\r\n]/.test(character)) {
+        plain.line = true
+        plain.spaces = 0
+        plain.pending = character
+        continue
+      }
       if (state.yamlFlow) {
         if (state.yamlFlowQuote) {
           if (state.yamlFlowEscaped) state.yamlFlowEscaped = false

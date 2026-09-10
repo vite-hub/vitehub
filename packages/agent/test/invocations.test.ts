@@ -3622,6 +3622,33 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}${credentialPrefix}[REDACTED];status=ok`)
   })
 
+  it("redacts multiline YAML plain credentials across journal flushes", async () => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`password: ${"secret ".repeat(100)}`, "\n", "  battery staple", "\n", "status: ok"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("yaml-plain-continuation"), {})
+    const observations = (await invocations.getByRunId("yaml-plain-continuation"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe("password: [REDACTED]\nstatus: ok")
+    expect(JSON.stringify(observations)).not.toContain("battery staple")
+  })
+
   it.each(["Bearer", "Basic", "Authorization: basic", "Authorization: BASIC"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
     const invocations = defineAgentInvocations({
       content: "content",

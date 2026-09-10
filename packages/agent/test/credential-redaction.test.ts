@@ -456,10 +456,28 @@ it.each(["correct horse battery", "correct horse#battery", "correct, horse; batt
       for (let split = 0; split <= scalar.length; split++) {
         const state = pendingCredentialAssignmentState(prefix + scalar.slice(0, split))!
         const rest = scalar.slice(split) + suffix
-        expect(rest.slice(consumeCredentialAssignment(rest, state))).toBe(expectedSuffix)
+        const boundary = consumeCredentialAssignment(rest, state)
+        expect((state.yamlPlain?.pending ?? "") + rest.slice(boundary)).toBe(expectedSuffix)
       }
     }
   }
+})
+
+it.each(["password: ", "config:\n  secret: ", "  - api_token: "])("redacts multiline YAML plain credentials after %j", (prefix) => {
+  const scalar = "correct horse\n      battery staple\n\n      final words"
+  const suffix = "\nstatus: ok"
+  expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+  for (let split = 0; split <= scalar.length + 1; split++) {
+    const value = scalar + suffix
+    const state = pendingCredentialAssignmentState(prefix + value.slice(0, split))!
+    const rest = value.slice(split)
+    const boundary = consumeCredentialAssignment(rest, state)
+    expect((state.yamlPlain?.pending ?? "") + rest.slice(boundary), `split ${split}`).toBe(suffix)
+  }
+  const state = pendingCredentialAssignmentState(prefix + "correct")!
+  for (const character of " horse\n      battery staple\n") expect(consumeCredentialAssignment(character, state)).toBe(1)
+  expect(consumeCredentialAssignment("status: ok", state)).toBe(0)
+  expect(state.yamlPlain?.pending).toBe("\n")
 })
 
 it.each(["password", "secret", "api_key"])("redacts YAML flow mapping %s values", (key) => {
