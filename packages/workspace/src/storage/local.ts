@@ -189,8 +189,10 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
   let lease: import("node:fs/promises").FileHandle | undefined
   const deadline = Date.now() + timeoutMs
   while (true) {
+    let created = false
     try {
       await mkdir(lock, { mode: 0o700 })
+      created = true
       if (process.platform !== "win32") await applyMetadataPermissions(lock, permissions.mode & 0o770, permissions.gid)
       const ownerFile = await open(ownerPath, "wx")
       try { await ownerFile.writeFile(owner) }
@@ -202,6 +204,10 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
       break
     }
     catch (error) {
+      if (created) {
+        await rm(lock, { force: true, recursive: true })
+        throw error
+      }
       if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
       await validateLockDirectory(lock)
       // Marker age cannot distinguish a crashed owner from active I/O whose
