@@ -290,6 +290,36 @@ describe("agent capability runtime", () => {
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
   })
 
+  it.each([false, true])("preserves tool descriptors through identity transforms and MCP replacement=%s", async (replaceMcp) => {
+    const { applyCapabilityToolTransforms } = await import("../src/capability-runtime.ts")
+    const description = vi.fn(() => "Read a document")
+    const marker = Symbol("tool-marker")
+    class ReadTool {
+      get name() { return "read" }
+      execute() { return this.name }
+    }
+    const shared = new ReadTool()
+    Object.defineProperties(shared, {
+      description: { configurable: true, enumerable: true, get: description },
+      hidden: { value: "retained" },
+      [marker]: { value: "symbol value" },
+    })
+    const initial = replaceMcp
+      ? { a: { name: "a", metadata: { mcpServer: "docs", originalName: "read" } }, b: shared }
+      : { a: shared, b: shared }
+    const result = await applyCapabilityToolTransforms(initial, [current => replaceMcp ? { ...current, a: shared } : current])
+    expect(description).not.toHaveBeenCalled()
+    expect(result.tools!.a).not.toBe(result.tools!.b)
+    for (const tool of Object.values(result.tools!)) {
+      expect(Object.getPrototypeOf(tool)).toBe(ReadTool.prototype)
+      for (const key of ["description", "hidden", marker]) {
+        expect(Object.getOwnPropertyDescriptor(tool, key)).toEqual(Object.getOwnPropertyDescriptor(shared, key))
+      }
+      expect(tool.execute?.(undefined)).toBe("read")
+    }
+    if (replaceMcp) expect(result.tools!.a!.metadata).toEqual({ mcpServer: "docs", originalName: "read" })
+  })
+
   it("preserves output extension scope when final renderers run last", async () => {
     const {
       applyOutputRenderers,

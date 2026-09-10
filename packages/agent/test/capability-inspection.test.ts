@@ -208,6 +208,26 @@ describe("Capability inspection snapshots", () => {
     ]))
   })
 
+  it("keeps a class-backed tool model-visible and executable after an identity transform", async () => {
+    const execute = vi.fn((name: string) => `Executed ${name}`)
+    class ReadTool {
+      get name() { return "read" }
+      execute() { return execute(this.name) }
+    }
+    const response = await model().doGenerate({ prompt: [] })
+    const languageModel = new MockLanguageModelV3({ doGenerate: [
+      { ...response, content: [{ type: "tool-call", toolCallId: "read-call", toolName: "read", input: "{}" }], finishReason: { raw: "tool_calls", unified: "tool-calls" } },
+      response,
+    ] })
+    const invocations = journal()
+    await runAgent(defineAgent({ cli: { capabilities: false }, capabilities: [defineCapability({
+      id: "local", tools: { read: new ReadTool() }, resolve(context) { context.tools.transform(current => current) },
+    })], driver: { model: languageModel }, invocations }), runtime("class-tool"), { prompt: "Read" })
+    expect(configuration(await invocations.getByRunId("class-tool"))).toMatchObject({ tools: [{ name: "read", capabilityId: "local" }] })
+    expect(languageModel.doGenerateCalls[0]?.tools).toEqual([expect.objectContaining({ name: "read" })])
+    expect(execute).toHaveBeenCalledWith("read")
+  })
+
   it.each(["resolve", "discover"])("retains MCP %s failure state without reconnecting or hiding the failure", async (phase) => {
     const invocations = journal()
     const failure = new Error("Discovery unavailable")

@@ -1449,7 +1449,10 @@ export async function applyCapabilityToolTransforms(
   let originalNames = new Map(Object.keys(tools ?? {}).map(name => [name, name]))
   for (const transform of transforms) {
     // Each key needs its own identity, even when contributions share a definition.
-    if (current) current = Object.fromEntries(Object.entries(current).map(([name, tool]) => [name, { ...tool }]))
+    if (current) current = Object.fromEntries(Object.entries(current).map(([name, tool]) => {
+      const copy: AgentToolSet[string] = Object.create(Object.getPrototypeOf(tool), Object.getOwnPropertyDescriptors(tool))
+      return [name, copy]
+    }))
     // Copy provenance before a transform can mutate the original tool objects.
     const previous = new Map(Object.entries(current ?? {}).map(([name, tool]) => [name, inspectMcpToolProvenance(tool)]))
     const localTools = new Set(Object.entries(current ?? {}).filter(([name]) => !previous.get(name)).map(([, tool]) => tool))
@@ -1475,11 +1478,15 @@ export async function applyCapabilityToolTransforms(
     current = Object.fromEntries(Object.entries(transformed).map(([name, tool]) => {
       const source = previous.get(name)
       if (!source || inspectMcpToolProvenance(tool)) return [name, tool]
-      return [name, { ...tool, metadata: {
-        ...tool.metadata,
-        mcpServer: source.server,
-        originalName: source.name,
-      } }]
+      const attributed: AgentToolSet[string] = Object.create(Object.getPrototypeOf(tool), {
+        ...Object.getOwnPropertyDescriptors(tool),
+        metadata: { configurable: true, enumerable: true, writable: true, value: {
+          ...tool.metadata,
+          mcpServer: source.server,
+          originalName: source.name,
+        } },
+      })
+      return [name, attributed]
     }))
     originalNames = transformedNames
   }
