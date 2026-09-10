@@ -3810,6 +3810,23 @@ cli_auth_credentials_store = "keyring"
     expect(session.exec).toHaveBeenCalled()
   })
 
+  it.each([
+    "--append-system-prompt-file caller.md",
+    "--verbose --append-system-prompt-file=caller.md",
+    '--append-system-prompt-file "caller prompt.md"',
+    '"--append-system-prompt-file" caller.md',
+    "'--append-system-prompt-file' caller.md",
+  ])("rejects conflicting Claude prompt files before provider startup: %s", async (launchArgs) => {
+    const callsBefore = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({
+      instructions: "Follow @./README.md literally.",
+      provider: "claude-code",
+      providerSettings: { launchArgs },
+    }).generate(context("thread-claude-prompt-conflict") as never)).rejects.toThrow("Compose the caller prompt file contents into driver.instructions and remove the flag.")
+    expect(createProviderRuntime).toHaveBeenCalledTimes(callsBefore)
+  })
+
   it.each(["completed", "failed"])("delivers literal Claude instructions and restores Workspace files after a %s turn", async (state) => {
     const threadId = `thread-claude-literal-${state}`
     const instructions = "Follow @./README.md and @workspace.policy literally.\n<policy>Keep text intact.</policy>"

@@ -2220,6 +2220,12 @@ async function* runProvider<
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const literalClaudeInstructions = options.provider === "claude-code" && !preserveNativeInstructions
       if (literalClaudeInstructions) {
+        const callerLaunchArgs = options.providerSettings?.launchArgs
+        if (hasRuntimeType(callerLaunchArgs, "string") && /(?:^|\s)["']?--append-system-prompt-file(?:["']?(?:=|\s|$))/.test(callerLaunchArgs)) {
+          throw agentDiagnostics.AGENT_R0924({
+            message: "[vitehub] Claude driver.providerSettings.launchArgs cannot include --append-system-prompt-file when ViteHub materializes instructions. Compose the caller prompt file contents into driver.instructions and remove the flag.",
+          })
+        }
         // CLAUDE.md expands @file references natively. A system prompt file
         // delivers ViteHub instructions verbatim, including literal references.
         const promptFile = `.vitehub-claude-instructions-${crypto.randomUUID()}.md`
