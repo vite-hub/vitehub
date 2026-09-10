@@ -12292,7 +12292,10 @@ describe("server helpers", () => {
       })
       expect(response.status).toBe(200)
       await Promise.all(tasks)
-      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", "AI provider quota is exhausted.")
+      expect(adapter.postMessage).toHaveBeenLastCalledWith(
+        "telegram:456",
+        "The AI provider usage limit has been reached. Usage will reset when the provider quota renews.",
+      )
     } finally {
       consoleError.mockRestore()
     }
