@@ -5,7 +5,7 @@ import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
-import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
+import { forwardWorkspaceStoreTarget, workspaceStoreTarget } from "../storage/target.ts"
 import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
@@ -88,7 +88,7 @@ function writeOperations(options: WritableWorkspaceFacadeToolOptions | undefined
 function createOverlaySourceStore<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   fallback: (path: string) => boolean,
-): WorkspaceStore & { isTombstoned(path: string): boolean } {
+): WorkspaceStore & { [workspaceStoreTarget](): { provider: string }, isTombstoned(path: string): boolean } {
   const memory = createMemoryWorkspaceStore()
   const tombstones = new Set<string>()
 
@@ -144,6 +144,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 
   return {
+    [workspaceStoreTarget]: () => ({ provider: "memory" }),
     isTombstoned,
     async readFile(path) {
       return await memory.readFile(path) || await readBaseFile(path)
@@ -299,7 +300,6 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     !isLazySourcePath(resolvedDefinition, path)
     || selectedScopeCanSee(selectedWorkspaceScope, path) && isUnchangedStartupSourcePath(definition, resolvedDefinition, path),
   )
-  forwardWorkspaceStoreTarget(workspace, overlayStore)
   const sourceView = createWorkspaceSourceView(sourceViewDefinition, overlayStore, { reuseStartupSnapshots: true })
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   const canUseBase = (path: string) => !overlayStore.isTombstoned(normalizeWorkspacePath(path))

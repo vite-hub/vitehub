@@ -1039,7 +1039,7 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("ingestion/acme/old.sql")).rejects.toThrow("does not exist")
   })
 
-  it("serves unchanged startup Source snapshots through overlays", async () => {
+  it.each(["memory", "local"])("serves unchanged legacy %s startup Source snapshots through overlays", async (provider) => {
     const getItem = vi.fn(async (key: string) => ({ key, content: "prepared\n" }))
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -1056,7 +1056,11 @@ describe("Workspace Source Resolution", () => {
     await base.materializeSources?.({ sources: ["docs"] })
     getItem.mockRejectedValue(new Error("provider unavailable"))
 
-    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+    // A pre-migration snapshot has no local file metadata version in its hash.
+    const baseFacade = Object.assign(facade(base), {
+      [workspaceStoreTarget]: () => ({ provider }),
+    })
+    const { workspace } = await createWorkspaceSourceResolutionFacade(baseFacade, definition, {
       invocation,
       overlay: true,
     })
