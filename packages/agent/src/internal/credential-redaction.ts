@@ -19,9 +19,9 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   if (!prefix.trimEnd().endsWith(":")) return true
   // Generic token/key fields also describe parser tokens and object identifiers.
   if (/^(?:key|token)$/i.test(key)) return false
-  // Quoted fields and line-start YAML keys establish assignments; inline prose labels do not.
+  // Quoted fields, mapping separators, and line-start YAML keys establish assignments.
   if (/^(?:password|secret)$/i.test(key)) {
-    return /["']\s*:\s*$/.test(prefix) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText)
+    return /["']\s*:\s*$/.test(prefix) || /[{,]\s*$/.test(precedingText) || /(?:^|[\r\n]) *(?:- +)?$/.test(precedingText)
   }
   return true
 }
@@ -269,5 +269,7 @@ export function pendingCredentialQuote(value: string, precedingText = ""): strin
 export function credentialTextLineContext(value: string): string {
   const lastLine = value.split(/[\r\n]/).at(-1) ?? ""
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
+  const mappingSeparator = /[{,]\s*$/.exec(lastLine)?.[0]
+  if (mappingSeparator) return mappingSeparator
   return authorizationHeader ? "Authorization: " : /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "
 }

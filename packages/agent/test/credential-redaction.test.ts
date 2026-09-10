@@ -122,6 +122,9 @@ it.each(["basic", "BASIC", "bAsIc"])("redacts contextual %s authorization across
 
 it.each([
   ['{"password":"sensitive-value","status":"ok"}', '{"password":"[REDACTED]","status":"ok"}'],
+  ['{password: sensitive}', '{password: [REDACTED]}'],
+  ['{ secret: "private" }', '{ secret: "[REDACTED]" }'],
+  ['{status: ok, password: sensitive, secret: "private"}', '{status: ok, password: [REDACTED], secret: "[REDACTED]"}'],
   ["api_token: sensitive-value;status=ok", "api_token: [REDACTED];status=ok"],
   ['password = "correct horse";status=ok', 'password = "[REDACTED]";status=ok'],
   ["API_TOKEN = sensitive-value", "API_TOKEN = [REDACTED]"],
@@ -381,6 +384,16 @@ it.each(["password", "secret"])("redacts bare YAML %s fields with retained line 
 })
 
 describe("credential line context across journal chunks", () => {
+  it.each(["{", "{ ", "{status: ok, "])("preserves mapping context %j", (prefix) => {
+    const context = credentialTextLineContext(prefix)
+    for (const key of ["password", "secret"]) {
+      expect(redactCredentialText(`${key}: sensitive}`, context)).toBe(`${key}: [REDACTED]}`)
+      expect(pendingCredentialAssignment(`${key}: sensitive`, context)).toBe("unquoted")
+      expect(pendingCredentialQuote(`${key}: "private`, context)).toBe('"')
+      expect(credentialTextMayContinue(`${key}: sensitive`, context)).toBe(true)
+    }
+  })
+
   it.each(["- ", "  - ", "  -   "])("preserves YAML list prefix %j", (prefix) => {
     const context = credentialTextLineContext(`config:\n${prefix}`)
     for (const key of ["password", "secret"]) {
