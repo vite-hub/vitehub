@@ -36,6 +36,29 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it("persists adopted metadata when conditional content is unchanged", async () => {
+    const store = await createStore()
+    await store.writeFile("skill.md", { path: "skill.md", content: "same" })
+    const current = await store.stat("skill.md")
+    const metadata = { capabilityWorkspaceContribution: { capabilityId: "skill", digest: current!.digest } }
+    await store.writeFileConditional!("skill.md", { path: "skill.md", content: "same", metadata }, current!.digest!)
+    const reopened = createLocalWorkspaceStore(tempDirs.at(-1)!)
+    expect((await reopened.readFile("skill.md"))?.metadata).toEqual(metadata)
+  })
+
+  it("preserves concurrent metadata updates from separate stores", async () => {
+    const store = await createStore()
+    const other = createLocalWorkspaceStore(tempDirs.at(-1)!)
+    await Promise.all([store.getMeta!("initial"), other.getMeta!("initial")])
+    await Promise.all([
+      store.writeFile("a.md", { path: "a.md", content: "a", metadata: { owner: "a" } }),
+      other.writeFile("b.md", { path: "b.md", content: "b", metadata: { owner: "b" } }),
+    ])
+    const reopened = createLocalWorkspaceStore(tempDirs.at(-1)!)
+    expect((await reopened.readFile("a.md"))?.metadata).toEqual({ owner: "a" })
+    expect((await reopened.readFile("b.md"))?.metadata).toEqual({ owner: "b" })
+  })
+
   it("supports regular, conditional, and streamed writes through a configured symlink root", async () => {
     const parent = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
     tempDirs.push(parent)
@@ -185,7 +208,8 @@ describe("local workspace store", () => {
       metadata: { source: "airtable" },
     })
 
-    expect(writeFile).not.toHaveBeenCalled()
+    expect(writeFile).toHaveBeenCalledOnce()
+    expect(vi.mocked(writeFile).mock.calls[0]?.[0]).toMatch(/\.meta\.json\.[^.]+\.tmp$/)
     await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
       mediaType: "application/octet-stream",
       metadata: { source: "airtable" },

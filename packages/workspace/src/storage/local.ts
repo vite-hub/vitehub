@@ -3,6 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs"
 import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
+import { isDeepStrictEqual } from "node:util"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
@@ -196,6 +197,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     if (!bytes) return undefined
     await this.#loadMeta()
     const normalized = normalizeWorkspacePath(path)
+    // SAFETY: file metadata entries are written from WorkspaceFile mediaType and metadata below.
     const metadata = this.#files.get(normalized) || this.#meta.get(`file:${normalized}`) as Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined
     return {
       path: normalized,
@@ -258,6 +260,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
+      await this.setMeta(`file:${normalized}`, { mediaType: file.mediaType, metadata: file.metadata })
       return
     }
     await Promise.all([
@@ -276,9 +279,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       mediaType: file.mediaType,
       metadata: file.metadata,
     })
-    await this.#loadMeta()
-    this.#meta.set(`file:${normalized}`, { mediaType: file.mediaType, metadata: file.metadata })
-    await this.#writeMeta()
+    await this.setMeta(`file:${normalized}`, { mediaType: file.mediaType, metadata: file.metadata })
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
@@ -391,13 +392,15 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
     if (!info) return undefined
     await this.#loadMeta()
+    // SAFETY: file metadata entries are written from WorkspaceFile mediaType and metadata above.
+    const metadata = this.#files.get(normalized) || this.#meta.get(`file:${normalized}`) as Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined
     const entry: WorkspaceStat = {
       path: normalized,
       type: info.isDirectory() ? "directory" : "file",
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
-      mediaType: info.isFile() ? (this.#files.get(normalized) || this.#meta.get(`file:${normalized}`) as Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined)?.mediaType : undefined,
-      metadata: info.isFile() ? (this.#files.get(normalized) || this.#meta.get(`file:${normalized}`) as Pick<WorkspaceFile, "mediaType" | "metadata"> | undefined)?.metadata : undefined,
+      mediaType: info.isFile() ? metadata?.mediaType : undefined,
+      metadata: info.isFile() ? metadata?.metadata : undefined,
       digest: info.isFile() ? await fileDigest(absolute) : undefined,
     }
     return entry
@@ -458,9 +461,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    await this.#loadMeta()
-    this.#meta.set(key, value)
-    await this.#writeMeta()
+    await withFilesystemLock(`${this.#metaPath}.lock`, "metadata", async () => {
+      this.#metaLoaded = false
+      await this.#loadMeta()
+      if (isDeepStrictEqual(this.#meta.get(key), value)) return
+      this.#meta.set(key, value)
+      await this.#writeMeta()
+    })
   }
 
   async #createSnapshot(name?: string): Promise<WorkspaceSnapshot> {

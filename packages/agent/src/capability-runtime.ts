@@ -974,8 +974,10 @@ async function applyCapabilityWorkspaceContributions<
           // Concurrent invocations may win the same CAS write. Accept that
           // race only when the resulting file is exactly our owned content.
           if (Reflect.get(Object(error), "code") !== "WORKSPACE_CONFLICT") throw error
-          const after = await retainedWorkspace.fs.stat(path)
-          const afterContent = await retainedWorkspace.fs.readFile(path, { encoding: "binary" })
+          // SAFETY: path is a resolved capability contribution already accepted by this retained workspace write.
+          const after = await retainedWorkspace.fs.stat(path as never)
+          // SAFETY: the same resolved contribution path was used for the conditional write above.
+          const afterContent = await retainedWorkspace.fs.readFile(path as never, { encoding: "binary" })
           const afterMetadata = after?.metadata?.capabilityWorkspaceContribution
           if (!after?.digest || await capabilityContributionDigest(afterContent) !== digest
             || !isRuntimeRecord(afterMetadata) || afterMetadata.capabilityId !== capabilityId
