@@ -1122,7 +1122,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("carries resolved parent instruction imports into Netlify provider output", async () => {
+  it("keeps parent instruction references literal in Netlify provider output", async () => {
     const { hubSchedule } = await import("../../schedule/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const previousHosting = process.env.VITEHUB_HOSTING
@@ -1169,9 +1169,11 @@ describe("agent Vite plugin", () => {
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       const scheduleRegistry = await readFile(join(root, ".vitehub/agent/schedule-registry.js"), "utf8")
-      expect(wrapper).toContain("Follow the shared parent policy.")
+      expect(wrapper).not.toContain("Follow the shared parent policy.")
+      expect(wrapper).toContain(`@${relative(agentRoot, policy)}`)
       expect(wrapper).toContain("Handle support requests.")
-      expect(scheduleRegistry).toContain("Follow the shared parent policy.")
+      expect(scheduleRegistry).not.toContain("Follow the shared parent policy.")
+      expect(scheduleRegistry).toContain(`@${relative(agentRoot, policy)}`)
       expect(scheduleRegistry).toContain("Handle support requests.")
       expect(scheduleRegistry).toContain(".vitehub/agent/sources")
       expect(scheduleRegistry).not.toContain("agent-generations")
