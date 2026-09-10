@@ -109,7 +109,7 @@ export class MemoryFS {
     const parentEntry = this.#requireDir(parent)
     this.entries.set(target, { kind: "dir", children: new Set(), mtimeMs: Date.now() })
     parentEntry.children.add(this.basename(target))
-    if (typeof options === "object") options.onCreate?.(target)
+    if (isPlainObject(options)) options.onCreate?.(target)
   }
 
   async writeFile(path: string, data: string | Uint8Array | ArrayBuffer) {

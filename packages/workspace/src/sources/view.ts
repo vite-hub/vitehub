@@ -351,6 +351,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function ensureStartupPointPath(source: (typeof sources)[number], path: string) {
+    // Check persisted ownership before refreshing: a user may have replaced
+    // the indexed file with a directory since the previous invocation.
+    const existing = await store.stat(path)
+    if (existing && existing.type !== "file") {
+      const previous = await readCurrentSourceSnapshot(store, source)
+      if (previous?.items?.[path]) return false
+    }
     const initial = await ensureMaterialized(source.key)
     if (initial?.sources.some(item => item.status === "error")) return false
     const entry = await store.stat(path)
