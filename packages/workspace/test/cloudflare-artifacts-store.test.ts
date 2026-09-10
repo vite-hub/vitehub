@@ -6,6 +6,7 @@ import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/regist
 import { resetWorkspaceStoreCache } from "../src/core/workspace-cache.ts"
 import { setWorkspaceHostedStoreLoader } from "../src/runtime/hosted-store-loader.ts"
 import { setWorkspaceRuntimeConfig } from "../src/runtime/config.ts"
+import type { MemoryFS } from "../src/storage/memory-fs.ts"
 
 const gitMock = vi.hoisted(() => ({
   add: vi.fn(async () => {}),
@@ -676,6 +677,35 @@ describe("Cloudflare Artifacts workspace store", () => {
         path: "result.json",
       }),
     ])
+  })
+
+  it.each([
+    ["truncated", '{"path":"result.json",'],
+    ["schema-invalid", JSON.stringify({ path: "result.json", existed: "false", metadata: { source: "pending" } })],
+  ])("discards a %s pending journal on restart without changing committed files", async (_kind, pending) => {
+    const attributes = { mediaType: "application/json", metadata: { source: "agent" } }
+    const content = '{"ok":true}'
+    const committed = JSON.stringify({ "result.json": attributes })
+    let filesystem: MemoryFS | undefined
+    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
+    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
+      const { fs } = options as { fs: MemoryFS }
+      filesystem = fs
+      await fs.promises.writeFile("/workspace/result.json", content)
+      await fs.promises.writeFile("/workspace/.vitehub/files.json", committed)
+      await fs.promises.writeFile("/workspace/.vitehub/files.pending.json", pending)
+    })
+    const store = await createStore({
+      create: vi.fn(),
+      get: vi.fn(async () => artifactsRepo()),
+    })
+
+    const file = await store.readFile("result.json")
+    expect(file).toMatchObject(attributes)
+    expect(file?.content).toEqual(new TextEncoder().encode(content))
+    await expect(store.stat("result.json")).resolves.toMatchObject(attributes)
+    expect(filesystem?.entries.has("/workspace/.vitehub/files.pending.json")).toBe(false)
+    await expect(filesystem?.promises.readFile("/workspace/.vitehub/files.json")).resolves.toEqual(new TextEncoder().encode(committed))
   })
 
   it("serializes concurrent snapshots", async () => {
