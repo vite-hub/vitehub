@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { isAbsolute, join, relative } from "node:path"
 import { execFile } from "node:child_process"
@@ -119,6 +119,7 @@ describe("browser runtime", () => {
   it("repairs a cache with a different Chrome build", async () => {
     const value = await fixture()
     await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    const ownedRoot = await lstat(value.cache)
     const markerPath = join(value.cache, "ready.json")
     const marker = JSON.parse(await readFile(markerPath, "utf8"))
     expect(marker.browserVersion).toBe("149.0.7827.155")
@@ -126,6 +127,7 @@ describe("browser runtime", () => {
     await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(2)
     expect(JSON.parse(await readFile(markerPath, "utf8")).browserVersion).toBe("149.0.7827.155")
+    expect((await lstat(value.cache)).ino).toBe(ownedRoot.ino)
   })
 
   it("repairs a cached CLI that cannot execute", async () => {

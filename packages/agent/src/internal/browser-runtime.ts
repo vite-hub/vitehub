@@ -7,7 +7,6 @@ import { lock } from "proper-lockfile"
 import type { AgentInvocationContextStore } from "../types.ts"
 import { assertTrustedBrowserCache } from "./browser-cache.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 const agentBrowserVersion = "0.35.2"
 const puppeteerBrowsersVersion = "2.10.10"
@@ -208,14 +207,12 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
       skillContent: `${await readFile(skillPath, "utf8")}\n## Managed runtime\n\nBefore following any browser instructions, check that \`AGENT_BROWSER_SESSION\` is set. If it is absent, the managed browser capability is inactive: do not run browser commands or installation steps from this Skill. Ask the caller to enable browser() for this Agent. If it is set, ViteHub has prepared the CLI and browser and assigned an isolated session for this invocation. Use \`agent-browser\` directly. Keep the configured \`AGENT_BROWSER_SESSION\`; skip installation and session setup examples in the CLI guide. Do not use \`npx\` or override \`--session\`. ViteHub closes the session when this invocation finishes.\n`,
     }
   }
-  let invalidCache = false
   try {
     const prepared = await readyRuntime(JSON.parse(await readFile(marker, "utf8")))
     if (prepared) return prepared
-    invalidCache = Boolean(await stat(root).catch(() => undefined))
   }
   catch {
-    invalidCache = Boolean(await stat(root).catch(() => undefined))
+    // Reinstall incomplete or invalid cache contents under the owned root.
   }
 
   const staging = `${root}.install-${process.pid}-${crypto.randomUUID()}`
@@ -256,19 +253,17 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     await writeFile(join(staging, "ready.json"), JSON.stringify({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion }), { mode: 0o600 })
     await mkdir(dirname(root), { recursive: true, mode: 0o700 })
     assertLock()
-    if (invalidCache) await rm(root, { force: true, recursive: true })
-    try {
+    // Keep the owned root in place: removing it would let another user claim
+    // its name under a sticky shared parent before the next executable use.
+    for (const entry of await readdir(root)) {
       assertLock()
-      await rename(staging, root)
+      await rm(join(root, entry), { force: true, recursive: true })
     }
-    catch (error) {
-      const code = isRuntimeRecord(error) && hasRuntimeType(error.code, "string") ? error.code : undefined
-      if (code !== "EEXIST" && code !== "ENOTEMPTY") throw error
-      await rm(staging, { force: true, recursive: true })
-      const prepared = await readyRuntime(JSON.parse(await readFile(marker, "utf8")))
-      if (!prepared) throw error
-      return prepared
+    for (const entry of await readdir(staging)) {
+      assertLock()
+      await rename(join(staging, entry), join(root, entry))
     }
+    await rm(staging, { force: true, recursive: true })
     await mkdir(socketRoot, { mode: 0o700, recursive: true })
     const prepared = await readyRuntime({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion })
     if (!prepared) throw new Error("[vitehub] Browser runtime cache validation failed after installation.")

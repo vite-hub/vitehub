@@ -1,4 +1,4 @@
-import { lstat, readdir, realpath } from "node:fs/promises"
+import { lstat, mkdir, readdir, realpath } from "node:fs/promises"
 import { dirname, isAbsolute, join, relative } from "node:path"
 
 /** Refuse caches another OS user can replace before running their executables. */
@@ -29,12 +29,12 @@ export async function assertTrustedBrowserCache(root: string): Promise<void> {
       for (const entry of await readdir(path)) await visit(join(path, entry))
     }
   }
+  // Atomically reserve a missing name before treating its contents as trusted.
   try {
-    await lstat(root)
+    await mkdir(root, { mode: 0o700 })
   }
   catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return
-    throw error
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error
   }
   await visit(root)
 }
