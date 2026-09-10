@@ -8,7 +8,7 @@ import type { WorkspaceStore } from "../src/index.ts"
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } from "../src/sources/view.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
-import { createWorkspace, custom, defineWorkspace, github, glob } from "../src/index.ts"
+import { createWorkspace, custom, defineWorkspace, github, glob, resolveWorkspaceAutoCommit } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
@@ -35,6 +35,31 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["memory", "local"] as const)("excludes unchanged startup files from the default %s diff without hiding user edits", async (provider) => {
+    const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const baseline = await store.snapshot({ name: "sync" })
+    const workspace = createWorkspace({
+      name: "startup-auto-commit",
+      store,
+      sources: {
+        instructions: custom({ materialize: "startup", mount: "", getKeys: async () => ["AGENTS.md"], getItem: async key => ({ key, content: "instructions" }) }),
+        skills: custom({ materialize: "startup", mount: ".agents/skills", getKeys: async () => ["browser/SKILL.md"], getItem: async key => ({ key, content: "skill" }) }),
+      },
+    })
+
+    await expect(workspace.readFile("AGENTS.md")).resolves.toBe("instructions")
+    await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
+    expect(resolveWorkspaceAutoCommit({ name: workspace.name, commit: true }, await workspace.diff())).toBeUndefined()
+    expect((await workspace.diff({ from: baseline })).entries.map(entry => entry.path)).toContain("AGENTS.md")
+
+    await store.writeFile("AGENTS.md", { path: "AGENTS.md", content: "user instructions" })
+    await store.writeFile(".agents/skills/browser/notes.md", { path: ".agents/skills/browser/notes.md", content: "user notes" })
+    const paths = (await workspace.diff()).entries.map(entry => entry.path)
+    expect(paths).toContain("AGENTS.md")
+    expect(paths).toContain(".agents/skills/browser/notes.md")
+    expect(paths).not.toContain(".agents/skills/browser/SKILL.md")
+  })
+
   it.each([false, true])("refreshes legacy cached snapshots without content digests with attributes=%s", async (attributes) => {
     const store = createMemoryWorkspaceStore()
     const getItem = vi.fn(async (key: string) => ({ key, content: "generated" }))
