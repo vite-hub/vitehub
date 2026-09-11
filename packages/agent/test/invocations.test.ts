@@ -982,7 +982,7 @@ describe("Agent Invocations", () => {
     try {
       for (const [index, store] of stores.entries()) {
         const runId = `truncated-capability-${index}`
-        const invocations = defineAgentInvocations({ store })
+        const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, store })
         const journal = await bindAgentInvocations(invocations, runtime(runId))
         if (!journal) throw new Error("Expected the invocation journal to be configured.")
         await journal.running()
@@ -1568,7 +1568,7 @@ describe("Agent Invocations", () => {
   })
 
   it("persists truncation when a running invocation reaches observation capacity", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-observation-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.running()
