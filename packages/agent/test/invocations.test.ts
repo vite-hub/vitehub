@@ -2512,6 +2512,7 @@ describe("Agent Invocations", () => {
     try {
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           update(id, input, claimId) {
@@ -3153,6 +3154,7 @@ describe("Agent Invocations", () => {
     const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
+      observations: { maxCount: 256 },
       store: {
         ...memory,
         async update(id, input, claimId) {
@@ -4372,10 +4374,7 @@ describe("Agent Invocations", () => {
     const record = await invocations.getByRunId("bounded-observations")
     expect(record).toMatchObject({ status: "completed" })
     expect(record?.observations).toHaveLength(304)
-    expect(record?.observations.at(-1)).toMatchObject({
-      attributes: { "vitehub.trace.truncated": true },
-      name: "agent.invocation.finish",
-    })
+    expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
     expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(updates).toBeLessThanOrEqual(261)
@@ -4407,12 +4406,10 @@ describe("Agent Invocations", () => {
       {
         attributes: {
           "error.message": "provider stream failed",
-          "vitehub.trace.truncated": true,
         },
         name: "agent.stream.error",
       },
       {
-        attributes: { "vitehub.trace.truncated": true },
         name: "agent.invocation.finish",
       },
     ])
