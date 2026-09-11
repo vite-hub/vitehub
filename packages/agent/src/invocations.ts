@@ -128,7 +128,7 @@ export interface AgentInvocationStore {
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
-  get(id: string): MaybePromise<AgentInvocationRecord | undefined>
+  get(id: string, options?: { observationNames?: readonly string[] }): MaybePromise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): MaybePromise<AgentInvocationSummary | undefined>
   getClaimToken(id: string): MaybePromise<string | undefined>
@@ -1178,9 +1178,15 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       records.set(record.id, cloneRecord(record))
       return { created: true, record: cloneRecord(record) }
     },
-    get(id) {
+    get(id, options) {
       const record = records.get(id)
-      return record ? cloneRecord(record) : undefined
+      if (!record) return undefined
+      const cloned = cloneRecord(record)
+      if (options?.observationNames) {
+        const names = new Set(options.observationNames)
+        cloned.observations = cloned.observations.filter(observation => names.has(observation.name))
+      }
+      return cloned
     },
     getSummary(id) {
       const record = records.get(id)
