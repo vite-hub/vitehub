@@ -1507,7 +1507,7 @@ describe("Agent Invocations", () => {
   })
 
   it("retains late delivery outcomes when a completed journal is at capacity", async () => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("late-delivery-at-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     for (let index = 0; index < 255; index++) {
@@ -1543,7 +1543,7 @@ describe("Agent Invocations", () => {
   })
 
   it("retains delivery outcomes when a running journal is at capacity", async () => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-delivery-at-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.running()
@@ -3098,6 +3098,7 @@ describe("Agent Invocations", () => {
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
