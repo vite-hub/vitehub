@@ -10,7 +10,7 @@ An Agent Invocation is one request to an Agent. ViteHub prepares its input, Acto
 
 ## Run an Agent
 
-Use `runAgent()` when the caller needs to invoke the Agent directly. Inline runtimes return the Agent output, while Workflow runtimes return a Workflow Run for durable inspection and control.
+Use `runAgent()` when the caller needs to invoke the Agent directly. Inline runtimes may return a native `Response` when the Agent produces an HTTP-shaped result. Workflow runtimes return a Workflow Run for durable inspection and control. Structured Agent outputs remain typed values, and streaming uses the separate stream contract below.
 
 ```ts [server/api/support.post.ts]
 import { runAgent } from 'vite-hub/agent'

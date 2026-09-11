@@ -42,8 +42,7 @@ Call a stateless action from trusted server code:
 import { runBrowserContent } from "vite-hub/browser/actions"
 
 export async function checkExampleDomain() {
-  const [error, html] = await runBrowserContent("https://example.com")
-  if (error) throw error
+  const html = await runBrowserContent("https://example.com")
 
   return { found: html.includes("<h1>Example Domain</h1>") }
 }
@@ -77,15 +76,17 @@ Run the discovered Definition by name:
 ```ts
 import { runBrowser } from "vite-hub/browser"
 
-const [error, html] = await runBrowser("page-content", {
+const response = await runBrowser("page-content", {
   url: "https://example.com",
 })
-if (error) throw error
+
+if (!response.ok) throw new Error(await response.text())
+const html = await response.text()
 
 console.log(html.includes("<h1>Example Domain</h1>")) // true
 ```
 
-The generated Browser registry infers the Definition's input and result types. `runBrowser()` returns an error-first result with a stable `BROWSER_*` code when discovery or provider execution fails.
+The generated Browser registry infers the Definition's input type. `runBrowser()` returns a native `Response`. Discovery and provider failures return non-2xx JSON responses containing a stable `BROWSER_*` error code. `runBrowserContent()` returns text and throws when its response is not successful.
 
 Keep target validation beside the route or job that accepts the URL. A reusable Definition does not make an untrusted destination safe.
 

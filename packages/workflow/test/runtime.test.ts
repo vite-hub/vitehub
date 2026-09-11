@@ -1,3 +1,4 @@
+import assert from "node:assert/strict"
 import { existsSync } from "node:fs"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -5,7 +6,7 @@ import { dirname, join } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { ViteHubError } from "@vite-hub/runtime"
+import { isSerializedResponse, serializeResponse, toResponse, ViteHubError } from "@vite-hub/runtime"
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
@@ -266,10 +267,13 @@ describe("workflow runtime", () => {
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
 
     await vi.waitFor(async () => {
-      await expect(workflow.getRun("inline-1")).resolves.toMatchObject({
-        result: { reply: "HELLO" },
+      const completed = await workflow.getRun("inline-1")
+      expect(completed).toMatchObject({
+        result: expect.any(Response),
         status: "completed",
       })
+      assert(completed?.result instanceof Response)
+      await expect(completed.result.clone().json()).resolves.toEqual({ reply: "HELLO" })
     })
   })
 
@@ -287,10 +291,13 @@ describe("workflow runtime", () => {
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
     expect(run.id).toMatch(/^object-inline-reply-/)
     await vi.waitFor(async () => {
-      await expect(workflow.getRun(run.id)).resolves.toMatchObject({
-        result: { reply: "HELLO" },
+      const completed = await workflow.getRun(run.id)
+      expect(completed).toMatchObject({
+        result: expect.any(Response),
         status: "completed",
       })
+      assert(completed?.result instanceof Response)
+      await expect(completed.result.clone().json()).resolves.toEqual({ reply: "HELLO" })
     })
   })
 
@@ -309,10 +316,13 @@ describe("workflow runtime", () => {
     const run = await workflow.defer({ message: "hello" }, { id: "welcome-handle" })
 
     await vi.waitFor(async () => {
-      await expect(workflow.getRun(run.id)).resolves.toMatchObject({
-        result: { payload: { message: "hello" } },
+      const completed = await workflow.getRun(run.id)
+      expect(completed).toMatchObject({
+        result: expect.any(Response),
         status: "completed",
       })
+      assert(completed?.result instanceof Response)
+      await expect(completed.result.clone().json()).resolves.toEqual({ payload: { message: "hello" } })
     })
   })
 
@@ -395,8 +405,12 @@ describe("workflow runtime", () => {
     const secondRun = await runWorkflow("mixed", undefined, { id: "second" })
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("mixed", firstRun.id)).resolves.toMatchObject({ result: "inline" })
-      await expect(getWorkflowRun("mixed", secondRun.id)).resolves.toMatchObject({ result: "inline" })
+      const firstResult = (await getWorkflowRun("mixed", firstRun.id))?.result
+      assert(firstResult instanceof Response)
+      await expect(firstResult.clone().text()).resolves.toBe("inline")
+      const secondResult = (await getWorkflowRun("mixed", secondRun.id))?.result
+      assert(secondResult instanceof Response)
+      await expect(secondResult.clone().text()).resolves.toBe("inline")
     })
     expect(inline).toHaveBeenCalledTimes(2)
     expect(discovered).not.toHaveBeenCalled()
@@ -416,7 +430,9 @@ describe("workflow runtime", () => {
     const run = await runWorkflow("server/workflows/chat", undefined, { id: "chat" })
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("server/workflows/chat", run.id)).resolves.toMatchObject({ result: "inline" })
+      const result = (await getWorkflowRun("server/workflows/chat", run.id))?.result
+      assert(result instanceof Response)
+      await expect(result.clone().text()).resolves.toBe("inline")
     })
     expect(inline).toHaveBeenCalledTimes(1)
   })
@@ -438,7 +454,9 @@ describe("workflow runtime", () => {
     const run = await runWorkflow("server/workflows/chat", undefined, { id: "chat" })
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("server/workflows/chat", run.id)).resolves.toMatchObject({ result: "inline" })
+      const result = (await getWorkflowRun("server/workflows/chat", run.id))?.result
+      assert(result instanceof Response)
+      await expect(result.clone().text()).resolves.toBe("inline")
     })
     expect(inline).toHaveBeenCalledTimes(1)
     expect(helper).not.toHaveBeenCalled()
@@ -464,8 +482,12 @@ describe("workflow runtime", () => {
     const secondRun = await runWorkflow("second", undefined, { id: "second" })
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("first", firstRun.id)).resolves.toMatchObject({ result: "first" })
-      await expect(getWorkflowRun("second", secondRun.id)).resolves.toMatchObject({ result: "second" })
+      const firstResult = (await getWorkflowRun("first", firstRun.id))?.result
+      assert(firstResult instanceof Response)
+      await expect(firstResult.clone().text()).resolves.toBe("first")
+      const secondResult = (await getWorkflowRun("second", secondRun.id))?.result
+      assert(secondResult instanceof Response)
+      await expect(secondResult.clone().text()).resolves.toBe("second")
     })
     expect(first).toHaveBeenCalledTimes(1)
     expect(second).toHaveBeenCalledTimes(1)
@@ -518,7 +540,9 @@ describe("workflow runtime", () => {
     const run = await runWorkflow("mixed", undefined, { id: "mixed" })
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("mixed", run.id)).resolves.toMatchObject({ result: "discovered" })
+      const result = (await getWorkflowRun("mixed", run.id))?.result
+      assert(result instanceof Response)
+      await expect(result.clone().text()).resolves.toBe("discovered")
     })
     expect(discovered).toHaveBeenCalledTimes(1)
     expect(helper).not.toHaveBeenCalled()
@@ -550,6 +574,70 @@ describe("workflow runtime", () => {
     await alphaRun
   })
 
+  it.each([false, true])("persists serialized Cloudflare responses with rootStep=%s", async (rootStep) => {
+    let checkpoint: unknown
+    const handler = vi.fn(async () => new Response(new Uint8Array([0, 128, 255]), {
+      status: 202,
+      statusText: "Accepted",
+      headers: { "x-workflow": "durable" },
+    }))
+    const step: WorkflowProviderStep = {
+      async do(_name, _options, run) {
+        const value = await run()
+        expect(isSerializedResponse(value)).toBe(true)
+        checkpoint = JSON.parse(JSON.stringify(value))
+        return JSON.parse(JSON.stringify(value))
+      },
+    }
+    const options = {
+      config: { provider: "cloudflare" as const },
+      env: {},
+      event: { id: "durable-1" },
+      name: "durable",
+      registry: { durable: async () => ({ default: { handler, options: { rootStep } } }) },
+      step,
+    }
+    const output = JSON.parse(JSON.stringify(await runCloudflareWorkflow(options)))
+    expect(isSerializedResponse(output)).toBe(true)
+    if (rootStep) {
+      const replay: WorkflowProviderStep = { async do() { return JSON.parse(JSON.stringify(checkpoint)) } }
+      expect(await runCloudflareWorkflow({ ...options, step: replay })).toEqual(output)
+      expect(handler).toHaveBeenCalledOnce()
+    }
+    setWorkflowRuntimeConfig(options.config)
+    enterWorkflowRuntimeEvent({ env: {
+      [getCloudflareWorkflowBindingName("durable")]: {
+        get: async () => ({ id: "durable-1", status: async () => ({ status: "complete", output }) }),
+      },
+    } })
+    const run = await getWorkflowRun("durable", "durable-1")
+    expect(run.status).toBe("completed")
+    expect(run.result).toBeInstanceOf(Response)
+    if (!(run.result instanceof Response)) throw new Error("Missing workflow response")
+    expect(run.result.status).toBe(202)
+    expect(run.result.headers.get("x-workflow")).toBe("durable")
+    expect(new Uint8Array(await run.result.arrayBuffer())).toEqual(new Uint8Array([0, 128, 255]))
+  })
+
+  it("persists serialized OpenWorkflow responses and decodes completed runs", async () => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    const workflow = createWorkflow("durable-open", async () => new Response("saved", {
+      status: 201, headers: { "x-workflow": "durable" },
+    }))
+    const started = await workflow.run()
+    await vi.waitFor(async () => {
+      const stored = openWorkflowMock.runs.get(started.id)
+      expect(isSerializedResponse(stored?.output)).toBe(true)
+      stored.output = JSON.parse(JSON.stringify(stored.output))
+      const run = await workflow.getRun(started.id)
+      expect(run.result).toBeInstanceOf(Response)
+      if (!(run.result instanceof Response)) throw new Error("Missing workflow response")
+      expect(run.result.status).toBe(201)
+      expect(run.result.headers.get("x-workflow")).toBe("durable")
+      expect(await run.result.text()).toBe("saved")
+    })
+  })
+
   it("wraps Cloudflare workflow handlers with provider steps", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -564,7 +652,7 @@ describe("workflow runtime", () => {
         welcome: async () => ({ default: { handler: async ({ payload }) => ({ payload }) } }),
       },
       step,
-    })).resolves.toEqual({ payload: { message: "hello" } })
+    })).resolves.toEqual(await serializeResponse(toResponse({ payload: { message: "hello" } })))
 
     expect(stepDo).toHaveBeenCalledWith(
       "welcome",
@@ -596,7 +684,7 @@ describe("workflow runtime", () => {
         }),
       },
       step,
-    })).resolves.toEqual({ active: "step", event: "step" })
+    })).resolves.toEqual(await serializeResponse(toResponse({ active: "step", event: "step" })))
   })
 
   it("converts explicitly non-retryable Cloudflare workflow errors", async () => {
@@ -689,8 +777,8 @@ describe("workflow runtime", () => {
       runCloudflareWorkflow({ config: { provider: "cloudflare" }, env: { REQUEST_ID: "second" }, event: { id: "second", payload: "second" }, name: "welcome", registry }),
     ])
 
-    expect(first).toEqual({ after: "first", before: "first", payload: "first" })
-    expect(second).toEqual({ after: "second", before: "second", payload: "second" })
+    expect(first).toEqual(await serializeResponse(toResponse({ after: "first", before: "first", payload: "first" })))
+    expect(second).toEqual(await serializeResponse(toResponse({ after: "second", before: "second", payload: "second" })))
   })
 
   it("does not wrap generated folder workflows in a root provider step", async () => {
@@ -716,7 +804,7 @@ describe("workflow runtime", () => {
         }),
       },
       step,
-    })).resolves.toBe("done")
+    })).resolves.toEqual(await serializeResponse(toResponse("done")))
 
     expect(stepDo).toHaveBeenCalledTimes(2)
     expect(stepDo.mock.calls.map(call => call[0])).toEqual(["pipeline/01.first", "pipeline/02.second"])
@@ -787,7 +875,7 @@ describe("workflow runtime", () => {
         },
       },
       step,
-    })).resolves.toBe("start-step")
+    })).resolves.toEqual(await serializeResponse(toResponse("start-step")))
 
     expect(stepDo).toHaveBeenCalledTimes(1)
     expect(stepDo).toHaveBeenCalledWith(
@@ -812,11 +900,14 @@ describe("workflow runtime", () => {
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({
+      const completed = await getWorkflowRun("welcome", run.id)
+      expect(completed).toMatchObject({
         provider: "vercel",
-        result: { payload: { message: "hello" } },
+        result: expect.any(Response),
         status: "completed",
       })
+      assert(completed?.result instanceof Response)
+      await expect(completed.result.clone().json()).resolves.toEqual({ payload: { message: "hello" } })
     })
   })
 
@@ -853,11 +944,14 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.runOptions).toEqual([{ idempotencyKey: "welcome-idempotency-key" }])
 
     await vi.waitFor(async () => {
-      await expect(getWorkflowRun("welcome", run.id)).resolves.toMatchObject({
+      const completed = await getWorkflowRun("welcome", run.id)
+      expect(completed).toMatchObject({
         provider: "openworkflow",
-        result: { payload: { message: "hello" } },
+        result: expect.any(Response),
         status: "completed",
       })
+      assert(completed?.result instanceof Response)
+      await expect(completed.result.clone().json()).resolves.toEqual({ payload: { message: "hello" } })
     })
     expect(openWorkflowMock.sleepCalls).toEqual([["settle", "1 second"]])
   })
@@ -1893,8 +1987,12 @@ describe("workflow runtime", () => {
     await runWorkflow("two", {}, { id: "shared" })
     await Promise.resolve()
 
-    await expect(getWorkflowRun("one", "shared")).resolves.toMatchObject({ result: "one" })
-    await expect(getWorkflowRun("two", "shared")).resolves.toMatchObject({ result: "two" })
+    const oneResult = (await getWorkflowRun("one", "shared"))?.result
+    assert(oneResult instanceof Response)
+    await expect(oneResult.clone().text()).resolves.toBe("one")
+    const twoResult = (await getWorkflowRun("two", "shared"))?.result
+    assert(twoResult instanceof Response)
+    await expect(twoResult.clone().text()).resolves.toBe("two")
   })
 
   it("runs native Vercel entries durably and exposes run and step state", async () => {
