@@ -45,6 +45,7 @@ export function defineContent<
 >(options: DefineContentOptions<TPlugins> = {}): ComarkContent & ContentMethods<TPlugins> {
   const { sources, ...contentOptions } = options
   if (!sources) {
+    // SAFETY: Comark's default instance satisfies the ViteHub content surface.
     return comarkContent("default", {
       ...contentOptions,
       basePath: "/api/content",
@@ -55,7 +56,8 @@ export function defineContent<
     ...contentOptions,
     source,
   }))
-  return contentHub(instances, { basePath: "/api/content" }) as unknown as ComarkContent & ContentMethods<TPlugins>
+  // SAFETY: The hub exposes the same read and handler surface as a content instance.
+  return contentHub(instances, { basePath: "/api/content" }) as ComarkContent & ContentMethods<TPlugins>
 }
 
 export function defineContentHandler(
