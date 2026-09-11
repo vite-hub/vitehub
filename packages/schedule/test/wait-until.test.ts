@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineScheduleTarget, executeStaticSchedule, schedules } from "../src/index.ts"
+import { defineScheduleTarget, schedules } from "../src/index.ts"
+import { executeStaticSchedule } from "../src/runtime.ts"
 import { installScheduleRuntime } from "../src/runtime/driver.ts"
 import { resetScheduleRuntime } from "../src/runtime/state.ts"
 import { createMemoryRuntimeScheduleStore, createMemoryScheduleRunStore } from "../src/runtime/store.ts"

@@ -1,7 +1,8 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { describe, expect, it } from "vitest"
 
-import { createMemoryRuntimeScheduleStore, schedules, validateRuntimeScheduleCron } from "../src/index.ts"
+import { schedules, validateRuntimeScheduleCron } from "../src/index.ts"
+import { createMemoryRuntimeScheduleStore } from "../src/runtime.ts"
 import { createScheduleError } from "../src/errors.ts"
 
 describe("Schedule errors", () => {

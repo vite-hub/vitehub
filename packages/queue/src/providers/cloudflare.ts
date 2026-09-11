@@ -2,6 +2,7 @@ import { normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { cloudflareUnsupportedEnqueueOptions, createQueueError, runQueueProviderOperation } from "../errors.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
+import { toResponse } from "@vite-hub/runtime"
 
 import type { CloudflareQueueBatchErrorAction, CloudflareQueueBatchHandlerOptions, CloudflareQueueBinding, CloudflareQueueClient, CloudflareQueueMessage, CloudflareQueueMessageBatch, CloudflareQueueProviderOptions, QueueEnqueueOptions } from "../types.ts"
 
@@ -62,7 +63,12 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
       while (index < messages.length) {
         const message = messages[index++]!
         try {
-          await options.onMessage(message, batch)
+          const response = toResponse(await options.onMessage(message, batch))
+          if (!response.ok) {
+            const error = new Error(`Queue handler returned HTTP ${response.status}`)
+            Object.assign(error, { status: response.status })
+            throw error
+          }
           message.ack()
         } catch (error) {
           reportQueueDeliveryError(error, {

@@ -127,6 +127,69 @@ describe("GitHub host", () => {
     )
   })
 
+  it("routes concurrent repositories to independently cached installation credentials", async () => {
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const issued = new Map<string, number>()
+    const fetcher = vi.fn(async (input: string) => {
+      const installation = input.split("/").at(-2)!
+      const generation = (issued.get(installation) ?? 0) + 1
+      issued.set(installation, generation)
+      return Response.json({
+        expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        token: `${installation}-${generation}`,
+      })
+    })
+    vi.stubGlobal("fetch", fetcher)
+    const credentials = vi.fn(({ repository }: { repository?: string }) => ({
+      appId: 123,
+      installationId: repository?.startsWith("other/") ? 789 : 456,
+      owner: repository?.split("/")[0] ?? "acme",
+      privateKey: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+    }))
+    const host = createGitHubHost({ credentials })
+    const repositories = ["acme/one", "other/two"]
+
+    const first = await Promise.all(repositories.map(repository => host.access({ repository })))
+    expect(first.map(access => access.token)).toEqual(["456-1", "789-1"])
+    const cached = await Promise.all(repositories.map(repository => host.access({ repository })))
+    expect(cached.map(access => access.env.GH_TOKEN)).toEqual(["456-1", "789-1"])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(credentials).toHaveBeenCalledWith(expect.objectContaining({ repository: "other/two", signal: expect.any(AbortSignal) }))
+
+    expect((await host.access({ repository: "acme/one", refresh: true })).token).toBe("456-2")
+    expect((await host.access({ repository: "other/two" })).token).toBe("789-1")
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
+  it("uses the activity target repository when resolving a host-managed channel token", async () => {
+    const credentials = vi.fn(({ repository }: { repository?: string }) => ({
+      token: `token:${repository}`,
+      rateLimitKey: repository,
+    }))
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/user")) return Response.json({ login: "worker[bot]" })
+      const repository = url.includes("/repos/acme/one/") ? "acme/one" : "other/two"
+      expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer token:${repository}`)
+      return Response.json(init?.method === "POST" ? { id: repository === "acme/one" ? 1 : 2 } : [])
+    })
+    vi.stubGlobal("fetch", fetcher)
+    const host = createGitHubHost({ credentials, identity: { login: "worker[bot]" } })
+    const channel = host.channel({ activity: true })
+    await Promise.all(["acme/one", "other/two"].map(repository => channel.activity!.update({
+      activity: { links: [], runId: `run:${repository}`, status: "running", tasks: [] },
+      channel,
+      memo: vi.fn(),
+      run: { runId: `run:${repository}` },
+      runtime: "unknown",
+      target: { issue: 42, repository },
+      waitUntil: vi.fn(),
+    // SAFETY: This fixture supplies the callback fields consumed by the activity updater.
+    } as never)))
+    expect(credentials.mock.calls.map(([context]) => context.repository).sort()).toEqual(["acme/one", "other/two"])
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(2)
+  })
+
   it("uses the fallback token outside the App owner", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: 123 }), { status: 200 })))
     const host = createGitHubHost({

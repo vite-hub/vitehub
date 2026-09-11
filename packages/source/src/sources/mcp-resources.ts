@@ -358,19 +358,20 @@ function createResourceItem<TKey extends string>(
     throw sourceError(`[vitehub] mcpResources could not read resource ${JSON.stringify(resource.uri)}.`)
   }
   const multipleContents = contents.length > 1
+  const metadata: Record<string, unknown> = {
+    name: resource.name,
+    serverResourceCount: contents.length,
+    uri: resource.uri,
+  }
+  if (resource.description !== undefined) metadata.description = resource.description
+  if (resource.size !== undefined) metadata.size = resource.size
+  if (resource.title !== undefined) metadata.title = resource.title
   return {
     key,
     path: key,
     content: multipleContents ? JSON.stringify(contents, null, 2) : contentToSourceContent(content),
     mediaType: multipleContents ? "application/json" : content.mimeType || resource.mimeType,
-    metadata: {
-      description: resource.description,
-      name: resource.name,
-      serverResourceCount: contents.length,
-      size: resource.size,
-      title: resource.title,
-      uri: resource.uri,
-    },
+    metadata,
   }
 }
 

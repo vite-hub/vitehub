@@ -5,8 +5,10 @@ import { workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
+import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
+import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -37,6 +39,7 @@ export interface LazyMaterializedMetadata {
   sha?: string
   digest?: string
   ref?: string
+  migrationPending?: true
   materializedAttributes?: true
   materializedBytes?: number
   materializedMediaType?: string
@@ -71,8 +74,12 @@ function sourceConfigFingerprint(source: SourceConfiguration) {
   }
 }
 
-async function sourceConfigHash(source: SourceConfiguration) {
-  return await sha256(sourceConfigFingerprint(source))
+async function sourceConfigHash(source: SourceConfiguration, store: Pick<WorkspaceStore, "getMeta">) {
+  const target = await resolveWorkspaceStoreTarget(store)
+  const version: { fileMetadataVersion?: number } = {}
+  // Only local files need legacy snapshots replayed to persist ownership.
+  if (target?.provider === "local") version.fileMetadataVersion = 1
+  return await sha256({ ...version, ...sourceConfigFingerprint(source) })
 }
 
 function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: ResolvedWorkspaceSource, configHash: string) {
@@ -90,18 +97,18 @@ async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">
 }
 
 export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   const meta = await readSourceSnapshotMetadata(store, source.key)
   return meta?.status === "ready" && meta.configHash === configHash
 }
 
 export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   return isSnapshotFresh(await readSourceSnapshotMetadata(store, source.key), source, configHash)
 }
 
 export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, source: SourceConfiguration) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   const snapshot = await readSourceSnapshotMetadata(store, source.key)
   return snapshot?.configHash === configHash ? snapshot : undefined
 }
@@ -124,7 +131,8 @@ function materializedItemMeta(
 ) {
   if (!snapshot || snapshot.configHash !== configHash) return undefined
   if (snapshot.status !== "ready" && snapshot.status !== "updating" && snapshot.status !== "error") return undefined
-  return snapshot.items?.[path]
+  const item = snapshot.items?.[path]
+  return item?.migrationPending ? undefined : item
 }
 
 function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
@@ -133,15 +141,6 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
 
 function contentSize(content: string | Uint8Array) {
   return content instanceof Uint8Array ? content.byteLength : new TextEncoder().encode(content).byteLength
-}
-
-function normalizeMetadataValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeMetadataValue)
-  if (!value || Object.getPrototypeOf(value) !== Object.prototype) return value
-  return Object.fromEntries(Object.entries(value)
-    .filter(([, entry]) => entry !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) => [key, normalizeMetadataValue(entry)]))
 }
 
 function observableFileMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -416,7 +415,7 @@ export async function materializeWorkspaceSources(
     let configHash: string
     let existing: SourceSnapshotMetadata | undefined
     try {
-      configHash = await sourceConfigHash(source)
+      configHash = await sourceConfigHash(source, store)
       existing = await readSourceSnapshotMetadata(store, source.key)
     }
     catch (error) {
@@ -468,7 +467,8 @@ export async function materializeWorkspaceSources(
     let revision = existing?.revision
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
       ? { ...existing.items }
-      : {}
+      : Object.fromEntries(Object.entries(existing?.items || {}).map(([path, metadata]) =>
+        [path, { ...metadata, migrationPending: true as const }]))
     if (completeSource) {
       assertCurrent()
       await control.mutate(() => writeSourceSnapshotMetadata(store, {
@@ -527,15 +527,15 @@ export async function materializeWorkspaceSources(
           continue
         }
         const item = entry.item!
-        const metadata = item.metadata || {}
+        const metadata = normalizeSourceFileMetadata(item.metadata || {})
         const previousStat = await store.stat(path)
         const previous = entry.contentStream && store.writeFileStream ? undefined : await store.readFile(path)
         const previousExists = previousStat?.type === "file" || Boolean(previous)
-        const fileMetadata = {
+        const fileMetadata = normalizeSourceFileMetadata({
           ...metadata,
           ...entry.metadata,
           source: source.key,
-        }
+        })
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
@@ -612,6 +612,16 @@ export async function materializeWorkspaceSources(
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
           files: scopedItems ? Object.keys(scopedItems).length : 0,
           items: scopedItems,
+        }))
+      }
+      else if (existing) {
+        // Retain ownership outside this scope without reusing unmigrated files.
+        const migratedItems = checkpointItems(itemMetadata)
+        await control.mutate(() => writeSourceSnapshotMetadata(store, {
+          ...ready,
+          status: "updating",
+          items: migratedItems,
+          files: migratedItems ? Object.keys(migratedItems).length : 0,
         }))
       }
       const durationMs = Date.now() - sourceStarted
@@ -807,7 +817,7 @@ function createLazyMaterializedMetadata(
   upstreamMeta: Record<string, unknown> | undefined,
 ): LazyMaterializedMetadata {
   const now = new Date().toISOString()
-  return {
+  const metadata: LazyMaterializedMetadata = {
     source: resolution.sourceKey,
     sourcePath: resolution.sourcePath,
     materializedAt: now,
@@ -817,6 +827,10 @@ function createLazyMaterializedMetadata(
     digest: readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest"),
     ref: readStringMeta(upstreamMeta, "ref"),
   }
+  for (const key of ["validatedAt", "etag", "sha", "digest", "ref"] as const) {
+    if (metadata[key] === undefined) delete metadata[key]
+  }
+  return metadata
 }
 
 function hasSourceMetaChanged(current: LazyMaterializedMetadata, upstreamMeta: Record<string, unknown>) {

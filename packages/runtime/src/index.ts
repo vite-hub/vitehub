@@ -983,7 +983,8 @@ export function traceEventsToOpenTelemetryLogRecords(events: Iterable<TraceEvent
     return run.events.map((event) => {
       const id = stepId(event)
       const attributes = traceEventAttributes(event, options.content === "metadata" ? "metadata" : "content")
-      const error = event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name)
+      const warning = event.name === "agent.stream.error" && event.attributes?.["error.recoverable"] === true
+      const error = !warning && (event.type === "error" || /\.(?:cancelled|error|failed)$/.test(event.name))
       return {
         attributes: {
           ...attributes,
@@ -993,7 +994,11 @@ export function traceEventsToOpenTelemetryLogRecords(events: Iterable<TraceEvent
           ...(id ? { "vitehub.step.id": id } : {}),
         },
         eventName: event.name,
-        ...(error ? { severityNumber: 17, severityText: "ERROR" } : {}),
+        ...(warning
+          ? { severityNumber: 13, severityText: "WARN" }
+          : error
+            ? { severityNumber: 17, severityText: "ERROR" }
+            : {}),
         spanId: id ? openTelemetryId(`${spanId}:${id}`, 16) : spanId,
         time: event.timestamp,
         traceId,
@@ -1286,3 +1291,11 @@ export async function resolveCapabilityPolicy(
 
 export { createWorkTracker } from "./work.ts"
 export type { WorkCheckpoint, WorkCheckpointStore, WorkOutcome, WorkTracker } from "./work.ts"
+
+export {
+  deserializeResponse,
+  isSerializedResponse,
+  serializeResponse,
+  toResponse,
+  type SerializedResponse,
+} from "./response.ts"

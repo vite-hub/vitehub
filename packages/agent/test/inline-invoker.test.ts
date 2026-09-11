@@ -21,6 +21,39 @@ describe("inline invoker identity", () => {
     expect(sameInlineInvoker(new Date(1000), Object.create(Date.prototype))).toBe(false)
   })
 
+  it("compares reconstructed built-in metadata and distinguishes changed values", () => {
+    const factories = [
+      (value: number) => new Map([["permission", { value }]]),
+      (value: number) => new Set([{ value }]),
+      (value: number) => new RegExp(`role${value}`, "gi"),
+      (value: number) => new URL(`https://example.com/${value}`),
+      (value: number) => new Uint16Array([value]),
+      (value: number) => new DataView(new Uint8Array([value]).buffer),
+      (value: number) => new Uint8Array([value]).buffer,
+    ]
+    for (const create of factories) {
+      expect(sameInlineInvoker({ meta: create(1) }, { meta: create(1) })).toBe(true)
+      expect(sameInlineInvoker({ meta: create(1) }, { meta: create(2) })).toBe(false)
+    }
+    expect(sameInlineInvoker(new ArrayBuffer(0), Object.create(ArrayBuffer.prototype))).toBe(false)
+    expect(sameInlineInvoker(Object.assign(new Set([1]), { role: "reader" }), Object.assign(new Set([1]), { role: "writer" }))).toBe(false)
+    expect(sameInlineInvoker(/role/g, /role/i)).toBe(false)
+    expect(sameInlineInvoker(new Uint8Array([1]), new Int8Array([1]))).toBe(false)
+  })
+
+  it("handles cyclic collection metadata without invoking instance methods", () => {
+    const left = new Map<unknown, unknown>()
+    const right = new Map<unknown, unknown>()
+    left.set("self", left)
+    right.set("self", right)
+    const entries = () => { throw new Error("Unexpected entries override") }
+    Object.assign(left, { entries })
+    Object.assign(right, { entries })
+    expect(sameInlineInvoker(left, right)).toBe(true)
+    right.set("permission", "writer")
+    expect(sameInlineInvoker(left, right)).toBe(false)
+  })
+
   it("compares bigint metadata without coercion", () => {
     expect(sameInlineInvoker({ meta: { value: 1n } }, { meta: { value: 1n } })).toBe(true)
     expect(sameInlineInvoker({ meta: { value: 1n } }, { meta: { value: "1" } })).toBe(false)

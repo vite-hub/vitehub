@@ -33,14 +33,11 @@ describe("published Browser types", () => {
   })
 
   it("types Browser actions", () => {
-    expectTypeOf(runBrowserContent("https://example.com")).resolves.toEqualTypeOf<BrowserRunResult<string>>()
+    expectTypeOf(runBrowserContent("https://example.com")).resolves.toEqualTypeOf<string>()
   })
 
-  it("types error-first Browser Definition results", () => {
-    expectTypeOf<BrowserRunResult<{ title: string }>>().toEqualTypeOf<
-      [error: null, value: { title: string }]
-      | [error: import("@vite-hub/runtime").ViteHubError<`BROWSER_${string}`>, value: undefined]
-    >()
+  it("types Browser Definition responses", () => {
+    expectTypeOf<BrowserRunResult>().toEqualTypeOf<Response>()
   })
 
   it("returns opaque refs and a Vite plugin", async () => {

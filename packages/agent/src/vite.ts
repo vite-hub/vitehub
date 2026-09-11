@@ -744,7 +744,9 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
   const existingNoExternals = Array.isArray(nitro.noExternals) ? nitro.noExternals : []
   nitro.noExternals = nitro.noExternals === true
     ? true
-    : [...new Set([...existingNoExternals, "@t3tools/provider-runtime"])]
+    // Keep the provider's Effect dependencies together so Nitro does not emit
+    // platform chunks with unresolved Effect peer imports in the Node output.
+    : [...new Set([...existingNoExternals, "@t3tools/provider-runtime", "effect", "@effect/platform-node", "@effect/platform-node-shared"])]
   nitro.rollupConfig ||= {}
   // SAFETY: Nitro forwards this field to Rolldown, whose external option accepts the shared Rollup shape.
   const existingExternal = nitro.rollupConfig.external as RollupExternalOption | undefined

@@ -2284,6 +2284,50 @@ describe("Agent invocation console", () => {
     })
     await expect(invocationCapabilitiesHandler(requestEvent)).resolves.toEqual({
       capabilities: ["papercuts", "usage"],
+      triggeredBy: [],
+    })
+  })
+
+  it("filters Console sessions by the exact triggering person across pages and facets", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const timestamp = "2026-08-23T12:00:00.000Z"
+    for (let index = 0; index < 105; index++) {
+      const triggeredBy = index === 0 || index === 104 ? "Ferdinand" : index === 1 ? "ferdinand" : index === 2 ? undefined : "Maxi"
+      await store.create({
+        agentName: index === 104 ? "chat" : "other",
+        ...(triggeredBy ? { annotations: { triggeredBy } } : {}),
+        capabilityIds: index === 104 ? ["papercuts"] : ["usage"],
+        createdAt: timestamp,
+        id: `person-${index}`,
+        observations: [],
+        status: "completed",
+        traceId: `person-${index}-trace`,
+        updatedAt: new Date(Date.parse(timestamp) + index).toISOString(),
+      })
+    }
+    installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
+    const requestEvent = event("127.0.0.1")
+    const url = "http://localhost/api/_vitehub/console/invocations?agent=chat&capability=papercuts&triggeredBy=Ferdinand&limit=1"
+    requestEvent.node!.req!.url = url
+    requestEvent.req!.url = url
+
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{ id: "person-104" }],
+    })
+
+    const exactCaseURL = "http://localhost/api/_vitehub/console/invocations?triggeredBy=ferdinand"
+    requestEvent.node!.req!.url = exactCaseURL
+    requestEvent.req!.url = exactCaseURL
+    await expect(invocationsHandler(requestEvent)).resolves.toMatchObject({
+      invocations: [{ id: "person-1" }],
+    })
+
+    const facetsURL = "http://localhost/api/_vitehub/console/invocation-capabilities?agent=chat"
+    requestEvent.node!.req!.url = facetsURL
+    requestEvent.req!.url = facetsURL
+    await expect(invocationCapabilitiesHandler(requestEvent)).resolves.toEqual({
+      capabilities: ["papercuts"],
+      triggeredBy: ["Ferdinand"],
     })
   })
 
@@ -3460,6 +3504,7 @@ describe("Agent invocation console", () => {
   })
 
   it("reports the diagnostic code for an invalid usage cursor", async () => {
+    installConsoleInvocationFallback(defineAgentInvocations({ store: createMemoryAgentInvocationStore() }), process.cwd())
     const requestEvent = event("127.0.0.1")
     const url = "http://localhost/api/_vitehub/console/usage?cursor=invalid"
     if (!requestEvent.node?.req || !requestEvent.req) throw new TypeError("Expected a request event.")
@@ -3624,6 +3669,8 @@ describe("Agent invocation console", () => {
     })
     expect(getSummary).toHaveBeenCalledTimes(2)
     expect(get).toHaveBeenCalledTimes(2)
+    expect(get).toHaveBeenNthCalledWith(1, "inv-1", { observationNames: ["agent.invocation.finish"] })
+    expect(get).toHaveBeenNthCalledWith(2, "inv-2", { observationNames: ["agent.invocation.finish"] })
   })
 
   it("supplies the console journal to framework Agent Definitions without a store", () => {
@@ -3877,6 +3924,35 @@ describe("Agent invocation console", () => {
       await server?.close()
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("persists configured Console storage across instances and isolates another URL", async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-configured-"))
+    const databaseUrl = pathToFileURL(join(projectRoot, "persistent", "history.sqlite")).href
+    const otherUrl = pathToFileURL(join(projectRoot, "persistent", "other.sqlite")).href
+    try {
+      const writer = installConsoleInvocations(projectRoot, undefined, undefined, databaseUrl)
+      expect(installConsoleInvocations(projectRoot, undefined, undefined, databaseUrl)).toBe(writer)
+      const agent = defineAgent({ driver: { run: () => "stored at configured path" }, runtime: false })
+      await runAgent(agent, runtime("configured-console-storage"), {})
+      const readers = [createConsoleInvocations(projectRoot, undefined, databaseUrl), createConsoleInvocations(projectRoot, undefined, databaseUrl)]
+      for (const reader of readers) {
+        await expect(reader.getByRunId("configured-console-storage")).resolves.toMatchObject({ status: "completed" })
+      }
+      const other = installConsoleInvocations(projectRoot, undefined, undefined, otherUrl)
+      expect(other).not.toBe(writer)
+      await expect(other.getByRunId("configured-console-storage")).resolves.toBeUndefined()
+      expect(existsSync(join(projectRoot, "persistent", "history.sqlite"))).toBe(true)
+      expect(existsSync(join(projectRoot, ".vitehub", "data", "console.sqlite"))).toBe(false)
+    }
+    finally {
+      await rm(projectRoot, { force: true, recursive: true })
+    }
+  })
+
+  it("allows a runtime URL to override the Console config", () => {
+    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "libsql://runtime.example.com")
+    expect(resolveConsoleDatabaseOptions(process.cwd(), "libsql://configured.example.com")).toEqual({ url: "libsql://runtime.example.com" })
   })
 
   it("anchors the durable journal to the project root and shares it between runtime instances", async () => {

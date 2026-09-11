@@ -44,6 +44,11 @@ function resolveBlobPath(root: string, pathname: string) {
   if (!isInside(root, path)) {
     throw blobErrorDiagnostics.BLOB_R0005({ message: `Blob pathname escapes the configured base: ${pathname}` })
   }
+  const relativePath = relative(root, path)
+  const normalizedRelativePath = relativePath.toLowerCase()
+  if (normalizedRelativePath === ".vitehub" || normalizedRelativePath.startsWith(`.vitehub${sep}`)) {
+    throw blobErrorDiagnostics.BLOB_R0005({ message: `Blob pathname uses a reserved internal path: ${pathname}` })
+  }
   return path
 }
 
