@@ -347,6 +347,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       registration,
     }))
     .filter((entry): entry is { headerValue: string | null, registration: AgentWebhookRegistrationDefinition } =>
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored verifier callbacks require runtime validation at the webhook boundary.
       entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && typeof entry.registration.signature.verify === "function"))
 
   if (!targeted.length) {
@@ -360,9 +361,6 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     if (secretToken === false) {
       return { registration, verified: true }
     }
-    if (!secretToken && !(typeof registration.signature === "object" && registration.signature !== null && typeof registration.signature.verify === "function")) {
-      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
-    }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Webhook signature verifiers cross the user configuration boundary and require runtime validation.
     if (typeof registration.signature === "object" && registration.signature !== null && typeof registration.signature.verify === "function") {
       const rawBody = options.rawBody ? Uint8Array.from(options.rawBody) : new Uint8Array(await request.clone().arrayBuffer())
@@ -371,6 +369,10 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       }
       continue
     }
+    if (!secretToken) {
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
+    }
+    if (headerValue === null) continue
     if (registration.signature === "github-sha256") {
       const body = options.rawBody ? Uint8Array.from(options.rawBody).buffer : await request.clone().arrayBuffer()
       const expected = `sha256=${await hmacSha256(secretToken, body)}`
