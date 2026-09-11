@@ -82,7 +82,8 @@ export function observability(options: AgentObservabilityOptions): AgentCapabili
 /** One shared exporter per host. Capability invocations keep their metadata separate. */
 export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const service = options.service?.trim() || "vitehub-agent"
-  const environment = options.environment?.trim() || (typeof process !== "undefined" && process.env.NODE_ENV) || "development"
+  const runtimeProcess = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process
+  const environment = options.environment?.trim() || runtimeProcess?.env?.NODE_ENV || "development"
   const maxPending = options.maxPending ?? 1000
   if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw new TypeError("[vitehub] evlog maxPending must be a positive integer.")
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
