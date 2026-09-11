@@ -42,7 +42,6 @@
     "test": "vp run -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/source": "workspace:*",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime"
   },
