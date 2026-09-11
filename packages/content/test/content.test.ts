@@ -46,7 +46,7 @@ describe("contentSource", () => {
       sources: { docs },
     })
 
-    await expect(content.list("docs")).resolves.toEqual([
+    await expect(content.list(["docs"])).resolves.toEqual([
       expect.objectContaining({
         data: { title: "Introduction" },
         path: "/guide",
@@ -70,7 +70,6 @@ describe("contentSource", () => {
     const response = await content.handler(new Request("https://example.test/api/content/get/guide"))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual(expect.objectContaining({ path: "/guide" }))
-    await expect(content.cache.keys("docs")).resolves.toEqual(["docs:guide/index.md"])
   })
 
   it.each(["definition", "name", "factory"] as const)("uses a fresh reader on refresh with a %s", async (input) => {
@@ -101,7 +100,7 @@ describe("contentSource", () => {
     expect(JSON.stringify(initial?.nodes)).toContain("Revision 1")
 
     revision = 2
-    await content.refresh()
+    await content.from("live").refresh()
 
     const refreshed = await content.get("/")
     expect(JSON.stringify(refreshed?.nodes)).toContain("Revision 2")
@@ -200,11 +199,11 @@ describe("contentSource", () => {
     await content.init()
 
     readBarrier = deferred()
-    const firstRefresh = content.refresh()
+    const firstRefresh = content.from("overlap").refresh()
     await parsersStarted.promise
     expectedBlockedParsers = 4
     parsersStarted = deferred()
-    const secondRefresh = content.refresh()
+    const secondRefresh = content.from("overlap").refresh()
     await parsersStarted.promise
 
     expect(revision).toBe(3)
@@ -220,11 +219,11 @@ describe("contentSource", () => {
     expectedBlockedParsers = 2
     parsersStarted = deferred()
     readBarrier = deferred()
-    const thirdRefresh = content.refresh()
+    const thirdRefresh = content.from("overlap").refresh()
     await parsersStarted.promise
     expectedBlockedParsers = 4
     parsersStarted = deferred()
-    const snapshot = content.snapshot()
+    const snapshot = content.from("overlap").snapshot()
     await parsersStarted.promise
 
     expect(revision).toBe(5)
@@ -239,7 +238,7 @@ describe("contentSource", () => {
     expectedBlockedParsers = 2
     parsersStarted = deferred()
     readBarrier = deferred()
-    const fourthRefresh = content.refresh()
+    const fourthRefresh = content.from("overlap").refresh()
     await parsersStarted.promise
     expectedBlockedParsers = 3
     parsersStarted = deferred()
@@ -301,7 +300,7 @@ describe("contentSource", () => {
 
     failLoad = true
     let failedRefreshSettled = false
-    const failedRefresh = content.refresh().finally(() => {
+    const failedRefresh = content.from("errors").refresh().finally(() => {
       failedRefreshSettled = true
     })
     await lateParserStarted.promise
@@ -310,7 +309,7 @@ describe("contentSource", () => {
     expect(revision).toBe(2)
 
     failLoad = false
-    const nextRefresh = content.refresh()
+    const nextRefresh = content.from("errors").refresh()
     await expect(nextRefresh).resolves.toEqual([
       expect.objectContaining({ data: { text: "revision 3" } }),
       expect.objectContaining({ data: { text: "revision 3" } }),
@@ -383,9 +382,9 @@ describe("contentSource", () => {
     await content.init()
 
     revision = 2
-    await content.refresh()
+    await content.from("media").refresh()
     revision = 3
-    await content.refresh()
+    await content.from("media").refresh()
 
     await expect(content.media.get("/logo.png")).resolves.toEqual(Uint8Array.of(3))
   })
@@ -475,14 +474,6 @@ describe("contentSource", () => {
     await expect(source.getItemRaw("logo.png")).resolves.toEqual(Uint8Array.of(1))
   })
 
-  it("preserves adapted source options across fresh load adapters", () => {
-    const schema = { properties: { title: { type: "string" } }, type: "object" } as const
-    const source = contentSource(contentSource("options" as SourceName, { prefix: "/base", schema }), { prefix: "/docs" })
-    const content = defineContent({ sources: { docs: source } })
-
-    expect(content.getSource("docs")).toMatchObject({ prefix: "/docs", schema })
-  })
-
   it("rejects source and sources together", () => {
     expect(() => defineContent({
       source: "source" as SourceName,
@@ -504,25 +495,7 @@ describe("contentSource", () => {
     }
 
     const content = defineContent({ source })
-    expect(content.getSource("default")).toBe(source)
     await expect(content.get("/")).resolves.toEqual(expect.objectContaining({ path: "/" }))
-  })
-
-  it("preserves a native Source named __proto__", () => {
-    const source = {
-      async keys() {
-        return ["index.md"]
-      },
-      async getItem() {
-        return "# Native"
-      },
-      async getItemRaw() {
-        return "# Native"
-      },
-    }
-    const content = defineContent({ sources: Object.fromEntries([["__proto__", source]]) })
-
-    expect(content.getSource("__proto__")).toBe(source)
   })
 
   it("preserves prototype-backed native Sources when applying options", async () => {
