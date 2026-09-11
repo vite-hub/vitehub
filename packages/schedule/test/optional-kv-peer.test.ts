@@ -126,7 +126,7 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
       writeFile(
         join(withoutKV, "src/server.mjs"),
         `
-        import { createMemoryRuntimeScheduleStore } from "@vite-hub/schedule"
+        import { createMemoryRuntimeScheduleStore } from "@vite-hub/schedule/runtime"
 
         const store = createMemoryRuntimeScheduleStore()
         await store.create({
@@ -169,7 +169,7 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
       import {
         createKVRuntimeScheduleStore,
         createMemoryRuntimeScheduleStore,
-      } from "@vite-hub/schedule"
+      } from "@vite-hub/schedule/runtime"
 
       const record = {
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -223,7 +223,7 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
         "--input-type=module",
         "--eval",
         `
-      import { createKVRuntimeScheduleStore } from "@vite-hub/schedule"
+      import { createKVRuntimeScheduleStore } from "@vite-hub/schedule/runtime"
 
       const store = createKVRuntimeScheduleStore({ prefix: "consumer-proof" })
       const record = {

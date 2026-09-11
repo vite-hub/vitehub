@@ -35,12 +35,11 @@ describe("Browser Definitions", () => {
     })
   })
 
-  it("returns an error-first result when a definition cannot run", async () => {
+  it("returns an HTTP error response when a definition cannot run", async () => {
     const name: string = "missing"
-    const [error, value] = await runBrowser(name)
-
-    expect(error?.code).toBe("BROWSER_DEFINITION_NOT_FOUND")
-    expect(value).toBeUndefined()
+    const response = await runBrowser(name)
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toMatchObject({ error: { code: "BROWSER_DEFINITION_NOT_FOUND" } })
   })
 
   it("lets definitions use rendered content", async () => {
@@ -81,7 +80,7 @@ describe("Browser Definitions", () => {
       })
 
       const invocation = executeBrowserDefinition(definition, { url: "https://example.com" })
-      const result = expect(invocation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      const result = expect(invocation).rejects.toThrow("Browser content request failed with status 500")
       await vi.advanceTimersByTimeAsync(30_000)
 
       await result

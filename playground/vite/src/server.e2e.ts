@@ -368,20 +368,11 @@ app.get("/api/workspace/read-fresh", async (event) => {
 })
 
 app.post("/api/sandboxes/release-notes", async (event) => {
-  const [error, result] = await runSandbox("release-notes", await readBody(event))
+  const response = await runSandbox("release-notes", await readBody(event))
+  if (!response.ok)
+    return response
 
-  if (error) {
-    throw createError({
-      statusCode: 500,
-      statusMessage: error.message,
-      data: {
-        code: error.code,
-        provider: error.provider,
-      },
-    })
-  }
-
-  return { result }
+  return { result: await response.json() }
 })
 
 app.get("/api/workflows/welcome", () => ({ ok: true, workflow: workflowName }))

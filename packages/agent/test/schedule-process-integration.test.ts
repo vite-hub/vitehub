@@ -73,7 +73,7 @@ describe("Agent Process Schedule integration", () => {
       "",
     ].join("\n"), "utf8")
     await writeFile(join(root, "schedule-probe.ts"), [
-      "export { executeRuntimeSchedule, resetScheduleRuntime, schedules } from '@vite-hub/schedule'",
+      "export { executeRuntimeSchedule, resetScheduleRuntime, schedules } from '@vite-hub/schedule/runtime'",
       "",
     ].join("\n"), "utf8")
 

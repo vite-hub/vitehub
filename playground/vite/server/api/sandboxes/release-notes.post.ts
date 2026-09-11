@@ -1,20 +1,11 @@
-import { createError, defineEventHandler, readBody } from "h3"
+import { defineEventHandler, readBody } from "h3"
 
 import { runSandbox } from "@vite-hub/sandbox"
 
 export default defineEventHandler(async (event) => {
-  const [error, result] = await runSandbox("release-notes", await readBody(event))
+  const response = await runSandbox("release-notes", await readBody(event))
+  if (!response.ok)
+    return response
 
-  if (error) {
-    throw createError({
-      statusCode: 500,
-      statusMessage: error.message,
-      data: {
-        code: error.code,
-        provider: error.provider,
-      },
-    })
-  }
-
-  return { result }
+  return { result: await response.json() }
 })

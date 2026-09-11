@@ -26,6 +26,46 @@ describe("UI server rendering", () => {
     expect(await renderToString(custom)).toContain("Custom image");
   });
 
+  it("composes custom Markdown plugins with built-in math support", async () => {
+    let customPluginRuns = 0;
+    const app = createSSRApp({
+      render: () => h(AgentMarkdown, {
+        plugins: [{
+          name: "custom",
+          markdownItPlugins: [() => { customPluginRuns++; }],
+        }],
+        value: "Inline $x$",
+      }),
+    });
+
+    const html = await renderToString(app);
+    expect(customPluginRuns).toBe(1);
+    expect(html).toContain("katex");
+  });
+
+  it("does not render raw HTML from Agent messages", async () => {
+    const app = createSSRApp({
+      render: () => h(AgentMarkdown, {
+        value: '<script>globalThis.__vitehubXss = true</script>\n\n<div onmouseover="globalThis.__vitehubXss = true">message</div>',
+      }),
+    });
+
+    const html = await renderToString(app);
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain('onmouseover="');
+    expect(html).toContain("message");
+  });
+
+  it("preserves non-HTML Markdown defaults", async () => {
+    const app = createSSRApp({
+      render: () => h(AgentMarkdown, { value: "- [x] completed" }),
+    });
+
+    const html = await renderToString(app);
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("completed");
+  });
+
   it("renders runtime Nuxt UI components through the Vue plugin", async () => {
     const app = createSSRApp({
       render: () =>
@@ -214,7 +254,7 @@ describe("UI server rendering", () => {
     expect(html).toContain("Completed");
     expect(html).toContain("Inspecting the repository.");
     expect(html).toContain("Assistant message");
-    expect(html).toContain('datetime="2026-08-22T00:00:00.000Z"');
+    expect(html).toContain('datetime="2026-08-22T00:00:00.100Z"');
     expect(html.indexOf("vh-invocation-session__timestamp")).toBeLessThan(html.indexOf('aria-label="Session thread"'));
     expect(html).toContain("Ran command");
     expect(html).toContain("git status --short");

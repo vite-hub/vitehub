@@ -1,9 +1,15 @@
+import { readFileSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("node:fs", async importOriginal => {
+  const fs = await importOriginal<typeof import("node:fs")>()
+  return { ...fs, readFileSync: vi.fn(fs.readFileSync) }
+})
 
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
@@ -35,7 +41,6 @@ const integrationMocks = vi.hoisted(() => ({
   })),
   hubKv: vi.fn(() => ({ name: "@vite-hub/kv/vite" })),
   hubKvOptionalPeerResolver: vi.fn(() => ({ name: "@vite-hub/kv/optional-peers" })),
-  hubMarkdownTemplate: vi.fn(() => ({ name: "@vite-hub/markdown-template/vite" })),
   resolveKVViteConfig: vi.fn((kv?: { driver?: string, stores?: Record<string, { driver: string }> }, input?: { hosting?: string }) => ({
     kv: kv?.stores
       ? { stores: kv.stores }
@@ -84,7 +89,6 @@ vi.mock("@vite-hub/kv/vite", () => ({
   hubKvOptionalPeerResolver: integrationMocks.hubKvOptionalPeerResolver,
   resolveKVViteConfig: integrationMocks.resolveKVViteConfig,
 }))
-vi.mock("@vite-hub/markdown-template/vite", () => ({ hubMarkdownTemplate: integrationMocks.hubMarkdownTemplate }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue }))
 vi.mock("@vite-hub/rate-limit/vite", () => ({ hubRateLimit: integrationMocks.hubRateLimit }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: integrationMocks.hubSandbox }))
@@ -213,6 +217,27 @@ function dependencyPluginByName(plugins: PluginOption[], name: string): Plugin {
 }
 
 describe("vitehub", () => {
+  it("reads owner manifests only when provider output needs aliases and reuses the result", async () => {
+    vi.resetModules()
+    vi.mocked(readFileSync).mockClear()
+    const ownerManifestPaths = new Set(generatedOwnerPackageCases
+      .filter(([, access]) => access === "resolve")
+      .map(([name]) => fileURLToPath(import.meta.resolve(`${name}/package.json`))))
+    const ownerReads = () => vi.mocked(readFileSync).mock.calls
+      .filter(([path]) => typeof path === "string" && ownerManifestPaths.has(path))
+    const { vitehub: freshVitehub } = await import("../src/index.ts")
+    const plugins = freshVitehub({ preset: "node" })
+    // SAFETY: The named dependency plugin owns the provider-output alias callback.
+    const plugin = dependencyPluginByName(plugins, "vite-hub/dependencies") as ProviderImportPlugin
+
+    expect(ownerReads()).toHaveLength(0)
+    const aliases = await plugin.vitehub.providerOutput.getImportAliases()
+    expect(aliases["@vite-hub/agent"]).toBe(fileURLToPath(import.meta.resolve("@vite-hub/agent")))
+    expect(ownerReads()).toHaveLength(ownerManifestPaths.size)
+    expect(await plugin.vitehub.providerOutput.getImportAliases()).toBe(aliases)
+    expect(ownerReads()).toHaveLength(ownerManifestPaths.size)
+  })
+
   it("serializes the built-in Provider Output finalizer", () => {
     const output = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-output")
 
@@ -529,7 +554,6 @@ describe("vitehub", () => {
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/dependencies",
-      "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
@@ -555,7 +579,6 @@ describe("vitehub", () => {
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/dependencies",
-      "@vite-hub/markdown-template/vite",
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox/vite",
@@ -586,9 +609,6 @@ describe("vitehub", () => {
       workspace: true,
     })
 
-    expect(integrationMocks.hubMarkdownTemplate).toHaveBeenLastCalledWith({
-      runtimeImport: "vite-hub/_internal/markdown-template",
-    })
     expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({}, {
       importBase: "vite-hub/auth",
     })

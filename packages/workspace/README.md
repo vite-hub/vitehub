@@ -19,6 +19,10 @@ Use `skipLibCheck: true` in app TypeScript configs while ViteHub depends on runt
 
 ## Minimal API
 
+The local Store persists file metadata inside `.vitehub` under the Workspace root. If file removal stops before metadata cleanup completes, reads reject with `Interrupted Workspace removal` so a restored file cannot reuse deleted ownership. Retry removal of the reported path with `force: true` and, for directories, `recursive: true` before restoring files.
+
+Lock markers are not reclaimed based on age because a slow operation or failed heartbeat may still own them. If a process crashes and operations report `Timed out waiting to write Workspace`, stop every process using that Workspace, remove `.vitehub/locks` inside its root, then restart them. Never clear that directory while a Workspace operation may still be running.
+
 ```text
 server/
   workspaces/
@@ -192,6 +196,8 @@ Use `startSession({ attach: true, host })` only when another integration already
 
 Use `startSession({ host, writeBack: false })` for a private writable runtime that must never publish its changes. `diff()` and `commit()` are unavailable in this mode, and `close()` restores the authoritative Workspace without first scanning the runtime tree. Agent Definitions select this mode automatically for read-only Workspaces.
 
+Custom `WorkspaceSessionHost` implementations copy Workspace files serially by default. A host can set `materializationConcurrency` to a positive integer when it supports that many independent file reads and writes safely. ViteHub's local Node host uses `8`.
+
 ## MountX projection
 
 Use the `@vite-hub/workspace/mountx` integration when an Agent, editor, CLI, or VM needs a real filesystem instead of Workspace methods. The adapter keeps Workspace Session diff and commit semantics in ViteHub while MountX owns the host transport.
@@ -337,3 +343,7 @@ By default, the publisher treats `root` as an exact mirror and deletes remote pa
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
+
+`metadata.source` is reserved for internal Source materialization. Public Workspace writes and write validators cannot assign this ownership marker.
+
+File metadata must be a JSON-safe plain object containing only plain objects, dense arrays, strings, booleans, null, and finite numbers except negative zero. Omit optional properties instead of assigning `undefined`. Bigints, cycles, class instances, accessors, symbols, and functions are rejected. Workspace writes validate this contract before provider dispatch; direct local and memory Store writes also validate before changing file content. This keeps accepted metadata values consistent after a local Store restart.

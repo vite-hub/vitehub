@@ -1,3 +1,4 @@
+import { agentHostWorkspaceRoute } from './server/host-workspace.ts'
 import { createHash } from 'node:crypto'
 import { hasRuntimeType } from './internal/runtime-type.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -21,13 +22,14 @@ export function agentHostRoutes(options: {
       const root = resolve(config.root ?? process.cwd())
       const entry = resolve(root, options.entry)
       const directory = resolve(root, '.vitehub/agent-host-routes')
+      const plugins: string[] = []
       const handlers: { route: string, handler: string, method: 'get' | 'head' }[] = []
       // SAFETY: Nitro extends Vite configuration with optional route registrations.
       const existing = (config as UserConfig & { nitro?: { handlers?: { route?: string }[] } }).nitro?.handlers ?? []
       for (const kind of ['health', 'workspace'] as const) {
         const configured = options[kind]
         if (configured === undefined) continue
-        const { exportName, route = kind === 'health' ? '/api/health' : '/api/_vitehub/console/invocations/:id/workspace' } = hasRuntimeType(configured, 'string') ? { exportName: configured } : configured
+        const { exportName, route = kind === 'health' ? '/api/health' : agentHostWorkspaceRoute } = hasRuntimeType(configured, 'string') ? { exportName: configured } : configured
         if (!/^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u.test(exportName))
           throw new Error('Agent host route exportName must be a JavaScript identifier.')
         if (!route.startsWith('/') || /[?#*]/.test(route) || (kind === 'workspace' && !route.split('/').includes(':id')))
@@ -44,8 +46,13 @@ export function agentHostRoutes(options: {
         await mkdir(directory, { recursive: true })
         await writeFile(handler, body)
         handlers.push({ route, handler, method: 'get' }, { route, handler, method: 'head' })
+        if (kind === 'workspace') {
+          const plugin = handler.replace(/\.ts$/, '-plugin.ts')
+          await writeFile(plugin, `import { registerAgentHostWorkspaceInspector } from '@vite-hub/agent/server'\n${moduleImport}\nexport default () => { registerAgentHostWorkspaceInspector(${JSON.stringify(route)}, inspect) }\n`)
+          plugins.push(plugin)
+        }
       }
-      const result: UserConfig & { nitro: { handlers: typeof handlers } } = { nitro: { handlers } }
+      const result: UserConfig & { nitro: { handlers: typeof handlers, plugins: string[] } } = { nitro: { handlers, plugins } }
       return result
     },
   }

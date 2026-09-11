@@ -45,12 +45,11 @@ describe("types", () => {
 
     expectTypeOf(definition).toMatchTypeOf<SandboxDefinition<{ value: string } | undefined, { value: string }>>()
     expectTypeOf(runSandbox("release-notes", { value: "ok" })).resolves.toMatchTypeOf<SandboxRunResult>()
-    expectTypeOf(runSandbox("package-entry", { value: "ok" })).resolves.toEqualTypeOf<SandboxRunResult<{ length: number }>>()
-    expectTypeOf(runSandbox("unknown-package-entry", { anything: true })).resolves.toEqualTypeOf<SandboxRunResult<string>>()
+    expectTypeOf(runSandbox("package-entry", { value: "ok" })).resolves.toEqualTypeOf<SandboxRunResult>()
+    expectTypeOf(runSandbox("unknown-package-entry", { anything: true })).resolves.toEqualTypeOf<SandboxRunResult>()
 
-    const [error, result] = await runSandbox("package-entry", { value: "ok" })
-    if (error) throw error
-    expectTypeOf(result).toEqualTypeOf<{ length: number }>()
+    const result = await runSandbox("package-entry", { value: "ok" })
+    expectTypeOf(result).toEqualTypeOf<Response>()
   })
 
   it("returns a Vite plugin", () => {

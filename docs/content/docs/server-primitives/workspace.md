@@ -319,6 +319,8 @@ export default defineEventHandler(async (event) => {
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
 
+File `metadata.source` is reserved for the string name of the Source that owns the file. The local Store rejects other values before writing bytes or consuming a content stream, preserving any existing content and metadata.
+
 Each materialized Source reports its provider, cache disposition, revision, duration, and added, updated, unchanged, and removed file counts. Set `details: 'paths'` when the caller is allowed to inspect file names; path details stay out of the result by default.
 
 ## Resolve custom Sources
@@ -450,6 +452,8 @@ export async function testDocs() {
 ### Session method options
 
 `startSession(options)` combines Workspace state with an open Box Session. `host` is required for execution. `paths` limits materialization and commits, and `target` defaults to `/workspace`. `abortSignal` cancels preparation, while `onProgress` reports materialization phases. Closing the Workspace Session doesn't close the Box host.
+
+Custom hosts copy Workspace files serially unless they declare a positive `materializationConcurrency` that they can safely support for independent file operations. The local Node host declares a limit of `8`.
 
 Set `writeBack.exclude` to Workspace-relative paths owned by the runtime rather than the invocation. Excluded paths remain usable in the host tree, but their changes are omitted from `diff()` and `commit()` and their pre-Session state is restored by `close()`. Set `writeBack: false` when the runtime must remain writable but its changes must never be published. That mode disables `diff()` and `commit()` and restores the authoritative Workspace on close without first scanning the runtime tree. Read-only Agent Workspaces select it automatically. ViteHub always applies the same excluded-path behavior to `.agent-runs`, `.git`, and `.vitehub`. Integrations that already own a live materialized tree can set `attach: true`; the Session preserves pre-existing live edits, never rematerializes the whole tree, and rolls back only its own uncommitted changes on close.
 

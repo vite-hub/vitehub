@@ -1,3 +1,5 @@
+import { splitShellCommandSegments } from "./parse.ts"
+
 import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "../runtime/types.ts"
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -17,12 +19,15 @@ export async function analyzeShellCommand(
     }
   }
 
+  const segments = splitShellCommandSegments(command)
+  const commands = [...new Set(segments.map(segment => firstCommandWord(segment.command)).filter(name => name !== undefined))]
+
   try {
     await withTimeout(parseWithShSyntax(command), options.timeoutMs ?? defaultTimeoutMs)
   }
   catch (error) {
     return {
-      commands: detectCommandNames(command),
+      commands,
       error: error instanceof Error ? error.message : String(error),
       ok: false,
       parser: "sh-syntax",
@@ -30,10 +35,10 @@ export async function analyzeShellCommand(
   }
 
   return {
-    commands: detectCommandNames(command),
+    commands,
     hasCommandSubstitution: /(?:\$\(|`)/.test(command),
     hasHeredocs: /<<-?/.test(command),
-    hasPipelines: hasUnquoted(command, "|"),
+    hasPipelines: segments.some(segment => segment.separatorAfter === "|" || segment.separatorAfter === "||"),
     hasRedirects: /(?:^|[^<])(?:>>?|<)/.test(command),
     ok: true,
     parser: "sh-syntax",
@@ -61,58 +66,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-function detectCommandNames(command: string): string[] {
-  const names: string[] = []
-  for (const segment of splitShellCommandSegments(command)) {
-    const name = firstCommandWord(segment)
-    if (name && !names.includes(name)) names.push(name)
-  }
-  return names
-}
-
-export function splitShellCommandSegments(command: string): string[] {
-  const segments: string[] = []
-  let current = ""
-  let quote: "'" | "\"" | undefined
-  let escaped = false
-
-  for (let index = 0; index < command.length; index++) {
-    const char = command[index]!
-    const next = command[index + 1]
-
-    if (escaped) {
-      current += char
-      escaped = false
-      continue
-    }
-    if (char === "\\") {
-      current += char
-      escaped = true
-      continue
-    }
-    if (quote) {
-      if (char === quote) quote = undefined
-      current += char
-      continue
-    }
-    if (char === "'" || char === "\"") {
-      quote = char
-      current += char
-      continue
-    }
-    if (char === "|" || char === ";" || char === "\n" || (char === "&" && next === "&") || (char === "|" && next === "|")) {
-      segments.push(current)
-      current = ""
-      if ((char === "&" || char === "|") && next === char) index += 1
-      continue
-    }
-    current += char
-  }
-
-  segments.push(current)
-  return segments
-}
-
 function firstCommandWord(segment: string): string | undefined {
   const words = segment.trim().match(/[^\s]+/g) || []
   for (const word of words) {
@@ -121,30 +74,4 @@ function firstCommandWord(segment: string): string | undefined {
     return word.replace(/^command$/, "")
       || undefined
   }
-}
-
-function hasUnquoted(command: string, target: string): boolean {
-  let quote: "'" | "\"" | undefined
-  let escaped = false
-
-  for (const char of command) {
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (char === "\\") {
-      escaped = true
-      continue
-    }
-    if (quote) {
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "'" || char === "\"") {
-      quote = char
-      continue
-    }
-    if (char === target) return true
-  }
-  return false
 }

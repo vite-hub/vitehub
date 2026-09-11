@@ -27,6 +27,11 @@ import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOption
 import type { Plugin as VitePlugin } from "vite"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
+export function resolveVercelWorkflowWorld(workflowApi: string): string {
+  const workflowCore = createRequire(workflowApi).resolve("@workflow/core")
+  return createRequire(workflowCore).resolve("@workflow/world-vercel")
+}
+
 export const workflowPackageName = "@vite-hub/workflow"
 const productName = "workflow"
 const vercelNativeWorkflowOwnershipMarker = ".vitehub-owned"

@@ -264,7 +264,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
     ...(processRuntime
       ? [
           `import { normalizeScheduleRuntimeError } from ${JSON.stringify(options.runtimeImport ?? `${importBase}/runtime/static`)}`,
-          `import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from ${JSON.stringify(importBase)}`,
+          `import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from ${JSON.stringify(`${importBase}/runtime`)}`,
           `import { installScheduleRuntime } from ${JSON.stringify(`${importBase}/runtime/driver`)}`,
           `import { createProcessScheduleWakeDriver } from ${JSON.stringify(`${importBase}/runtime/process`)}`,
           `import runtimeScheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.runtimeRegistryFile))}`,
