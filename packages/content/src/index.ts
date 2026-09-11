@@ -57,7 +57,7 @@ export function defineContent<
     source,
   }))
   // SAFETY: The hub exposes the same read and handler surface as a content instance.
-  return contentHub(instances, { basePath: "/api/content" }) as ComarkContent & ContentMethods<TPlugins>
+  return contentHub(instances, { basePath: "/api/content" }) as unknown as ComarkContent & ContentMethods<TPlugins>
 }
 
 export function defineContentHandler(
