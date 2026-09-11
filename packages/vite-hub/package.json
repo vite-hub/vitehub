@@ -116,6 +116,7 @@
     "./env/server": "./dist/env/server.js",
     "./kv": "./dist/kv.js",
     "./markdown-template": "./dist/markdown-template.js",
+    "./markdown-template/file": "./dist/markdown-template/file.js",
     "./nuxt": "./dist/nuxt.js",
     "./queue": "./dist/queue.js",
     "./rate-limit": "./dist/rate-limit.js",

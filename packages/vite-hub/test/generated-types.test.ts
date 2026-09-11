@@ -301,7 +301,7 @@ describe("framework generated types", () => {
       mkdir(join(root, ".vitehub/workflow-generations/one/sources/0"), { recursive: true }),
     ])
     await Promise.all([
-      writeFile(join(root, ".vitehub/types/markdown-template.d.ts"), 'declare module "*.template.md" {}\n'),
+      writeFile(join(root, ".vitehub/types/custom.d.ts"), 'declare module "custom-module" {}\n'),
       writeFile(join(root, ".vitehub/env/env.d.ts"), "interface ImportMetaEnv {}\n"),
       writeFile(join(root, ".vitehub/data/blob/upload.d.ts"), "invalid uploaded declaration\n"),
       writeFile(join(root, ".vitehub/workflow/sources/0/stale.d.ts"), "invalid retained declaration\n"),
@@ -319,7 +319,7 @@ describe("framework generated types", () => {
       [
         `/// <reference path="./env/env.d.ts" />`,
         `/// <reference path="./sandbox/runtime/sandbox.d.ts" />`,
-        `/// <reference path="./types/markdown-template.d.ts" />`,
+        `/// <reference path="./types/custom.d.ts" />`,
         ``,
         `export {}`,
         ``,

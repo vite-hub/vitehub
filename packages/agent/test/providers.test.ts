@@ -1389,7 +1389,7 @@ describe("agent Vite plugin", () => {
         externals: {
           inline: ["existing", "vite-hub", "@vite-hub/agent", "@ai-sdk/mcp", "@t3tools/provider-runtime"],
         },
-        noExternals: [/existing/, "@t3tools/provider-runtime"],
+        noExternals: [/existing/, "@t3tools/provider-runtime", "effect", "@effect/platform-node", "@effect/platform-node-shared"],
         rollupConfig: {
           external: optionalAgentRuntimeExternals,
         },
@@ -8452,10 +8452,13 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
       releaseRun()
       await vi.waitFor(async () => {
-        await expect(getWorkflowRun("support-agent", "github:delivery-workflow")).resolves.toMatchObject({
-          result: "accepted github delivery",
+        const completedRun = await getWorkflowRun("support-agent", "github:delivery-workflow")
+        expect(completedRun).toMatchObject({
+          result: expect.any(Response),
           status: "completed",
         })
+        if (!(completedRun.result instanceof Response)) throw new Error("Expected a Workflow Response")
+        await expect(completedRun.result.text()).resolves.toEqual("accepted github delivery")
       })
     } finally {
       resetWorkflowRuntime()
@@ -12326,7 +12329,10 @@ describe("server helpers", () => {
       })
       expect(response.status).toBe(200)
       await Promise.all(tasks)
-      expect(adapter.postMessage).toHaveBeenLastCalledWith("telegram:456", "AI provider quota is exhausted.")
+      expect(adapter.postMessage).toHaveBeenLastCalledWith(
+        "telegram:456",
+        "The AI provider usage limit has been reached. Usage will reset when the provider quota renews.",
+      )
     } finally {
       consoleError.mockRestore()
     }

@@ -7,6 +7,7 @@ import {
   browserRuntimeNotConfiguredError,
   toBrowserError,
 } from "./errors.ts"
+import { toResponse } from "@vite-hub/runtime"
 import { createBrowser } from "./client.ts"
 import { cdp } from "./controllers/cdp.ts"
 import { runBrowserAction, runBrowserContent } from "./actions.ts"
@@ -28,7 +29,6 @@ import type {
   BrowserPage,
   BrowserPageSession,
   BrowserProviderOpenOptions,
-  BrowserRunResult,
   BrowserSession,
 } from "./types.ts"
 import type { CDPClient } from "./controllers/cdp.ts"
@@ -36,7 +36,6 @@ import type { PlaywrightBrowserConnection } from "./internal/connections.ts"
 import type {
   BrowserDefinitionInputArgs,
   BrowserDefinitionName,
-  BrowserDefinitionResult,
   BrowserRegistryDefinition,
 } from "./registry-types.ts"
 import { browserErrorDiagnostics } from "./error-diagnostics.ts"
@@ -146,15 +145,11 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
   constructor(private readonly options: BrowserDefinitionRuntimeOptions) {}
 
   async content(input: BrowserActionInput): Promise<string> {
-    const [error, content] = await runBrowserContent(input)
-    if (error) throw error
-    return content
+    return await runBrowserContent(input)
   }
 
   async run(action: BrowserAction, input: BrowserActionInput): Promise<Response> {
-    const [error, response] = await runBrowserAction(action, input)
-    if (error) throw error
-    return response
+    return await runBrowserAction(action, input)
   }
 
   async open(options?: BrowserProviderOpenOptions): Promise<BrowserPageSession> {
@@ -276,17 +271,18 @@ export async function executeBrowserDefinition<TInput, TResult>(
 export function runBrowser<const TName extends BrowserDefinitionName>(
   name: TName,
   ...args: BrowserDefinitionInputArgs<BrowserRegistryDefinition<TName>>
-): Promise<BrowserRunResult<BrowserDefinitionResult<BrowserRegistryDefinition<TName>>>>
+): Promise<Response>
 export function runBrowser<TName extends string>(
   name: string extends TName ? TName : never,
   input?: unknown,
-): Promise<BrowserRunResult<unknown>>
-export async function runBrowser(name: string, input?: unknown): Promise<BrowserRunResult<unknown>> {
+): Promise<Response>
+export async function runBrowser(name: string, input?: unknown): Promise<Response> {
   try {
     const definition = await resolveBrowserDefinition(name)
-    return [null, await executeBrowserDefinition(definition, input)]
+    return toResponse(await executeBrowserDefinition(definition, input))
   }
   catch (error) {
-    return [toBrowserError(error), undefined]
+    const normalized = toBrowserError(error)
+    return Response.json({ error: { code: normalized.code, message: normalized.message, details: normalized.details } }, { status: 500 })
   }
 }
