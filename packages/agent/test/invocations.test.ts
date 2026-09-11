@@ -2550,6 +2550,7 @@ describe("Agent Invocations", () => {
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const terminalPersisted = new Promise<void>((resolve) => { reportTerminalPersisted = resolve })
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
