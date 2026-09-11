@@ -79,7 +79,6 @@ export interface RuntimeScheduleRecord<TInput = unknown> extends RuntimeSchedule
 
 export interface RuntimeScheduleWake {
   scheduleId: string
-  response?: ScheduleRunResponse
   scheduledAt: Date
 }
 

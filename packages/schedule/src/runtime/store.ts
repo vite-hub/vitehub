@@ -265,7 +265,6 @@ function cloneScheduleRunAttempt(record: ScheduleRunAttemptRecord): ScheduleRunA
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
     createdAt: new Date(record.createdAt),
     error: record.error ? { ...record.error } : undefined,
-    response: record.response ? { ...record.response, headers: { ...record.response.headers } } : undefined,
     startedAt: new Date(record.startedAt),
     updatedAt: new Date(record.updatedAt),
   }
@@ -303,7 +302,6 @@ function serializeScheduleRunAttempt(record: ScheduleRunAttemptRecord): StoredSc
     completedAt: record.completedAt?.toISOString(),
     createdAt: record.createdAt.toISOString(),
     error: record.error ? { ...record.error } : undefined,
-    response: record.response ? { ...record.response, headers: { ...record.response.headers } } : undefined,
     startedAt: record.startedAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
   }
@@ -315,7 +313,6 @@ function deserializeScheduleRunAttempt(record: StoredScheduleRunAttemptRecord): 
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
     createdAt: new Date(record.createdAt),
     error: record.error ? { ...record.error } : undefined,
-    response: record.response ? { ...record.response, headers: { ...record.response.headers } } : undefined,
     startedAt: new Date(record.startedAt),
     updatedAt: new Date(record.updatedAt),
   }
