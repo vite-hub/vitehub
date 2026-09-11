@@ -13,7 +13,7 @@ function source(files: Record<string, string>): ContentSource {
 
 describe("defineContent", () => {
   it("creates a named Comark content instance", async () => {
-    const content = defineContent({ source: source({ "index.md": "# Hello" }) } as never)
+    const content = defineContent({ source: source({ "index.md": "# Hello" }) })
     await expect(content.get("/")).resolves.toEqual(expect.objectContaining({ path: "/" }))
   })
 
@@ -31,7 +31,7 @@ describe("defineContent", () => {
 
 describe("defineContentHandler", () => {
   it("adapts H3 events to the Comark handler", async () => {
-    const content = defineContent({ source: source({ "index.md": "# Hello" }) } as never)
+    const content = defineContent({ source: source({ "index.md": "# Hello" }) })
     const handler = defineContentHandler(content)
     const response = await handler.fetch("https://example.test/api/content/get/")
     expect(response.status).toBe(200)

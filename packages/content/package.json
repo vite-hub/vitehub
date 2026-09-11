@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/content",
   "version": "0.0.1",
-  "description": "Comark Content runtime integration for ViteHub Sources.",
+  "description": "Comark Content runtime integration for ViteHub.",
   "keywords": [
     "comark",
     "content",

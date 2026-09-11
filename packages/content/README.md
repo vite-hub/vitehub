@@ -1,6 +1,6 @@
 # @vite-hub/content
 
-ViteHub content integration for Comark Content 0.4.
+ViteHub content integration for Comark Content.
 
 Pass Comark `ContentSource` objects directly. A single source becomes a named `default` instance. Named sources are composed with Comark's `contentHub()`.
 

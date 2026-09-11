@@ -221,18 +221,7 @@ export default defineEventHandler(async () => {
 
 ## Parse and serve content
 
-Use [Content](/docs/server-primitives/content) when Source output should become parsed documents, navigation, queries, or full-text search. Pass the definition directly:
-
-```ts [server/content.ts]
-import { defineContent } from 'vite-hub/content'
-import { docs } from './sources/docs'
-
-export const content = defineContent({ source: docs })
-```
-
-Content opens a new reader for each refresh. Each load keeps its own revision,
-including when refreshes overlap. Pass a definition when Content should own that
-lifecycle. An explicitly supplied reader retains its caller-owned lifecycle.
+Use [Content](/docs/server-primitives/content) for parsed documents, navigation, queries, or full-text search. Content accepts Comark Content sources directly.
 
 ## Combine keyed Source readers
 

@@ -18,6 +18,6 @@ export default defineContent({
 })
 ```
 
-`defineContent()` creates a named Comark instance for a single `source`, or a Comark `contentHub()` for `sources`. It does not adapt ViteHub Source definitions, registry names, reader factories, or legacy cache APIs.
+`defineContent()` creates a named Comark instance for a single `source`, or a Comark `contentHub()` for `sources`.
 
 Use Comark's source packages for filesystem, GitHub, unstorage, and snapshots. Use `defineContentHandler()` only when mounting the Comark handler through an H3 event handler.

@@ -171,8 +171,6 @@ export default defineWorkspace({
 
 The key `intro.md` appears at `docs/intro.md` in the Workspace. The binding owns
 placement, materialization, sync, and access rules. Source owns retrieval.
-Content also accepts the definition with `defineContent({ source: docs })` and
-opens a new reader for each refresh.
 
 Use Workspace helpers such as `file()` and `github()` when a definition only
 needs Workspace binding options. Existing bindings remain valid. For standalone
