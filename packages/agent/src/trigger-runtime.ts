@@ -346,7 +346,8 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
       headerValue: registration.secretHeader ? request.headers.get(registration.secretHeader) : null,
       registration,
     }))
-    .filter((entry): entry is { headerValue: string, registration: AgentWebhookRegistrationDefinition } => entry.headerValue !== null)
+    .filter((entry): entry is { headerValue: string | null, registration: AgentWebhookRegistrationDefinition } =>
+      entry.headerValue !== null || (typeof entry.registration.signature === "object" && entry.registration.signature !== null && typeof entry.registration.signature.verify === "function"))
 
   if (!targeted.length) {
     return options.requireSecretHeader
@@ -359,13 +360,13 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     if (secretToken === false) {
       return { registration, verified: true }
     }
-    if (!secretToken) {
+    if (!secretToken && !(typeof registration.signature === "object" && registration.signature !== null && typeof registration.signature.verify === "function")) {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Webhook signature verifiers cross the user configuration boundary and require runtime validation.
     if (typeof registration.signature === "object" && registration.signature !== null && typeof registration.signature.verify === "function") {
       const rawBody = options.rawBody ? Uint8Array.from(options.rawBody) : new Uint8Array(await request.clone().arrayBuffer())
-      if (await registration.signature.verify({ header: headerValue, rawBody, request, secret: secretToken })) {
+      if (await registration.signature.verify({ header: headerValue ?? "", rawBody, request, secret: secretToken || "" })) {
         return { registration, verified: true }
       }
       continue
