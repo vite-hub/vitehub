@@ -7,7 +7,7 @@ export default defineConfig({
       neverBundle: ["comark"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/portable.ts", "src/file.ts", "src/internal/composition.ts", "src/vite.ts"],
+    entry: ["src/index.ts", "src/portable.ts", "src/file.ts", "src/internal/composition.ts", "src/internal/vite.ts"],
     exports: {
       customExports(exports) {
         exports["."] = {
