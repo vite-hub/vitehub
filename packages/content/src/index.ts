@@ -288,6 +288,7 @@ export function contentSource(input: ContentSourceInput, options: ContentSourceO
 export function defineContent<
   const TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = [],
 >(options: DefineContentOptions<TPlugins> = {}): ComarkContent & ContentMethods<TPlugins> {
+  if (options.source && options.sources) throw new Error("defineContent accepts either source or sources, not both")
   let source = options.source ? contentSource(options.source) : undefined
   let sources = options.sources ? configuredContentSources(options.sources) : undefined
   if (source && getContentSourceFactory(source) && !sources) {
@@ -307,7 +308,7 @@ export function defineContent<
   }
 
   // SAFETY: Comark plugins add their declared methods to the returned runtime object.
-  return comarkContent({
+  return comarkContent("default", {
     ...options,
     basePath: "/api/content",
     source,

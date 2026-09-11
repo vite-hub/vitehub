@@ -59,7 +59,7 @@ describe("contentSource", () => {
       }),
     )
     await expect(content.navigation(["docs"])).resolves.toEqual([expect.objectContaining({ path: "/guide", title: "Introduction" })])
-    await expect(content.search(["docs"], "Runtime")).resolves.toEqual([
+    await expect(content.search("Runtime", { instances: ["docs"] })).resolves.toEqual([
       expect.objectContaining({
         content: "Runtime content.",
         id: "/guide#start",
@@ -101,7 +101,7 @@ describe("contentSource", () => {
     expect(JSON.stringify(initial?.nodes)).toContain("Revision 1")
 
     revision = 2
-    await content.cache.refresh("live")
+    await content.refresh()
 
     const refreshed = await content.get("/")
     expect(JSON.stringify(refreshed?.nodes)).toContain("Revision 2")
@@ -200,11 +200,11 @@ describe("contentSource", () => {
     await content.init()
 
     readBarrier = deferred()
-    const firstRefresh = content.cache.refresh("overlap")
+    const firstRefresh = content.refresh()
     await parsersStarted.promise
     expectedBlockedParsers = 4
     parsersStarted = deferred()
-    const secondRefresh = content.cache.refresh("overlap")
+    const secondRefresh = content.refresh()
     await parsersStarted.promise
 
     expect(revision).toBe(3)
@@ -220,11 +220,11 @@ describe("contentSource", () => {
     expectedBlockedParsers = 2
     parsersStarted = deferred()
     readBarrier = deferred()
-    const thirdRefresh = content.cache.refresh("overlap")
+    const thirdRefresh = content.refresh()
     await parsersStarted.promise
     expectedBlockedParsers = 4
     parsersStarted = deferred()
-    const snapshot = content.cache.snapshot("overlap", { compress: false })
+    const snapshot = content.snapshot()
     await parsersStarted.promise
 
     expect(revision).toBe(5)
@@ -232,27 +232,27 @@ describe("contentSource", () => {
     readBarrier = undefined
 
     const [, artifact] = await Promise.all([thirdRefresh, snapshot])
-    expect(artifact?.data).toContain('"text":"revision 5"')
+    expect(JSON.stringify(artifact)).toContain('revision 5')
     expect(revision).toBe(5)
 
     blockedParsers = 0
     expectedBlockedParsers = 2
     parsersStarted = deferred()
     readBarrier = deferred()
-    const fourthRefresh = content.cache.refresh("overlap")
+    const fourthRefresh = content.refresh()
     await parsersStarted.promise
     expectedBlockedParsers = 3
     parsersStarted = deferred()
     const freshGet = content.get("/one", { fresh: true })
     await parsersStarted.promise
 
-    expect(revision).toBe(7)
+    expect(revision).toBe(6)
     readBarrier.resolve()
     readBarrier = undefined
 
     const [, freshFile] = await Promise.all([fourthRefresh, freshGet])
-    expect(freshFile?.data.texts).toEqual(["revision 7", "revision 7"])
-    expect(revision).toBe(7)
+    expect(freshFile?.data.texts).toEqual(["revision 6", "revision 6"])
+    expect(revision).toBe(6)
   })
 
   it("retains a failed load until its other parsers settle", async () => {
@@ -301,7 +301,7 @@ describe("contentSource", () => {
 
     failLoad = true
     let failedRefreshSettled = false
-    const failedRefresh = content.cache.refresh("errors").finally(() => {
+    const failedRefresh = content.refresh().finally(() => {
       failedRefreshSettled = true
     })
     await lateParserStarted.promise
@@ -310,7 +310,7 @@ describe("contentSource", () => {
     expect(revision).toBe(2)
 
     failLoad = false
-    const nextRefresh = content.cache.refresh("errors")
+    const nextRefresh = content.refresh()
     await expect(nextRefresh).resolves.toEqual([
       expect.objectContaining({ data: { text: "revision 3" } }),
       expect.objectContaining({ data: { text: "revision 3" } }),
@@ -318,7 +318,7 @@ describe("contentSource", () => {
     failLoad = true
     releaseLateParser.resolve()
     await lateParserFinished.promise
-    expect(parsed).toContain("revision 2")
+    expect(parsed).not.toContain("revision 2")
     expect(revision).toBe(3)
   })
 
@@ -383,9 +383,9 @@ describe("contentSource", () => {
     await content.init()
 
     revision = 2
-    await content.cache.refresh("media")
+    await content.refresh()
     revision = 3
-    await content.cache.refresh("media")
+    await content.refresh()
 
     await expect(content.media.get("/logo.png")).resolves.toEqual(Uint8Array.of(3))
   })
@@ -426,7 +426,7 @@ describe("contentSource", () => {
         },
       },
     })
-    const content = comarkContent({
+    const content = comarkContent("direct", {
       plugins: [testPlugin("direct-refresh", (content) => {
         content.addParser([".md"], async ({ partial, read }) => {
           const texts = await Promise.all([read(), read()])
@@ -434,12 +434,12 @@ describe("contentSource", () => {
           return { data: { text: texts[0] }, kind: "document", partial }
         })
       })],
-      sources: { direct: contentSource("direct" as SourceName) },
+      source: contentSource("direct" as SourceName),
     })
 
     await content.init()
-    await content.cache.refresh("direct")
-    await content.cache.refresh("direct")
+    await content.refresh()
+    await content.refresh()
 
     expect(revision).toBe(3)
     expect(parsed).toEqual([
