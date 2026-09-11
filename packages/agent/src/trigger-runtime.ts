@@ -362,6 +362,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     if (!secretToken) {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.`)
     }
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Webhook signature verifiers cross the user configuration boundary and require runtime validation.
     if (typeof registration.signature === "object" && registration.signature !== null && typeof registration.signature.verify === "function") {
       const rawBody = options.rawBody ? Uint8Array.from(options.rawBody) : new Uint8Array(await request.clone().arrayBuffer())
       if (await registration.signature.verify({ header: headerValue, rawBody, request, secret: secretToken })) {
