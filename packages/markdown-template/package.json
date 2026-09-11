@@ -35,7 +35,8 @@
     },
     "./file": "./dist/file.js",
     "./internal/composition": "./dist/internal/composition.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./internal/vite": "./dist/internal/vite.js"
   },
   "scripts": {
     "build": "vp pack",
