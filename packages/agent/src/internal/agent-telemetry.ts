@@ -17,7 +17,14 @@ function compareCodeUnits(left: string, right: string): number {
 }
 
 const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTelemetryConfigurationState>()
-const inspectionUpdates = new WeakMap<AgentInvocationContextStore, Promise<void>>()
+const configurationUpdates = new WeakMap<AgentInvocationContextStore, Promise<void>>()
+
+function enqueueConfigurationUpdate(context: AgentInvocationContextStore, update: () => Promise<void>): Promise<void> {
+  const previous = configurationUpdates.get(context) ?? Promise.resolve()
+  const next = previous.catch(() => undefined).then(update)
+  configurationUpdates.set(context, next)
+  return next
+}
 
 // Capability inspection is optional telemetry; retain the boundary export so
 // runtimes can report inspections without making telemetry configuration a
@@ -27,8 +34,7 @@ export async function setAgentCapabilityInspection(
   id: string,
   inspection: unknown,
 ): Promise<void> {
-  const previous = inspectionUpdates.get(context) ?? Promise.resolve()
-  const update = previous.then(async () => {
+  await enqueueConfigurationUpdate(context, async () => {
     const current = configurationByContext.get(context)
     if (!current) return
   const capabilities = [...(current.source.capabilities ?? [])]
@@ -43,8 +49,6 @@ export async function setAgentCapabilityInspection(
   configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
     await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
   })
-  inspectionUpdates.set(context, update)
-  await update
 }
 
 function secretMetadataKey(key: string): boolean {
@@ -163,8 +167,10 @@ export async function setAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   value: AgentTelemetryConfiguration,
 ): Promise<void> {
-  const fingerprinted = await withConfigurationFingerprint(value)
-  configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: value })
+  await enqueueConfigurationUpdate(context, async () => {
+    const fingerprinted = await withConfigurationFingerprint(value)
+    configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: value })
+  })
 }
 
 export async function updateAgentTelemetryConfiguration(
@@ -173,6 +179,7 @@ export async function updateAgentTelemetryConfiguration(
     driver?: Partial<AgentTelemetryConfiguration["driver"]>
   },
 ): Promise<void> {
+  await enqueueConfigurationUpdate(context, async () => {
   const current = configurationByContext.get(context)
   if (!current) return
   const { driver, ...valuePatch } = patch
@@ -203,6 +210,7 @@ export async function updateAgentTelemetryConfiguration(
   const fingerprinted = await withConfigurationFingerprint(next)
   configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
   await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
+  })
 }
 
 export function getAgentTelemetryConfiguration(
