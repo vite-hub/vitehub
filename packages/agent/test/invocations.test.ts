@@ -3322,7 +3322,7 @@ describe("Agent Invocations", () => {
       await journal.finish("failed", new Error("earliest fatal"))
 
       const record = await invocations.getByRunId("timed-out-earliest-fatal")
-      expect(record?.observations).toHaveLength(256)
+      expect(record?.observations).toHaveLength(258)
       expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
         { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
         { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
@@ -4370,7 +4370,7 @@ describe("Agent Invocations", () => {
     }, { timeout: 2_000 })
     const record = await invocations.getByRunId("bounded-observations")
     expect(record).toMatchObject({ status: "completed" })
-    expect(record?.observations).toHaveLength(256)
+    expect(record?.observations).toHaveLength(304)
     expect(record?.observations.at(-1)).toMatchObject({
       attributes: { "vitehub.trace.truncated": true },
       name: "agent.invocation.finish",
@@ -4401,7 +4401,7 @@ describe("Agent Invocations", () => {
     await runAgent(agent, runtime("bounded-fatal-observations"), {})
 
     const observations = (await invocations.getByRunId("bounded-fatal-observations"))?.observations || []
-    expect(observations).toHaveLength(256)
+    expect(observations).toHaveLength(304)
     expect(observations.slice(-2)).toMatchObject([
       {
         attributes: {
