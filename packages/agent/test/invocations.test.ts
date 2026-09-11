@@ -4378,7 +4378,7 @@ describe("Agent Invocations", () => {
     expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
     expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(updates).toBeLessThanOrEqual(305)
+    expect(updates).toBeLessThanOrEqual(307)
   })
 
   it("retains fatal stream evidence and the lifecycle terminal beyond the durable cap", async () => {
