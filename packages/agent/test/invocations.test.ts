@@ -3217,6 +3217,7 @@ describe("Agent Invocations", () => {
       const fatalRetried = new Promise<void>((resolve) => { reportFatalRetried = resolve })
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
