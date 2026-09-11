@@ -937,8 +937,8 @@ describe("bundleEsmEntry", () => {
     const template = join(rootDir, "prompt.template.md")
     const partial = join(rootDir, "context.template.md")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(template, "{{{ detail }}}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
-    await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
+    await writeFile(template, ":insert{:markdown=\"data.detail\"}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n:insert{:markdown=\"data.blocker\"}\n", "utf8")
+    await writeFile(partial, "Review PR {{ data.context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.template.md"`,
       `import detail from "./context.template.md"`,
@@ -956,7 +956,7 @@ describe("bundleEsmEntry", () => {
 
     // SAFETY: This bundle's entry module exports an async Markdown template renderer.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n    @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
   })
 
   it("keeps missing import text literal in bundled Markdown templates", async () => {
@@ -1048,8 +1048,8 @@ describe("bundleEsmEntry", () => {
     const template = join(rootDir, "prompt.template.md")
     const outfile = join(rootDir, "bundle.mjs")
     await writeFile(entry, 'import render from "./prompt.template.md"\nimport partial from "./partial.template.md"\nexport default async data => render({ partial: await partial(data) })\n', "utf8")
-    await writeFile(template, "Hello {{{ partial }}}", "utf8")
-    await writeFile(join(rootDir, "partial.template.md"), "{{ name }}!", "utf8")
+    await writeFile(template, "Hello :insert{:markdown=\"data.partial\"}", "utf8")
+    await writeFile(join(rootDir, "partial.template.md"), "{{ data.name }}!", "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })

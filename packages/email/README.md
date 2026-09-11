@@ -67,7 +67,7 @@ The official [`email()` Agent Capability](https://vitehub.dev/docs/capabilities/
 import { email } from "@vite-hub/email/server"
 import { renderEmailMarkdown } from "@vite-hub/email/markdown"
 
-const body = await renderEmailMarkdown("# Welcome {{ user.name }}\n\nYour workspace is ready.", {
+const body = await renderEmailMarkdown("# Welcome {{ data.user.name }}\n\nYour workspace is ready.", {
   data: { user: { name: "Maxi" } },
 })
 
@@ -86,7 +86,7 @@ await email.send({
 Place reusable Markdown under `server/emails`:
 
 ```md
-# Welcome {{ user.name }}
+# Welcome {{ data.user.name }}
 
 Your workspace is ready.
 ```
@@ -105,7 +105,7 @@ Nested paths keep their relative name. For example,
 to `.vitehub/types/email.d.ts` and bundles templates for provider builds under
 `.vitehub/email/templates`.
 
-The renderer does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `{{{ fragment }}}` binding.
+The renderer does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `:insert{:markdown="data.fragment"}` component.
 
 ## Test without delivery
 

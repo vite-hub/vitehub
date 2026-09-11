@@ -3,5 +3,6 @@ export interface RenderMarkdownTemplateOptions {
 }
 
 export interface RenderMarkdownTemplateInternalOptions extends RenderMarkdownTemplateOptions {
+  validateFragmentPath?: (path: string) => boolean
   validateConditionPath?: (path: string) => boolean
 }

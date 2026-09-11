@@ -55,3 +55,5 @@ Override the package defaults globally or add a class per instance. The base rul
   --vh-typeset-leading: 1.7;
 }
 ```
+
+Comark 0.7 uses the top-level `plugins` prop for parser plugins. Move `options.plugins` to `plugins`; `options` contains parser settings only. `AgentMarkdown` continues to accept `streaming` as a top-level boolean prop.

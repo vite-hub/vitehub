@@ -1206,20 +1206,20 @@ describe("defineAgent workspace option", () => {
       "# Support",
       "@./policy.md",
       "",
-      "::if{context.audience === 'technical'}",
-      "Use technical detail for {{ context.customerName }}.",
+      "::if{:value=\"data.context.audience\" eq=\"technical\"}",
+      "Use technical detail for {{ data.context.customerName }}.",
       "::else",
       "Use support detail.",
-      "::",
+      "::\n::",
       "",
-      "{{{ context.supportPolicy }}}",
+      ":insert{:markdown=\"data.context.supportPolicy\"}",
       "",
       "::source{key=\"docs\"}",
-      "Use docs for {{ context.customerName }}.",
+      "Use docs for {{ data.context.customerName }}.",
       "::",
       "",
       "::capability{key=\"support-context\"}",
-      "Use runtime support context for {{ context.customerName }}.",
+      "Use runtime support context for {{ data.context.customerName }}.",
       "::",
     ].join("\n")
     await writeLocalFile(join(sourceRootDir, "instructions.md"), document)
@@ -1370,9 +1370,9 @@ describe("defineAgent workspace option", () => {
       },
       driver: {
         instructions: [
-          "Use {{ workspace.tone }} tone.",
-          "Inline {{ workspace.policy }}",
-          "{{{ workspace.policy }}}",
+          "Use {{ data.workspace.tone }} tone.",
+          "Inline {{ data.workspace.policy }}",
+          ":insert{:markdown=\"data.workspace.policy\"}",
         ],
         model: {} as never
       },
@@ -2690,24 +2690,24 @@ describe("defineAgent workspace option", () => {
       workspace: {},
       driver: {
         instructions: [
-          "::if{context.enabled}",
+          "::if{:condition=\"data.context.enabled\"}",
           "Hidden.",
           "::else",
           "Answer from the workspace.",
-          "::",
-          "{{ context.missing }}",
+          "::\n::",
+          "{{ data.context.missing }}",
         ].join("\n"),
         model: {} as never
       },
     }), { workspace: "support" })
 
     expect(createAgentInspectionMetadata(agent).instructions).toEqual([[
-      "::if{context.enabled}",
+      "::if{:condition=\"data.context.enabled\"}",
       "Hidden.",
       "::else",
       "Answer from the workspace.",
-      "::",
-      "{{ context.missing }}",
+      "::\n::",
+      "{{ data.context.missing }}",
     ].join("\n")])
   })
 

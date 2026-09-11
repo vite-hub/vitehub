@@ -107,14 +107,14 @@ catalogs:
       version: 1.15.11
   markdown:
     '@comark/html':
-      specifier: 0.6.2
-      version: 0.6.2
+      specifier: 0.7.0
+      version: 0.7.0
     '@types/mdast':
       specifier: ^4.0.4
       version: 4.0.4
     comark:
-      specifier: 0.6.2
-      version: 0.6.2
+      specifier: 0.7.0
+      version: 0.7.0
     comark-content:
       specifier: 0.3.0
       version: 0.3.0
@@ -733,7 +733,7 @@ importers:
         version: 4.40.0(ai@7.0.58(zod@4.5.4))(workflow@5.0.0-beta.47(@aws-sdk/credential-provider-web-identity@3.972.76)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.4)(react@19.2.6)(typescript@6.0.3)(ws@8.21.3))(zod@4.5.4)
       comark:
         specifier: catalog:markdown
-        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+        version: 0.7.0(katex@0.17.0)(shiki@4.4.3)
       effect:
         specifier: catalog:effect
         version: 4.0.0-rc.112
@@ -1265,7 +1265,7 @@ importers:
     dependencies:
       '@comark/html':
         specifier: catalog:markdown
-        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+        version: 0.7.0(katex@0.17.0)(shiki@4.4.3)
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -1475,7 +1475,7 @@ importers:
         version: 3.0.0
       comark:
         specifier: catalog:markdown
-        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+        version: 0.7.0(katex@0.17.0)(shiki@4.4.3)
       nostics:
         specifier: catalog:runtime
         version: 1.2.0
@@ -2003,8 +2003,8 @@ importers:
   packages/ui:
     dependencies:
       '@comark/vue':
-        specifier: 0.6.2
-        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))
+        specifier: 0.7.0
+        version: 0.7.0(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
@@ -3502,8 +3502,8 @@ packages:
   '@colordx/core@5.5.0':
     resolution: {integrity: sha512-3PxTH8itZzltK0U9jTwVVnjLXvnDYuq3m+QXsHkENxWiPRh4WaoLcs1SQjqgZ55kS+QyirpH5BVwzP2gMVG6EQ==}
 
-  '@comark/html@0.6.2':
-    resolution: {integrity: sha512-ke1/rxpgsrRdfx/4LFURFQCqc2Bv/eVZd+Eenk8x/8IX4346HOGReiWuWWs11mpzHibkKFaPq56zWsnn7Eu8lw==}
+  '@comark/html@0.7.0':
+    resolution: {integrity: sha512-lTt7C2DK5gQt5BFcGD9GAfLhw8MnrZ15CKKJbqMJf2oQGZyjPe56CnL73Nj/cx+B/59t22pLRknpdbJmhNabWA==}
     peerDependencies:
       beautiful-mermaid: '>=1.0'
       katex: '>=0.16'
@@ -3531,8 +3531,8 @@ packages:
       shiki:
         optional: true
 
-  '@comark/vue@0.6.2':
-    resolution: {integrity: sha512-ToRyzz4I96DjXtDgYOC1WnNWt0W6YgOcazuT8rVRMJRR86NXBLATnIWb3hdMM0/8lMaDz+DmlcpX5EN1hqsG0Q==}
+  '@comark/vue@0.7.0':
+    resolution: {integrity: sha512-C63ObcCAiM5DKVDhWPz27pCRsvl0IG9XZJDGjFef1h/V4kS6lEjsoyepLdl4pvAPoSn6U0oGiJTgHLj5GCw2rQ==}
     peerDependencies:
       beautiful-mermaid: ^1.1.3
       katex: ^0.17.0
@@ -10310,6 +10310,23 @@ packages:
 
   comark@0.6.2:
     resolution: {integrity: sha512-hlWa7KlGPfRxovQavnHZlLlTUKrfwE7/o4ewCY0FzqFtRvVT8VdslrumQwELIiK9utsurpoSWCBFj1yVMtDOtw==}
+    peerDependencies:
+      beautiful-mermaid: ^1.1.3
+      katex: ^0.17.0
+      rangi: ^2.2.0
+      shiki: ^4.3.1
+    peerDependenciesMeta:
+      beautiful-mermaid:
+        optional: true
+      katex:
+        optional: true
+      rangi:
+        optional: true
+      shiki:
+        optional: true
+
+  comark@0.7.0:
+    resolution: {integrity: sha512-680hLtUOBcvBEJCD+iCU20jk5TrIJlIcE6X4npdC4x7LBhCvmiYJgByozR2fKav6DYw7AYoXsJVae65kXV6Qhw==}
     peerDependencies:
       beautiful-mermaid: ^1.1.3
       katex: ^0.17.0
@@ -17574,9 +17591,9 @@ snapshots:
 
   '@colordx/core@5.5.0': {}
 
-  '@comark/html@0.6.2(katex@0.17.0)(shiki@4.4.3)':
+  '@comark/html@0.7.0(katex@0.17.0)(shiki@4.4.3)':
     dependencies:
-      comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+      comark: 0.7.0(katex@0.17.0)(shiki@4.4.3)
     optionalDependencies:
       katex: 0.17.0
       shiki: 4.4.3
@@ -17591,9 +17608,9 @@ snapshots:
       katex: 0.17.0
       shiki: 4.4.3
 
-  '@comark/vue@0.6.2(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))':
+  '@comark/vue@0.7.0(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))':
     dependencies:
-      comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+      comark: 0.7.0(katex@0.17.0)(shiki@4.4.3)
       vue: 3.5.40(typescript@6.0.3)
     optionalDependencies:
       katex: 0.17.0
@@ -26854,6 +26871,16 @@ snapshots:
       shiki: 4.4.3
 
   comark@0.6.2(katex@0.17.0)(shiki@4.4.3):
+    dependencies:
+      entities: 8.0.0
+      htmlparser2: 12.0.0
+      js-yaml: 5.2.1
+      markdown-exit: 1.1.0-beta.2
+    optionalDependencies:
+      katex: 0.17.0
+      shiki: 4.4.3
+
+  comark@0.7.0(katex@0.17.0)(shiki@4.4.3):
     dependencies:
       entities: 8.0.0
       htmlparser2: 12.0.0
