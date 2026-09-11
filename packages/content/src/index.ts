@@ -1,5 +1,5 @@
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
-import { comarkContent } from "comark-content"
+import { comarkContent, contentHub } from "comark-content"
 import { defineEventHandler } from "h3"
 
 import { createSource, useSource } from "@vite-hub/source"
@@ -295,12 +295,22 @@ export function defineContent<
     source = undefined
   }
 
+  // Comark 0.4 models each source as its own content instance. Compose named
+  // ViteHub sources through a hub while preserving the shared public surface.
+  if (sources) {
+    const instances = Object.entries(sources).map(([name, source]) => comarkContent(name, {
+      ...options,
+      source,
+    }))
+    if (instances.length === 1) return instances[0] as ComarkContent & ContentMethods<TPlugins>
+    return contentHub(instances, { basePath: "/api/content" }) as ComarkContent & ContentMethods<TPlugins>
+  }
+
   // SAFETY: Comark plugins add their declared methods to the returned runtime object.
   return comarkContent({
     ...options,
     basePath: "/api/content",
     source,
-    sources,
   }) as ComarkContent & ContentMethods<TPlugins>
 }
 
