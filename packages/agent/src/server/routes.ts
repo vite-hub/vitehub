@@ -690,6 +690,7 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
+  if (registration.signature && typeof registration.signature === "object") return true
   if (registration.secretToken !== undefined) return (await resolveMaybe(registration.secretToken, context)) !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }

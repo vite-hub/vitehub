@@ -265,7 +265,7 @@ export async function channelRegistration(
     ...(registration.path ? { path: registration.path } : {}),
     ...(registration.secretHeader ? { secretHeader: registration.secretHeader } : {}),
     ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
-    ...(registration.signature ? { signature: registration.signature } : {}),
+    ...(typeof registration.signature === "string" ? { signature: registration.signature } : {}),
     ...(registration.url ? { url: registration.url } : {}),
   }
 }
