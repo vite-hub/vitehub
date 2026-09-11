@@ -75,11 +75,12 @@ const extractLinuxChromiumScript = `
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 const require = createRequire(join(process.argv[1], 'package.json'))
 const modulePath = require.resolve('@sparticuz/chromium')
 const Chromium = (await import(pathToFileURL(modulePath).href)).default
 await Chromium.executablePath()
+await mkdir(join(process.env.TMPDIR, 'fonts'), { recursive: true })
 await writeFile(join(process.env.TMPDIR, 'fonts', 'fonts.conf'), '<fontconfig><dir prefix="relative">.</dir><cachedir prefix="xdg">fontconfig</cachedir></fontconfig>')
 `
 
