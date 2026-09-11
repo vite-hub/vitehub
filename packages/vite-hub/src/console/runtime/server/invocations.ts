@@ -92,6 +92,7 @@ export function getConsoleUsageIndex(invocations: AgentInvocations): ReturnType<
 }
 
 const consoleInvocationDatabases = new WeakMap<AgentInvocations, ConsoleInvocationsDatabase>()
+const consoleDatabaseConfigurations = new WeakMap<AgentInvocations, string>()
 const consoleObservationConfigurations = new WeakMap<AgentInvocations, string>()
 
 function observationConfiguration(observations: AgentInvocationsOptions["observations"]): string {
@@ -120,9 +121,9 @@ interface ConsoleDatabaseOptions {
   url: string
 }
 
-export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatabaseOptions {
+export function resolveConsoleDatabaseOptions(projectRoot: string, databaseUrl?: string): ConsoleDatabaseOptions {
   const configuredUrl = process.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
-  const url = configuredUrl || `file:${resolve(projectRoot, ".vitehub/data/console.sqlite")}`
+  const url = configuredUrl || databaseUrl || `file:${resolve(projectRoot, ".vitehub/data/console.sqlite")}`
   const authToken = process.env.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
   if (!/^file:/i.test(url)) {
     const options: ConsoleDatabaseOptions = { url }
@@ -147,11 +148,13 @@ export function resolveConsoleDatabaseOptions(projectRoot: string): ConsoleDatab
   return { url: `${pathToFileURL(filePath).href}${query}` }
 }
 
-export function createConsoleInvocations(projectRoot: string, observations?: AgentInvocationsOptions["observations"]): AgentInvocations {
-  const client = createClient(resolveConsoleDatabaseOptions(projectRoot))
+export function createConsoleInvocations(projectRoot: string, observations?: AgentInvocationsOptions["observations"], databaseUrl?: string): AgentInvocations {
+  const database = resolveConsoleDatabaseOptions(projectRoot, databaseUrl)
+  const client = createClient(database)
   let invocations: AgentInvocations
   try {
     invocations = defineAgentInvocations({
+      configuration: "content",
       metadataContent: consoleMetadataContent,
       observations,
       store: createLibsqlAgentInvocationStore({
@@ -165,6 +168,7 @@ export function createConsoleInvocations(projectRoot: string, observations?: Age
     client.close()
     throw error
   }
+  consoleDatabaseConfigurations.set(invocations, database.url)
   consoleObservationConfigurations.set(invocations, observationConfiguration(observations))
   consoleUsageIndexes.set(invocations, createConsoleUsageIndex(client))
   consoleInvocationDatabases.set(invocations, {
@@ -180,7 +184,7 @@ function createConsoleFixtureInvocationsFromSnapshot(fixture: ConsoleFixture): A
     const { cursor: _cursor, ...input } = record
     store.create(input)
   }
-  return defineAgentInvocations({ metadataContent: consoleMetadataContent, store })
+  return defineAgentInvocations({ configuration: "content", metadataContent: consoleMetadataContent, store })
 }
 
 export function createConsoleFixtureInvocations(file: string): AgentInvocations {
@@ -191,6 +195,7 @@ export function installConsoleInvocations(
   projectRoot: string,
   configuredInvocations?: AgentInvocations,
   observations?: AgentInvocationsOptions["observations"],
+  databaseUrl?: string,
 ): AgentInvocations {
   const resolvedRoot = resolve(projectRoot)
   const identity = createConsoleInvocationsIdentity(resolvedRoot)
@@ -199,8 +204,8 @@ export function installConsoleInvocations(
   const sameConfiguration = installedConfiguration === undefined
     ? observations === undefined
     : installedConfiguration === observationConfiguration(observations)
-  if (installed && resolveConsoleInvocationsIdentity() === identity && (configuredInvocations ? installed === configuredInvocations : sameConfiguration)) return installed
-  const invocations = configuredInvocations ?? createConsoleInvocations(resolvedRoot, observations)
+  if (installed && resolveConsoleInvocationsIdentity() === identity && (configuredInvocations ? installed === configuredInvocations : sameConfiguration && consoleDatabaseConfigurations.get(installed) === resolveConsoleDatabaseOptions(resolvedRoot, databaseUrl).url)) return installed
+  const invocations = configuredInvocations ?? createConsoleInvocations(resolvedRoot, observations, databaseUrl)
   installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
   return invocations
 }

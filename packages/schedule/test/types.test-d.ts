@@ -1,6 +1,7 @@
 import { expectTypeOf, it } from "vitest"
 
-import { defineSchedule, defineScheduleTarget, executeRuntimeSchedule, executeStaticSchedule, schedules } from "../src/index.ts"
+import { defineSchedule, defineScheduleTarget, schedules } from "../src/index.ts"
+import { executeRuntimeSchedule, executeStaticSchedule } from "../src/runtime.ts"
 import { installScheduleRuntime } from "../src/runtime/driver.ts"
 import { createProcessScheduleWakeDriver } from "../src/runtime/process.ts"
 import { hubSchedule } from "../src/vite.ts"

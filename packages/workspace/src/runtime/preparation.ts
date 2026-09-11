@@ -35,6 +35,8 @@ export type WorkspacePreparationState =
 
 export interface WorkspacePreparationOptions<Name extends WorkspaceName = WorkspaceName> {
   onStateChange?: (state: WorkspacePreparationState) => void
+  /** Fail readiness when a selected source contains no files. Empty sources are allowed by default. */
+  requireNonEmpty?: boolean
   retryDelayMs?: number
   sources?: readonly string[]
   validate?: (result: WorkspaceMaterializeSourcesResult) => void | Promise<void>
@@ -43,7 +45,7 @@ export interface WorkspacePreparationOptions<Name extends WorkspaceName = Worksp
 
 export interface WorkspacePreparation {
   getState(): WorkspacePreparationState
-  response(): Response
+  response(method?: string): Response
   start(): Promise<WorkspacePreparationState>
   stop(): Promise<void>
 }
@@ -148,6 +150,10 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
         if (failures.length) {
           throw workspaceErrorDiagnostics.WORKSPACE_R0038({ message: `[vitehub] Workspace "${workspaceName}" sources failed to prepare: ${failures.join(", ")}.` })
         }
+        if (options.requireNonEmpty) {
+          const empty = selectedSources.filter(source => !sourceResults.get(source)?.files)
+          if (empty.length) throw workspaceErrorDiagnostics.WORKSPACE_R0038({ message: `[vitehub] Workspace "${workspaceName}" sources are empty: ${empty.join(", ")}.` })
+        }
         await waitForAbortable(options.validate?.(result), controller.signal)
 
         if (stopped || attemptLifecycle !== lifecycle) return state
@@ -199,9 +205,10 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
     getState() {
       return state
     },
-    response() {
+    response(method = "GET") {
+      if (method !== "GET" && method !== "HEAD") return new Response(null, { status: 405, headers: { allow: "GET, HEAD", "cache-control": "no-store" } })
       const ready = state.status === "ready"
-      return Response.json({ ready, status: state.status }, {
+      return new Response(method === "HEAD" ? null : JSON.stringify({ ready, status: state.status }), {
         headers: {
           "cache-control": "no-store",
           "content-type": "application/json; charset=utf-8",

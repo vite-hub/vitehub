@@ -1,3 +1,4 @@
+import { getMessageText } from "./messages.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -9,6 +10,7 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path"
 
 import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspectProvider } from "@t3tools/provider-runtime"
 
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
@@ -19,12 +21,13 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
+import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
-import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
@@ -95,6 +98,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
+  appendedContent?: string
   content?: Uint8Array
   directories: string[]
   existed: boolean
@@ -138,6 +142,21 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  if (generated.appendedContent !== undefined) {
+    const entry = await lstat(generated.path).catch(() => undefined)
+    if (entry?.isFile()) {
+      const content = await readFile(generated.path, "utf8")
+      const expectedOffset = (generated.content?.length ?? 0) + (generated.content?.length ? 2 : 0)
+      let offset = -1
+      for (let candidate = content.indexOf(generated.appendedContent); candidate !== -1; candidate = content.indexOf(generated.appendedContent, candidate + 1)) {
+        if (offset === -1 || Math.abs(candidate - expectedOffset) < Math.abs(offset - expectedOffset)) offset = candidate
+      }
+      if (offset !== -1) {
+        await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
+      }
+    }
+    return
+  }
   await rm(generated.path, { force: true, recursive: true })
   if (generated.link !== undefined) await symlink(generated.link, generated.path)
   else if (generated.existed) {
@@ -284,9 +303,15 @@ const providerHostEnvironmentKeys = [
   "XDG_DATA_HOME",
 ] as const
 
-function providerEnvironment(env: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
-  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []))
-  return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
+function providerEnvironment(env: Record<string, string | undefined> | undefined, provider?: "claude-code" | "codex"): NodeJS.ProcessEnv {
+  const host = Object.fromEntries(providerHostEnvironmentKeys.flatMap(key => {
+    return hasRuntimeType(process.env[key], "string") ? [[key, process.env[key]]] : []
+  }))
+  const proxyBaseUrl = env && Object.hasOwn(env, "CLIPROXY_BASE_URL") ? env.CLIPROXY_BASE_URL : process.env.CLIPROXY_BASE_URL
+  const proxy = provider === "codex" && proxyBaseUrl?.trim()
+    ? { CLIPROXY_BASE_URL: proxyBaseUrl, CLIPROXY_API_KEY: process.env.CLIPROXY_API_KEY }
+    : {}
+  return Object.fromEntries(Object.entries({ ...host, ...proxy, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
 }
 
 function normalizedProviderEnvironment(value: unknown): AgentProviderEnvironment {
@@ -342,7 +367,7 @@ function parsedProviderLaunchDiagnostic(value: unknown): ProviderLaunchDiagnosti
 }
 
 function providerSecretEnvironmentKeys(environment: AgentProviderEnvironment | undefined, requiredEnvironment: readonly string[]): string[] {
-  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment])]
+  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment, "CLIPROXY_API_KEY"])]
 }
 
 function providerLauncherSource(
@@ -559,6 +584,7 @@ async function providerLaunchFailure(
 }
 
 interface CodexCredentialHome {
+  scope?: string
   homePath: string
   release(reason?: unknown): Promise<void>
 }
@@ -900,6 +926,7 @@ function providerMetadataContext<
     fs: context.workspace?.fs,
     invoker: context.invoker,
     workspace: context.workspace,
+    ...providerCallbackMetadata(context),
   } as AgentAdapterMetadataContext<TRuntimeConfig>
 }
 
@@ -937,7 +964,10 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
     context.abortSignal?.throwIfAborted()
     return normalizeCodexCredentials(resolved)
   }
-  if (!profile) return await createTemporaryCodexCredentialHome(await resolveCredentials())
+  if (!profile || context.purpose === "inspection") {
+    const credentials = await waitForProviderOperation(resolveCredentials(), context.abortSignal)
+    return { ...await createTemporaryCodexCredentialHome(credentials), scope: codexCredentialSeedHash(credentials) }
+  }
 
   const key = `${process.cwd()}:${profile}`
   const unavailableReason = unavailableCodexCredentialProfiles.get(key)
@@ -957,6 +987,7 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
     codexCredentialProfilesByInvocation.set(context.context, invocationProfiles)
     return {
       homePath,
+      scope: codexCredentialSeedHash(credentials),
       async release(reason) {
         if (reason !== undefined) unavailableCodexCredentialProfiles.set(key, reason)
         invocationProfiles.delete(key)
@@ -971,6 +1002,9 @@ async function prepareCodexCredentials<TRuntimeConfig extends AgentRuntimeConfig
   }
 }
 
+const providerStatusCache = new WeakMap<object, Map<string, AgentProviderStatus>>()
+const recentProviderQuotaFailures = new Map<string, { message: string, expiresAt: number }>()
+
 /** Uses the invocation credential and launcher paths, without opening a provider session. */
 export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   options: ProviderAgentAdapterOptions<TRuntimeConfig>,
@@ -981,23 +1015,34 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   let root: string | undefined
   try {
     signal?.throwIfAborted()
-    home = await prepareCodexCredentials(options, context)
+    home = await waitForProviderOperation(prepareCodexCredentials(options, context), signal, async home => { await home?.release() })
     signal?.throwIfAborted()
-    const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await resolveRuntimeValue(options.env, context))
+    if (home?.scope) {
+      const recent = recentProviderQuotaFailures.get(home.scope)
+      if (recent && recent.expiresAt > Date.now()) return {
+        agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
+        account: { id: home.scope, kind: "credential" }, checkedAt: new Date().toISOString(), stale: false,
+        readiness: "unavailable", reason: recent.message,
+      }
+      if (recent) recentProviderQuotaFailures.delete(home.scope)
+      const cached = providerStatusCache.get(options)?.get(home.scope)
+      if (cached && Date.now() - Date.parse(cached.checkedAt) < 30_000) return { ...cached, agent: context.agentIdentity?.name ?? "agent" }
+    }
+    const overrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await waitForProviderOperation(resolveRuntimeValue(options.env, context), signal))
     signal?.throwIfAborted()
     if (home && overrides?.CODEX_HOME !== undefined) throw agentDiagnostics.AGENT_R0906({ message: "[vitehub] driver.credentials owns CODEX_HOME." })
     const environment = providerEnvironment({
       ...(options.provider === "codex" && !home ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...overrides,
-    })
+    }, options.provider)
     const binary = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
     let binaryPath = binary
     if (options.launch !== undefined) {
       root = await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
       const command = hasRuntimeType(binary, "string") && binary.trim() ? binary : options.provider === "codex" ? "codex" : "claude"
-      const launch = normalizedProviderLaunch(await resolveRuntimeValue(options.launch, {
-        ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: [],
-      }))
+      const launch = normalizedProviderLaunch(await waitForProviderOperation(resolveRuntimeValue(options.launch, {
+        ...context, command, cwd: root, environment: Object.freeze({ ...environment }), requiredEnvironment: home ? ["CODEX_HOME"] : [],
+      }), signal))
       signal?.throwIfAborted()
       binaryPath = (await materializeProviderLauncher(root, launch, providerSecretEnvironmentKeys(overrides, []), root)).path
     }
@@ -1011,16 +1056,24 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     const exhausted = snapshot.usageLimits?.windows.some(window => window.usedPercent >= 100)
     const unavailable = !snapshot.enabled || !snapshot.installed || authenticated === false || snapshot.status === "error" || exhausted
     const readiness = unavailable ? "unavailable" : authenticated === true && snapshot.status === "ready" && snapshot.usageLimits && !snapshot.usageLimits.unavailable ? "ready" : "unknown"
-    return {
+    const result: AgentProviderStatus = {
       agent: context.agentIdentity?.name ?? "agent", provider: options.provider,
+      ...(home?.scope ? { account: { id: home.scope, kind: "credential" as const } } : {}),
       checkedAt: snapshot.checkedAt, stale: false, installed: snapshot.installed, authenticated, readiness,
-      reason: exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : readiness === "unknown" ? "Provider readiness could not be fully verified." : undefined,
+      reason: exhausted ? "Subscription quota is exhausted." : !snapshot.installed ? "Provider executable is unavailable." : authenticated === false ? "Provider is signed out." : readiness === "unknown" ? "Provider readiness could not be fully verified." : "Reported subscription quota is available. Workspace spending limits are not reported by this provider probe.",
       ...(snapshot.usageLimits ? { usageLimits: {
         checkedAt: snapshot.usageLimits.checkedAt,
         windows: snapshot.usageLimits.windows,
         ...(snapshot.usageLimits.unavailable ? { unavailable: { reason: snapshot.usageLimits.unavailable.reason } } : {}),
       } } : {}),
     }
+    if (home?.scope) {
+      const cache = providerStatusCache.get(options) ?? new Map<string, AgentProviderStatus>()
+      if (cache.size >= 128) cache.clear()
+      cache.set(home.scope, result)
+      providerStatusCache.set(options, cache)
+    }
+    return result
   }
   finally {
     try { await home?.release() }
@@ -1327,6 +1380,7 @@ export function localWorkspaceHost(): WorkspaceSessionHost {
       network: "unrestricted",
       processes: "arbitrary",
     }),
+    materializationConcurrency: 8,
     files: {
       async exists(path, options) {
         options?.signal?.throwIfAborted()
@@ -1487,7 +1541,7 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const materialize = (workspace as ReadonlyWorkspaceFacade & { materializeSources?: ReadonlyWorkspaceFacade["fs"]["materializeSources"] } | undefined)?.materializeSources
     || workspace?.fs.materializeSources
-  if (!materialize || (paths && !paths.length)) return false
+  if (!materialize || (paths && !paths.length)) return
   // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
   const owner = (workspace as { materializeSources?: unknown } | undefined)?.materializeSources ? workspace : workspace?.fs
   const observers = createWorkspaceSetupObservers(workspaceSetupObserverOptions(context))
@@ -1498,21 +1552,89 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   })))
   const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected")
   if (failure) throw failure.reason
-  return results.every(result => result.status === "fulfilled"
-    && result.value.sources.every(source => source.status === "ready"))
+  const values = results.flatMap(result => result.status === "fulfilled" ? [result.value] : [])
+  return {
+    ready: values.every(result => result.sources.every(source => source.status === "ready")),
+    sources: values.flatMap(result => result.sources),
+  }
 }
 
-async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<WorkspaceSession | undefined> {
+interface ProviderSourceProvenance {
+  mount: string
+  provider: "github"
+  repository: string
+  revision: { id: string, ref?: string }
+  root: string
+  source: string
+}
+
+function providerSourceProvenance(context: AgentAdapterRunContext, materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>): ProviderSourceProvenance[] {
+  if (!materialized?.ready || !context.workspaceDefinition?.sources) return []
+  let metadata
+  try {
+    metadata = new Map(normalizeWorkspaceSourcesMetadata(context.workspaceDefinition.sources).map(source => [source.key, source]))
+  }
+  catch {
+    return []
+  }
+  const paths = selectedWorkspacePaths(context)
+  const overlaps = (left: string, right: string) => !left || !right || left === right
+    || left.startsWith(`${right}/`) || right.startsWith(`${left}/`)
+  return materialized.sources.flatMap((status) => {
+    if (status.status !== "ready" || status.provider !== "github" || status.revision?.immutable !== true || !/^(?:[\da-f]{40}|[\da-f]{64})$/i.test(status.revision.id)) return []
+    const source = metadata.get(status.source)
+    if (!source || source.mountPath !== status.mountPath) return []
+    // Only overlaps within the session's selected paths can make ownership ambiguous.
+    if ([...metadata.values()].some(candidate => candidate.key !== source.key
+      && overlaps(candidate.mountPath, source.mountPath)
+      && (!paths || paths.some(path => overlaps(path, candidate.mountPath) && overlaps(path, source.mountPath))))) return []
+    const sourceFingerprint = source.source.fingerprint
+    if (!isRuntimeRecord(sourceFingerprint)) return []
+    let fingerprint = sourceFingerprint
+    if (isRuntimeRecord(fingerprint.sourceResolution) && isRuntimeRecord(fingerprint.source)) fingerprint = fingerprint.source
+    if (fingerprint.inferredSource === "github" && isRuntimeRecord(fingerprint.options)) fingerprint = fingerprint.options
+    const repo = fingerprint.repo
+    const rawRoot = fingerprint.root ?? ""
+    if (!hasRuntimeType(repo, "string") || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) return []
+    if (!hasRuntimeType(rawRoot, "string")) return []
+    // Match GitHub Source root normalization before validating repository paths.
+    const root = rawRoot.replace(/\\/g, "/").split("/").filter(part => part && part !== ".").join("/")
+    if (root.split("/").includes("..")) return []
+    const revisionId = status.revision.id
+    // Selected paths can materialize independently while a branch advances.
+    if (materialized.sources.some(candidate => candidate.source === status.source
+      && candidate.mountPath === status.mountPath
+      && (candidate.revision?.id !== revisionId || candidate.revision.immutable !== true))) return []
+    return [{
+      mount: status.mountPath,
+      provider: "github" as const,
+      repository: `https://github.com/${repo}`,
+      revision: { id: status.revision.id, ...(status.revision.ref ? { ref: status.revision.ref } : {}) },
+      root,
+      source: status.source,
+    }]
+  }).filter((entry, index, entries) => entries.findIndex(candidate => candidate.source === entry.source
+    && candidate.mount === entry.mount
+    && candidate.revision.id === entry.revision.id) === index)
+}
+
+function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvenance[]): string | undefined {
+  if (!provenance.length) return
+  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding. For example, root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor. Never cite /workspace paths, other local filesystem paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
+}
+
+async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
   }
   const paths = selectedWorkspacePaths(context)
   const materializedSources = await materializeWorkspaceSources(context, paths)
+  const provenance = providerSourceProvenance(context, materializedSources)
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
     host: localWorkspaceHost(),
-    ...(materializedSources ? { materializeSources: false } : {}),
+    ...(materializedSources?.ready ? { materializeSources: false } : {}),
     onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
     target: root,
@@ -1520,7 +1642,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
   await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
-  return session
+  return { provenance, session }
 }
 
 async function closeWorkspace(context: AgentAdapterRunContext, session: WorkspaceSession | undefined, error: unknown, abortSignal: AbortSignal) {
@@ -1676,19 +1798,26 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
-  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
-  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  const rawInputTokens = usage.inputTokens ?? usage.lastInputTokens
+  const rawOutputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  // Cumulative thread totals and latest-turn partitions have different scopes.
+  const hasMatchingPartition = (usage.totalProcessedTokens === undefined && usage.usedTokens === undefined)
+    || (rawInputTokens !== undefined && rawOutputTokens !== undefined
+      && (usage.usedTokens === undefined || rawInputTokens + rawOutputTokens === usage.usedTokens))
+  const inputTokens = hasMatchingPartition ? rawInputTokens : undefined
+  const outputTokens = hasMatchingPartition ? rawOutputTokens : undefined
+  const details = hasMatchingPartition ? {
+    ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+    ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+    ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+  } : {}
   return {
     type: "usage",
     usageRecord: {
       ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
       raw: usage,
       usage: {
-        details: {
-          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-          ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
-        },
+        details,
         inputTokens,
         outputTokens,
         totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
@@ -1875,7 +2004,13 @@ async function* runProvider<
   const effectiveSignal = context.input.abortSignal && timeoutSignal
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
     : context.input.abortSignal || timeoutSignal
-  context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+  if (effectiveSignal !== context.input.abortSignal) {
+    const originalContext = context
+    context = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+    if (isAuxiliaryAgentAdapterContext(originalContext)) markAuxiliaryMessageChannelInstructionContext(context)
+    const metadata = providerCallbackMetadata(originalContext)
+    if (metadata) withProviderCallbackMetadata(context, metadata)
+  }
   effectiveSignal?.throwIfAborted()
   if (options.provider === "codex") {
     await waitForProviderOperation(runCodexCredentialHomeScavenger(), effectiveSignal)
@@ -1914,6 +2049,7 @@ async function* runProvider<
     throw error
   }
   let workspaceSession: WorkspaceSession | undefined
+  let sourceProvenance: ProviderSourceProvenance[] = []
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
@@ -1922,6 +2058,8 @@ async function* runProvider<
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
+  const pendingSteering = new Set<Promise<void>>()
+  let steeringEvidenceClosed = false
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
   const capabilityApprovalIds = new Set<string>()
   let notifyToolEvent: (() => void) | undefined
@@ -2013,12 +2151,12 @@ async function* runProvider<
   }
   try {
     effectiveSignal?.throwIfAborted()
-    workspaceSession = await waitForProviderOperation(
+    const preparedWorkspace = await waitForProviderOperation(
       prepareWorkspace(context, root),
       effectiveSignal,
-      async (lateSession) => {
+      async (lateWorkspace) => {
         try {
-          await lateSession?.close()
+          await lateWorkspace?.session.close()
         }
         finally {
           await cleanupRoot()
@@ -2027,6 +2165,8 @@ async function* runProvider<
       deferWorkspaceSessionCleanup,
       cleanupRoot,
     )
+    workspaceSession = preparedWorkspace?.session
+    sourceProvenance = preparedWorkspace?.provenance || []
     if (workspaceSession) {
       clearActiveWorkspaceFiles = setActiveAgentWorkspaceFiles(context.context, {
         async readFile(path) {
@@ -2055,18 +2195,34 @@ async function* runProvider<
         materializeInstructions = Boolean(instructions)
       }
     }
-    const inspectedTools = inspectAgentTools(context.tools)
-    await updateAgentTelemetryConfiguration(context.context, {
-      driver: {
-        ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
-        provider: options.provider,
-      },
-      ...(instructions ? { instructions: [instructions] } : {}),
-      ...(inspectedTools ? { tools: inspectedTools } : {}),
-    })
+    const preserveNativeInstructions = !materializeInstructions
+    const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
+    if (!instructions && provenanceInstructions && options.provider === "codex") {
+      instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+    }
+    if (provenanceInstructions) {
+      instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
+      materializeInstructions = true
+    }
+    if (!auxiliary) {
+      const inspectedTools = inspectAgentTools(context.tools)
+      await updateAgentTelemetryConfiguration(context.context, {
+        driver: {
+          ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
+          provider: options.provider,
+        },
+        ...(instructions ? { instructions: [instructions] } : {}),
+        ...(inspectedTools ? { tools: inspectedTools } : {}),
+      })
+    }
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
-      generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions))
+      const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
+      if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
+        // Remove only the injected text so native instruction edits reach Workspace write-back.
+        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+      }
+      generatedProviderFiles.push(generated)
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {
@@ -2151,13 +2307,16 @@ async function* runProvider<
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...providerEnvironmentOverrides,
-    })
+    }, options.provider)
     let providerLauncher: string | undefined
     if (options.launch !== undefined) {
       if (!hasRuntimeType(providerCommand, "string")) {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
       }
-      const requiredEnvironment = Object.freeze(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
+      const requiredEnvironment = Object.freeze([
+        ...(codexCredentialHome ? ["CODEX_HOME"] : []),
+        ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
+      ])
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
       const launchContext: AgentProviderLaunchContext<TRuntimeConfig> = {
         ...resolverContext,
@@ -2178,12 +2337,23 @@ async function* runProvider<
       providerLauncher = materializedLauncher.path
       providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
     }
+    // Deliver instructions through AGENTS.md, keeping documents out of argv and
+    // preserving explicit caller developer_instructions configuration.
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
+    const auxiliaryLaunchArgs = auxiliary && options.provider === "codex"
+      ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
+      : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
+      auxiliaryLaunchArgs,
       generatedLaunchArgs,
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
+    // The runtime prefers environment arguments over settings, so auxiliary
+    // overrides must carry the inherited settings and managed credential flags.
+    if (auxiliaryLaunchArgs !== undefined && launchArgs !== undefined) {
+      providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
+    }
     const settings = Object.fromEntries(Object.entries({
       ...options.providerSettings,
       binaryPath: providerLauncher || providerExecutable,
@@ -2250,9 +2420,47 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
     const invocationId = ownedAgentInvocationControlId(context.runtime)
+    const turn = await waitForProviderOperation(
+      runtime.sendTurn({ attachments, input: prompt, threadId }),
+      effectiveSignal,
+      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
+      deferRuntimeCleanup,
+      () => finalizeDeferredRuntime(threadId),
+    )
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
+          if (inputOptions.mode === "steer") {
+            const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
+            if (messages.some(message => message.parts.some(part => part.type !== "text"))) return "unsupported"
+            const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
+            if (!text.trim()) return "unsupported"
+            let resolveSteering!: () => void
+            const settled = new Promise<void>(resolve => { resolveSteering = resolve })
+            pendingSteering.add(settled)
+            try {
+              const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
+              if (steeredTurn.turnId !== turn.turnId) {
+                await activeRuntime.interruptTurn(threadId, steeredTurn.turnId)
+                return "unsupported"
+              }
+              if (steeringEvidenceClosed) return "invalid-state"
+              if (hasRuntimeType(input.prompt, "string") || hasRuntimeType(input.message, "string")) {
+                emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
+              } else {
+                for (const message of messages) {
+                  emitToolEvent({ type: "data-agent-event", id: message.id, data: { kind: "input.message", value: { message: getMessageText(message), mode: "steer" } } })
+                }
+              }
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
+              return "accepted"
+            } catch {
+              return "invalid-state"
+            } finally {
+              pendingSteering.delete(settled)
+              resolveSteering()
+            }
+          }
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
             const messages = input.messages || (hasRuntimeType(input.message, "object") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
@@ -2262,16 +2470,9 @@ async function* runProvider<
             return "unavailable"
           }
         },
-        support: { respond: true },
+        support: { respond: true, steer: true },
       })
     }
-    const turn = await waitForProviderOperation(
-      runtime.sendTurn({ attachments, input: prompt, threadId }),
-      effectiveSignal,
-      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
-      deferRuntimeCleanup,
-      () => finalizeDeferredRuntime(threadId),
-    )
     if (turn.resumeCursor !== undefined) pendingResumeCursor = turn.resumeCursor
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
@@ -2301,7 +2502,8 @@ async function* runProvider<
       }
       const current = raced.provider
       if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
-      if (current.value.threadId && current.value.threadId !== threadId) {
+      if ((current.value.threadId && current.value.threadId !== threadId)
+        || (current.value.turnId && current.value.turnId !== turn.turnId)) {
         nextEvent = events.next()
         continue
       }
@@ -2316,7 +2518,13 @@ async function* runProvider<
       const normalized = providerEvent(current.value, context.tools, messagePhases)
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
-      if (failure?.type === "error") caught = agentDiagnostics.AGENT_R0720({ message: failure.error })
+      if (failure?.type === "error") {
+        caught = agentDiagnostics.AGENT_R0726({ message: failure.error })
+        if (codexCredentialHome?.scope && /spend.?cap|spend(ing)? limit|budget.*exceed|quota.*exhaust/i.test(failure.error)) {
+          if (recentProviderQuotaFailures.size >= 128) recentProviderQuotaFailures.clear()
+          recentProviderQuotaFailures.set(codexCredentialHome.scope, { message: failure.error, expiresAt: Date.now() + 30_000 })
+        }
+      }
       if (current.value.type === "session.exited") {
         caught = agentDiagnostics.AGENT_R0721({ message: `[vitehub] Provider Agent Driver session exited before the turn completed${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
       }
@@ -2326,15 +2534,34 @@ async function* runProvider<
           : agentDiagnostics.AGENT_R0722({ message: `[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
         if (effectiveSignal?.aborted) throw caught
       }
-      if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
+      if (isTerminalEvent(current.value, turn.turnId)) {
+        unregister?.()
+        unregister = undefined
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const steeringDrain = Promise.all(pendingSteering)
+        const drainTimeout = new Promise<"timeout">(resolve => {
+          timeout = setTimeout(() => resolve("timeout"), providerCleanupTimeoutMs)
+        })
+        const drained = await Promise.race([steeringDrain.then(() => "drained" as const), drainTimeout, aborted])
+        if (timeout) clearTimeout(timeout)
+        steeringEvidenceClosed = true
+        if (drained === "timeout") {
+          caught = agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver steering submission cleanup timed out." })
+        }
+        if (!caught) completed = true
+      }
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
-      for (const event of normalized) yield event
+      for (const event of normalized) {
+        if (caught && event.type === "finish") continue
+        yield event
+      }
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
       nextEvent = events.next()
     }
   }
   catch (error) {
+    steeringEvidenceClosed = true
     const launchFailure = await providerLaunchFailure(
       providerLaunchDiagnosticPath,
       providerRuntimeEnvironment,
@@ -2345,6 +2572,7 @@ async function* runProvider<
     throw caught
   }
   finally {
+    steeringEvidenceClosed = true
     unregister?.()
     clearActiveWorkspaceCommands?.()
     clearActiveWorkspaceFiles?.()

@@ -18,6 +18,7 @@ export interface ViteHubUISession<Message extends UIMessage = UIMessage> {
 export type AgentInvocationStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export interface AgentInvocationListItem {
+  channel?: string;
   agent?: string;
   context?: string;
   description?: string;
@@ -39,9 +40,12 @@ export type AgentInspectionValue =
   | { readonly [key: string]: AgentInspectionValue };
 
 export interface AgentToolInspection {
+  /** Capability that registered this tool, when known. */
+  capabilityId?: string;
   description?: string;
   inputSchema?: AgentInspectionValue;
   name: string;
+  mcp?: { server: string; name: string };
   outputSchema?: AgentInspectionValue;
 }
 
@@ -52,6 +56,12 @@ export interface AgentInvocationConfiguration {
   };
   capabilities?: readonly {
     id: string;
+    inspection?: {
+      label: string;
+      truncated?: boolean;
+      view?: import("@json-render/core").Spec;
+      state?: Readonly<Record<string, AgentInspectionValue>>;
+    };
     metadata?: Readonly<Record<string, AgentInspectionValue>>;
   }[];
   channels?: readonly {
@@ -75,7 +85,7 @@ export interface AgentInvocationConfiguration {
   workspace?: {
     mode?: string;
     name?: string;
-    sources?: readonly string[];
+    sources?: readonly (string | { id: string; repository?: string })[];
   };
 }
 
@@ -98,4 +108,13 @@ export interface AgentInvocationView {
   title?: string;
   traceId: string;
   updatedAt: string;
+  usage?: {
+    totalTokens?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedInputTokens?: number;
+    cacheWriteTokens?: number;
+    reasoningTokens?: number;
+    cost?: { display?: string; estimated?: boolean; source?: string };
+  };
 }

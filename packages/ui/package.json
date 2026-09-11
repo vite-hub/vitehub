@@ -58,7 +58,11 @@
     "@iconify-json/ph": "catalog:ui",
     "@nuxt/kit": "4.5.2",
     "@types/node": "catalog:tooling",
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "@vueuse/core": "catalog:ui",
+    "katex": "^0.17.0",
+    "@json-render/vue": "0.20.0",
+    "@json-render/core": "0.20.0"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",
@@ -77,12 +81,14 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "@types/markdown-it": "^14.1.2",
+    "@vite-hub/agent": "workspace:*"
   },
   "peerDependencies": {
     "@nuxt/ui": "^4.11.0",
     "ai": "catalog:ai-compat",
-    "vite": "catalog:vite",
+    "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {

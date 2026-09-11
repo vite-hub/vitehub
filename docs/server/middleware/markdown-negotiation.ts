@@ -16,7 +16,8 @@ export default defineEventHandler(async (event) => {
     return markdown;
   }
   catch (error) {
-    const statusCode = (error as { response?: { status?: number } }).response?.status;
+    const statusCode = error instanceof Error && "response" in error
+      && error.response instanceof Response ? error.response.status : undefined;
     if (statusCode === 404) {
       throw createError({ statusCode: 404, statusMessage: "Page not found" });
     }

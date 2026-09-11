@@ -1,4 +1,5 @@
-import { runWorkflowHandler } from "./execute.ts"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { runSerializedWorkflowHandler } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
 import { getWorkflowProviderStatus, runWorkflowProviderOperation } from "./provider-operation.ts"
 
@@ -228,7 +229,7 @@ export async function registerOpenWorkflowDefinition(
   // SAFETY: The registered ViteHub definition and OpenWorkflow runnable share this payload and result contract.
   const openWorkflowDefinition = definition as never
   const workflow = runtime.client.defineWorkflow({ name }, async ({ input, run, step }) => {
-    return await runWorkflowHandler({
+    return await runSerializedWorkflowHandler({
       id: run.id,
       name,
       payload: input,
@@ -270,7 +271,7 @@ function serializeOpenWorkflowRun<TResult = unknown>(run: OpenWorkflowRun, name:
   }
 
   // SAFETY: OpenWorkflow returns the result produced by the registered WorkflowDefinition<TResult>.
-  const result = run.output as TResult | undefined
+  const result = (isSerializedResponse(run.output) ? deserializeResponse(run.output) : run.output) as TResult | undefined
   return {
     id: run.id,
     metadata: run.error || {
@@ -290,10 +291,12 @@ export async function runOpenWorkflow<TPayload = unknown, TResult = unknown>(
   payload: TPayload | undefined,
   definition: WorkflowDefinition<TPayload, TResult>,
   options: WorkflowDeferOptions,
+  onDispatch?: () => void,
 ): Promise<WorkflowRun<TPayload, TResult>> {
   const runtime = await getOpenWorkflowRuntime(config)
   // SAFETY: Registration preserves this Workflow Definition's payload and result contract in the provider runnable.
   const workflow = await registerOpenWorkflowDefinition(runtime, name, definition as never)
+  onDispatch?.()
   let firstAcknowledgementUnknown = false
   const handle = await runWorkflowProviderOperation("openworkflow", "run", async () => {
     const start = () => workflow.run(payload, options.id ? { idempotencyKey: options.id } : undefined)

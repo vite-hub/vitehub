@@ -78,3 +78,7 @@ History selection and persistence are separate decisions. The Chat Capability ca
 ## Inspect the result
 
 Run two messages through the same thread or session, then inspect the second invocation in the [CLI](/docs/development/cli). The prepared input contains the bounded prior messages plus the current message. A different thread or session starts without that history.
+
+## Keep SQLite transcripts
+
+Pass `transcripts: { retention: 'forever' }` to `createLibsqlAgentState()` from `vite-hub/agent/state/sqlite`. The adapter clears transcript expiry before startup cleanup, including existing expired rows, and ignores future transcript TTLs. Other cached state keeps its normal expiry. Rows deleted before this option was enabled cannot be recovered.

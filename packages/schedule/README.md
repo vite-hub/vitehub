@@ -48,10 +48,11 @@ A Runtime Schedule must name a Schedule Target. A Static Schedule Definition can
 
 ## Run one occurrence
 
-This smoke test uses the direct owner-package import. If the application installed `vite-hub`, import the same names from `vite-hub/schedule`. It defines a Static Schedule and executes one fixed occurrence without a Vite config or hosted scheduler.
+This smoke test uses the direct owner-package import. If the application installed `vite-hub`, use `vite-hub/schedule` and `vite-hub/schedule/runtime`. It defines a Static Schedule and executes one fixed occurrence without a Vite config or hosted scheduler.
 
 ```ts
-import { defineSchedule, executeStaticSchedule } from "@vite-hub/schedule";
+import { defineSchedule } from "@vite-hub/schedule";
+import { executeStaticSchedule } from "@vite-hub/schedule/runtime";
 
 const dailyReport = defineSchedule({
   cron: "0 8 * * *",
@@ -186,6 +187,12 @@ With the Process Runtime, the default `providerOutput: "auto"` emits no host Pro
 `installScheduleRuntime()` returns only after its driver reconciles the complete stored snapshot, including disabled Runtime Schedules. Later creates, updates, and deletes persist first and reconcile one at a time. If host reconciliation fails, ViteHub restores the previous stored record and rejects the change.
 
 When a custom host installs a wake driver, call and await `controller.close()` during shutdown. Closing stops new wakes, drains active wakes and `waitUntil()` work, and releases driver resources. It does not delete Schedule Definitions, Runtime Schedules, or run history. The generated Nitro Process Runtime connects the same close operation to Nitro shutdown and process termination signals.
+
+## Import runtime helpers
+
+The main `@vite-hub/schedule` entry exports `defineSchedule`, `defineScheduleTarget`, `schedules`, `validateRuntimeScheduleCron`, and public types. Import execution, storage, and runtime state helpers from `@vite-hub/schedule/runtime`. Import `discoverScheduleDefinitions` from `@vite-hub/schedule/vite` when writing a build integration. Applications use `vite-hub/schedule` and `vite-hub/schedule/runtime`.
+
+This is a breaking import change. Move existing execution, store, and state helper imports to `/runtime`, and discovery imports to `/vite`. Helper behavior is unchanged. The main entry no longer loads file discovery or its build dependencies.
 
 ## Documentation and support
 

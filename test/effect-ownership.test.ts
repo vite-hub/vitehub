@@ -23,6 +23,7 @@ const repoRoot = resolve(import.meta.dirname, "..")
 const effectVersion = "4.0.0-rc.112"
 const expectedEffectOwners = ["agent", "internal", "schedule", "source"]
 const allowedEffectOwners = new Set(expectedEffectOwners)
+const dependencyGroups = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
 
 type PackageEffectOwnership = {
   declaresEffect: boolean
@@ -84,7 +85,6 @@ async function packageEffectOwnership(): Promise<PackageEffectOwnership[]> {
     const sources = await readFiles(join(packageDir, "src"), path => /\.[cm]?[jt]sx?$/.test(path))
     const manifestPath = join(packageDir, "package.json")
     const manifest = parseJsonObject(await readFile(manifestPath, "utf8"), manifestPath)
-    const dependencyGroups = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
     const declaresEffect = dependencyGroups.some((group) => {
       const dependencies = manifest[group]
       return isJsonObject(dependencies) && "effect" in dependencies
@@ -140,9 +140,12 @@ describe("Effect ownership", () => {
       const packageDir = join(repoRoot, "packages", owner)
       const manifestPath = join(packageDir, "package.json")
       const manifest = parseJsonObject(await readFile(manifestPath, "utf8"), manifestPath)
-      const dependencies = manifest.dependencies
-      const declaredEffect = isJsonObject(dependencies) ? dependencies.effect : undefined
-      expect(declaredEffect, manifestPath).toBe("catalog:effect")
+      for (const group of dependencyGroups) {
+        const dependencies = manifest[group]
+        if (isJsonObject(dependencies) && "effect" in dependencies) {
+          expect(dependencies.effect, `${manifestPath} ${group}`).toBe("catalog:effect")
+        }
+      }
 
       const effectPackage = createRequire(manifestPath).resolve("effect/package.json")
       const resolved = parseJsonObject(await readFile(effectPackage, "utf8"), effectPackage)
@@ -161,6 +164,12 @@ describe("Effect ownership", () => {
       expect(bundles, packageDir).not.toMatch(/effect@3\.|3\.17\.7/)
     }
   }, 30_000)
+
+  it("keeps Source's bundled Effect out of emitted JavaScript and declarations", async () => {
+    const sources = await readFiles(join(repoRoot, "packages/source/dist"), path => /\.[cm]?[jt]s$/.test(path))
+    expect(sources.length).toBeGreaterThan(0)
+    expect(sources.some(sourceImportsEffect)).toBe(false)
+  })
 
   it.each([
     {

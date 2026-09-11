@@ -167,6 +167,21 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(session.startProcess("three")).rejects.toThrow("Shell session is disposed")
   })
 
+  it("reserves process budget while starts are pending", async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const provider = createBackgroundProvider(async (command: string): Promise<ShellProcess> => {
+      await gate
+      return { command, id: command, async stop() { return stoppedProcessObservation(command) } }
+    })
+    const session = createShellRuntime({ provider }).createSession({ policy: { maxProcesses: 1 } })
+    const first = session.startProcess("one")
+    await expect(session.startProcess("two")).rejects.toThrow("process budget exhausted after 1 processes")
+    release()
+    await expect(first).resolves.toMatchObject({ id: "one" })
+    await session.dispose()
+  })
+
   it("returns background-process cleanup failures without FiberFailure", async () => {
     const firstError = new Error("first stop failed")
     const secondError = new Error("second stop failed")
@@ -425,6 +440,27 @@ describe("@vite-hub/shell just-bash runtime", () => {
 })
 
 describe("@vite-hub/shell cloudflare runtime", () => {
+  it("preserves quoted arguments, escaped spaces and trailing backslashes when forwarding commands", async () => {
+    const exec = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" }))
+    const provider = createCloudflareShellProvider({
+      sandbox: { exec, supports: { execCwd: true, execEnv: true } },
+    })
+
+    await provider.exec("printf 'hello world' \"a|b\" space\\ value trailing\\")
+
+    expect(exec).toHaveBeenCalledWith("printf", ["hello world", "a|b", "space value", "trailing\\"], expect.any(Object))
+  })
+
+  it("rejects unterminated quotes before forwarding commands", async () => {
+    const exec = vi.fn(async () => ({ exitCode: 0, stderr: "", stdout: "" }))
+    const provider = createCloudflareShellProvider({
+      sandbox: { exec, supports: { execCwd: true, execEnv: true } },
+    })
+
+    await expect(provider.exec("cat 'unfinished")).rejects.toThrow("unterminated quote")
+    expect(exec).not.toHaveBeenCalled()
+  })
+
   it("delegates to the cloudflare sandbox client", async () => {
     const sandbox = {
       exec: vi.fn(async (_command: string, _args?: string[], options?: {
@@ -491,6 +527,16 @@ describe("@vite-hub/shell cloudflare runtime", () => {
 })
 
 describe("@vite-hub/shell analyzer", () => {
+  it.each([
+    ["echo 'a|b'", ["echo"], false],
+    ["echo a\\|b", ["echo"], false],
+    ["cat file | head", ["cat", "head"], true],
+    ["cat missing || echo fallback", ["cat", "echo"], true],
+    ["echo first && echo second; pwd", ["echo", "pwd"], false],
+  ] as const)("preserves command and pipeline metadata for %s", async (command, commands, hasPipelines) => {
+    await expect(analyzeShellCommand(command)).resolves.toMatchObject({ commands, hasPipelines, ok: true })
+  })
+
   it("parses shell commands with sh-syntax and returns conservative metadata", async () => {
     await expect(analyzeShellCommand("FOO=bar echo $(pwd) | tr a-z A-Z > out")).resolves.toMatchObject({
       commands: ["echo", "tr"],

@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest"
 import { inspectAgentTools } from "../src/tool-inspection.ts"
 
 describe("inspectAgentTools", () => {
+  it("preserves the exact description including long guidance and line breaks", () => {
+    const description = `First line.\n${"Detailed guidance. ".repeat(50)}`
+    expect(inspectAgentTools({ lookup: { description } })?.[0]?.description).toBe(description)
+  })
+
   it("serializes the model-visible tool contract", () => {
     expect(inspectAgentTools({
       lookup: {
@@ -37,6 +42,10 @@ describe("inspectAgentTools", () => {
         name: "ping",
       },
     ])
+  })
+
+  it("leaves an unavailable input contract unknown instead of inventing an empty schema", () => {
+    expect(inspectAgentTools({ dynamic: { inputSchema: { "~standard": { validate: () => ({ value: {} }) } } } })).toEqual([{ name: "dynamic" }])
   })
 
   it("reads AI SDK JSON schemas and keeps provider-defined tools opaque", () => {

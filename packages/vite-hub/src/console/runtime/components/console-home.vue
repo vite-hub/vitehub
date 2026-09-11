@@ -26,7 +26,6 @@ const props = defineProps<{
 const route = useRoute();
 const router = useRouter();
 const sidebarOpen = ref(false);
-const sidebarCollapsed = ref(false);
 const sections = ref<ConsoleSectionId[]>([]);
 const lastSection = ref<ConsoleSectionId>();
 const loading = ref(true);
@@ -78,16 +77,14 @@ onBeforeUnmount(() => request++);
 <template>
   <ConsoleFrame>
     <UDashboardSidebar
-      id="console-sections"
+      id="console-navigation"
       v-model:open="sidebarOpen"
-      v-model:collapsed="sidebarCollapsed"
-      :default-size="21"
+      :default-size="16"
       :collapsed-size="4"
-      :min-size="16"
-      :max-size="24"
+      :min-size="13"
+      :max-size="26"
       :menu="{ title: 'ViteHub', description: 'Choose a section.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'border-t border-default px-3 py-2' }"
-      collapsible
+      :ui="{ body: 'gap-0 overflow-hidden p-0', footer: 'h-11 shrink-0 border-t border-default px-2 py-1.5' }"
       resizable
     >
       <template #header="{ collapsed }">
@@ -115,11 +112,11 @@ onBeforeUnmount(() => request++);
           class="grid gap-1 px-2"
           :class="collapsed ? 'pt-2' : ''"
         >
-          <div class="pb-2">
+          <div class="flex shrink-0 items-center gap-1 pb-2 pt-1">
             <UDashboardSearchButton
               :collapsed="collapsed"
               block
-              class="w-full bg-transparent ring-default"
+              class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60"
               label="Search console"
             />
           </div>
@@ -147,17 +144,8 @@ onBeforeUnmount(() => request++);
         </p>
       </template>
 
-      <template #footer="{ collapsed, collapse }">
+      <template #footer="{ collapsed }">
         <ConsolePrimitiveSwitcher :collapsed="collapsed" :sections-base="sectionsBase" />
-        <UButton
-          class="ml-auto max-lg:hidden"
-          icon="i-ph-sidebar-simple-light"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          :aria-label="collapsed ? 'Show sections' : 'Hide sections'"
-          @click="collapse(!collapsed)"
-        />
       </template>
     </UDashboardSidebar>
 

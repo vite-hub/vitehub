@@ -28,6 +28,10 @@ export default defineConfig({
 
 This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation).
 
+On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Console, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
+
+Explicit store paths, remote URLs, and disabled services remain authoritative. Set `console.databaseUrl` to preserve an existing journal location; `VITEHUB_CONSOLE_DATABASE_URL` remains a runtime override. Changing paths does not migrate existing data.
+
 ## Run a complete first result
 
 Choose the result that matches the application you are building:
@@ -114,12 +118,15 @@ Vite config resolution and builds also refresh the entry. Defining `files` in th
 import { defineAgent } from "vite-hub/agent";
 import { workspaceShell } from "vite-hub/agent/capabilities";
 import { env } from "vite-hub/env";
+import { renderMarkdownFile } from "vite-hub/markdown-template/file";
 import { renderMarkdownTemplate } from "vite-hub/markdown-template";
 import { defineWorkspace } from "vite-hub/workspace";
 import { defineWorkflow } from "vite-hub/workflow";
 ```
 
 The root export intentionally contains only the framework configuration API. Feature code belongs on a feature subpath, which forwards to the package that owns it.
+
+Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. Use ordinary `.md` files and ship their relative fragments with the server. File rendering reads the local filesystem at runtime and needs no Vite plugin. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
 
 Built-in Agent Drivers and Box runtimes are selected by literal or tagged values, so they do not need provider-specific ViteHub imports. Install an optional external provider or SDK explicitly when its runtime requires one.
 
@@ -140,3 +147,9 @@ Set `console: { access: "auth", invoke: true }` to use ViteHub Auth, or `console
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 
 Set `console.observations` to configure the fallback journal's observation count, string length, byte budget, and flush timeout. Discovered Agent Definitions with an explicit shared journal retain that journal's settings.
+
+## Console images
+
+The Console accepts up to ten PNG, JPEG, WebP, or GIF images per message, within a combined 10 MiB limit. Configure durable Blob storage to keep the bytes, and content-enabled Invocation storage to keep message references. Agents can return published Blob image URLs in Markdown. See [Console usage](https://vitehub.dev/docs/console/usage).
+
+Console image uploads require invocation to be enabled. The Console fixes the Agent, route, and invoker profile when submission starts, so switching Agents during an upload cannot redirect the input. Uploads without a usable Blob serving URL are removed before the request fails.

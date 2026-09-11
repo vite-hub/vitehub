@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics",
+  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
   codes: {
     MARKDOWN_TEMPLATE_R0001: dynamicError,
     MARKDOWN_TEMPLATE_R0002: dynamicError,
@@ -18,9 +18,6 @@ export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics(
     MARKDOWN_TEMPLATE_R0008: dynamicError,
     MARKDOWN_TEMPLATE_R0009: dynamicError,
     MARKDOWN_TEMPLATE_R0010: dynamicError,
-    MARKDOWN_TEMPLATE_B0001: dynamicError,
-    MARKDOWN_TEMPLATE_B0002: dynamicError,
-    MARKDOWN_TEMPLATE_B0003: dynamicError,
     MARKDOWN_TEMPLATE_R0011: dynamicError,
     MARKDOWN_TEMPLATE_R0012: dynamicError,
     MARKDOWN_TEMPLATE_R0013: dynamicError,

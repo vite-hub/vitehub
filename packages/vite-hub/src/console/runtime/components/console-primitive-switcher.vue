@@ -9,7 +9,6 @@ import { consoleSectionDetails } from "../sections";
 
 const props = defineProps<{
   active?: ConsoleSectionId;
-  collapsed: boolean;
   exclude?: ConsoleSectionId[];
   sectionsBase: string;
 }>();
@@ -20,7 +19,7 @@ const navigationFailed = ref(false);
 const sections = ref<ConsoleSectionId[]>([]);
 const items = computed(() =>
   sections.value
-    .filter((section) => !props.exclude?.includes(section))
+    .filter((section) => section !== "usage" && !props.exclude?.includes(section))
     .map((section) => ({ id: section, ...consoleSectionDetails[section] })),
 );
 
@@ -44,7 +43,7 @@ onMounted(loadSections);
 </script>
 
 <template>
-  <nav v-if="!collapsed" class="flex min-w-0 items-center gap-0.5" aria-label="Console primitives">
+  <nav class="flex min-w-0 items-center gap-0.5" aria-label="Console primitives">
     <UTooltip v-for="item in items" :key="item.id" :text="item.label">
       <UButton
         :aria-label="`Open ${item.label}`"
@@ -53,6 +52,16 @@ onMounted(loadSections);
         size="xs"
         :variant="active === item.id ? 'soft' : 'ghost'"
         @click="openSection(item.id)"
+      />
+    </UTooltip>
+    <UTooltip v-if="sections.includes('usage') && !exclude?.includes('usage')" :text="consoleSectionDetails.usage.label">
+      <UButton
+        :aria-label="`Open ${consoleSectionDetails.usage.label}`"
+        color="neutral"
+        :icon="consoleSectionDetails.usage.icon"
+        size="xs"
+        :variant="active === 'usage' ? 'soft' : 'ghost'"
+        @click="openSection('usage')"
       />
     </UTooltip>
     <UTooltip v-if="navigationFailed" text="Retry loading primitives">

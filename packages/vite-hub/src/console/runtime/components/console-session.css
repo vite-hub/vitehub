@@ -17,8 +17,8 @@
   display: grid;
   gap: 0.25rem;
   grid-template-columns: minmax(0, 1fr) auto;
-  height: 3.25rem;
-  min-height: 3.25rem;
+  height: 2.5rem;
+  min-height: 2.5rem;
   overflow: visible;
   padding: 0 1.25rem 0 0.5rem;
   position: relative;
@@ -139,8 +139,8 @@
 }
 
 .session-inspector__icon-button [data-slot="leadingIcon"] {
-  height: 1rem !important;
-  width: 1rem !important;
+  height: 0.875rem !important;
+  width: 0.875rem !important;
 }
 
 .session-inspector__tabstrip > [data-reka-popper-root] {
@@ -274,7 +274,7 @@
 }
 
 .session-inspector__details .vh-invocation-inspector__content > section {
-  padding: 0.75rem 1rem !important;
+  padding: 0.625rem 0.875rem !important;
 }
 
 .session-inspector__details .vh-invocation-inspector__content > section:first-child {
@@ -294,39 +294,61 @@
   text-align: start !important;
 }
 
-.session-inspector__instruction-fallback p {
-  color: var(--ui-text-muted);
-  font-size: 0.6875rem;
-  margin: 0 0 0.5rem;
+.session-inspector__details .vh-invocation-inspector__identity {
+  gap: 0.25rem;
 }
-.session-inspector__instruction-fallback button {
+
+.session-inspector__details .vh-invocation-inspector__title-row {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.session-inspector__instructions-link {
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 0.4rem;
-  color: var(--ui-text);
+  border-radius: 0.35rem;
+  color: var(--ui-text-muted);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
+  flex: 0 0 auto;
   font: inherit;
   font-size: 0.6875rem;
-  gap: 0.45rem;
-  min-height: 1.875rem;
-  padding: 0.3rem 0.4rem;
-  width: 100%;
+  gap: 0.3rem;
+  padding: 0.25rem 0.4rem;
 }
-.session-inspector__instruction-fallback button:hover,
-.session-inspector__instruction-fallback button:focus-visible {
-  background: var(--ui-bg-elevated);
-  outline: none;
+.session-inspector__instructions-link:hover { background: var(--ui-bg-elevated); color: var(--ui-text); }
+.session-inspector__instructions-link svg { height: 0.75rem; width: 0.75rem; }
+
+.session-inspector__details .vh-invocation-inspector__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
 }
-.session-inspector__instruction-fallback button svg {
-  color: var(--ui-text-muted);
-  height: 0.8rem;
-  width: 0.8rem;
+.session-inspector__details .vh-invocation-inspector__metrics > div {
+  align-items: baseline;
+  border: 0 !important;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.35rem;
+  padding: 0 !important;
 }
-.session-inspector__instruction-fallback button svg:last-child {
-  margin-inline-start: auto;
+.session-inspector__details .vh-invocation-inspector__metrics dt { font-size: 0.6875rem; }
+.session-inspector__details .vh-invocation-inspector__metrics dd { font-size: 0.75rem; }
+
+.session-inspector__details .vh-invocation-execution__model {
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
+.session-inspector__details .vh-invocation-execution__workspace {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
 
 .session-inspector__scroll,
 .session-inspector__workspace {
@@ -472,8 +494,8 @@
   display: flex;
   font-size: 0.75rem;
   gap: 0.35rem;
-  height: 1.75rem;
-  min-height: 1.75rem;
+  height: 1.625rem;
+  min-height: 1.625rem;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0 0.75rem;
@@ -509,16 +531,29 @@
 }
 .session-inspector__workspace-actions button {
   align-items: center;
-  border-radius: 0.45rem !important;
+  border-radius: 0.3rem !important;
   display: inline-flex;
-  height: 1.75rem !important;
+  height: 1.375rem !important;
   justify-content: center;
   padding: 0 !important;
-  width: 1.75rem !important;
+  width: 1.375rem !important;
 }
 .session-inspector__workspace-actions [data-slot="leadingIcon"] {
-  height: 0.875rem !important;
-  width: 0.875rem !important;
+  height: 0.75rem !important;
+  width: 0.75rem !important;
+}
+.session-inspector__icon-button,
+.session-inspector__workspace-actions button {
+  color: var(--ui-text-muted);
+  opacity: 0.65;
+  transition:
+    opacity 120ms,
+    background-color 120ms;
+}
+.session-inspector__icon-button:is(:hover, :focus-visible),
+.session-inspector__workspace-actions button:is(:hover, :focus-visible, [aria-pressed="true"]) {
+  background: var(--ui-bg-elevated);
+  opacity: 1;
 }
 
 .session-inspector__workspace-body {
@@ -533,6 +568,7 @@
 }
 
 .session-inspector__tree.vh-file-tree {
+  --trees-padding-inline-override: 0.5rem;
   --trees-accent-override: var(--ui-primary);
   --trees-bg-muted-override: var(--ui-bg-elevated);
   --trees-bg-override: var(--ui-bg);
@@ -547,6 +583,7 @@
 }
 
 .session-inspector__files {
+  min-width: 0;
   border-inline-start: 1px solid var(--ui-border);
   min-height: 0;
   overflow: hidden;
@@ -605,11 +642,11 @@
   background: transparent !important;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.6875rem;
-  line-height: 1.4;
+  line-height: 1rem;
   margin: 0;
   min-height: 100%;
   min-width: max-content;
-  padding: 1rem 1.5rem 2rem 0;
+  padding: 0.75rem 0 1.5rem;
   tab-size: 2;
 }
 
@@ -618,21 +655,39 @@
   counter-reset: line;
 }
 
+/* Shiki separates block rows with newlines; do not render those as extra rows. */
+.session-code-preview code {
+  display: block;
+  font: inherit;
+  white-space: normal;
+}
 .session-code-preview .line {
   counter-increment: line;
   display: block;
-  min-height: 1.0875rem;
-  padding-inline-end: 1rem;
+  min-height: 1rem;
+  padding-inline: 2.75rem 0.5rem;
+  position: relative;
+  white-space: pre;
 }
 
 .session-code-preview .line::before {
   color: var(--ui-text-dimmed);
   content: counter(line);
-  display: inline-block;
+  position: absolute;
+  inset-inline-start: 0;
   padding-inline-end: 0.85rem;
   text-align: end;
   user-select: none;
-  width: 3.25rem;
+  width: 2.75rem;
+}
+
+.session-code-preview[data-wrap="true"]
+  :is(.session-code-preview__html, .shiki, .session-code-preview__plain) {
+  min-width: 0;
+}
+.session-code-preview[data-wrap="true"] .line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .session-code-preview .shiki span {
@@ -758,6 +813,10 @@
   min-height: 2.6rem;
   padding: 0;
   text-align: start;
+}
+
+.session-trace__row:last-child {
+  border-bottom: 0;
 }
 
 .session-trace__row:hover {
@@ -1058,9 +1117,9 @@
   align-items: center;
   background: var(--ui-bg);
   display: flex;
-  height: 3.25rem;
+  height: 2.5rem;
   justify-content: space-between;
-  min-height: 3.25rem;
+  min-height: 2.5rem;
   padding: 0 1.25rem;
   position: relative;
   z-index: 2;
@@ -1485,4 +1544,81 @@
   .session-inspector__breadcrumbs {
     padding-inline: 0.65rem;
   }
+}
+
+.session-inspector__file-status { display: flex; justify-content: space-between; gap: 0.5rem; flex-shrink: 0; border-top: 1px solid var(--ui-border); padding: 0.375rem 0.75rem; color: var(--ui-text-muted); font-size: 0.6875rem; }
+.session-code-preview[data-wrap="true"] pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-code-preview[data-wrap="true"] .line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.session-trace__fields, .session-trace__fields > section { min-width: 0; max-width: 100%; }
+.session-trace__fields > section > span { overflow-wrap: anywhere; }
+.session-trace__fields pre { min-width: 0; max-width: 100%; overflow-x: auto; }
+.session-trace__detail[data-wrap="true"] .session-trace__fields pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Shared compact Console session chrome. */
+.vitehub-console__search {
+  justify-content: flex-start !important;
+  border: 1px solid var(--ui-border) !important;
+  box-shadow: none !important;
+  padding-inline: 0.5rem !important;
+  font-size: 0.75rem !important;
+  min-height: 1.5rem !important;
+}
+.vitehub-console__search [data-slot="trailing"] {
+  display: none;
+}
+.vitehub-console__session-navbar button {
+  color: var(--ui-text-muted);
+}
+.vitehub-console__session-navbar button [data-slot$="Icon"] {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+.vh-invocation-list__item {
+  gap: 0.2rem;
+  min-height: 3rem;
+  padding: 0.45rem 0.625rem;
+}
+.vh-invocation-list__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.vh-invocation-list__state {
+  margin-left: auto;
+}
+.vh-invocation-list__channel {
+  width: 0.875rem;
+  height: 0.875rem;
+  opacity: 0.55;
+}
+.vh-invocation-list__channel svg {
+  width: 100%;
+  height: 100%;
+}
+
+.vh-invocation-activity[data-kind="delivery"] {
+  align-self: stretch !important;
+  margin-inline: 0 !important;
+  text-align: left !important;
+}
+.vh-invocation-activity[data-kind="delivery"] .vh-invocation-event {
+  margin-inline: 0 !important;
+}
+
+/* Neutral chrome in either theme; ViteHub's accent remains for focus and actions. */
+.session-inspector__tabs [data-slot="indicator"] {
+  display: none !important;
+}
+.session-inspector__tabs [data-slot="trigger"][data-state="active"] {
+  box-shadow: none !important;
+}
+.session-inspector__icon-button,
+.vitehub-console__search [data-slot="leadingIcon"] {
+  color: var(--ui-text-muted);
+}
+.vitehub-console .vh-invocation-list__item[aria-current="true"] {
+  box-shadow: none;
+}
+.vitehub-console .vh-invocation-thread__content {
+  padding-top: 0.75rem;
 }

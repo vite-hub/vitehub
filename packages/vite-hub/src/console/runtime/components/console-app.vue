@@ -24,9 +24,10 @@ import {
   resolveConsoleRouteName,
 } from "../console-route";
 import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
-import { rememberConsoleSection } from "../sections";
-import ConsoleBrand from "./console-brand.vue";
+import { useConsoleConnectionUnavailable } from "./console-connection";
+import { consoleSectionDetails, rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
+import ConsoleConnectionState from "./console-connection-state.vue";
 import ConsolePrimitiveSwitcher from "./console-primitive-switcher.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -62,8 +63,10 @@ const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
 const newChatAgentName = ref<string>();
 const selectedCapabilityId = ref<string>();
+const selectedTriggeredBy = ref<string>();
 const filterOpen = ref(false);
 const capabilityIds = ref<string[]>([]);
+const triggeredByValues = ref<string[]>([]);
 const capabilitiesLoading = ref(false);
 const capabilitiesError = ref<unknown>();
 const initialBootstrapPending = ref(!selectedAgentName.value);
@@ -77,12 +80,11 @@ interface ConsoleAgentProfile {
 const agentInvocationOptions = ref<Record<string, { profiles: ConsoleAgentProfile[] }>>({});
 const nowMs = ref(Date.now());
 const sessionsOpen = ref(false);
-const sessionsCollapsed = ref(false);
 const detailsOpen = ref(false);
 const detailsMaximized = ref(false);
-const inspectorTab = ref<"details" | "trace" | "workspace">("details");
-const inspectorActiveSurface = ref("view:details");
-const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace">>(["details"]);
+const inspectorTab = ref<"details" | "trace" | "workspace" | "capabilities">("details");
+const inspectorActiveSurface = ref("");
+const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace" | "capabilities">>([]);
 const inspectorOpenPaths = ref<string[]>([]);
 const inspectorSelectedPath = ref<string>();
 const inspectorWorkspaceIdentity = ref<string>();
@@ -115,11 +117,13 @@ const list = useAgentInvocations({
   request: requestConsole,
   requestSummaries: requestConsole,
   watch: false,
-  query: computed(() => ({
-    ...(selectedAgentName.value ? { agent: selectedAgentName.value } : {}),
-    ...(selectedCapabilityId.value ? { capability: selectedCapabilityId.value } : {}),
-    limit: 10,
-  })),
+  query: computed(() => {
+    const query: { agent?: string; capability?: string; limit: number; triggeredBy?: string } = { limit: 50 };
+    if (selectedAgentName.value) query.agent = selectedAgentName.value;
+    if (selectedCapabilityId.value) query.capability = selectedCapabilityId.value;
+    if (selectedTriggeredBy.value) query.triggeredBy = selectedTriggeredBy.value;
+    return query;
+  }),
 });
 const selectedSummary = computed(() =>
   list.invocations.value.find((invocation) => invocation.id === selectedInvocationId.value),
@@ -138,8 +142,11 @@ const selectedDetailStatus = ref<{
   status: AgentInvocationListItem["status"];
 }>();
 const selectedDetailError = ref<unknown>();
-const initialSessionLoading = computed(() =>
-  !selectedInvocationId.value && (agentsLoading.value || list.isLoading.value),
+const initialSessionLoading = computed(
+  () =>
+    !selectedInvocationId.value &&
+    !selectedAgentInvocation.value &&
+    (agentsLoading.value || list.isLoading.value),
 );
 const detailPollInterval = computed(() => {
   if (!sessionPollingEnabled.value || !selectedInvocationId.value) return false;
@@ -147,10 +154,7 @@ const detailPollInterval = computed(() => {
     return isRetryableConsoleRequestError(selectedDetailError.value) ? 3_000 : false;
   }
   const detailStatus = selectedDetailStatus.value;
-  const status =
-    detailStatus?.id === selectedInvocationId.value
-      ? detailStatus.status
-      : undefined;
+  const status = detailStatus?.id === selectedInvocationId.value ? detailStatus.status : undefined;
   return status === "completed" || status === "failed" || status === "cancelled" ? false : 3_000;
 });
 const detail = useAgentInvocation(selectedInvocationId, {
@@ -167,9 +171,15 @@ watch(
   { flush: "sync", immediate: true },
 );
 
+const connectionUnavailable = useConsoleConnectionUnavailable(() => ({
+  errors: [agentsError.value, list.error.value, detail.error.value],
+  pending: refreshing.value || agentsLoading.value || list.isLoading.value || detail.isLoading.value,
+}));
+
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
     agent: invocation.agentName,
+    channel: invocation.channelId ? invocation.origin || invocation.channelId : undefined,
     context:
       [invocationCostDisplay(invocation), agentInvocationContext(invocation)]
         .filter((value): value is string => Boolean(value))
@@ -200,15 +210,13 @@ const selectedAgentLabel = computed(
 );
 const agentMenuItems = computed<DropdownMenuItem[]>(() =>
   agentNames.value.map((name) => ({
-    icon: "i-ph-robot-light",
     label: name,
     onSelect: () => selectAgent(name),
     trailingIcon: selectedAgentName.value === name ? "i-ph-check-light" : undefined,
   })),
 );
-const capabilityFilterLabel = computed(() =>
-  selectedCapabilityId.value ? `Used ${selectedCapabilityId.value}` : "All capabilities",
-);
+const activeFilterCount = computed(() => Number(Boolean(selectedCapabilityId.value)) + Number(Boolean(selectedTriggeredBy.value)));
+const capabilityOptions = computed(() => capabilityIds.value.map(id => ({ label: capabilityLabel(id), value: id })));
 const routeInvocation = computed(() => {
   const value = route.params.invocation;
   return Array.isArray(value) ? value[0] : value;
@@ -238,6 +246,9 @@ const invocationView = computed<AgentInvocationView | undefined>(() => {
   return view;
 });
 const selectedDisplay = computed(() => invocationView.value ?? selectedSummary.value);
+const selectedRefreshable = computed(() =>
+  selectedDisplay.value?.status === "pending" || selectedDisplay.value?.status === "running",
+);
 const selectedCost = computed(() => invocationCostDisplay(selectedDisplay.value));
 const selectedTokens = computed(() => invocationTokenDisplay(selectedDisplay.value));
 const selectedTitle = computed(() =>
@@ -247,8 +258,8 @@ const selectedTitle = computed(() =>
 );
 const selectedProject = computed(() =>
   selectedDisplay.value
-    ? agentInvocationProject(selectedDisplay.value)
-    : selectedAgentName.value || "Agents",
+    ? selectedDisplay.value.agentName || selectedAgentName.value || ""
+    : selectedAgentName.value || "",
 );
 const selectedExternalUrl = computed(() =>
   selectedDisplay.value ? agentInvocationExternalUrl(selectedDisplay.value) : undefined,
@@ -292,18 +303,28 @@ async function loadCapabilityIds(): Promise<void> {
   capabilityIdsRequest = controller;
   capabilitiesLoading.value = true;
   try {
-    const value = record(await requestConsole(props.capabilitiesBase, {
-      query: selectedAgentName.value ? { agent: selectedAgentName.value } : undefined,
-      signal: controller.signal,
-    }));
+    const value = record(
+      await requestConsole(props.capabilitiesBase, {
+        query: selectedAgentName.value ? { agent: selectedAgentName.value } : undefined,
+        signal: controller.signal,
+      }),
+    );
     const ids = Array.isArray(value?.capabilities)
       ? value.capabilities.map(stringValue).filter((id): id is string => Boolean(id?.trim()))
       : [];
+    const people = Array.isArray(value?.triggeredBy)
+      ? value.triggeredBy.map(stringValue).filter((name): name is string => Boolean(name?.trim()))
+      : [];
     if (capabilityIdsRequest === controller) {
-      capabilityIds.value = [...new Set(ids.map(id => id.trim()))].sort();
+      capabilityIds.value = [...new Set(ids.map((id) => id.trim()))].sort();
+      triggeredByValues.value = [...new Set(people.map((name) => name.trim()))].sort((left, right) => left.localeCompare(right));
       capabilitiesError.value = undefined;
       if (selectedCapabilityId.value && !capabilityIds.value.includes(selectedCapabilityId.value)) {
         selectedCapabilityId.value = undefined;
+        scheduleInvocationListRefresh();
+      }
+      if (selectedTriggeredBy.value && !triggeredByValues.value.includes(selectedTriggeredBy.value)) {
+        selectedTriggeredBy.value = undefined;
         scheduleInvocationListRefresh();
       }
     }
@@ -327,6 +348,16 @@ function record(value: unknown): Record<string, unknown> | undefined {
 function stringValue(value: unknown): string | undefined {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Host responses are untrusted JSON, so validate strings at the capability boundary.
   return typeof value === "string" ? value : undefined;
+}
+
+function capabilityLabel(id: string): string {
+  const packageSuffix = id.match(/(?:^|_)s([a-z][a-z0-9-]*)$/i)?.[1];
+  const source = packageSuffix || id.split(/[/:]/).at(-1) || id;
+  return source
+    .replace(/^@/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b(api|github|mcp|ui)\b/gi, value => value.toLowerCase() === "github" ? "GitHub" : value.toUpperCase())
+    .replace(/(^|\s)\p{Ll}/gu, value => value.toUpperCase());
 }
 
 function numericValue(value: unknown): number | undefined {
@@ -422,17 +453,15 @@ async function selectAgent(name: string): Promise<void> {
   updateSelectedAgentName(name);
   selectedInvocationId.value = undefined;
   selectedCapabilityId.value = undefined;
+  selectedTriggeredBy.value = undefined;
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(name) },
   });
 }
 
-async function selectCapability(capabilityId?: string): Promise<void> {
-  if (selectedCapabilityId.value === capabilityId) return;
+async function applySessionFilters(): Promise<void> {
   newChatAgentName.value = undefined;
-  selectedCapabilityId.value = capabilityId;
-  filterOpen.value = false;
   selectedInvocationId.value = undefined;
   closeDetails();
   const transition = {
@@ -456,6 +485,30 @@ async function selectCapability(capabilityId?: string): Promise<void> {
       pendingCapabilityFilterRouteTransition = undefined;
     }
   }
+}
+
+function selectCapability(capabilityId?: string): void {
+  if (selectedCapabilityId.value === capabilityId) return;
+  selectedCapabilityId.value = capabilityId;
+  void applySessionFilters();
+}
+
+function selectTriggeredBy(triggeredBy?: string): void {
+  if (selectedTriggeredBy.value === triggeredBy) return;
+  selectedTriggeredBy.value = triggeredBy;
+  void applySessionFilters();
+}
+
+function resetSessionFilters(): void {
+  if (!activeFilterCount.value) return;
+  selectedCapabilityId.value = undefined;
+  selectedTriggeredBy.value = undefined;
+  void applySessionFilters();
+}
+
+function loadMoreSessions(): void {
+  if (!list.cursor.value || list.isLoadingMore.value || list.loadMoreError.value) return;
+  void list.loadMore();
 }
 
 async function toggleUsage(): Promise<void> {
@@ -567,22 +620,21 @@ async function refresh(): Promise<void> {
   }
 }
 
-function inspectSession(target: "agent" | "workspace"): void {
+function inspectSession(target: "agent" | "workspace", path?: string): void {
   const view = target === "agent" ? "details" : "workspace";
   inspectorTab.value = view;
   if (!inspectorOpenViews.value.includes(view)) {
     inspectorOpenViews.value = [...inspectorOpenViews.value, view];
   }
-  inspectorActiveSurface.value = `view:${view}`;
+  if (view === "workspace" && path) {
+    if (!inspectorOpenPaths.value.includes(path)) inspectorOpenPaths.value = [...inspectorOpenPaths.value, path];
+    inspectorSelectedPath.value = path;
+    inspectorActiveSurface.value = `file:${path}`;
+  } else {
+    inspectorSelectedPath.value = undefined;
+    inspectorActiveSurface.value = `view:${view}`;
+  }
   detailsOpen.value = true;
-}
-
-function statusIcon(status: AgentInvocationListItem["status"]): string {
-  if (status === "running") return "i-ph-circle-notch-light";
-  if (status === "completed") return "i-ph-check-light";
-  if (status === "failed") return "i-ph-x-light";
-  if (status === "cancelled") return "i-ph-prohibit-light";
-  return "i-ph-clock-light";
 }
 
 function updateDesktop(event?: MediaQueryListEvent): void {
@@ -608,13 +660,7 @@ function updatePageVisibility(): void {
 }
 
 watch(
-  [
-    routeInvocation,
-    routeAgent,
-    () => list.invocations.value[0],
-    selectedAgentName,
-    isUsageRoute,
-  ],
+  [routeInvocation, routeAgent, () => list.invocations.value[0], selectedAgentName, isUsageRoute],
   async (
     [requestedInvocation, requestedAgent, firstInvocation, agentName, usageRoute],
     previous,
@@ -628,16 +674,19 @@ watch(
     if (requestedInvocation) newChatAgentName.value = undefined;
     const routeChanged =
       !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
-    const preserveCapabilityFilter = routeChanged && isCapabilityFilterRouteTransition(
-      pendingCapabilityFilterRouteTransition,
-      { agent: requestedAgent, invocation: requestedInvocation },
-    );
+    const preserveCapabilityFilter =
+      routeChanged &&
+      (requestedAgent === agentName || isCapabilityFilterRouteTransition(pendingCapabilityFilterRouteTransition, {
+          agent: requestedAgent,
+          invocation: requestedInvocation,
+        }));
     if (routeChanged) pendingCapabilityFilterRouteTransition = undefined;
     const filterReset = resetCapabilityFilterForRouteTransition({
       preserve: preserveCapabilityFilter,
       routeChanged,
       scheduleRefresh: scheduleInvocationListRefresh,
       selectedCapabilityId,
+      selectedTriggeredBy,
     });
     const availableFirstInvocation = filterReset ? undefined : firstInvocation;
     if (requestedInvocation || requestedAgent) {
@@ -673,7 +722,10 @@ watch(
     if (!requestedInvocation && availableFirstInvocation?.id && agentName && agentRouteReady) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
-        params: { agent: encodeAgentRouteParam(agentName), invocation: availableFirstInvocation.id },
+        params: {
+          agent: encodeAgentRouteParam(agentName),
+          invocation: availableFirstInvocation.id,
+        },
       });
     }
   },
@@ -704,18 +756,15 @@ watch(
   { immediate: true },
 );
 
-watch(
-  [() => list.isLoading.value, () => list.error.value],
-  ([loading, error]) => {
-    if (
-      initialBootstrapPending.value &&
-      !loading &&
-      (Boolean(error) || list.invocations.value.length === 0)
-    ) {
-      initialBootstrapPending.value = false;
-    }
-  },
-);
+watch([() => list.isLoading.value, () => list.error.value], ([loading, error]) => {
+  if (
+    initialBootstrapPending.value &&
+    !loading &&
+    (Boolean(error) || list.invocations.value.length === 0)
+  ) {
+    initialBootstrapPending.value = false;
+  }
+});
 
 watch(
   [selectedAgentName, () => detail.invocation.value, isUsageRoute],
@@ -770,9 +819,13 @@ watch(
   { immediate: true },
 );
 
-watch(selectedAgentName, () => {
-  void loadCapabilityIds();
-}, { immediate: true });
+watch(
+  selectedAgentName,
+  () => {
+    void loadCapabilityIds();
+  },
+  { immediate: true },
+);
 
 watch(filterOpen, (open) => {
   if (open) void loadCapabilityIds();
@@ -783,7 +836,6 @@ if (pageVisible.value) void loadAgents();
 onMounted(() => {
   media = window.matchMedia("(min-width: 981px)");
   updateDesktop();
-  detailsOpen.value = isDesktop.value;
   media.addEventListener("change", updateDesktop);
   document.addEventListener("visibilitychange", updatePageVisibility);
   updatePageVisibility();
@@ -805,52 +857,46 @@ onBeforeUnmount(() => {
       id="agent-sessions"
       class="vitehub-console__sessions"
       v-model:open="sessionsOpen"
-      v-model:collapsed="sessionsCollapsed"
       :default-size="16"
-      :collapsed-size="3"
       :min-size="13"
       :max-size="26"
       :menu="{ title: 'Agent sessions', description: 'Browse read-only Agent Invocations.' }"
       :ui="{
         root: 'md:flex',
+        header: 'p-0',
         body: 'gap-0 overflow-hidden p-0',
         footer: 'px-2 py-1',
         content: 'md:hidden',
         overlay: 'md:hidden',
       }"
-      collapsible
       resizable
     >
-      <template #header="{ collapsed }">
-        <ConsoleBrand :collapsed="collapsed" :sections-base="sectionsBase" />
-      </template>
-
-      <template #default="{ collapsed }">
-        <div v-if="hasMultipleAgents" class="px-2 pb-2 pt-1">
+      <template #header>
+        <div class="flex min-w-0 items-center gap-2 px-[0.875rem]">
+          <ConsoleMark class="size-4" />
+          <span class="shrink-0 text-xs font-medium text-muted">ViteHub Agent</span>
           <UDropdownMenu
+            v-if="hasMultipleAgents"
             :items="agentMenuItems"
             :content="{ align: 'start', collisionPadding: 12 }"
-            :ui="{ content: collapsed ? 'w-44' : 'w-(--reka-dropdown-menu-trigger-width)' }"
+            :ui="{ content: 'w-(--reka-dropdown-menu-trigger-width)' }"
           >
             <UButton
-              block
-              class="justify-start"
+              class="min-w-0 justify-start rounded-md border border-default px-1.5 hover:bg-elevated"
               color="neutral"
-              icon="i-ph-robot-light"
-              :label="collapsed ? undefined : selectedAgentLabel"
-              :trailing-icon="
-                !collapsed && hasMultipleAgents ? 'i-ph-caret-up-down-light' : undefined
-              "
+              :label="selectedAgentLabel"
+              trailing-icon="i-ph-caret-down-light"
+              size="xs"
               variant="ghost"
-              :aria-label="
-                hasMultipleAgents
-                  ? `Switch Agent. ${selectedAgentLabel} selected.`
-                  : selectedAgentLabel
-              "
+              :aria-label="`Switch Agent. ${selectedAgentLabel} selected.`"
             />
           </UDropdownMenu>
+          <span v-else class="min-w-0 truncate text-xs text-default">{{ selectedAgentLabel }}</span>
         </div>
-        <div v-if="!collapsed && errorMessage(agentsError)" class="px-3 pb-3">
+      </template>
+
+      <template #default>
+        <div v-if="!connectionUnavailable && errorMessage(agentsError)" class="px-3 pb-3">
           <UAlert
             color="error"
             variant="subtle"
@@ -862,96 +908,105 @@ onBeforeUnmount(() => {
             ]"
           />
         </div>
-        <div class="flex shrink-0 items-center gap-1 px-2 pb-2 pt-1">
+        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
           <UDashboardSearchButton
-            :collapsed="collapsed"
             block
-            class="vitehub-console__search min-w-0 flex-1 bg-transparent ring-0 hover:bg-elevated/60"
+            class="vitehub-console__search min-w-0 flex-1 rounded-md bg-transparent px-2 ring-0 hover:bg-elevated/60"
             label="Search console"
             :ui="{ trailing: 'vitehub-console__search-shortcut' }"
           />
-          <UTooltip v-if="!collapsed && newChatTargetName" text="New chat">
+          <UTooltip v-if="newChatTargetName" text="New chat">
             <UButton
               aria-label="New chat"
               color="neutral"
-              icon="i-lucide-square-pen"
+              icon="i-ph-note-pencil-light"
+              size="xs"
               square
               variant="ghost"
               @click="startNewChat"
             />
           </UTooltip>
           <UPopover
-            v-if="!collapsed"
             v-model:open="filterOpen"
             :content="{ align: 'start', collisionPadding: 12 }"
-            :ui="{ content: 'w-64 p-2' }"
+            :ui="{ content: 'w-80 max-w-[calc(100vw-1.5rem)] p-3' }"
           >
             <UButton
               aria-label="Filter sessions"
-              :color="selectedCapabilityId ? 'primary' : 'neutral'"
+              :color="activeFilterCount ? 'primary' : 'neutral'"
               icon="i-ph-funnel-light"
+              size="xs"
               square
-              :variant="selectedCapabilityId ? 'soft' : 'ghost'"
+              :variant="activeFilterCount ? 'soft' : 'ghost'"
             />
             <template #content>
-              <div class="grid gap-1">
-                <div class="flex items-center justify-between gap-3 px-2 py-1">
+              <div class="grid gap-3">
+                <div class="flex items-start justify-between gap-3">
                   <div>
                     <p class="text-sm font-medium">Filter sessions</p>
-                    <p class="text-xs text-muted">Capability actually used</p>
                   </div>
-                  <UBadge v-if="selectedCapabilityId" color="primary" size="sm" variant="subtle">1</UBadge>
+                  <UBadge v-if="activeFilterCount" color="primary" size="sm" variant="subtle">{{ activeFilterCount }}</UBadge>
                 </div>
-                <UButton
-                  block
-                  class="justify-start"
-                  color="neutral"
-                  label="All capabilities"
-                  :trailing-icon="!selectedCapabilityId ? 'i-ph-check-light' : undefined"
-                  variant="ghost"
-                  @click="selectCapability()"
-                />
-                <USeparator />
                 <div
                   v-if="capabilitiesLoading"
-                  class="grid gap-2 px-2 py-2"
-                  aria-label="Loading capabilities"
+                  class="grid gap-2 py-1"
+                  aria-label="Loading session filters"
                   role="status"
                 >
-                  <USkeleton v-for="index in 3" :key="index" class="h-7 rounded" />
+                  <USkeleton v-for="index in 2" :key="index" class="h-8 rounded" />
                 </div>
-                <p v-else-if="errorMessage(capabilitiesError)" class="px-2 py-2 text-xs text-error">
+                <p v-else-if="errorMessage(capabilitiesError)" class="py-1 text-xs text-error">
                   {{ errorMessage(capabilitiesError) }}
                 </p>
-                <p v-else-if="!capabilityIds.length" class="px-2 py-2 text-xs text-muted">
-                  No capability use recorded yet.
-                </p>
                 <template v-else>
-                  <UButton
-                    v-for="capabilityId in capabilityIds"
-                    :key="capabilityId"
-                    block
-                    class="justify-start font-mono"
-                    color="neutral"
-                    :label="capabilityId"
-                    :trailing-icon="selectedCapabilityId === capabilityId ? 'i-ph-check-light' : undefined"
-                    variant="ghost"
-                    @click="selectCapability(capabilityId)"
-                  />
+                  <label class="grid gap-1.5 text-xs font-medium">
+                    <span>Used capability</span>
+                    <USelectMenu
+                      aria-label="Used capability"
+                      :model-value="selectedCapabilityId"
+                      :items="capabilityOptions"
+                      value-key="value"
+                      label-key="label"
+                      placeholder="Any capability"
+                      :search-input="{ placeholder: 'Search capabilities…' }"
+                      clear
+                      size="sm"
+                      @update:model-value="selectCapability"
+                    />
+                  </label>
+                  <label class="grid gap-1.5 text-xs font-medium">
+                    <span>Triggered by</span>
+                    <USelectMenu
+                      aria-label="Triggered by"
+                      :model-value="selectedTriggeredBy"
+                      :items="triggeredByValues"
+                      placeholder="Anyone"
+                      :search-input="{ placeholder: 'Search people…' }"
+                      clear
+                      size="sm"
+                      @update:model-value="selectTriggeredBy"
+                    />
+                  </label>
+                  <p v-if="!capabilityIds.length && !triggeredByValues.length" class="text-xs text-muted">
+                    No filter values recorded yet.
+                  </p>
                 </template>
-                <p
-                  v-if="selectedCapabilityId"
-                  class="truncate px-2 pt-1 text-xs text-muted"
-                  :title="capabilityFilterLabel"
-                >
-                  {{ capabilityFilterLabel }}
-                </p>
+                <div class="flex justify-end border-t border-default pt-2">
+                  <UButton
+                    color="neutral"
+                    label="Reset"
+                    size="xs"
+                    variant="ghost"
+                    :disabled="!activeFilterCount"
+                    @click="resetSessionFilters"
+                  />
+                </div>
               </div>
             </template>
           </UPopover>
         </div>
         <div
-          v-if="!collapsed && errorMessage(list.error.value || list.loadMoreError.value)"
+          v-if="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
           class="px-3"
         >
           <UAlert
@@ -959,10 +1014,16 @@ onBeforeUnmount(() => {
             variant="subtle"
             icon="i-ph-cloud-slash-light"
             title="Could not load sessions"
-            :description="errorMessage(list.error.value || list.loadMoreError.value)"
+            :description="errorMessage((!connectionUnavailable && list.error.value) || list.loadMoreError.value)"
             :actions="
-              list.error.value
-                ? [{ label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: list.refresh }]
+              !connectionUnavailable && list.error.value
+                ? [
+                    {
+                      label: 'Try again',
+                      icon: 'i-ph-arrows-clockwise-light',
+                      onClick: list.refresh,
+                    },
+                  ]
                 : undefined
             "
           />
@@ -978,16 +1039,12 @@ onBeforeUnmount(() => {
           />
         </div>
         <div
-          v-if="
-            !collapsed && (agentsLoading || list.isLoading.value) && !invocationItems.length
-          "
+          v-if="!connectionUnavailable && (agentsLoading || list.isLoading.value) && !invocationItems.length"
           class="grid gap-1 px-2"
           aria-label="Loading sessions"
           role="status"
         >
           <div
-            v-for="index in 6"
-            :key="index"
             class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 gap-y-2 rounded-md px-2 py-2.5"
           >
             <USkeleton class="mt-0.5 size-4 rounded" />
@@ -996,30 +1053,13 @@ onBeforeUnmount(() => {
                 <USkeleton class="h-3 w-16 rounded" />
                 <USkeleton class="h-3 w-14 rounded" />
               </div>
-              <USkeleton class="h-4 rounded" :class="index % 3 === 0 ? 'w-3/4' : 'w-full'" />
+              <USkeleton class="h-4 w-full rounded" />
               <USkeleton class="h-3 w-2/3 rounded" />
             </div>
           </div>
         </div>
-        <div v-if="collapsed" class="min-h-0 flex-1 overflow-y-auto">
-          <div class="grid gap-1 px-2 py-1">
-            <UTooltip
-              v-for="invocation in invocationItems"
-              :key="invocation.id"
-              :text="invocation.title"
-              :content="{ side: 'right' }"
-              ><UButton
-                :icon="statusIcon(invocation.status)"
-                :color="invocation.status === 'failed' ? 'error' : 'neutral'"
-                :variant="selectedInvocationId === invocation.id ? 'soft' : 'ghost'"
-                block
-                :aria-label="invocation.title"
-                @click="selectInvocation(invocation)"
-            /></UTooltip>
-          </div>
-        </div>
         <AgentInvocationList
-          v-else-if="
+          v-if="
             (!list.isLoading.value || invocationItems.length) &&
             (!errorMessage(list.error.value) || invocationItems.length)
           "
@@ -1031,6 +1071,7 @@ onBeforeUnmount(() => {
           :remaining-statuses="list.remainingStatuses.value"
           :now="nowMs"
           :selected-id="selectedInvocationId"
+          @end-reached="loadMoreSessions"
           @select="selectInvocation($event)"
         >
           <template #loading />
@@ -1042,7 +1083,7 @@ onBeforeUnmount(() => {
                 size="xs"
                 variant="soft"
                 :loading="list.isLoadingMore.value"
-                @click="list.loadMore()"
+                @click="loadMoreSessions"
               />
             </div>
           </template>
@@ -1050,44 +1091,44 @@ onBeforeUnmount(() => {
             ><UEmpty
               class="px-4"
               icon="i-ph-chat-dots-light"
-              title="No sessions yet"
-              description="The first Agent Invocation will appear here."
+              :title="activeFilterCount ? 'No matching sessions' : 'No sessions yet'"
+              :description="activeFilterCount ? undefined : 'The first Agent Invocation will appear here.'"
+              :actions="activeFilterCount ? [{ label: 'Clear filters', onClick: resetSessionFilters }] : undefined"
           /></template>
         </AgentInvocationList>
       </template>
 
-      <template #footer="{ collapsed, collapse }">
-        <div class="flex min-w-0 items-center gap-1" :class="collapsed ? 'justify-center' : ''">
-          <ConsolePrimitiveSwitcher
-            :active="isUsageRoute ? 'usage' : 'agents'"
-            :collapsed="collapsed"
-            :exclude="['usage']"
-            :sections-base="sectionsBase"
+      <template #footer>
+        <div class="grid min-w-0 gap-1">
+          <UButton
+            v-if="isUsageRoute"
+            block
+            class="justify-start"
+            icon="i-lucide-arrow-left"
+            label="Back"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            aria-label="Back to sessions"
+            @click="toggleUsage"
           />
-          <UTooltip :text="isUsageRoute ? 'Back to sessions' : 'Usage'">
-            <UButton
-              :block="!collapsed"
-              :class="collapsed ? '' : 'min-w-0 flex-1 justify-start'"
-              :icon="isUsageRoute ? 'i-lucide-arrow-left' : 'i-lucide-chart-no-axes-column'"
-              :label="collapsed ? undefined : isUsageRoute ? 'Sessions' : 'Usage'"
-              color="neutral"
-              :variant="isUsageRoute ? 'soft' : 'ghost'"
-              size="xs"
-              :aria-label="isUsageRoute ? 'Back to sessions' : 'Usage'"
-              @click="toggleUsage"
+          <div class="flex min-w-0 items-center gap-0.5">
+            <ConsolePrimitiveSwitcher
+              :active="isUsageRoute ? 'usage' : 'agents'"
+              :exclude="['usage']"
+              :sections-base="sectionsBase"
             />
-          </UTooltip>
-          <UTooltip :text="collapsed ? 'Show sessions' : 'Hide sessions'">
-            <UButton
-              class="ml-auto max-md:hidden"
-              icon="i-ph-sidebar-simple-light"
-              color="neutral"
-              variant="ghost"
-              size="xs"
-              :aria-label="collapsed ? 'Show sessions' : 'Hide sessions'"
-              @click="collapse(!collapsed)"
-            />
-          </UTooltip>
+            <UTooltip v-if="!isUsageRoute" text="Usage">
+              <UButton
+                :icon="consoleSectionDetails.usage.icon"
+                color="neutral"
+                variant="ghost"
+                size="xs"
+                aria-label="Open Usage"
+                @click="toggleUsage"
+              />
+            </UTooltip>
+          </div>
         </div>
       </template>
     </UDashboardSidebar>
@@ -1110,16 +1151,24 @@ onBeforeUnmount(() => {
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
       <template #body>
-        <div class="h-full min-h-0 overflow-hidden" aria-live="polite">
+        <div class="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-live="polite">
+          <ConsoleConnectionState
+            v-if="connectionUnavailable"
+            :compact="Boolean(invocationView)"
+            :retrying="refreshing"
+            @retry="refresh"
+            @open-sessions="sessionsOpen = true"
+          />
+          <div v-if="!connectionUnavailable || invocationView" class="min-h-0 w-full flex-1 overflow-hidden">
           <div
             v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"
             class="h-full min-h-0 overflow-hidden"
           >
             <ConsoleSessionInspector
+                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
               v-if="invocationView"
               :invocation="invocationView"
               :maximized="true"
-              :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
               v-model:tab="inspectorTab"
               v-model:active-surface="inspectorActiveSurface"
               v-model:open-views="inspectorOpenViews"
@@ -1150,7 +1199,7 @@ onBeforeUnmount(() => {
             />
           </div>
           <USplitter
-            v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"
+            v-else-if="isDesktop && detailsOpen && selectedInvocationId"
             id="agent-session-layout"
             auto-save-id="vitehub-agent-session-layout-v2"
             :items="splitterItems"
@@ -1165,7 +1214,8 @@ onBeforeUnmount(() => {
                   :has-display="Boolean(selectedDisplay)"
                   :has-selection="Boolean(selectedInvocationId)"
                   :loading="refreshing"
-                  :project="selectedProject"
+                  :refreshable="selectedRefreshable"
+                  :project="hasMultipleAgents ? selectedProject : ''"
                   :title="selectedTitle"
                   :tokens="selectedTokens"
                   @open-sessions="sessionsOpen = true"
@@ -1173,7 +1223,7 @@ onBeforeUnmount(() => {
                   @toggle-details="detailsOpen = !detailsOpen"
                 />
                 <UAlert
-                  v-if="invocationView && errorMessage(detail.error.value)"
+                  v-if="!connectionUnavailable && invocationView && errorMessage(detail.error.value)"
                   class="m-3 shrink-0"
                   color="error"
                   variant="subtle"
@@ -1211,9 +1261,9 @@ onBeforeUnmount(() => {
             </template>
             <template #details>
               <ConsoleSessionInspector
+                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                 v-if="invocationView"
                 :invocation="invocationView"
-                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                 v-model:tab="inspectorTab"
                 v-model:active-surface="inspectorActiveSurface"
                 v-model:open-views="inspectorOpenViews"
@@ -1256,21 +1306,16 @@ onBeforeUnmount(() => {
               :has-display="Boolean(selectedDisplay)"
               :has-selection="Boolean(selectedInvocationId)"
               :loading="refreshing"
-              :project="selectedProject"
+              :refreshable="selectedRefreshable"
+              :project="hasMultipleAgents ? selectedProject : ''"
               :title="selectedTitle"
               :tokens="selectedTokens"
               @open-sessions="sessionsOpen = true"
               @refresh="refresh"
               @toggle-details="detailsOpen = !detailsOpen"
             />
-            <ConsoleSessionLoading
-              v-if="initialSessionLoading"
-              class="min-h-0 flex-1"
-            />
-            <div
-              v-else-if="!selectedInvocationId"
-              class="min-h-0 flex-1"
-            />
+            <ConsoleSessionLoading v-if="initialSessionLoading" class="min-h-0 flex-1" />
+            <div v-else-if="!selectedInvocationId" class="min-h-0 flex-1" />
             <UEmpty
               v-else-if="errorMessage(detail.error.value) && !invocationView"
               class="min-h-0 flex-1"
@@ -1287,7 +1332,7 @@ onBeforeUnmount(() => {
             />
             <div v-else-if="invocationView" class="flex min-h-0 flex-1 flex-col">
               <UAlert
-                v-if="errorMessage(detail.error.value)"
+                v-if="!connectionUnavailable && errorMessage(detail.error.value)"
                 class="m-3 shrink-0"
                 color="error"
                 variant="subtle"
@@ -1323,9 +1368,9 @@ onBeforeUnmount(() => {
             >
               <template #content>
                 <ConsoleSessionInspector
+                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                   :invocation="invocationView"
                   :maximizable="false"
-                  :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
                   v-model:tab="inspectorTab"
                   v-model:active-surface="inspectorActiveSurface"
                   v-model:open-views="inspectorOpenViews"
@@ -1338,6 +1383,7 @@ onBeforeUnmount(() => {
               </template>
             </USlideover>
           </div>
+          </div>
         </div>
       </template>
     </UDashboardPanel>
@@ -1346,7 +1392,7 @@ onBeforeUnmount(() => {
 
 <style>
 .vitehub-console {
-  --ui-header-height: 3.25rem;
+  --ui-header-height: 2.5rem;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -1380,7 +1426,7 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__search {
-  border: 1px solid var(--ui-border);
+  border: 0;
 }
 
 .vitehub-console__search-shortcut {
@@ -1388,11 +1434,12 @@ onBeforeUnmount(() => {
 }
 
 .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
-  background: #fff;
+  background: var(--ui-bg-accented);
+  box-shadow: none;
 }
 
 .dark .vitehub-console__sessions .vh-invocation-list__item[aria-current="true"] {
-  background: var(--ui-bg-elevated);
+  background: var(--ui-bg-accented);
 }
 
 .vitehub-console__session-panel > [data-slot="body"] {
@@ -1402,8 +1449,8 @@ onBeforeUnmount(() => {
 
 .vitehub-console__session-navbar {
   background: var(--ui-bg) !important;
-  height: 3.25rem !important;
-  min-height: 3.25rem !important;
+  height: 2.5rem !important;
+  min-height: 2.5rem !important;
   overflow: visible !important;
   padding: 0 1.25rem !important;
   position: relative;

@@ -1,7 +1,14 @@
 import { defineDiagnostics, Diagnostic } from "nostics"
+import * as v from "valibot"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
+const providerErrorEnvelopeSchema = v.object({
+  error: v.object({ message: v.string() }),
+})
+
 const agentTypeDiagnosticCodes = new Set([
+  "AGENT_R0923",
+  "AGENT_R0922",
   "AGENT_R0921",
   "AGENT_R0920",
   "AGENT_R0919",
@@ -448,7 +455,7 @@ const dynamicError = {
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
 export const agentDiagnostics = defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
+  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors",
   codes: {
     AGENT_R0907: dynamicError,
     AGENT_R0908: dynamicError,
@@ -465,6 +472,11 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0919: dynamicError,
     AGENT_R0920: dynamicError,
     AGENT_R0921: dynamicError,
+    AGENT_R0922: dynamicError,
+    AGENT_R0923: {
+      why: ({ names }: { names: string[] }) => `[vitehub] A tool transform removed MCP tools and introduced ${names.map(name => JSON.stringify(name)).join(", ")} without MCP provenance.`,
+      fix: "Preserve metadata.mcpServer and metadata.originalName when renaming MCP tools. Use context.tools.add() to contribute unrelated tools and a transform to remove MCP tools.",
+    },
     AGENT_R0905: dynamicError,
     AGENT_R0906: dynamicError,
     AGENT_R0903: dynamicError,
@@ -1205,7 +1217,24 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0723: dynamicError,
     AGENT_R0724: dynamicError,
     AGENT_R0725: dynamicError,
-    AGENT_R0726: dynamicError,
+    AGENT_R0726: {
+      why: ({ message }: { message?: unknown }) => {
+        const reason = String(message ?? "");
+        try {
+          const payload = v.safeParse(providerErrorEnvelopeSchema, JSON.parse(reason));
+          if (payload.success) return payload.output.error.message;
+        } catch {}
+        return reason;
+      },
+      fix: ({ message }: { message?: unknown }) => {
+        const reason = String(message ?? "");
+        if (/requires a newer version of Codex/i.test(reason)) return "Upgrade the Codex CLI in the Agent runner and redeploy it, then start a new run.";
+        if (/spend.?cap|spend(ing)? limit|budget.*exceed/i.test(reason)) return "Raise the provider workspace spending limit or wait for its billing reset, then start a new run.";
+        if (/rate.?limit|too many requests|quota.*exhaust/i.test(reason)) return "Wait for the provider quota to reset, then retry. Reduce concurrent runs if this keeps happening.";
+        if (/unauthori[sz]ed|authentication|signed out|invalid.api.key/i.test(reason)) return "Sign in again or update the provider credential, then retry.";
+        return "Check the provider diagnostic details and service status before retrying.";
+      },
+    },
     AGENT_R0727: dynamicError,
     AGENT_R0728: dynamicError,
     AGENT_R0729: dynamicError,

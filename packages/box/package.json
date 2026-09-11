@@ -27,6 +27,7 @@
     ".": "./dist/index.js",
     "./_internal/cloudflare": "./dist/internal/cloudflare.js",
     "./_internal/vercel": "./dist/internal/vercel.js",
+    "./ssh": "./dist/ssh.js",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -49,7 +50,8 @@
     "ssh2": "^1.17.0",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "@types/ssh2": "^1.15.5"
   },
   "peerDependencies": {
     "@asciidev/box-sdk": "^0.0.34",

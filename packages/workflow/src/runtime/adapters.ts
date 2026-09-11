@@ -1,3 +1,4 @@
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
@@ -34,6 +35,13 @@ interface WorkflowRuntimeAdapter {
   get(context: GetWorkflowAdapterContext): Promise<WorkflowRun<unknown, unknown>>
   resume<TPayload = unknown>(token: string, payload: TPayload): Promise<WorkflowSignalResult>
   run<TPayload = unknown, TResult = unknown>(context: RunWorkflowAdapterContext<TPayload, TResult>): Promise<WorkflowRun<TPayload, TResult>>
+}
+
+function resolveDispatchObserver(event: unknown): (() => void) | undefined {
+  if (!event || !hasRuntimeType(event, "object")) return undefined
+  const candidate = "onDispatch" in event ? event.onDispatch : undefined
+  // SAFETY: The runtime event member is callable and takes no provider data.
+  return hasRuntimeType(candidate, "function") ? candidate as () => void : undefined
 }
 
 function resolveSettlementObserver(event: unknown): ((promise: PromiseLike<unknown>) => void) | undefined {
@@ -107,6 +115,9 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
           id,
           metadata,
           provider: "cloudflare",
+          result: metadata && hasRuntimeType(metadata, "object") && "output" in metadata && isSerializedResponse(metadata.output)
+            ? deserializeResponse(metadata.output)
+            : undefined,
           status: normalizeCloudflareStatus(metadata),
         }
       }
@@ -116,6 +127,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     async run({ definition, event, id, name, options, payload }) {
       const binding = resolveCloudflareBinding(event, config.binding, name, definition)
       if (binding) {
+        resolveDispatchObserver(event)?.()
         const start = () => runWorkflowProviderOperation(
           "cloudflare",
           "create",
@@ -155,7 +167,7 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
     cancel: () => unsupportedOperation("openworkflow", "cancellation"),
     get: async ({ id, name }) => await getOpenWorkflowRun(config, name, id),
     resume: () => unsupportedOperation("openworkflow", "signals"),
-    run: async ({ definition, name, options, payload }) => await runOpenWorkflow(config, name, payload, definition, options),
+    run: async ({ definition, event, name, options, payload }) => await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event)),
   }
 }
 
@@ -187,6 +199,7 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
       }
     },
     async run({ definition, event, id, name, payload }) {
+      resolveDispatchObserver(event)?.()
       const run = Promise.resolve()
         .then(() => runWorkflowHandler({
           id,
@@ -244,7 +257,7 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
           details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
         })
       }
-      return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event))
+      return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event))
     },
   }
 }

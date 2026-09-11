@@ -65,6 +65,7 @@ const providerStatusSchema = v.object({
     v.object({
       agent: v.string(),
       provider: v.optional(v.string()),
+      account: v.optional(v.object({ id: v.string(), kind: v.picklist(["credential", "account"]) })),
       readiness: v.picklist(["ready", "unavailable", "unknown", "unsupported"]),
       checkedAt: v.string(),
       stale: v.boolean(),
@@ -126,6 +127,8 @@ const window = computed<UsageWindow>({
 });
 const metric = ref<UsageMetric>("cost");
 const breakdown = ref<UsageBreakdown>("model");
+const section = ref("overview");
+const sections = [{ label: "Overview", value: "overview" }, { label: "Sessions", value: "sessions" }, { label: "Accounts", value: "accounts" }];
 const summary = ref<UsageSummary>();
 const loading = ref(true);
 const error = ref<unknown>();
@@ -159,6 +162,17 @@ const statusOptions = [
 const statusIcons = { completed: "i-lucide-check", failed: "i-lucide-x", cancelled: "i-lucide-ban" };
 const statusLabels = { completed: "Completed", failed: "Failed", cancelled: "Cancelled" };
 const statuses = ref<v.InferOutput<typeof providerStatusSchema>["agents"]>([]);
+const accounts = computed(() => {
+  const groups = new Map<string, (typeof statuses.value)[number] & { agents: string[] }>();
+  for (const status of statuses.value) {
+    const id = status.account ? `${status.provider}:${status.account.id}` : `agent:${status.agent}`;
+    const previous = groups.get(id);
+    // A failing or stale sample must not be hidden by another agent's ready sample.
+    const current = !previous || status.readiness === "unavailable" || (status.readiness === previous.readiness && status.checkedAt > previous.checkedAt) ? status : previous;
+    groups.set(id, { ...current, agents: [...(previous?.agents || []), status.agent] });
+  }
+  return [...groups.values()].filter(status => !agent.value || status.agents.includes(agent.value));
+});
 const statusError = ref<string>();
 const runCursor = ref<string>();
 const previousCursors = ref<Array<string | undefined>>([]);
@@ -428,7 +442,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
       </UDashboardNavbar>
     </template>
     <template #body>
-      <main class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6" :aria-busy="loading">
+      <main class="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-5 sm:px-6" :aria-busy="loading">
         <div class="flex flex-wrap items-center gap-2" role="search" aria-label="Session history filters">
           <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search session history" class="min-w-40 flex-1 sm:max-w-80" size="sm" />
           <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
@@ -448,13 +462,14 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           </dl>
         </template>
         <p v-else-if="loading" class="py-5 text-sm text-muted" role="status">Loading session history...</p>
-        <section v-if="summary" aria-labelledby="session-history-heading">
+        <UTabs v-model="section" :items="sections" :content="false" size="sm" class="w-fit" aria-label="Usage sections" />
+        <section v-if="summary && section === 'sessions'" aria-labelledby="session-history-heading">
           <div class="mb-3 flex items-baseline justify-between gap-3">
             <h2 id="session-history-heading" class="text-sm font-semibold">Session history</h2>
             <span class="text-xs text-muted">Newest first</span>
           </div>
-          <div class="overflow-x-auto">
-            <table class="w-full min-w-[42rem] table-fixed text-sm" data-slot="session-history">
+          <div v-if="summary.sessions.length" class="overflow-x-auto">
+            <table class="w-full min-w-[42rem] table-fixed text-xs" data-slot="session-history">
               <thead class="border-b border-default text-left text-xs text-muted">
                 <tr>
                   <th class="w-[34%] py-2 pr-4 font-medium" scope="col">Session</th>
@@ -467,20 +482,21 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               </thead>
               <tbody>
                 <tr v-for="session in summary.sessions" :key="session.id" class="border-b border-default/50 hover:bg-elevated/40">
-                  <td class="py-3 pr-4 align-top">
+                  <td class="py-2 pr-3 align-top">
                     <RouterLink v-if="runRoute(session)" :to="runRoute(session)!" class="block truncate font-medium text-highlighted underline-offset-4 hover:underline focus-visible:underline" :title="session.title || session.id">{{ session.title || session.id }}</RouterLink>
                     <span v-else class="block truncate" :title="session.title || session.id">{{ session.title || session.id }}</span>
                   </td>
-                  <td class="py-3 pr-4 align-top"><span class="block truncate" :title="session.agent">{{ session.agent || 'Unknown agent' }}</span><span class="block truncate text-xs text-muted" :title="session.models.join(', ')">{{ session.models.length ? session.models.join(', ') : 'Model unavailable' }}</span></td>
-                  <td class="py-3 pr-4 align-top text-xs text-muted"><time :datetime="session.at" :title="new Date(session.at).toLocaleString()">{{ formatPeriod(session.at, 'hour') }}</time></td>
-                  <td class="py-3 pr-4 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-error' : 'text-muted'"><UIcon :name="statusIcons[session.status]" class="size-3.5 shrink-0" />{{ statusLabels[session.status] }}</span></td>
-                  <td class="py-3 pl-2 text-right align-top text-xs tabular-nums" :class="session.totals.totalTokensAvailable ? 'text-highlighted' : 'text-muted'">{{ formatTokenEvidence(session.totals.totalTokens, session.totals.totalTokensAvailable) }}</td>
-                  <td v-if="costSupported" class="py-3 pl-4 text-right align-top text-xs font-medium tabular-nums" :class="session.totals.costAvailable ? 'text-highlighted' : 'text-muted'">{{ formatCostEvidence(session.totals.costUsd, session.totals.costEstimated, session.totals.costAvailable) }}</td>
+                  <td class="py-2 pr-3 align-top"><span class="block truncate" :title="session.agent">{{ session.agent || 'Unknown agent' }}</span><span class="block truncate text-xs text-muted" :title="session.models.join(', ')">{{ session.models.length ? session.models.join(', ') : 'Model unavailable' }}</span></td>
+                  <td class="py-2 pr-3 align-top text-xs text-muted"><time :datetime="session.at" :title="new Date(session.at).toLocaleString()">{{ formatPeriod(session.at, 'hour') }}</time></td>
+                  <td class="py-2 pr-3 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-error' : 'text-muted'"><UIcon :name="statusIcons[session.status]" class="size-3.5 shrink-0" />{{ statusLabels[session.status] }}</span></td>
+                  <td class="py-2 pl-2 text-right align-top text-xs tabular-nums" :class="session.totals.totalTokensAvailable ? 'text-highlighted' : 'text-muted'">{{ formatTokenEvidence(session.totals.totalTokens, session.totals.totalTokensAvailable) }}</td>
+                  <td v-if="costSupported" class="py-2 pl-4 text-right align-top text-xs font-medium tabular-nums" :class="session.totals.costAvailable ? 'text-highlighted' : 'text-muted'">{{ formatCostEvidence(session.totals.costUsd, session.totals.costEstimated, session.totals.costAvailable) }}</td>
                 </tr>
-                <tr v-if="!summary.sessions.length"><td :colspan="costSupported ? 6 : 5" class="py-12 text-center text-sm text-muted">{{ !summary.totals.invocationsAvailable ? 'Session history is still loading. Refresh to check progress.' : search || agent || status !== 'all' ? 'No sessions match these filters.' : 'No completed sessions in this period.' }}</td></tr>
+
               </tbody>
             </table>
           </div>
+          <p v-if="!summary.sessions.length" class="py-6 text-sm text-muted">{{ !summary.totals.invocationsAvailable ? 'Session history is still loading.' : 'No sessions match this period and filters.' }}</p>
           <div class="mt-3 flex items-center justify-between gap-3 text-xs text-muted">
             <span>{{ summary.sessions.length ? `${previousCursors.length * 50 + 1}–${previousCursors.length * 50 + summary.sessions.length} of ${summary.sessionCount}` : `${summary.sessionCount} sessions` }}{{ summary.totals.invocationsAvailable ? '' : ' recorded' }}</span>
             <div class="flex gap-1">
@@ -489,9 +505,9 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
             </div>
           </div>
         </section>
-        <details v-if="summary?.available" class="border-t border-default pt-4">
-          <summary class="cursor-pointer text-sm font-medium">Usage breakdown</summary>
-          <div class="mt-4 flex flex-col gap-6">
+        <section v-if="summary?.available && section === 'overview'">
+
+          <div class="mt-4 flex flex-col gap-3">
             <div class="flex gap-1" aria-label="Usage metric">
               <UButton v-for="option in metricOptions" :key="option.value" :label="option.label" color="neutral" size="xs" :variant="metric === option.value ? 'soft' : 'ghost'" :aria-pressed="metric === option.value" @click="metric = option.value" />
             </div>
@@ -499,7 +515,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           <section class="overflow-hidden">
             <div class="grid lg:grid-cols-[17rem_minmax(0,1fr)]">
               <div
-                class="flex flex-col justify-between gap-8 border-b border-default p-5 lg:border-r lg:border-b-0 sm:p-6"
+                class="flex flex-col justify-between gap-4 border-b border-default p-3 lg:border-r lg:border-b-0 sm:p-3"
               >
                 <div>
                   <p class="text-xs font-medium text-muted">
@@ -513,7 +529,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     {{ formatPeriod(summary.to, summary.resolution) }}
                   </p>
                 </div>
-                <dl class="grid grid-cols-2 gap-4 text-xs">
+                <dl class="grid grid-cols-2 gap-3 text-xs">
                   <div>
                     <dt class="text-muted">Sessions</dt>
                     <dd class="mt-1 font-medium tabular-nums">
@@ -557,8 +573,8 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 </dl>
               </div>
 
-              <div class="min-w-0 p-5 sm:p-6">
-                <div class="flex items-baseline justify-between gap-4">
+              <div class="min-w-0 p-3 sm:p-3">
+                <div class="flex items-baseline justify-between gap-3">
                   <h2 class="text-sm font-semibold">
                     {{ summary.resolution === "hour" ? "Hourly" : "Daily" }}
                     {{ metric === "cost" ? "cost" : "tokens" }}
@@ -570,7 +586,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     <span class="size-1.5 rounded-full bg-warning" /> Partial points
                   </p>
                 </div>
-                <div class="relative mt-6 h-64 pl-14 pb-6" aria-label="Usage over time">
+                <div class="relative mt-6 h-40 pl-14 pb-6" aria-label="Usage over time">
                   <div
                     class="absolute inset-y-6 left-0 w-12 text-right text-[10px] tabular-nums text-muted"
                   >
@@ -668,14 +684,14 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           </section>
 
           <section>
-            <div class="mb-3 flex items-baseline justify-between gap-4">
+            <div class="mb-3 flex items-baseline justify-between gap-3">
               <h2 class="text-sm font-semibold">Totals</h2>
               <p class="text-xs text-muted">Provider-reported evidence</p>
             </div>
             <dl
               class="grid overflow-hidden border-t border-default sm:grid-cols-2 lg:grid-cols-4"
             >
-              <div v-if="costSupported" class="border-b border-default p-4 sm:border-r">
+              <div v-if="costSupported" class="border-b border-default p-3 sm:border-r">
                 <dt class="text-xs text-muted">Total cost</dt>
                 <dd class="mt-1.5 font-semibold tabular-nums">
                   {{
@@ -687,7 +703,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   }}
                 </dd>
               </div>
-              <div class="border-b border-default p-4 lg:border-r">
+              <div class="border-b border-default p-3 lg:border-r">
                 <dt class="text-xs text-muted">Processed tokens</dt>
                 <dd class="mt-1.5 font-semibold tabular-nums">
                   {{
@@ -698,7 +714,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   }}
                 </dd>
               </div>
-              <div class="border-b border-r border-default p-4 sm:border-r lg:border-r">
+              <div class="border-b border-r border-default p-3 sm:border-r lg:border-r">
                 <dt class="text-xs text-muted">Sessions</dt>
                 <dd class="mt-1.5 font-semibold tabular-nums">
                   {{
@@ -709,7 +725,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   }}
                 </dd>
               </div>
-              <div class="border-b border-default p-4">
+              <div class="border-b border-default p-3">
                 <dt class="text-xs text-muted">Input tokens</dt>
                 <dd class="mt-1.5 font-semibold tabular-nums">
                   {{
@@ -720,7 +736,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   }}
                 </dd>
               </div>
-              <div class="border-b border-default p-4 sm:border-r sm:border-b-0 lg:border-r">
+              <div class="border-b border-default p-3 sm:border-r sm:border-b-0 lg:border-r">
                 <dt class="text-xs text-muted">Cached input</dt>
                 <dd class="mt-1.5 font-semibold tabular-nums">
                   {{
@@ -731,7 +747,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   }}
                 </dd>
               </div>
-              <div class="border-b border-default p-4 sm:border-b-0 lg:border-r">
+              <div class="border-b border-default p-3 sm:border-b-0 lg:border-r">
                 <dt class="text-xs text-muted">Cache writes</dt>
                 <dd class="mt-1.5 font-semibold tabular-nums">
                   {{
@@ -742,7 +758,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   }}
                 </dd>
               </div>
-              <div class="border-b border-r border-default p-4 sm:border-b-0">
+              <div class="border-b border-r border-default p-3 sm:border-b-0">
                 <dt class="text-xs text-muted">Output tokens</dt>
                 <dd class="mt-1.5 font-semibold tabular-nums">
                   {{
@@ -753,7 +769,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   }}
                 </dd>
               </div>
-              <div class="p-4">
+              <div class="p-3">
                 <dt class="text-xs text-muted">Reasoning tokens</dt>
                 <dd class="mt-1.5 font-semibold tabular-nums">
                   {{
@@ -769,7 +785,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 
           <section class="overflow-hidden border-t border-default">
             <div
-              class="flex items-center justify-between gap-4 border-b border-default px-4 py-3 sm:px-5"
+              class="flex items-center justify-between gap-3 border-b border-default px-4 py-3 sm:px-5"
             >
               <h2 class="text-sm font-semibold">Breakdown</h2>
               <div class="inline-flex rounded-md bg-elevated p-0.5" aria-label="Usage breakdown">
@@ -785,7 +801,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               </div>
             </div>
             <div class="overflow-x-auto">
-              <table v-if="breakdown === 'model'" class="w-full min-w-2xl text-sm">
+              <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-2xl text-xs">
                 <thead class="text-left text-xs text-muted">
                   <tr>
                     <th class="px-4 py-3 font-medium sm:px-5">Model</th>
@@ -819,7 +835,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   </tr>
                 </tbody>
               </table>
-              <table v-else class="w-full min-w-2xl text-sm">
+              <table v-else-if="breakdown === 'time' && summary.buckets.length" class="w-full min-w-2xl text-xs">
                 <thead class="text-left text-xs text-muted">
                   <tr>
                     <th class="px-4 py-3 font-medium sm:px-5">
@@ -859,8 +875,8 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               </table>
             </div>
           </section>
-          <section v-if="costSupported" class="overflow-hidden border-t border-default">
-            <div class="border-b border-default px-5 py-3">
+          <section v-if="costSupported && summary.totals.pricedInvocations" class="overflow-hidden border-t border-default">
+            <div class="border-b border-default px-3 py-2">
               <h2 class="text-sm font-semibold">Average cost per run</h2>
               <p class="mt-1 text-xs text-muted">
                 {{ summary.totals.pricedInvocations }} of {{ summary.totals.invocations }} runs have
@@ -871,10 +887,10 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               <table class="w-full min-w-lg text-sm">
                 <thead class="text-left text-xs text-muted">
                   <tr>
-                    <th class="px-5 py-3 font-medium">Agent / model</th>
-                    <th class="px-5 py-3 text-right font-medium">Priced runs</th>
-                    <th class="px-5 py-3 text-right font-medium">Average</th>
-                    <th class="px-5 py-3 text-right font-medium">Recorded cost</th>
+                    <th class="px-3 py-2 font-medium">Agent / model</th>
+                    <th class="px-3 py-2 text-right font-medium">Priced runs</th>
+                    <th class="px-3 py-2 text-right font-medium">Average</th>
+                    <th class="px-3 py-2 text-right font-medium">Recorded cost</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -894,18 +910,18 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     :key="item.key"
                     class="border-t border-default"
                   >
-                    <td class="px-5 py-3">{{ item.label }}</td>
-                    <td class="px-5 py-3 text-right tabular-nums">
+                    <td class="px-3 py-2">{{ item.label }}</td>
+                    <td class="px-3 py-2 text-right tabular-nums">
                       {{ item.pricedInvocations }} / {{ item.invocations }}
                     </td>
-                    <td class="px-5 py-3 text-right tabular-nums">
+                    <td class="px-3 py-2 text-right tabular-nums">
                       {{
                         item.averageCostUsd === undefined
                           ? "Unavailable"
                           : formatCost(item.averageCostUsd, item.costEstimated)
                       }}
                     </td>
-                    <td class="px-5 py-3 text-right tabular-nums">
+                    <td class="px-3 py-2 text-right tabular-nums">
                       {{
                         item.pricedInvocations
                           ? formatCost(item.costUsd, item.costEstimated)
@@ -921,55 +937,55 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           <section
             v-for="table in [
               { key: 'expensive', title: 'Most expensive runs', rows: summary.expensive },
-            ].filter((table) => table.key === 'runs' || costSupported)"
+            ].filter((table) => table.rows.length && costSupported)"
             :key="table.key"
             class="overflow-hidden border-t border-default"
           >
-            <div class="flex items-center justify-between gap-3 border-b border-default px-5 py-3">
+            <div class="flex items-center justify-between gap-3 border-b border-default px-3 py-2">
               <h2 class="text-sm font-semibold">{{ table.title }}</h2>
               <span class="text-xs text-muted">{{
                 table.key === "expensive" ? "Top 10 with cost evidence" : "Newest first"
               }}</span>
             </div>
             <div class="overflow-x-auto">
-              <table class="w-full min-w-2xl text-sm">
+              <table class="w-full min-w-2xl text-xs">
                 <thead class="text-left text-xs text-muted">
                   <tr>
-                    <th class="px-5 py-3 font-medium">Run</th>
-                    <th class="px-5 py-3 font-medium">Agent / model</th>
-                    <th class="px-5 py-3 font-medium">Status</th>
-                    <th class="px-5 py-3 text-right font-medium">Tokens</th>
-                    <th v-if="costSupported" class="px-5 py-3 text-right font-medium">Cost</th>
+                    <th class="px-3 py-2 font-medium">Run</th>
+                    <th class="px-3 py-2 font-medium">Agent / model</th>
+                    <th class="px-3 py-2 font-medium">Status</th>
+                    <th class="px-3 py-2 text-right font-medium">Tokens</th>
+                    <th v-if="costSupported" class="px-3 py-2 text-right font-medium">Cost</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="run in table.rows" :key="run.id" class="border-t border-default">
-                    <td class="px-5 py-3">
+                    <td class="px-3 py-2">
                       <RouterLink
                         v-if="runRoute(run)"
                         :to="runRoute(run)!"
                         class="font-medium text-primary hover:underline"
-                        >{{ run.id }}</RouterLink
+                         :title="run.id">{{ run.id.length > 24 ? `${run.id.slice(0, 20)}…` : run.id }}</RouterLink
                       >
                       <p class="mt-1 text-xs text-muted">{{ formatPeriod(run.at, "hour") }}</p>
                     </td>
-                    <td class="px-5 py-3">
+                    <td class="px-3 py-2">
                       {{ run.agent }}
                       <p class="mt-1 text-xs text-muted">
                         {{ run.usage?.model || "Model unavailable" }}
                       </p>
                     </td>
-                    <td class="px-5 py-3">
+                    <td class="px-3 py-2">
                       <UBadge color="neutral" variant="subtle">{{ run.status }}</UBadge>
                     </td>
-                    <td class="px-5 py-3 text-right tabular-nums">
+                    <td class="px-3 py-2 text-right tabular-nums">
                       {{
                         run.usage?.totalTokens === undefined
                           ? "Unavailable"
                           : formatTokens(run.usage.totalTokens)
                       }}
                     </td>
-                    <td v-if="costSupported" class="px-5 py-3 text-right tabular-nums">
+                    <td v-if="costSupported" class="px-3 py-2 text-right tabular-nums">
                       {{
                         run.usage?.cost
                           ? formatCost(run.usage.cost.usd, run.usage.cost.estimated)
@@ -984,21 +1000,21 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           </section>
 
           </div>
-        </details>
-        <details class="border-t border-default pt-4">
-          <summary class="cursor-pointer text-sm font-medium">Provider status</summary>
+        </section>
+        <section v-if="section === 'accounts'">
+          <p class="mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
 
-          <p v-if="statusError" class="p-5 text-sm text-warning">{{ statusError }}</p>
+          <p v-if="statusError" class="p-3 text-sm text-warning">{{ statusError }}</p>
           <div v-else class="grid divide-y divide-default lg:grid-cols-2 lg:divide-y-0">
             <article
-              v-for="status in statuses.filter((item) => !agent || item.agent === agent)"
-              :key="status.agent"
-              class="space-y-3 p-5"
+              v-for="status in accounts"
+              :key="status.account?.id || status.agent"
+              class="space-y-3 p-3"
             >
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <h3 class="text-sm font-medium">{{ status.agent }}</h3>
-                  <p class="text-xs text-muted">{{ status.provider || "Provider" }}</p>
+                  <h3 class="text-sm font-medium">{{ status.provider || "Provider" }} · {{ status.account ? 'Shared credential' : 'Identity unavailable' }}</h3>
+                  <p class="text-xs text-muted">{{ status.agents.join(', ') }}</p>
                 </div>
                 <UBadge
                   :color="
@@ -1013,7 +1029,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 >
               </div>
               <p v-if="status.reason" class="text-xs text-muted">{{ status.reason }}</p>
-              <div class="flex flex-wrap gap-4 text-xs text-muted">
+              <div class="flex flex-wrap gap-3 text-xs text-muted">
                 <span v-if="status.authenticated !== undefined"
                   >Account: {{ status.authenticated ? "Signed in" : "Signed out" }}</span
                 >
@@ -1048,7 +1064,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
               </p>
             </article>
           </div>
-        </details>
+        </section>
       </main>
     </template>
   </UDashboardPanel>

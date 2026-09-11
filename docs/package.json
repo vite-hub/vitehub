@@ -43,6 +43,7 @@
     "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
+    "@takumi-rs/core": "catalog:nuxt",
     "github-slugger": "^2.0.0",
     "html-entities": "^2.6.0",
     "remark-gfm": "catalog:",

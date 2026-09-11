@@ -2,6 +2,21 @@ import { ViteHubError } from "@vite-hub/runtime"
 import registry from "#vitehub/schedule/registry"
 
 import type { ScheduleDefinitionRegistry, ScheduleErrorCode, ScheduleErrorDetails } from "@vite-hub/schedule"
+import { defineSchedule } from "@vite-hub/schedule"
+import { createMemoryScheduleRunStore, executeSchedule } from "@vite-hub/schedule/runtime"
+
+// @ts-expect-error Discovery belongs to the build integration entry.
+import { discoverScheduleDefinitions } from "@vite-hub/schedule"
+// @ts-expect-error Execution and store helpers belong to the runtime entry.
+import { executeRuntimeSchedule } from "@vite-hub/schedule"
+
+await executeSchedule({
+  definition: defineSchedule({ cron: "0 9 * * *", handler: () => "ok" }),
+  runStore: createMemoryScheduleRunStore(),
+  scheduleId: "proof",
+  scheduledAt: new Date("2026-01-01T09:00:00.000Z"),
+  target: "proof",
+})
 
 registry satisfies ScheduleDefinitionRegistry
 

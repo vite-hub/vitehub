@@ -5,7 +5,9 @@ import { defineAgent, defineCapability, runAgent, streamAgent, type AgentTelemet
 import { otlp } from "../src/capabilities.ts"
 import { otlpHttpJson } from "../src/telemetry.ts"
 import { hasRuntimeType } from "../src/internal/runtime-type.ts"
-import { agentTelemetryConfigurationFingerprint } from "../src/internal/agent-telemetry.ts"
+import { agentTelemetryConfigurationFingerprint, getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
+
+import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
 function telemetryCapability(exporter: AgentTelemetry) {
   return defineCapability({ id: "test-telemetry", telemetry: { exporter } })
@@ -17,6 +19,22 @@ afterEach(() => {
 })
 
 describe("Agent telemetry", () => {
+  it("preserves capability ownership when a provider refreshes tool contracts", async () => {
+    const context = createAgentInvocationContextStore()
+    await setAgentTelemetryConfiguration(context, {
+      driver: { kind: "provider" }, runtime: { name: "node" },
+      tools: [{ name: "search", capabilityId: "docs" }, { name: "removed", capabilityId: "docs" }],
+    })
+    await updateAgentTelemetryConfiguration(context, { tools: [
+      { name: "search", description: "Resolved provider description" }, { name: "native" },
+    ] })
+    expect(getAgentTelemetryConfiguration(context)?.value.tools).toEqual([
+      { name: "search", capabilityId: "docs", description: "Resolved provider description" }, { name: "native" },
+    ])
+    await updateAgentTelemetryConfiguration(context, { tools: [{ name: "search", capabilityId: "other" }] })
+    expect(getAgentTelemetryConfiguration(context)?.value.tools).toEqual([{ name: "search", capabilityId: "other" }])
+  })
+
   it("fingerprints semantic Agent configuration independently of object key order", async () => {
     const left = {
       capabilities: [{ id: "search", metadata: { mode: "read", provider: "docs" } }],
@@ -685,6 +703,52 @@ describe("Agent telemetry", () => {
       .toBe(configuration(inputs).fingerprint)
   })
 
+  it.each([false, true])("classifies steered message telemetry by role (live: %s)", async (live) => {
+    const inputs = vi.fn()
+    const outputs = vi.fn()
+    const tasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ id: "inputs", telemetry: { content: { inputs: true }, exporter: inputs, live } }),
+        defineCapability({ id: "outputs", telemetry: { content: { outputs: true }, exporter: outputs, live } }),
+      ],
+      driver: {
+        async run(context) {
+          await context.traceLog?.append({
+            attributes: { "message.content": "private steering input", "message.role": "user" },
+            name: "agent.input.message",
+            type: "run",
+          })
+          await context.traceLog?.append({
+            attributes: { "message.content": "public assistant response", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+          await context.traceLog?.append({
+            attributes: { "message.content": "application output without a role" },
+            name: "application.output",
+            type: "run",
+          })
+          return "ok"
+        },
+      },
+    })
+    await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-steered-content" },
+      runtime: "unknown",
+      waitUntil(task) { tasks.push(Promise.resolve(task)) },
+    }, {})
+    await Promise.all(tasks)
+
+    expect(JSON.stringify(inputs.mock.calls)).toContain("private steering input")
+    expect(JSON.stringify(inputs.mock.calls)).not.toContain("public assistant response")
+    expect(JSON.stringify(inputs.mock.calls)).not.toContain("application output without a role")
+    expect(JSON.stringify(outputs.mock.calls)).toContain("public assistant response")
+    expect(JSON.stringify(outputs.mock.calls)).toContain("application output without a role")
+    expect(JSON.stringify(outputs.mock.calls)).not.toContain("private steering input")
+  })
+
   it("keeps directly appended Trace Events in content-enabled exports", async () => {
     const tasks: Promise<unknown>[] = []
     const telemetry = vi.fn()
@@ -1242,9 +1306,9 @@ describe("Agent telemetry", () => {
 
     const exports = telemetry.mock.calls.map(call => call[0])
     expect(exports.find(exported => exported.signal === "logs")?.records).toEqual(expect.arrayContaining([
-      expect.objectContaining({ eventName: "agent.invocation.error", severityText: "ERROR" }),
+      expect.objectContaining({ eventName: "agent.invocation.cancelled", severityText: "ERROR" }),
     ]))
-    expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ status: expect.objectContaining({ code: "ERROR" }) })] })
+    expect(exports.at(-1)).toMatchObject({ signal: "traces", spans: [expect.objectContaining({ status: expect.objectContaining({ code: "UNSET" }) })] })
   })
 
   it("coalesces live changes behind one blocked export and sends terminal telemetry next", async () => {

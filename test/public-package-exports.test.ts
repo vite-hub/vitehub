@@ -43,6 +43,10 @@ describe("public package export contracts", () => {
 
   it("marks eager exports as optional-peer consumers", () => {
     const eagerPeerExports = new Map<string, string>([
+      ["@vite-hub/agent/evlog", "evlog"],
+      ["@vite-hub/agent/evlog/posthog", "posthog-node"],
+      ["vite-hub/agent/evlog", "evlog"],
+      ["vite-hub/agent/evlog/posthog", "posthog-node"],
       ["@vite-hub/auth/agent", "@vite-hub/agent"],
       ["@vite-hub/auth/nuxt", "vite"],
       ["@vite-hub/source/client", "vue"],
@@ -71,11 +75,12 @@ describe("public package export contracts", () => {
       ["@vite-hub/auth/vite", "vite"],
       ["@vite-hub/blob/vite", "vite"],
       ["@vite-hub/browser/controllers/playwright", "playwright-core"],
+      ["@vite-hub/browser/internal/chromium", "playwright-core"],
+      ["@vite-hub/browser/internal/chromium.workerd", "playwright-core"],
       ["@vite-hub/browser/vite", "vite"],
       ["@vite-hub/channels/vite", "vite"],
       ["@vite-hub/database/vite", "vite"],
       ["@vite-hub/kv/vite", "vite"],
-      ["@vite-hub/markdown-template/vite", "vite"],
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
       ["@vite-hub/sandbox/vite", "vite"],

@@ -50,6 +50,10 @@ export {
   openapi,
 } from "./openapi.ts"
 export {
+  papercuts,
+  posthogPapercuts,
+} from "./papercuts.ts"
+export {
   progressSummary,
 } from "./progress-summary.ts"
 export {
@@ -133,16 +137,6 @@ export {
 export type {
   OtlpCapabilityOptions,
 } from "./otlp.ts"
-export {
-  papercuts,
-} from "./papercuts.ts"
-export type {
-  Papercut,
-  PapercutReportContext,
-  PapercutReportEvent,
-  PapercutsOptions,
-  PapercutSource,
-} from "./papercuts.ts"
 export {
   webSearch,
 } from "./web-search/index.ts"
@@ -276,6 +270,16 @@ export type {
   OpenAPIRequestPatch,
   OpenAPIResponseContext,
 } from "./openapi.ts"
+export type {
+  Papercut,
+  PapercutReportContext,
+  PapercutReportEvent,
+  PapercutSource,
+  PapercutsOptions,
+  PapercutBackend,
+  PapercutSeverity,
+  PosthogPapercutsOptions,
+} from "./papercuts.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,

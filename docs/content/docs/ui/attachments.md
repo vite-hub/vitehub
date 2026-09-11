@@ -10,6 +10,8 @@ Use `useAgentAttachments()` when the application needs validation or wants to ke
 
 `AgentChatPrompt` accepts the resulting AI SDK file parts. This preview uses a dummy log attachment and does not upload data.
 
+Image attachments in the prompt and messages open an expanded preview when selected. The prompt keeps a separate Remove button on each thumbnail. Other file types remain download links in messages.
+
 ::component-preview{name="ChatPromptExample"}
 ::
 

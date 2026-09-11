@@ -15,6 +15,8 @@ When that message has no semantic text, such as an attachment-only audio or imag
 Applications can use the finish extension to name a job, run, artifact, or other durable record without depending on a chat interface.
 It can limit title generation to selected Agent Trigger ids.
 
+The default generation prompt follows T3 Code’s editorial rules: name the subject and desired outcome in 3–8 words, under 40 characters. It requests a JSON object with a `title` field. Output is normalized to one line and bounded by `maxLength`. An explicit title Driver uses `fallback` on failure or timeout; this does not prevent the main answer.
+
 ## Configure titles
 
 Attach `title()` to any Agent Definition that needs a generated title.
@@ -57,8 +59,12 @@ Use a custom template, variables, or executor when the title must include produc
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Can use the Agent model or an explicit model to generate the title and decorate streams. |
-| Provider-backed | Can decorate compatible output streams when the invocation produces them; model-based title generation still needs a model resolver. |
+| Provider-backed | Starts an auxiliary title run through the inherited provider Driver unless `execute`, `driver`, or a non-string `model` overrides it. Can decorate compatible output streams. |
 | Custom-run-backed | Can decorate compatible custom output; custom `driver.run` controls the response shape. |
+
+On a provider-backed Agent, `title()` inherits the provider model, credentials, environment, launch configuration, and permissions. It uses title-specific instructions and an isolated credential profile. A string `model` changes the inherited provider's model name; a model object or resolver uses the AI SDK path instead.
+
+The auxiliary title run can incur additional provider usage. Title generation has a default 20-second timeout, configurable with `timeoutMs`. Consumers that await the title, including finish hooks and Invocation cleanup, can wait for that work to settle. Use `execute` for a custom generator that avoids a provider call.
 
 ## Verify titles
 
@@ -77,9 +83,11 @@ Test a vague first message and confirm the fallback title is used instead of an 
 | `fallback` | `string` | `"Untitled"` | Title used when generation returns no usable text. |
 | `id` | `string` | `"title"` | Capability id. |
 | `instructions` | `string` | none | System instructions for model-backed title generation. |
-| `maxLength` | `number` | `80` | Maximum title length. |
-| `model` | `AgentModelResolver` | Agent model, then heuristic fallback | Model used for title generation. |
+| `maxLength` | `number` | `39` | Maximum title length. |
+| `model` | `AgentModelResolver` | Inherited provider Driver, otherwise Agent model then heuristic fallback | A string overrides the inherited provider model name. A model object or resolver selects the AI SDK path. |
+| `reasoningEffort` | `string` | Inherited provider Driver setting | Override reasoning effort only for title generation through the inherited provider Driver. When omitted, preserve the Driver's reasoning configuration, including environment-based settings. Does not apply to an explicit title `driver`, custom `execute`, or AI SDK model. |
 | `template` | `string \| function` | generated | Prompt template for model-backed generation. String templates can use `{{ message }}` and `{{ source }}`. |
+| `timeoutMs` | `number` | `20_000` | Maximum time for title generation before fallback; also respects invocation cancellation. |
 | `trigger` | `string \| string[]` | all triggers | Limit title generation to selected Agent Trigger ids. |
 | `variables` | `Record<string, value \| function>` | none | Extra template variables. |
 | `when` | `(input) => boolean` | none | Predicate that decides whether title generation runs. |
@@ -88,3 +96,9 @@ Test a vague first message and confirm the fallback title is used instead of an 
 
 - [chat()](/docs/capabilities/chat)
 - [chatSummary()](/docs/capabilities/chat-summary)
+
+## Inspect title generation
+
+Open an Invocation's **Capabilities** tab and select **Title**. The view shows the recorded generation state, generated title, generation method, configured model, length limit, timeout, trigger, and channel delivery mode. A custom `id` retains the same Title view.
+
+Snapshots update during title generation and remain available after the Invocation ends. Reading them does not generate another title. The view follows configuration retention; use `configuration: 'content'` on the Invocation journal to keep its data independently of prompt and answer content.

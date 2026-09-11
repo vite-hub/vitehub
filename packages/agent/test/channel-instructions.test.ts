@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { createAiSdkAdapter } from "../src/ai-sdk.ts"
-import { discord, telegram } from "../src/channels.ts"
+import { discord, teams, telegram } from "../src/channels.ts"
 import { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata, runAgent, runAgentTrigger } from "../src/index.ts"
 import { bindMessageChannelInstructions, inheritMessageChannelInstructions, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "../src/internal/channels.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
@@ -104,12 +104,13 @@ function expectInstructionsOnceInOrder(document: string, instructions: string[])
   }
 }
 
-async function modelCallFor(channel: "discord" | "telegram", messages = history) {
+async function modelCallFor(channel: "discord" | "teams" | "telegram", messages = history) {
   const model = createModel()
   let inputRoles: string[] = []
   const agent = defineAgent({
     channels: {
       discord: discord(),
+      teams: teams(),
       support: telegram(),
     },
     driver: {
@@ -128,7 +129,7 @@ async function modelCallFor(channel: "discord" | "telegram", messages = history)
     },
   })
 
-  const channelId = channel === "telegram" ? "support" : "discord"
+  const channelId = channel === "telegram" ? "support" : channel
   await runAgentTrigger(agent, runtime, "chat.message", {
     messages,
     run: {
@@ -471,5 +472,15 @@ describe("Channel instructions", () => {
     expect(systemMessages).toHaveLength(1)
     expect(systemMessages[0]!.content).toContain("Generate one short title.")
     expect(systemMessages[0]!.content).not.toContain(telegramInstructions)
+  })
+})
+
+ describe("Teams formula guidance", () => {
+  it("adds plain-text math guidance only to Teams messages", async () => {
+    const { modelCall } = await modelCallFor("teams")
+    const system = modelCall.prompt.filter(message => message.role === "system").map(message => message.content).join("\n")
+    expect(system).toContain("Teams does not render LaTeX math delimiters or Mermaid diagrams")
+    const other = await modelCallFor("discord")
+    expect(other.modelCall.prompt.filter(message => message.role === "system").map(message => message.content).join("\n")).not.toContain("Teams does not render")
   })
 })
