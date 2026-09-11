@@ -524,7 +524,10 @@ async function reconcileRemovedStartupSourcesInternal(
   // A newer definition must retain owners that can still write or checkpoint files.
   const trackedSources = [...currentSources, ...activeOwners, ...previousSources.filter(isActive)]
   const uniqueSources = trackedSources.filter((source, index) => trackedSources.findIndex(candidate => candidate.key === source.key && candidate.mountPath === source.mountPath) === index)
-  await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))))
+  const nextSources = uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))
+  const unchanged = previousSources.length === nextSources.length
+    && previousSources.every((source, index) => source.key === nextSources[index]?.key && source.mountPath === nextSources[index]?.mountPath)
+  if (!unchanged) await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, nextSources))
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
