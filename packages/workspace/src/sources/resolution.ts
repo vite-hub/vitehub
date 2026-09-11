@@ -195,8 +195,9 @@ const sourceSyncStores = new WeakMap<WritableWorkspaceFacade, WorkspaceStore>()
 
 function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSync = false): WorkspaceStore {
   // Nested resolution must keep syncing to the backing Store, not a prior overlay.
-  const backingSyncStore = sourceSync ? sourceSyncStores.get(workspace) : undefined
-  if (backingSyncStore) return backingSyncStore
+  // Keep the current facade's filesystem view so nested resolutions continue
+  // enforcing its selected scope. Durable ownership is still delegated via
+  // the metadata target below.
   const meta = new Map<string, unknown>()
   const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
   const store: WorkspaceStore = {
