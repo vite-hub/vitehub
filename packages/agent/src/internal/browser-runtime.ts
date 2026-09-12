@@ -238,7 +238,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     let stagingChrome: string | undefined
     if (linuxBundle) {
       await mkdir(stagingBrowserCache, { recursive: true, mode: 0o700 })
-      await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache } })
+      await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache }, signal })
       stagingChrome = join(stagingBrowserCache, "chromium")
     }
     else {
