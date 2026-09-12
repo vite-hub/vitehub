@@ -5974,7 +5974,7 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const durableSteerScope = chatSdkOption<string>(options, "concurrency") === "steer" ? await chatSdkLockKey(adapter, thread.id, options) : undefined
-  const coalesced = false
+  const coalesced = chatSdkOption<string>(options, "concurrency") === "queue"
   const individualMessages = serial || coalesced
   const accepted: Array<{ message: ChatSdkMessage; thread: Thread; delivery: AgentChannelDeliveryTracker; kind: AgentMessageDeliveryKind }> = []
   const messages = individualMessages ? [...(messageContext?.skipped ?? []), message] : [message]
