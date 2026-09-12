@@ -156,7 +156,7 @@ try {
     })
   })
 } finally {
-  if (child.pid) { try { process.kill(-child.pid, 'SIGKILL') } catch {} }
+  if (child.pid) { try { process.kill(child.pid, 'SIGKILL') } catch {} }
   await new Promise(resolve => child.exitCode !== null || child.signalCode !== null ? resolve() : child.once('close', resolve))
   await rm(profile, { recursive: true, force: true })
 }
