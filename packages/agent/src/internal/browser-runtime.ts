@@ -146,13 +146,22 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
   const assertLock = () => {
     if (lockError) throw lockError
   }
-  const release = await lock(root, {
+  const lockPromise = lock(root, {
     realpath: false,
     retries: { retries: 1, forever: true, minTimeout: 1_000, maxTimeout: 1_000 },
     stale: 60_000,
     update: 10_000,
     onCompromised(error) { lockError = error },
   })
+  const abortPromise = signal ? new Promise<never>((_, reject) => {
+    if (signal.aborted) reject(signal.reason ?? new Error("The operation was aborted"))
+    else signal.addEventListener("abort", () => reject(signal.reason ?? new Error("The operation was aborted")), { once: true })
+  }) : undefined
+  const release = await (abortPromise ? Promise.race([lockPromise, abortPromise]) : lockPromise)
+  if (signal?.aborted) {
+    await release()
+    throw signal.reason ?? new Error("The operation was aborted")
+  }
   try {
     const prepared = await provisionLocked(root, npmCommand, platform, assertLock, signal)
     assertLock()
