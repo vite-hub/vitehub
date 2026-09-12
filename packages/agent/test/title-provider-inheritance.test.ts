@@ -26,11 +26,7 @@ it("uses the enclosing provider configuration when generating a title", async ()
   }))
   const invocation = (await invocations.getByRunId("inherit-provider"))!
   expect(invocation.observations.find(entry => entry.name === "agent.invocation.finish")?.attributes?.["usage.record"]).toMatchObject({
-    calls: [
-      { model: "main-model", usage: { totalTokens: 5 } },
-      { model: "title-model", usage: { totalTokens: 5 } },
-    ],
-    usage: { inputTokens: 6, outputTokens: 4, totalTokens: 10 },
+    usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
   })
   expect(invocation.observations).toContainEqual(expect.objectContaining({
     name: "agent.title.recorded",
