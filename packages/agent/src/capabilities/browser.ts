@@ -148,6 +148,9 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
     async prepare(context) {
       if (context.driver?.kind !== "provider") throw agentDiagnostics.AGENT_R0026({ message: "[vitehub] browser() requires a Provider Agent Driver." })
+      // Metadata inspection invokes prepare hooks without an invocation; avoid
+      // provisioning the managed browser during that read-only path.
+      if (!context.invocation) return
       if (runtimeMode !== "managed") {
         provideBrowserRuntimeEnvironment(context.context, Object.freeze({ VITEHUB_BROWSER_ACTIVE: "1" }))
         return
