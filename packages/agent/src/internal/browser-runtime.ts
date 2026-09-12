@@ -189,7 +189,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     if (ready.version !== agentBrowserVersion || ready.browserVersion !== browserVersion || ready.linuxBundle !== (platform === "linux") || !ready.chrome) return
     const executablePath = join(root, ready.chrome)
     if (!(await stat(command).catch(() => undefined))?.isFile() || !(await stat(executablePath).catch(() => undefined))?.isFile()) return
-    const version = await run(command, ["--version"], { env: installerEnvironment(), timeoutMs: 15_000 })
+    const version = await run(command, ["--version"], { env: installerEnvironment(), timeoutMs: 15_000, signal })
     if (version.trim() !== `agent-browser ${agentBrowserVersion}`) return
     const browserEnvironment: Record<string, string> = {}
     if (ready.linuxBundle) {
@@ -238,7 +238,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     let stagingChrome: string | undefined
     if (linuxBundle) {
       await mkdir(stagingBrowserCache, { recursive: true, mode: 0o700 })
-      await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache }, signal })
+      await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache } })
       stagingChrome = join(stagingBrowserCache, "chromium")
     }
     else {
