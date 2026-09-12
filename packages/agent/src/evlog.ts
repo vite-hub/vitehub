@@ -82,8 +82,8 @@ export function observability(options: AgentObservabilityOptions): AgentCapabili
 /** One shared exporter per host. Capability invocations keep their metadata separate. */
 export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const service = options.service?.trim() || "vitehub-agent"
-  // The runtime may expose a partial process object, so this assertion intentionally narrows only the fields read below.
-  // The runtime may expose a partial process object, so this assertion intentionally narrows only the fields read below.
+  // SAFETY: The runtime may expose a partial process object; this narrows only the fields read below.
+  // SAFETY: The runtime may expose a partial process object; this narrows only the fields read below.
   const runtimeProcess = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process
   const environment = options.environment?.trim() || runtimeProcess?.env?.NODE_ENV || "development"
   const maxPending = options.maxPending ?? 1000
