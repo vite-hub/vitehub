@@ -186,7 +186,7 @@ export interface AgentInvocations {
   /** Durably append evidence to a live or terminal invocation. Repeated IDs return the existing observation. */
   appendObservation(id: string, event: TraceEvent, options: { id: string }): Promise<AgentInvocationRecord | undefined>
   readonly [agentInvocationsBrand]: true
-  get(id: string): Promise<AgentInvocationRecord | undefined>
+  get(id: string, options?: { observationNames?: readonly string[] }): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): Promise<AgentInvocationSummary | undefined>
@@ -2035,9 +2035,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       return persisted
     },
-    async get(id) {
+    async get(id, options) {
       assertInvocationId(id)
-      return await store.get(id)
+      return await store.get(id, options)
     },
     async getByRunId(runId, agentName) {
       return await store.get(await agentInvocationId(runId, agentName))
