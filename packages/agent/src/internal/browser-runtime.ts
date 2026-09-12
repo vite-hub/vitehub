@@ -37,7 +37,7 @@ function defaultCacheRoot(): string {
 function run(command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv, timeoutMs?: number, signal?: AbortSignal }): Promise<string> {
   return new Promise((resolve, reject) => {
     options.signal?.throwIfAborted()
-    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["ignore", "pipe", "pipe"] })
+    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] })
     let stdout = ""
     let stderr = ""
     child.stdout.on("data", chunk => stdout = `${stdout}${String(chunk)}`.slice(-64_000))
@@ -140,7 +140,7 @@ import { tmpdir } from 'node:os'
 const cancellation = new AbortController()
 process.on('SIGTERM', () => cancellation.abort(new Error('Chromium smoke check cancelled')))
 const profile = await mkdtemp(join(tmpdir(), 'vh-chrome-'))
-const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, ...JSON.parse(process.argv[2]), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true })
+const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, ...JSON.parse(process.argv[2]), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
 try {
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Chromium CDP readiness timed out')), 15000)
