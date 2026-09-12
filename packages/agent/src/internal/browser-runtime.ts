@@ -43,9 +43,12 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
     child.stdout.on("data", chunk => stdout = `${stdout}${String(chunk)}`.slice(-64_000))
     child.stderr.on("data", chunk => stderr = `${stderr}${String(chunk)}`.slice(-4_000))
     let forced = false
+    let terminating = false
+    let settled = false
     let grace: ReturnType<typeof setTimeout> | undefined
     const terminate = () => {
-      if (forced) return
+      if (forced || terminating || settled) return
+      terminating = true
       child.kill("SIGTERM")
       grace = setTimeout(() => { forced = true; child.kill("SIGKILL") }, 2_000)
     }
@@ -54,12 +57,14 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
     if (options.signal?.aborted) abort()
     const timeout = setTimeout(terminate, options.timeoutMs ?? 120_000)
     child.once("error", (error) => {
+      settled = true
       clearTimeout(timeout)
       if (grace) clearTimeout(grace)
       options.signal?.removeEventListener("abort", abort)
       reject(error)
     })
     child.once("close", (code) => {
+      settled = true
       clearTimeout(timeout)
       if (grace) clearTimeout(grace)
       options.signal?.removeEventListener("abort", abort)
