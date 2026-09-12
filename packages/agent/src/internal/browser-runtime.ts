@@ -114,22 +114,22 @@ try {
 }
 `
 
-async function smokeChrome(executablePath: string, env: NodeJS.ProcessEnv, preferNoSandbox = false, linuxBundle = false): Promise<string | undefined> {
+async function smokeChrome(executablePath: string, env: NodeJS.ProcessEnv, preferNoSandbox = false, linuxBundle = false, signal?: AbortSignal): Promise<string | undefined> {
   if (linuxBundle) {
-    await run(process.execPath, ["--input-type=module", "-e", smokeLinuxChromiumScript, executablePath, JSON.stringify(["--no-sandbox"])], { env, timeoutMs: 20_000 })
+    await run(process.execPath, ["--input-type=module", "-e", smokeLinuxChromiumScript, executablePath, JSON.stringify(["--no-sandbox"])], { env, timeoutMs: 20_000, signal })
     return "--no-sandbox"
   }
   if (preferNoSandbox) {
-    await run(executablePath, ["--headless", "--disable-gpu", "--no-sandbox", "--dump-dom", "about:blank"], { env, timeoutMs: 20_000 })
+    await run(executablePath, ["--headless", "--disable-gpu", "--no-sandbox", "--dump-dom", "about:blank"], { env, timeoutMs: 20_000, signal })
     return "--no-sandbox"
   }
   try {
-    await run(executablePath, ["--headless", "--disable-gpu", "--dump-dom", "about:blank"], { env, timeoutMs: 20_000 })
+    await run(executablePath, ["--headless", "--disable-gpu", "--dump-dom", "about:blank"], { env, timeoutMs: 20_000, signal })
     return
   }
   catch (initialError) {
     try {
-      await run(executablePath, ["--headless", "--disable-gpu", "--no-sandbox", "--dump-dom", "about:blank"], { env, timeoutMs: 20_000 })
+      await run(executablePath, ["--headless", "--disable-gpu", "--no-sandbox", "--dump-dom", "about:blank"], { env, timeoutMs: 20_000, signal })
       return "--no-sandbox"
     }
     catch {
@@ -214,7 +214,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
       browserEnvironment.LD_LIBRARY_PATH = join(root, "chromium", "al2023", "lib")
       browserEnvironment.FONTCONFIG_PATH = join(root, "chromium", "fonts")
     }
-    const noSandbox = await smokeChrome(executablePath, { ...installerEnvironment(), ...browserEnvironment }, ready.noSandbox, ready.linuxBundle)
+    const noSandbox = await smokeChrome(executablePath, { ...installerEnvironment(), ...browserEnvironment }, ready.noSandbox, ready.linuxBundle, signal)
     await mkdir(socketRoot, { mode: 0o700, recursive: true })
     const environment: Record<string, string> = {
       ...browserEnvironment,
