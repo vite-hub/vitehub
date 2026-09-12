@@ -447,8 +447,8 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0882",
   "AGENT_R0886",
   "AGENT_R0888",
-  "AGENT_R0922",
-  "AGENT_R0923",
+  "AGENT_R0926",
+  "AGENT_R0927",
   "AGENT_R0924",
   "AGENT_R0925",
 ])
@@ -1418,8 +1418,8 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0886: dynamicError,
     AGENT_R0887: dynamicError,
     AGENT_R0888: dynamicError,
-    AGENT_R0922: dynamicError,
-    AGENT_R0923: dynamicError,
+    AGENT_R0926: dynamicError,
+    AGENT_R0927: dynamicError,
     AGENT_R0924: dynamicError,
     AGENT_R0925: dynamicError,
     AGENT_R0001: {
