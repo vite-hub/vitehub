@@ -142,6 +142,7 @@ const cancellation = new AbortController()
 process.on('SIGTERM', () => cancellation.abort(new Error('Chromium smoke check cancelled')))
 const profile = await mkdtemp(join(tmpdir(), 'vh-chrome-'))
 const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, ...JSON.parse(process.argv[2]), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true })
+const group = child.pid
 try {
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Chromium CDP readiness timed out')), 15000)
@@ -176,7 +177,7 @@ try {
           throw error
         })
         const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
-        if (Number(fields[2]) === child.pid && !['Z', 'X'].includes(fields[0])) {
+        if ((Number(fields[2]) === child.pid || Number(fields[3]) === group) && !['Z', 'X'].includes(fields[0])) {
           running = true
           break
         }
