@@ -181,7 +181,7 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
 
     expect(await functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/monthly-recap"))
-      .toBe(`\0vitehub:email-template:${template}`)
+      .toBe(`/@fs/${template}?markdown-template`)
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe([
       'declare module "#vitehub/emails/monthly-recap/index.mjs/detail" {',
       "  const render: (data?: Record<string, unknown>) => Promise<string>",
@@ -348,7 +348,7 @@ describe("hubEmail", () => {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
-        .toBe(`\0vitehub:email-template:${nestedTemplate}`)
+        .toBe(`/@fs/${nestedTemplate}?markdown-template`)
     }
     finally {
       await server.close()
