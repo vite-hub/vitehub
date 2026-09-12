@@ -154,7 +154,7 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
     onCompromised(error) { lockError = error },
   })
   try {
-    const prepared = await provisionLocked(root, npmCommand, platform, assertLock)
+    const prepared = await provisionLocked(root, npmCommand, platform, assertLock, signal)
     assertLock()
     return prepared
   }
@@ -163,7 +163,7 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
   }
 }
 
-async function provisionLocked(root: string, npmCommand: string, platform: NodeJS.Platform, assertLock: () => void): Promise<PreparedBrowserRuntime> {
+async function provisionLocked(root: string, npmCommand: string, platform: NodeJS.Platform, assertLock: () => void, signal?: AbortSignal): Promise<PreparedBrowserRuntime> {
   if (platform !== "linux" && platform !== "darwin") throw new Error("[vitehub] Managed browser() supports Linux and macOS. Use runtime: external for a prepared browser runtime.")
   if (platform === "linux" && process.arch !== "x64") throw new Error("[vitehub] Managed browser() currently requires Linux x64. Use runtime: external for other architectures.")
   await assertTrustedBrowserCache(root)
@@ -234,15 +234,15 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   try {
     await mkdir(stagingPackage, { recursive: true, mode: 0o700 })
     const linuxBundle = platform === "linux"
-    await run(npmCommand, ["install", "--prefix", stagingPackage, "--no-audit", "--no-fund", "--ignore-scripts", `agent-browser@${agentBrowserVersion}`, linuxBundle ? `@sparticuz/chromium@${chromiumBundleVersion}` : `@puppeteer/browsers@${puppeteerBrowsersVersion}`], { env: installEnv })
+    await run(npmCommand, ["install", "--prefix", stagingPackage, "--no-audit", "--no-fund", "--ignore-scripts", `agent-browser@${agentBrowserVersion}`, linuxBundle ? `@sparticuz/chromium@${chromiumBundleVersion}` : `@puppeteer/browsers@${puppeteerBrowsersVersion}`], { env: installEnv, signal })
     let stagingChrome: string | undefined
     if (linuxBundle) {
       await mkdir(stagingBrowserCache, { recursive: true, mode: 0o700 })
-      await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache } })
+      await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache }, signal })
       stagingChrome = join(stagingBrowserCache, "chromium")
     }
     else {
-      await run(stagingBrowsersCommand, ["install", `chrome@${chromeForTestingVersion}`, "--path", stagingBrowserCache], { env: installEnv })
+      await run(stagingBrowsersCommand, ["install", `chrome@${chromeForTestingVersion}`, "--path", stagingBrowserCache], { env: installEnv, signal })
       stagingChrome = await findChrome(stagingBrowserCache)
     }
     if (!stagingChrome) throw new Error("[vitehub] Browser runtime installation did not produce a Chrome executable.")
