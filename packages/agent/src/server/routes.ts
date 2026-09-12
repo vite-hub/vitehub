@@ -6019,6 +6019,7 @@ async function handleChatSdkMessages(
 
   try {
     for (const queuedMessage of messages) {
+      let claimedDelivery: AgentChannelDeliveryTracker | undefined
       try {
         const queuedThread = individualMessages ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
@@ -6040,7 +6041,20 @@ async function handleChatSdkMessages(
           : undefined
         if (requestDelivery && queuedDelivery?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
         const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
-        if (!deliveryKind) continue
+        if (!deliveryKind) {
+          if (coalesced) {
+            const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || await openAgentChannelDelivery(state.state, {
+              agentName: context.agentIdentity?.name || "agent",
+              channelId: registration.channelId,
+              provider: chatRegistrationOrigin(registration),
+              scope: `${state.keyPrefix}${queuedThread.id}`,
+              sourceId: queuedMessageId || randomToken(),
+            })
+            delivery.claimed = true
+            await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+          }
+          continue
+        }
         if (coalesced) {
           const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || await openAgentChannelDelivery(state.state, {
             agentName: context.agentIdentity?.name || "agent",
@@ -6049,6 +6063,7 @@ async function handleChatSdkMessages(
             scope: `${state.keyPrefix}${queuedThread.id}`,
             sourceId: queuedMessageId || randomToken(),
           })
+          claimedDelivery = delivery
           delivery.claimed = true
           const admission = await admitChatSdkMessage(
             agent, withAgentChannelDelivery(context, delivery), registration,
@@ -6075,6 +6090,7 @@ async function handleChatSdkMessages(
           durableSteerScope,
         )
       } catch (error) {
+        if (claimedDelivery) await settleChannelDeliveryInvocation(claimedDelivery, "failed", "failed", { error: channelDeliveryError(error) })
         if (!serial) throw error
       }
     }
