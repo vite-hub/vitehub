@@ -3691,7 +3691,9 @@ async function createAgentInvocationContext<
         throw error
       }
     }
-    const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const transformedTools = resolveCapabilityCli
+      ? capabilities.tools
+      : (await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)).tools
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(preparedTools, toolStepReporter)
