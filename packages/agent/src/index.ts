@@ -2803,8 +2803,7 @@ function agentTelemetryUsesContent(registration: { content?: AgentTelemetryConte
 function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
   if (!isTraceContentAttributeKey(key)) return false
   if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
-  if (key === "input.message.content" || key.startsWith("input.message.content.") || key === "agent.input.message.content" || key.startsWith("agent.input.message.content.")) return content.inputs === true
-  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "channel.effect.content" || key === "vitehub.activity.body") return content.outputs === true
+  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "channel.effect.content" || key === "vitehub.activity.body") return content.outputs === true
   return false
 }
 
@@ -2937,6 +2936,9 @@ function withAgentTelemetryContentAttributes(
 ): Record<string, unknown> {
   const { "content.omitted": _omitted, ...safeAttributes } = safe || {}
   const allowedEntries = Object.entries(full || {}).flatMap(([key, value]) => {
+    const role = full?.["message.role"]
+    if (key === "message.content" && role === "user" && policy.inputs !== true) return []
+    if (key === "message.content" && role === "assistant" && policy.outputs !== true) return []
     const selected = agentTelemetryAttributeForContent(key, value, policy)
     return selected ? [[key, selected.value] as const] : []
   })
