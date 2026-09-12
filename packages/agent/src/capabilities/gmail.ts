@@ -100,7 +100,12 @@ const gmailReadScopes = new Set([
 ])
 
 function gmailSkillContent(mode: GmailCapabilityMode, persistent: boolean): string {
-  return `# Gmail
+  return `---
+name: gmail
+description: Search Gmail, authorize accounts, and create unsent drafts when the Gmail tools are enabled.
+---
+
+# Gmail
 
 ${skillPersistenceGuidance(persistent)} Before following any instructions below, check that both \`gmail_search\` and \`gmail_auth\` are available in this invocation's tool list. If either is absent, Gmail is inactive: do not follow this Skill or attempt Gmail operations. Ask the caller to enable gmail() for this Agent. Use \`gmail_draft\` only when it is also available in the current tool list, even if this retained Skill describes draft access.
 
