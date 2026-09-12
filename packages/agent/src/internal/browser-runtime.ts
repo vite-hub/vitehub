@@ -140,7 +140,7 @@ import { tmpdir } from 'node:os'
 const cancellation = new AbortController()
 process.on('SIGTERM', () => cancellation.abort(new Error('Chromium smoke check cancelled')))
 const profile = await mkdtemp(join(tmpdir(), 'vh-chrome-'))
-const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, ...JSON.parse(process.argv[2]), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
+const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, ...JSON.parse(process.argv[2]), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true })
 try {
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Chromium CDP readiness timed out')), 15000)
@@ -156,7 +156,10 @@ try {
     })
   })
 } finally {
-  if (child.pid) { try { process.kill(child.pid, 'SIGKILL') } catch {} }
+  if (child.pid) {
+    try { process.kill(-child.pid, 'SIGKILL') } catch {}
+    try { process.kill(child.pid, 'SIGKILL') } catch {}
+  }
   await new Promise(resolve => child.exitCode !== null || child.signalCode !== null ? resolve() : child.once('close', resolve))
   await rm(profile, { recursive: true, force: true })
 }
