@@ -248,6 +248,10 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   const installEnv = {
     ...installerEnvironment(),
     AGENT_BROWSER_SOCKET_DIR: socketRoot,
+    // npm derives directory modes from its configured/system umask. Keep
+    // every staged cache entry private even when the host uses a permissive
+    // umask such as 0002.
+    npm_config_umask: "077",
   }
   try {
     await mkdir(stagingPackage, { recursive: true, mode: 0o700 })
