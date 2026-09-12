@@ -3691,9 +3691,10 @@ async function createAgentInvocationContext<
         throw error
       }
     }
-    const transformedTools = resolveCapabilityCli
-      ? capabilities.tools
-      : (await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)).tools
+    const transformed = resolveCapabilityCli
+      ? { tools: capabilities.tools, originalNames: new Map(Object.keys(capabilities.tools || {}).map(name => [name, name])) }
+      : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const transformedTools = transformed.tools
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(preparedTools, toolStepReporter)
@@ -3737,7 +3738,7 @@ async function createAgentInvocationContext<
       .flatMap(contribution => (contribution.names || []).map(name => [name, contribution.capabilityId] as const)))
     const inspectedTools = inspectAgentTools(tools)?.map(tool => ({
       ...tool,
-      ...(toolOwners.has(tool.name) ? { capabilityId: toolOwners.get(tool.name) } : {}),
+      ...(toolOwners.has(transformed.originalNames.get(tool.name) ?? tool.name) ? { capabilityId: toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name) } : {}),
     }))
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {

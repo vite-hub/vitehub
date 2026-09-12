@@ -2037,7 +2037,9 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     },
     async get(id, options) {
       assertInvocationId(id)
-      return await store.get(id, options)
+      const record = await store.get(id, options)
+      if (!record || !options?.observationNames) return record
+      return { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
     },
     async getByRunId(runId, agentName) {
       return await store.get(await agentInvocationId(runId, agentName))
