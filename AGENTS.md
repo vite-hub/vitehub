@@ -47,7 +47,7 @@ Replace the package and test with the affected owner. [Verification guidance](CO
 - Preserve other people's changes. Before cross-repository or live work, state the exact repository, path, branch/PR, and target. Another repository's mention does not authorize edits there.
 - Never use production, live databases, maintainer development servers, deployments, or external accounts without explicit approval. Ask before opening a browser or starting a development server unless the task requests it.
 - Do not push, create/update PRs, merge, or deploy without authorization for that action. Never force-push. [PR rules](CONTRIBUTING.md#pull-requests) apply when authorized.
-- Use an isolated task worktree. Preserve pre-existing work; remove task-created temporary files and worktrees only after their remote state is safe.
+- Use an isolated task worktree for pull request work. Preserve pre-existing work; remove task-created temporary files and worktrees only after their remote state is safe.
 - Design and capability questions are read-only. A direct request such as "can you fix this?" authorizes that action. Continue through the requested implementation, verification, and fixes until the stated completion criteria are met. Explain repository-rule conflicts and ask for an exception before acting.
 - On "continue", inspect the current branch, PR, worktree, consumer, and deployed state before resuming. Use read-only inspection within existing permissions.
 - Write short, plain technical English using ASD-STE100 principles. Avoid filler and em dashes. "Users" are developers; "Agents" are the Agents they define.
