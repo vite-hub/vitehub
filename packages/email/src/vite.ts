@@ -277,7 +277,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
   for (const { file, name } of templates) {
     const target = resolve(stagingRoot, `${encodeURIComponent(name)}.mjs`)
     const entry = `${target}.entry.mjs`
-    await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
+    await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs${file}?markdown-template`)}\n`)
     try {
       await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir })
     }
@@ -488,7 +488,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         for (const templatesRoot of templatesRoots) {
           const file = resolve(templatesRoot, `${name}.md`)
           try {
-            if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+            if ((await stat(file)).isFile()) return `/@fs${file}?markdown-template`
           }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
