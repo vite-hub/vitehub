@@ -41,9 +41,9 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
     let stderr = ""
     child.stdout.on("data", chunk => stdout = `${stdout}${String(chunk)}`.slice(-64_000))
     child.stderr.on("data", chunk => stderr = `${stderr}${String(chunk)}`.slice(-4_000))
-    const abort = () => child.kill("SIGKILL")
+    const abort = () => child.kill("SIGTERM")
     options.signal?.addEventListener("abort", abort, { once: true })
-    const timeout = setTimeout(() => child.kill("SIGKILL"), options.timeoutMs ?? 120_000)
+    const timeout = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs ?? 120_000)
     child.once("error", (error) => {
       clearTimeout(timeout)
       options.signal?.removeEventListener("abort", abort)
