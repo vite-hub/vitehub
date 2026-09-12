@@ -1824,7 +1824,8 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     : cumulative !== undefined
       ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
       : options.accumulator.lastSignature !== signature
-  const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed
+  const hasReliableIdentity = responseIdentity !== undefined || cumulative !== undefined
+  const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed && hasReliableIdentity
   if (options.provider === "codex" && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
     options.accumulator.partitionComplete = false
