@@ -13,7 +13,7 @@ const puppeteerBrowsersVersion = "2.10.10"
 const chromiumBundleVersion = "149.0.0"
 const chromeForTestingVersion = "149.0.7827.155"
 const browserRuntimeEnvironments = new WeakMap<AgentInvocationContextStore, Readonly<Record<string, string>>>()
-const preparations = new Map<string, { promise: Promise<PreparedBrowserRuntime>, consumers: number }>()
+const preparations = new Map<string, { controller: AbortController, promise: Promise<PreparedBrowserRuntime>, consumers: number }>()
 
 export interface PreparedBrowserRuntime {
   command: string
@@ -36,6 +36,7 @@ function defaultCacheRoot(): string {
 
 function run(command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv, timeoutMs?: number, signal?: AbortSignal }): Promise<string> {
   return new Promise((resolve, reject) => {
+    options.signal?.throwIfAborted()
     const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["ignore", "pipe", "pipe"] })
     let stdout = ""
     let stderr = ""
@@ -43,6 +44,7 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
     child.stderr.on("data", chunk => stderr = `${stderr}${String(chunk)}`.slice(-4_000))
     const abort = () => child.kill("SIGTERM")
     options.signal?.addEventListener("abort", abort, { once: true })
+    if (options.signal?.aborted) abort()
     const timeout = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs ?? 120_000)
     child.once("error", (error) => {
       clearTimeout(timeout)
@@ -52,6 +54,7 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
     child.once("close", (code) => {
       clearTimeout(timeout)
       options.signal?.removeEventListener("abort", abort)
+      if (options.signal?.aborted) return reject(options.signal.reason)
       if (code === 0) return resolve(stdout)
       const detail = redactCredentialText(stderr.trim())
       reject(new Error(`[vitehub] Browser runtime command failed (${command}, exit ${code ?? "unknown"}): ${detail}`))
@@ -94,11 +97,16 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+const cancellation = new AbortController()
+process.on('SIGTERM', () => cancellation.abort(new Error('Chromium smoke check cancelled')))
 const profile = await mkdtemp(join(tmpdir(), 'vh-chrome-'))
 const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, ...JSON.parse(process.argv[2]), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
 try {
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Chromium CDP readiness timed out')), 15000)
+    const abort = () => { clearTimeout(timer); reject(cancellation.signal.reason) }
+    cancellation.signal.addEventListener('abort', abort, { once: true })
+    if (cancellation.signal.aborted) abort()
     let stderr = ''
     child.once('error', error => { clearTimeout(timer); reject(error) })
     child.once('exit', code => { clearTimeout(timer); reject(new Error('Chromium exited: ' + code + ' ' + stderr)) })
@@ -128,6 +136,7 @@ async function smokeChrome(executablePath: string, env: NodeJS.ProcessEnv, prefe
     return
   }
   catch (initialError) {
+    signal?.throwIfAborted()
     try {
       await run(executablePath, ["--headless", "--disable-gpu", "--no-sandbox", "--dump-dom", "about:blank"], { env, timeoutMs: 20_000, signal })
       return "--no-sandbox"
@@ -234,6 +243,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     if (prepared) return prepared
   }
   catch {
+    signal?.throwIfAborted()
     // Reinstall incomplete or invalid cache contents under the owned root.
   }
 
@@ -271,7 +281,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     const noSandbox = await smokeChrome(stagingChrome, {
       ...installEnv,
       ...(linuxBundle ? { LD_LIBRARY_PATH: join(stagingBrowserCache, "al2023", "lib"), FONTCONFIG_PATH: join(stagingBrowserCache, "fonts") } : {}),
-    }, false, linuxBundle)
+    }, false, linuxBundle, signal)
     const officialSkill = await readFile(join(stagingPackage, "node_modules", "agent-browser", "skills", "agent-browser", "SKILL.md"), "utf8")
     const skillContent = `${officialSkill.replace(/^hidden:\s*true\s*$/m, "").replace(/^Install:.*$/m, "").trim()}\n\n## ViteHub screenshots\n\nSave screenshots under \`screenshots/\`. To attach one to the final reply, add \`![Description](screenshots/name.png)\` on its own line.\n`
     await writeFile(join(staging, "core.SKILL.md"), skillContent, { mode: 0o600 })

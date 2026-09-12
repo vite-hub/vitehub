@@ -204,6 +204,40 @@ describe("browser runtime", () => {
     expect(lock).toHaveBeenCalledTimes(2)
   })
 
+  it("cancels a cached Linux probe without orphaning Chromium or reinstalling", async () => {
+    const value = await fixture()
+    const ready = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    const markerPath = join(value.cache, "ready.json")
+    const marker = JSON.parse(await readFile(markerPath, "utf8"))
+    await writeFile(markerPath, JSON.stringify({ ...marker, linuxBundle: true, browserVersion: "149.0.0" }))
+    const started = join(value.root, "chrome-started.json")
+    await writeFile(ready.environment.AGENT_BROWSER_EXECUTABLE_PATH!, `#!/usr/bin/env node
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(started)}, JSON.stringify({ pid: process.pid, profile: process.argv.find(arg => arg.startsWith('--user-data-dir=')).slice('--user-data-dir='.length) }));
+setInterval(() => {}, 1000);
+`)
+    const controller = new AbortController()
+    const pending = prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "linux", abortSignal: controller.signal })
+    await vi.waitFor(async () => expect(await readFile(started, "utf8")).toContain("pid"))
+    const { pid, profile } = JSON.parse(await readFile(started, "utf8"))
+    try {
+      controller.abort(new Error("cancel Linux smoke"))
+      await expect(pending).rejects.toThrow("cancel Linux smoke")
+      // Consumer rejection is immediate; the provisioner releases its lock
+      // only after the wrapper has reaped Chromium and removed the profile.
+      await vi.waitFor(async () => {
+        expect(() => process.kill(pid, 0)).toThrow()
+        await expect(lstat(profile)).rejects.toHaveProperty("code", "ENOENT")
+        await expect(lstat(`${value.cache}.lock`)).rejects.toHaveProperty("code", "ENOENT")
+      })
+      expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
+    }
+    finally {
+      try { process.kill(pid, "SIGKILL") } catch { /* Already reaped. */ }
+      await rm(profile, { recursive: true, force: true })
+    }
+  })
+
   it("serializes invalid cache repair across Node processes", async () => {
     const value = await fixture()
     const ready = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
