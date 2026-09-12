@@ -640,7 +640,7 @@ export interface AgentTriggerDefinition<
   TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
   health?: AgentHealthDescriptor
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
   webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
@@ -655,7 +655,7 @@ export interface ResolvedAgentTriggerDefinition<
   channelId?: string
   definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
   id: `${string}.${string}`
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
@@ -911,7 +911,7 @@ export type AgentCapabilityCliResolver<
 
 export interface AgentCapabilityCliExecutionInput {
   argv?: readonly string[]
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   json?: boolean
 }
 
@@ -1697,7 +1697,7 @@ export interface DiscoveredAgentDefinition {
 
 export interface AgentToolStepItem {
   id?: string
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   name?: string
   output?: unknown
   toolCallId?: string
@@ -1966,7 +1966,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
 export type AgentToolPolicyDecision = "allow" | "deny" | "require-approval" | "retryable-failure"
 
 export interface AgentToolPolicyContext {
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   name: string
 }
 

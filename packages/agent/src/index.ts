@@ -2803,6 +2803,7 @@ function agentTelemetryUsesContent(registration: { content?: AgentTelemetryConte
 function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
   if (!isTraceContentAttributeKey(key)) return false
   if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
+  if (key === "input.message.content" || key.startsWith("input.message.content.") || key === "agent.input.message.content" || key.startsWith("agent.input.message.content.")) return content.inputs === true
   if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "channel.effect.content" || key === "vitehub.activity.body") return content.outputs === true
   return false
 }
@@ -2919,8 +2920,9 @@ function agentTelemetryWorkspaceSources(sources: WorkspaceDefinition["sources"])
     const fingerprint = isRuntimeRecord(source) && isRuntimeRecord(source.fingerprint)
       ? source.fingerprint
       : undefined
-    const sourceOptions = fingerprint && isRuntimeRecord(fingerprint.options) ? fingerprint.options : undefined
-    const repo = fingerprint && hasRuntimeType(fingerprint.repo, "string") ? fingerprint.repo : sourceOptions?.repo
+    const resolved = fingerprint && isRuntimeRecord(fingerprint.source) ? fingerprint.source : fingerprint
+    const sourceOptions = resolved && isRuntimeRecord(resolved.options) ? resolved.options : undefined
+    const repo = resolved && hasRuntimeType(resolved.repo, "string") ? resolved.repo : sourceOptions?.repo
     const repository = hasRuntimeType(repo, "string") && /^[\w.-]+\/[\w.-]+$/.test(repo)
       ? repo
       : undefined
