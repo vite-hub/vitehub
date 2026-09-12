@@ -31,6 +31,7 @@ import {
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
+import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { agentInvocationId } from "../invocations.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -1165,14 +1166,9 @@ async function steerQueuedWebhookDelivery(
           invalidState = result.outcome === "invalid-state"
         } catch {}
         if (invalidState) {
-          let completed = false
           try {
-            completed = await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken)
-            if (completed) await state.set(claimKey, "invalid-state")
-            else {
-              await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, steeringLease.leaseToken, Date.now(), { incrementAttempts: false })
-              await state.delete(claimKey)
-            }
+            // Preserve the no-resubmission decision even if another worker owns the delivery now.
+            await state.set(claimKey, "invalid-state")
           } finally {
             stopDeliveryHeartbeat()
           }
@@ -1368,6 +1364,17 @@ async function executeQueuedWebhookDelivery(
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
 ): Promise<number | undefined> {
+  const steeringClaim = await state.get(webhookOwnershipKey(delivery.scope, "steer", delivery.deliveryId))
+  if (steeringClaim === "invalid-state" || steeringClaim === "steered") {
+    await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)
+    return
+  }
+  if (steeringClaim === "steering") {
+    // An expired lease does not prove that provider submission failed.
+    const retryAt = Date.now() + defaultWebhookQueueRetryMs
+    await state.retryWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken, retryAt, { incrementAttempts: false })
+    return retryAt
+  }
   if (delivery.attempts >= maxWebhookQueueAttempts) {
     const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(state, delivery.channelDeliveryId) : undefined
     if (await state.completeWebhookDelivery(delivery.scope, delivery.deliveryId, delivery.leaseToken)) {
@@ -4092,25 +4099,41 @@ async function chatTriggerMessages(
     includeReplyAttachmentInput: true,
     rejectOversizedTextAttachments: true,
   })
+  const queued = options?.concurrency === "queue"
+    ? await Promise.all((messageContext?.skipped ?? []).map(item => chatSdkMessageToUiMessage(item, undefined, {
+        includeReplyAttachmentInput: true,
+        rejectOversizedTextAttachments: true,
+      })))
+    : []
+  const retained = [...queued, current]
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
-  if (!limit) return [current]
+  if (!limit) return retained
 
   const fetchedNewestFirst: UIMessageLike[] = []
-  let reachedCurrent = !historyThroughCurrent || !message.id
+  const boundHistory = historyThroughCurrent || options?.concurrency === "steer"
+  const unindexedNewestFirst: UIMessageLike[] = []
+  let reachedCurrent = !boundHistory || !message.id
   try {
     for await (const item of thread.messages) {
       if (!reachedCurrent) {
-        if (item.id !== message.id) continue
+        if (item.id !== message.id) {
+          if (!historyThroughCurrent && unindexedNewestFirst.length < limit) {
+            unindexedNewestFirst.push(await chatSdkMessageToUiMessage(item))
+          }
+          continue
+        }
         reachedCurrent = true
       }
       fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
+  if (!reachedCurrent && !historyThroughCurrent) fetchedNewestFirst.push(...unindexedNewestFirst)
 
   let durable = await durableChatThreadMessages(thread, limit)
-  if (historyThroughCurrent && message.id) {
+  if (boundHistory && message.id) {
     const currentIndex = durable.findIndex(item => item.id === message.id)
+    // Without the current message, the later durable read has no safe history boundary.
     durable = currentIndex >= 0 ? durable.slice(0, currentIndex + 1) : []
   }
   let messages = [
@@ -4135,8 +4158,12 @@ async function chatTriggerMessages(
       : previousMessages && previousIndex >= 0 ? previousMessages.slice(0, previousIndex + 1) : [current]
   } else if (!current.id || !messages.some((item) => item.id === current.id)) {
     messages.push(current)
+  } else if (boundHistory) {
+    messages = messages.slice(0, messages.findIndex((item) => item.id === current.id) + 1)
   }
-  return messages.slice(-limit)
+  if (!queued.length) return messages.slice(-limit)
+  const retainedIds = new Set(retained.map(item => item.id))
+  return [...messages.slice(-limit).filter(item => !retainedIds.has(item.id)), ...retained]
 }
 
 function createChatTriggerInput(
@@ -4771,6 +4798,7 @@ async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number
 }
 
 interface InlineChatTurn {
+  fallbacks?: Map<string, Promise<void>>
   steering?: Promise<void>
   done: Promise<void>
   finish: () => Promise<void>
@@ -4833,6 +4861,7 @@ async function handleChatSdkMessage(
     }))
   delivery.claimed = true
   context = withAgentChannelDelivery(context, delivery)
+  const sourceThread = thread
   thread = observeChatThread(thread, delivery)
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
@@ -4888,7 +4917,7 @@ async function handleChatSdkMessage(
     }, invoker)
 
     let messages = scopeCurrentChatUiMessage(
-      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent || options?.concurrency === "steer"),
+      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
       message.id,
       input.run?.runId || delivery.delivery.id,
     )
@@ -4980,7 +5009,9 @@ async function handleChatSdkMessage(
             return result
           })
           let steeringTimer: ReturnType<typeof setTimeout> | undefined
-          const steeringWait = Math.max(0, Math.min(28_000, inlineWaitDeadline === undefined ? Infinity : inlineWaitDeadline - Date.now()))
+          // Reserve half the remaining host budget for late confirmation.
+          const hostConfirmationWait = maximumInvocationDeadline === undefined ? Infinity : (maximumInvocationDeadline - Date.now()) / 2
+          const steeringWait = Math.max(0, Math.min(28_000, hostConfirmationWait, inlineWaitDeadline === undefined ? Infinity : inlineWaitDeadline - Date.now()))
           let outcome: Awaited<typeof submission> | "timed-out"
           try {
             outcome = await Promise.race([
@@ -5001,10 +5032,30 @@ async function handleChatSdkMessage(
           }
           if (outcome === "timed-out") {
             await timeoutEvidence
-            // Keep late acceptance under host custody for one more bounded confirmation window.
+            // The response wait is bounded, but a timeout cannot cancel Driver input.
+            // Retain host custody until that input and all resulting evidence settle.
             // Use the host hook directly so a webhook flush does not delay its response.
-            const reconciliationTimeout = Math.max(1, Math.min(options?.timeout ?? 28_000, 28_000))
-            const reconciliation = enforceChatInvocationTimeout(submission, reconciliationTimeout).catch(() => undefined)
+            const reconciliation = submission.then(async (result) => {
+              if (result !== "unsupported" && result !== "unavailable") return
+              const fallbacks = active.fallbacks ??= new Map<string, Promise<void>>()
+              const deliveryId = delivery.delivery.id
+              let fallback = fallbacks.get(deliveryId)
+              if (!fallback) {
+                // Retain the claim on this turn so late duplicate continuations
+                // observe the same result even after the successor has finished.
+                fallback = (async () => {
+                  try {
+                    await waitForInlineChatTurn(active, maximumInvocationDeadline)
+                  } catch (error) {
+                    await recordChannelDeliveryEvidence(delivery, { error: channelDeliveryError(error), type: "failed" })
+                    return
+                  }
+                  await handleChatSdkMessage(agent, context, registration, sourceThread, message, deliveryKind, options, state, messageContext, maximumInvocationDeadline, true, durableSteerScope)
+                })()
+                fallbacks.set(deliveryId, fallback)
+              }
+              await fallback
+            }).catch(() => undefined)
             state.reconciliationWaitUntil?.(reconciliation)
             return
           }
@@ -5641,6 +5692,7 @@ async function handleChatSdkMessage(
       detachAgentChannelDelivery(delivery)
       return
     }
+    const inlineRunContext = run?.runId ? withAgentInvocationResponseOwner(runContext, run.runId) : runContext
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && isRuntimeString(thinkingFallback)) {
       const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
@@ -5694,11 +5746,11 @@ async function handleChatSdkMessage(
         (async () => {
           const result = manualDelivery
             ? // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-              await streamAgent(agent as never, runContext as never, invocationInput as never, {
+              await streamAgent(agent as never, inlineRunContext as never, invocationInput as never, {
                 output: "events",
               })
             : // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-              await runAgentInline(agent as never, runContext as never, invocationInput as never)
+              await runAgentInline(agent as never, inlineRunContext as never, invocationInput as never)
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
           const text = await collectAgentOutput(result, progress?.update, (toolResult) => toolResults.push(toolResult))
           if (!manualDelivery && text) {
@@ -5739,7 +5791,7 @@ async function handleChatSdkMessage(
       await enforceChatInvocationTimeout(
         (async () => {
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
+          const result = streamAgent(agent as never, inlineRunContext as never, invocationInput as never, {
             output: "events",
           })
           try {
@@ -5922,10 +5974,12 @@ async function handleChatSdkMessages(
 ): Promise<void> {
   const serial = chatSdkOption<string>(options, "concurrency") === "serial"
   const durableSteerScope = chatSdkOption<string>(options, "concurrency") === "steer" ? await chatSdkLockKey(adapter, thread.id, options) : undefined
-  const individualMessages = serial || (chatSdkOption<string>(options, "concurrency") === "queue" && !thread.isDM)
+  const coalesced = chatSdkOption<string>(options, "concurrency") === "queue"
+  const individualMessages = serial || coalesced
+  const accepted: Array<{ message: ChatSdkMessage; thread: Thread; delivery: AgentChannelDeliveryTracker; kind: AgentMessageDeliveryKind }> = []
   const messages = individualMessages ? [...(messageContext?.skipped ?? []), message] : [message]
   const requestDelivery = agentChannelDeliveryTracker(context)
-  if (requestDelivery) requestDelivery.claimed = true
+  if (requestDelivery && !individualMessages) requestDelivery.claimed = true
   const stopRefreshingLock = individualMessages ? lockTracker.refresh(await chatSdkLockKey(adapter, thread.id, options)) : () => undefined
 
   try {
@@ -5949,6 +6003,7 @@ async function handleChatSdkMessages(
                   : undefined)
               : undefined)
           : undefined
+        if (requestDelivery && queuedDelivery?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
         if (!queuedThread.isDM && !queuedMessage.isMention) {
           if (!queuedDelivery && !requestDelivery) {
             const listenerDelivery = await openAgentChannelDelivery(state.state, {
@@ -5961,13 +6016,25 @@ async function handleChatSdkMessages(
             if (listenerDelivery) await recordChannelDeliveryEvidence(listenerDelivery, { type: "rejected" })
           }
           if (queuedDelivery) await recordChannelDeliveryEvidence(queuedDelivery, { type: "rejected" })
-          if (queuedMessage === message && requestDelivery && requestDelivery.delivery.id !== queuedDelivery?.delivery.id) {
+          if (queuedMessage === message && requestDelivery && !queuedDelivery) {
             await recordChannelDeliveryEvidence(requestDelivery, { type: "rejected" })
           }
           continue
         }
         const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
+        if (coalesced) {
+          const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || await openAgentChannelDelivery(state.state, {
+            agentName: context.agentIdentity?.name || "agent",
+            channelId: registration.channelId,
+            provider: chatRegistrationOrigin(registration),
+            scope: `${state.keyPrefix}${queuedThread.id}`,
+            sourceId: queuedMessageId || randomToken(),
+          })
+          delivery.claimed = true
+          accepted.push({ message: queuedMessage, thread: queuedThread, delivery, kind: deliveryKind })
+          continue
+        }
         const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
         await handleChatSdkMessage(
           agent,
@@ -5984,8 +6051,32 @@ async function handleChatSdkMessages(
           durableSteerScope,
         )
       } catch (error) {
-        if (!individualMessages) throw error
+        if (!serial) throw error
       }
+    }
+    const latest = accepted.at(-1)
+    if (latest) {
+      const delivery: AgentChannelDeliveryTracker = {
+        ...latest.delivery,
+        async event(input) {
+          const result = await latest.delivery.event(input)
+          await Promise.all(accepted.slice(0, -1).map(item => item.delivery.event(input)))
+          return result
+        },
+      }
+      await handleChatSdkMessage(
+        agent,
+        withAgentChannelDelivery(context, delivery),
+        registration,
+        latest.thread,
+        latest.message,
+        latest.kind,
+        options,
+        state,
+        { skipped: accepted.slice(0, -1).map(item => item.message), totalSinceLastHandler: accepted.length },
+        maximumInvocationDeadline,
+        true,
+      )
     }
   } finally {
     stopRefreshingLock()
@@ -7390,9 +7481,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           if (response.status === 401 || response.status === 403) return response
           const channelDelivery = await resolveChannelDelivery()
           if (!channelDelivery.claimed && !channelDelivery.duplicate) {
-            const serial = chatSdkOption<string>(chatOptions, "concurrency") === "serial"
+            const queued = ["serial", "queue"].includes(chatSdkOption<string>(chatOptions, "concurrency") || "")
             const ignored =
-              serial &&
+              queued &&
               response.ok &&
               (await response
                 .clone()
@@ -7400,12 +7491,12 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                 .then((body) => isRecord(body) && body.ignored === true)
                 .catch(() => false))
             await recordChannelDeliveryEvidence(channelDelivery, {
-              // Chat SDK may evict or expire serial entries without exposing
+              // Chat SDK may evict or expire queued entries without exposing
               // their identity. Record transport acceptance until a drain
               // claims this delivery instead of promising durable queue custody.
-              type: response.ok ? (serial && !ignored ? "accepted" : "completed") : response.status >= 500 ? "failed" : "rejected",
+              type: response.ok ? (queued && !ignored ? "accepted" : "completed") : response.status >= 500 ? "failed" : "rejected",
             })
-            if (serial && !ignored && response.ok) detachAgentChannelDelivery(channelDelivery)
+            if (queued && !ignored && response.ok) detachAgentChannelDelivery(channelDelivery)
           }
           if (chatOptions?.stream === false && hasExplicitNonStreamingMessages(agent, registration.channelId)) {
             await context.flushWaitUntil?.()
