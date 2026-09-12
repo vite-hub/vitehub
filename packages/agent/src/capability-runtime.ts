@@ -964,10 +964,11 @@ async function applyCapabilityWorkspaceContributions<
         const stat = await sourceResolution.workspace.fs.stat(path)
         const { content, digest } = desired.get(path)!
         try {
+          const { source: _source, ...persistedMetadata } = stat.metadata ?? {}
           await retainedWorkspace.fs.writeFile(path, content, {
             ifDigest,
             mediaType: stat.mediaType,
-            metadata: { ...stat.metadata, capabilityWorkspaceContribution: { capabilityId, digest, path } },
+            metadata: { ...persistedMetadata, capabilityWorkspaceContribution: { capabilityId, digest, path } },
           })
         }
         catch (error) {
