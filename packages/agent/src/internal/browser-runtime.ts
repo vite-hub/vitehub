@@ -177,7 +177,7 @@ try {
           throw error
         })
         const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
-        if ((Number(fields[2]) === child.pid || Number(fields[3]) === group) && !['Z', 'X'].includes(fields[0])) {
+        if ((Number(fields[1]) === child.pid || Number(fields[2]) === group) && !['Z', 'X'].includes(fields[0])) {
           running = true
           break
         }
@@ -267,7 +267,10 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   for (const entry of await readdir(dirname(root))) {
     if (!entry.startsWith(stagingPrefix)) continue
     assertLock()
-    await rm(join(dirname(root), entry), { force: true, recursive: true })
+    const stagingPath = join(dirname(root), entry)
+    const stagingStat = await lstat(stagingPath).catch(() => undefined)
+    if (!stagingStat || stagingStat.uid !== process.getuid?.() || !stagingStat.isDirectory()) continue
+    await rm(stagingPath, { force: true, recursive: true })
   }
   const packageRoot = join(root, "package")
   const binRoot = join(packageRoot, "node_modules", ".bin")
