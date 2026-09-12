@@ -6039,23 +6039,6 @@ async function handleChatSdkMessages(
               : undefined)
           : undefined
         if (requestDelivery && queuedDelivery?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
-        if (!queuedThread.isDM && !queuedMessage.isMention) {
-          if (!queuedDelivery && !requestDelivery) {
-            const listenerDelivery = await openAgentChannelDelivery(state.state, {
-              agentName: context.agentIdentity?.name || "agent",
-              channelId: registration.channelId,
-              provider: chatRegistrationOrigin(registration),
-              scope: `${state.keyPrefix}${queuedThread.id}`,
-              sourceId: queuedMessageId || randomToken(),
-            }).catch(() => undefined)
-            if (listenerDelivery) await recordChannelDeliveryEvidence(listenerDelivery, { type: "rejected" })
-          }
-          if (queuedDelivery) await recordChannelDeliveryEvidence(queuedDelivery, { type: "rejected" })
-          if (queuedMessage === message && requestDelivery && !queuedDelivery) {
-            await recordChannelDeliveryEvidence(requestDelivery, { type: "rejected" })
-          }
-          continue
-        }
         const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) continue
         if (coalesced) {
