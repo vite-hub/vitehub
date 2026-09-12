@@ -3643,7 +3643,15 @@ async function createAgentInvocationContext<
         throw error
       }
     })
-    const [capabilities] = await Promise.all([preparingCapabilities, knownUnavailable])
+    const capabilities = await preparingCapabilities
+    // Capability responses are provider-independent and must bypass readiness failures.
+    // Keep the concurrent readiness probe observed so a rejection cannot become unhandled.
+    if (capabilities.response) {
+      void knownUnavailable.catch(() => undefined)
+    }
+    else {
+      await knownUnavailable
+    }
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {
