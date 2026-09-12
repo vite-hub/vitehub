@@ -278,6 +278,19 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   const browserVersion = platform === "linux" ? chromiumBundleVersion : chromeForTestingVersion
   const socketRoot = join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}`)
   await mkdir(socketRoot, { mode: 0o700, recursive: true })
+  // Every ancestor must be owned by the current user and not writable by
+  // group/others; otherwise an attacker could replace the validated socket
+  // directory between this check and use.
+  let ancestor = resolve(socketRoot)
+  while (true) {
+    const ancestorStat = await lstat(ancestor)
+    if (!ancestorStat.isDirectory() || ancestorStat.uid !== process.getuid?.() || (ancestorStat.mode & 0o022) !== 0) {
+      throw new Error("[vitehub] Browser socket directory ancestors must be private directories owned by the current user.")
+    }
+    const parent = dirname(ancestor)
+    if (parent === ancestor) break
+    ancestor = parent
+  }
   const socketStat = await lstat(socketRoot)
   if (!socketStat.isDirectory() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) {
     throw new Error("[vitehub] Browser socket directory must be a private directory owned by the current user.")
