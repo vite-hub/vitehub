@@ -6091,7 +6091,10 @@ async function handleChatSdkMessages(
         )
       } catch (error) {
         if (claimedDelivery) await settleChannelDeliveryInvocation(claimedDelivery, "failed", "failed", { error: channelDeliveryError(error) })
-        if (!serial) throw error
+        if (!serial) {
+          await Promise.all(accepted.map(({ delivery }) => settleChannelDeliveryInvocation(delivery, "failed", "failed", { error: channelDeliveryError(error) })))
+          throw error
+        }
       }
     }
     const latest = accepted.at(-1)
