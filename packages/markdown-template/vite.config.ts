@@ -6,6 +6,7 @@ export default defineConfig({
     deps: {
       neverBundle: ["comark"],
       onlyBundle: false,
+      alwaysBundle: [/^@vite-hub\/internal/],
     },
     entry: ["src/index.ts", "src/portable.ts", "src/file.ts", "src/internal/composition.ts", "src/internal/vite.ts", "src/vite.ts"],
     exports: {
