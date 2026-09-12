@@ -157,7 +157,16 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
     if (signal.aborted) reject(signal.reason ?? new Error("The operation was aborted"))
     else signal.addEventListener("abort", () => reject(signal.reason ?? new Error("The operation was aborted")), { once: true })
   }) : undefined
-  const release = await (abortPromise ? Promise.race([lockPromise, abortPromise]) : lockPromise)
+  let release: (() => Promise<void>) | undefined
+  try {
+    release = await (abortPromise ? Promise.race([lockPromise, abortPromise]) : lockPromise)
+  }
+  catch (error) {
+    // The lock acquisition may still complete after cancellation; release it
+    // then so abandoned waiters cannot retain the cache lock.
+    void lockPromise.then(unlock => unlock()).catch(() => undefined)
+    throw error
+  }
   if (signal?.aborted) {
     await release()
     throw signal.reason ?? new Error("The operation was aborted")
