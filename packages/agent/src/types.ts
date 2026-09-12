@@ -655,7 +655,7 @@ export interface ResolvedAgentTriggerDefinition<
   channelId?: string
   definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
   id: `${string}.${string}`
-  input?: string | StandardSchemaV1<unknown, TInput>
+  input?: unknown
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
@@ -911,7 +911,7 @@ export type AgentCapabilityCliResolver<
 
 export interface AgentCapabilityCliExecutionInput {
   argv?: readonly string[]
-  input?: string | StandardSchemaV1<unknown, TInput>
+  input?: unknown
   json?: boolean
 }
 
@@ -1697,7 +1697,7 @@ export interface DiscoveredAgentDefinition {
 
 export interface AgentToolStepItem {
   id?: string
-  input?: string | StandardSchemaV1<unknown, TInput>
+  input?: unknown
   name?: string
   output?: unknown
   toolCallId?: string
@@ -1966,7 +1966,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
 export type AgentToolPolicyDecision = "allow" | "deny" | "require-approval" | "retryable-failure"
 
 export interface AgentToolPolicyContext {
-  input?: string | StandardSchemaV1<unknown, TInput>
+  input?: unknown
   name: string
 }
 
