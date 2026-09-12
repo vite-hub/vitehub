@@ -50,7 +50,19 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
       if (forced || terminating || settled) return
       terminating = true
       child.kill("SIGTERM")
-      grace = setTimeout(() => { forced = true; child.kill("SIGKILL") }, 2_000)
+      // Linux smoke checks launch Chromium in a detached process group. Kill
+      // that group during escalation so the browser cannot outlive the
+      // wrapper and keep its profile locked while cleanup is skipped.
+      if (process.platform !== "win32" && child.pid) {
+        try { process.kill(-child.pid, "SIGTERM") } catch { /* already gone */ }
+      }
+      grace = setTimeout(() => {
+        forced = true
+        child.kill("SIGKILL")
+        if (process.platform !== "win32" && child.pid) {
+          try { process.kill(-child.pid, "SIGKILL") } catch { /* already gone */ }
+        }
+      }, 2_000)
     }
     const abort = terminate
     options.signal?.addEventListener("abort", abort, { once: true })
