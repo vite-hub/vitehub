@@ -501,6 +501,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "priority-outcomes-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: [...ordinary, streamError, runError],
       status: "running",
       traceId: "trace",
@@ -541,6 +542,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "cancelled-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: ordinary,
       status: "cancelled",
       traceId: "trace",
@@ -598,6 +600,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "delivery-overflow-lifecycle",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: [...lifecycle, ...deliveries],
       status: "completed",
       traceId: "trace",
@@ -635,6 +638,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "failure-evidence-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: failures,
       status: "failed",
       traceId: "trace",
@@ -706,6 +710,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "full-journal-order",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations,
       status: "running",
       traceId: "trace",
@@ -743,6 +748,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "mixed-identity-order",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations,
       status: "running",
       traceId: "trace",
@@ -1035,6 +1041,7 @@ describe("Agent Invocations", () => {
           reportTerminalObservationWriteStarted = resolve
         })
         const invocations = defineAgentInvocations({
+          observations: { maxCount: 256 },
           store: {
             ...memory,
             async update(id, input, claimId) {
