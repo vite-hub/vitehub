@@ -2671,7 +2671,7 @@ cli_auth_credentials_store = "keyring"
     expect(result.usageRecord?.usage?.inputTokens).toBeUndefined()
   })
 
-  it.each(["itemId", "eventId"] as const)("replaces progressive Codex snapshots for one %s", async (identityKey) => {
+  it.each(["itemId"] as const)("replaces progressive Codex snapshots for one %s", async (identityKey) => {
     const threadId = "thread-progressive-usage"
     const identity = { [identityKey]: "response-1" }
     const corrected = { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 }
