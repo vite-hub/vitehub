@@ -134,7 +134,8 @@ await writeFile(join(process.env.TMPDIR, 'fonts', 'fonts.conf'), '<fontconfig><d
 // Headless Shell exposes CDP but does not implement Chrome's --dump-dom command.
 const smokeLinuxChromiumScript = `
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { setTimeout as delay } from 'node:timers/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 const cancellation = new AbortController()
@@ -161,6 +162,30 @@ try {
     try { process.kill(child.pid, 'SIGKILL') } catch {}
   }
   await new Promise(resolve => child.exitCode !== null || child.signalCode !== null ? resolve() : child.once('close', resolve))
+  // A direct-child close does not join helpers with independent stdio.
+  // Zombies have exited and released their files; their reaping belongs to
+  // the adopting parent, which may be PID 1 rather than this wrapper.
+  if (child.pid) {
+    const deadline = Date.now() + 1500
+    while (true) {
+      let running = false
+      for (const pid of await readdir('/proc')) {
+        if (!/^[0-9]+$/.test(pid)) continue
+        const status = await readFile('/proc/' + pid + '/stat', 'utf8').catch(error => {
+          if (error.code === 'ENOENT' || error.code === 'ESRCH') return ''
+          throw error
+        })
+        const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
+        if (Number(fields[2]) === child.pid && !['Z', 'X'].includes(fields[0])) {
+          running = true
+          break
+        }
+      }
+      if (!running) break
+      if (Date.now() >= deadline) throw new Error('Chromium helpers did not exit; retaining profile ' + profile)
+      await delay(10)
+    }
+  }
   await rm(profile, { recursive: true, force: true })
 }
 `
