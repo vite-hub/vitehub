@@ -34,20 +34,24 @@ function defaultCacheRoot(): string {
   return join(configured || join(xdg || join(homedir(), ".cache"), "vitehub"), "browser", `agent-browser-${agentBrowserVersion}-chromium-${chromiumBundleVersion}-chrome-${chromeForTestingVersion}`)
 }
 
-function run(command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv, timeoutMs?: number }): Promise<string> {
+function run(command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv, timeoutMs?: number, signal?: AbortSignal }): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["ignore", "pipe", "pipe"] })
     let stdout = ""
     let stderr = ""
     child.stdout.on("data", chunk => stdout = `${stdout}${String(chunk)}`.slice(-64_000))
     child.stderr.on("data", chunk => stderr = `${stderr}${String(chunk)}`.slice(-4_000))
+    const abort = () => child.kill("SIGKILL")
+    options.signal?.addEventListener("abort", abort, { once: true })
     const timeout = setTimeout(() => child.kill("SIGKILL"), options.timeoutMs ?? 120_000)
     child.once("error", (error) => {
       clearTimeout(timeout)
+      options.signal?.removeEventListener("abort", abort)
       reject(error)
     })
     child.once("close", (code) => {
       clearTimeout(timeout)
+      options.signal?.removeEventListener("abort", abort)
       if (code === 0) return resolve(stdout)
       const detail = redactCredentialText(stderr.trim())
       reject(new Error(`[vitehub] Browser runtime command failed (${command}, exit ${code ?? "unknown"}): ${detail}`))
@@ -134,7 +138,7 @@ async function smokeChrome(executablePath: string, env: NodeJS.ProcessEnv, prefe
   }
 }
 
-async function provision(root: string, npmCommand = "npm", platform: NodeJS.Platform = process.platform): Promise<PreparedBrowserRuntime> {
+async function provision(root: string, npmCommand = "npm", platform: NodeJS.Platform = process.platform, signal?: AbortSignal): Promise<PreparedBrowserRuntime> {
   await mkdir(dirname(root), { recursive: true, mode: 0o700 })
   root = join(await realpath(dirname(root)), basename(root))
   await assertTrustedBrowserCache(root)
@@ -282,8 +286,10 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
   const key = `${root}\0${options.npmCommand || "npm"}\0${options.platform || process.platform}`
   let preparation = preparations.get(key)
   if (!preparation) {
+    const controller = new AbortController()
     const generation = {
-      promise: provision(root, options.npmCommand, options.platform).catch((error) => {
+      controller,
+      promise: provision(root, options.npmCommand, options.platform, controller.signal).catch((error) => {
         if (preparations.get(key) === generation) preparations.delete(key)
         throw error
       }),
@@ -300,7 +306,7 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
       if (finished) return false
       finished = true
       generation.consumers--
-      if (generation.consumers === 0 && preparations.get(key) === generation) preparations.delete(key)
+      if (generation.consumers === 0 && preparations.get(key) === generation) { preparations.delete(key); generation.controller.abort() }
       signal?.removeEventListener("abort", onAbort)
       return true
     }
