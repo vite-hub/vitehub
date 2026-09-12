@@ -1215,10 +1215,10 @@ function createLazyMaterializedMetadata(
     sourcePath: resolution.sourcePath,
     materializedAt: now,
     ...(resolution.validate === "request" ? { validatedAt: now } : {}),
-    ...(readStringMeta(upstreamMeta, "etag") ? { etag: readStringMeta(upstreamMeta, "etag") } : {}),
-    ...(readStringMeta(upstreamMeta, "sha") ? { sha: readStringMeta(upstreamMeta, "sha") } : {}),
+    ...(readStringMeta(upstreamMeta, "etag") !== undefined ? { etag: readStringMeta(upstreamMeta, "etag") } : {}),
+    ...(readStringMeta(upstreamMeta, "sha") !== undefined ? { sha: readStringMeta(upstreamMeta, "sha") } : {}),
     ...((readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest")) ? { digest: readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest") } : {}),
-    ...(readStringMeta(upstreamMeta, "ref") ? { ref: readStringMeta(upstreamMeta, "ref") } : {}),
+    ...(readStringMeta(upstreamMeta, "ref") !== undefined ? { ref: readStringMeta(upstreamMeta, "ref") } : {}),
   }
 }
 
