@@ -1861,6 +1861,11 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   }
   const previousCall = options.accumulator.calls.at(-1)
   const sameResponse = responseIdentity !== undefined && responseIdentity === options.accumulator.lastCallIdentity
+    || responseIdentity === undefined
+      && cumulative !== undefined
+      && cumulative === options.accumulator.previousTotalProcessedTokens
+      && previousCall !== undefined
+      && previousCall.usage === undefined
   if (options.provider === "codex" && !changed && sameResponse && previousCall && !previousCall.usage && partitionTotal !== undefined) {
     previousCall.usage = { inputTokens, outputTokens, totalTokens: partitionTotal }
     options.accumulator.inputTokens += inputTokens!
