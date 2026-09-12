@@ -1,5 +1,12 @@
 import { existsSync, globSync, readFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
+import { execFile } from "node:child_process"
+import { fileURLToPath, pathToFileURL } from "node:url"
+
+const execFileAsync = promisify(execFile)
 
 import { describe, expect, it } from "vitest"
 
