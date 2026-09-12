@@ -486,7 +486,7 @@ describe("lazy sources", () => {
     await createWorkspaceSourceView(initial, store).materializeSources()
     const path = (name: string) => mount ? `${mount}/${name}` : name
     const restarted = createLocalWorkspaceStore(root)
-    await expect(restarted.readFile(path("AGENTS.md"))).resolves.toMatchObject({ metadata: undefined })
+    await expect(restarted.readFile(path("AGENTS.md"))).resolves.toMatchObject({ metadata: { source: "instructions" } })
     await restarted.writeFile(path("edited.md"), { path: path("edited.md"), content: "user edit" })
     await restarted.writeFile(path("claimed.md"), { path: path("claimed.md"), content: "original", metadata: { source: "other" } })
     await syncWorkspaceDefinition({ name: initial.name, sources: {} }, restarted)
