@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { spawn } from "node:child_process"
@@ -75,6 +75,20 @@ async function findChrome(root: string): Promise<string | undefined> {
       if (nested) return nested
     }
     else if (entry.isFile() && (entry.name === "chrome" || entry.name === "chrome.exe" || entry.name === "Google Chrome for Testing")) return path
+  }
+}
+
+async function normalizePrivateModes(root: string): Promise<void> {
+  const entries = await readdir(root, { withFileTypes: true })
+  for (const entry of entries) {
+    const path = join(root, entry.name)
+    if (entry.isDirectory()) {
+      await chmod(path, 0o700)
+      await normalizePrivateModes(path)
+    } else if (entry.isFile()) {
+      const mode = (await stat(path)).mode
+      await chmod(path, mode & 0o111 ? 0o700 : 0o600)
+    }
   }
 }
 
@@ -278,6 +292,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
       stagingChrome = await findChrome(stagingBrowserCache)
     }
     if (!stagingChrome) throw new Error("[vitehub] Browser runtime installation did not produce a Chrome executable.")
+    await normalizePrivateModes(staging)
     const noSandbox = await smokeChrome(stagingChrome, {
       ...installEnv,
       ...(linuxBundle ? { LD_LIBRARY_PATH: join(stagingBrowserCache, "al2023", "lib"), FONTCONFIG_PATH: join(stagingBrowserCache, "fonts") } : {}),
