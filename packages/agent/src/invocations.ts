@@ -2074,6 +2074,12 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       } while (cursor)
       return [...names].sort()
     },
+    async listTriggeredBy(agentName) {
+      if (store.listTriggeredBy) return [...new Set((await store.listTriggeredBy(agentName?.trim())).map(value => value.trim()).filter(Boolean))].sort()
+      const labels = new Set<string>(); let cursor: string | undefined
+      do { const page = await store.list({ ...(agentName?.trim() ? { agentName: agentName.trim() } : {}), cursor, limit: MAX_LIST_LIMIT }); for (const item of page.invocations) if (item.triggeredBy?.trim()) labels.add(item.triggeredBy.trim()); cursor = page.cursor } while (cursor)
+      return [...labels].sort()
+    },
     async listCapabilityIds(agentName) {
       const selectedAgent = agentName?.trim()
       if (store.listCapabilityIds) {
