@@ -3643,6 +3643,8 @@ async function createAgentInvocationContext<
         throw error
       }
     })
+    // Observe early readiness failures while capability preparation is still pending.
+    void knownUnavailable.catch(() => undefined)
     const capabilities = await preparingCapabilities
     // Capability responses are provider-independent and must bypass readiness failures.
     // Keep the concurrent readiness probe observed so a rejection cannot become unhandled.
