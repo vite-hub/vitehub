@@ -1214,11 +1214,11 @@ function createLazyMaterializedMetadata(
     source: resolution.sourceKey,
     sourcePath: resolution.sourcePath,
     materializedAt: now,
-    validatedAt: resolution.validate === "request" ? now : undefined,
-    etag: readStringMeta(upstreamMeta, "etag"),
-    sha: readStringMeta(upstreamMeta, "sha"),
-    digest: readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest"),
-    ref: readStringMeta(upstreamMeta, "ref"),
+    ...(resolution.validate === "request" ? { validatedAt: now } : {}),
+    ...(readStringMeta(upstreamMeta, "etag") ? { etag: readStringMeta(upstreamMeta, "etag") } : {}),
+    ...(readStringMeta(upstreamMeta, "sha") ? { sha: readStringMeta(upstreamMeta, "sha") } : {}),
+    ...((readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest")) ? { digest: readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest") } : {}),
+    ...(readStringMeta(upstreamMeta, "ref") ? { ref: readStringMeta(upstreamMeta, "ref") } : {}),
   }
 }
 
