@@ -1616,7 +1616,7 @@ export const AgentInvocationInspector = defineComponent({
                   h("small", duration),
                 ],
               ) : null,
-              h("h4", { class: "vh-invocation-inspector__title" }, agentInvocationTitle(props.invocation)),
+              h("div", { class: "vh-invocation-inspector__title-row" }, [h("h4", { class: "vh-invocation-inspector__title" }, agentInvocationTitle(props.invocation)), slots.identityActions?.({ invocation: props.invocation })]),
               agentInvocationContext(props.invocation) !== props.invocation.id
                 ? h("p", agentInvocationContext(props.invocation))
                 : null,

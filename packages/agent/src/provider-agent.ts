@@ -2542,9 +2542,15 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
     const invocationId = ownedAgentInvocationControlId(context.runtime)
+    let activeTurnId: string | undefined
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
+          if (inputOptions.mode === "steer") {
+            const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : undefined
+            if (!text?.trim() || !activeTurnId) return "unsupported"
+            try { await activeRuntime.sendTurn({ threadId, input: text }); return "accepted" } catch { return "unavailable" }
+          }
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
             const messages = input.messages || (hasRuntimeType(input.message, "object") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
@@ -2554,7 +2560,7 @@ async function* runProvider<
             return "unavailable"
           }
         },
-        support: { respond: true },
+        support: { respond: true, steer: true },
       })
     }
     const turn = await waitForProviderOperation(
@@ -2564,6 +2570,7 @@ async function* runProvider<
       deferRuntimeCleanup,
       () => finalizeDeferredRuntime(threadId),
     )
+    activeTurnId = turn.turnId
     if (turn.resumeCursor !== undefined) pendingResumeCursor = turn.resumeCursor
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
