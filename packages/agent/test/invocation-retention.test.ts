@@ -146,7 +146,7 @@ describe("Invocation observation retention", () => {
   })
 
   it.each([
-    { maxCount: 0 }, { maxCount: 8193 }, { maxStringLength: 1024 * 1024 + 1 },
+    { maxCount: 0 }, { maxCount: 32 * 1024 + 1 }, { maxStringLength: 1024 * 1024 + 1 },
     { maxBytes: 1 }, { maxBytes: 64 * 1024 * 1024 + 1 }, { flushTimeoutMs: 60_001 },
     { maxCount: Number.NaN }, { maxBytes: Number.POSITIVE_INFINITY }, { flushTimeoutMs: 1.5 },
   ])("rejects invalid explicit observation limits %j", (observations) => {
