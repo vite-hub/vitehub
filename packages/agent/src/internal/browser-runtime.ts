@@ -284,8 +284,11 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   let ancestor = resolve(socketRoot)
   while (true) {
     const ancestorStat = await lstat(ancestor)
-    if (!ancestorStat.isDirectory() || ancestorStat.uid !== process.getuid?.() || (ancestorStat.mode & 0o022) !== 0) {
-      throw new Error("[vitehub] Browser socket directory ancestors must be private directories owned by the current user.")
+    const mode = ancestorStat.mode & 0o7777
+    const isTrustedSystem = ancestorStat.uid === 0 && (((mode & 0o022) === 0) || (mode & 0o1000) !== 0)
+    const isPrivateUser = ancestorStat.uid === process.getuid?.() && (mode & 0o022) === 0
+    if (!ancestorStat.isDirectory() || (!isTrustedSystem && !isPrivateUser)) {
+      throw new Error("[vitehub] Browser socket directory ancestors must be private directories or trusted system directories.")
     }
     const parent = dirname(ancestor)
     if (parent === ancestor) break
