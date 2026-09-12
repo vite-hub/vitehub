@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
 vi.mock("../src/console/runtime/client/request", () => ({ requestConsole: mocks.request }))
-vi.mock("@vite-hub/ui", () => ({ AgentFileTree: {}, AgentInvocationInspector: {} }))
+vi.mock("@vite-hub/ui", () => ({ AgentCapabilityInspector: {}, AgentFileTree: {}, AgentInvocationInspector: {} }))
 vi.mock("../src/console/runtime/components/console-session-code-preview.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-session-trace.vue", () => ({ default: {} }))
 

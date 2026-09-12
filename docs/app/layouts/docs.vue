@@ -7,7 +7,7 @@ const isSupportMatrix = computed(
 
 <template>
   <UMain>
-    <UContainer>
+    <UContainer :class="{ 'max-w-(--vh-docs-width) mx-auto': !isSupportMatrix }">
       <template v-if="isSupportMatrix">
         <AnnouncementBanner />
         <slot />

@@ -84,7 +84,7 @@ function githubRemoteFile(path: string, entry: GitHubTreeEntry): GitHubWorkspace
 }
 
 function isReservedWorkspacePath(path: string): boolean {
-  const root = normalizeWorkspacePath(path).split("/")[0];
+  const root = normalizeWorkspacePath(path).split("/")[0]?.toLowerCase();
   return root === ".git" || root === ".vitehub";
 }
 

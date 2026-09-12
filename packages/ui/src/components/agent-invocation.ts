@@ -1315,7 +1315,7 @@ function inspectorDisclosure(
   );
 }
 
-function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView) {
+function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView, showCapabilities: boolean) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
@@ -1344,7 +1344,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
     configuration.channels?.length
       ? inspectorChannels(configuration.channels)
       : null,
-    configuration.capabilities?.length
+    showCapabilities && configuration.capabilities?.length
       ? h("div", { class: "vh-invocation-inspector__group" }, [
           h("div", { class: "vh-invocation-inspector__group-heading" }, [
             h("strong", "Capabilities"),
@@ -1787,6 +1787,7 @@ export const AgentInvocationInspector = defineComponent({
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
     showStatus: { default: true, type: Boolean },
+    showCapabilities: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
   },
@@ -1950,7 +1951,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(activities.value, props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",

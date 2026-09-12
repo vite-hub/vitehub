@@ -2946,3 +2946,98 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   width: 100%;
   height: 100%;
 }
+
+.vh-capability-inspector {
+  color: var(--vh-text, inherit);
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+.vh-capability-inspector__navigation {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 8px 12px;
+}
+
+.vh-capability-inspector__navigation button {
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  font: inherit;
+  padding: 5px 8px;
+}
+
+.vh-capability-inspector__navigation button[aria-pressed="true"] {
+  background: var(--ui-bg-elevated, #8882);
+  font-weight: 600;
+}
+
+.vh-capability-inspector__navigation button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+.vh-capability-inspector__content {
+  min-width: 0;
+  padding: 4px 12px 16px;
+}
+
+.vh-capability-inspector h2,
+.vh-capability-inspector h3 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.vh-capability-inspector__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.vh-capability-inspector__section + .vh-capability-inspector__section {
+  margin-top: 12px;
+}
+
+.vh-capability-inspector__value {
+  display: grid;
+  gap: 4px 12px;
+  grid-template-columns: minmax(80px, 1fr) minmax(0, 2fr);
+  margin: 0 0 6px;
+}
+
+.vh-capability-inspector__value dt,
+.vh-capability-inspector__empty {
+  color: var(--ui-text-muted, #888);
+}
+
+.vh-capability-inspector__value dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.vh-capability-inspector pre {
+  font-size: 11px;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.vh-capability-inspector > p {
+  margin: 8px 12px;
+}
+
+.vh-capability-inspector__content > code {
+  overflow-wrap: anywhere;
+}

@@ -1,7 +1,7 @@
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { defineCapability } from "./capability-runtime.ts"
 import { createChatMessageTriggerInput } from "./chat-message-input.ts"
-import { toAgentPublicError } from "./agent-error.ts"
+import { readAgentErrorProperty, toAgentPublicError } from "./agent-error.ts"
 import { createReplyDeliveryEffectIntent, defineFinishEffect } from "./delivery-effects.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { agentInvokerLabel } from "./invoker.ts"
@@ -82,6 +82,38 @@ const CHAT_WEBHOOK_DEFAULTS = {
 export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const durableChatErrorFallbackTimeoutMs = 30_000
+
+function defaultInternalChatErrorFallback(args: AgentChatErrorHookArgs): string {
+  // Provider runtimes sometimes wrap quota failures in an internal diagnostic
+  // (for example AGENT_R0726), leaving the useful reset text only on `error`.
+  // Surface that information when it is unambiguously a usage failure; keep
+  // opaque internal errors on the safe generic message.
+  const raw = hasRuntimeType(args.error, "string")
+    ? args.error
+    : (() => {
+        try { return JSON.stringify(args.error) || "" } catch { return "" }
+      })()
+  if (args.publicError.code !== "PROVIDER_QUOTA_EXHAUSTED") return defaultChatErrorFallbackText
+  const reset = raw.match(/try again at ([^.]+\.)/i)?.[1]?.trim()
+  // Never surface arbitrary URLs embedded in serialized diagnostics. Providers
+  // may opt in by supplying an explicitly named usage link on the error object.
+  const usageLink = (() => {
+    if (!args.error || !hasRuntimeType(args.error, "object")) return undefined
+    const candidate = readAgentErrorProperty(args.error, "usageUrl")
+      ?? readAgentErrorProperty(args.error, "usageURL")
+      ?? readAgentErrorProperty(args.error, "usageLink")
+    if (!hasRuntimeType(candidate, "string")) return undefined
+    try {
+      const url = new URL(candidate)
+      return url.protocol === "https:" ? url.toString() : undefined
+    } catch { return undefined }
+  })()
+  return [
+    "The AI provider usage limit has been reached.",
+    reset ? `Usage should reset ${reset}` : "Usage will reset when the provider quota renews.",
+    usageLink ? `Manage usage: ${usageLink}` : undefined,
+  ].filter(Boolean).join(" ")
+}
 export function isDurableChatErrorFallbackEffect(effect: unknown): boolean {
   // SAFETY: Chat Capability normalization establishes the asserted trigger and delivery contract.
   return hasRuntimeType(effect, "function") && (effect as { kind?: string }).kind === "chat.error-fallback"
@@ -113,12 +145,15 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
       return callbackDelivered?.() ? undefined : defaultChatErrorFallbackText
     }
   }
+  if (args.publicError.code === "PROVIDER_QUOTA_EXHAUSTED") {
+    return defaultInternalChatErrorFallback(args)
+  }
   if (args.publicError.code !== "INTERNAL") {
     return args.publicError.requestId
       ? `${args.publicError.error} Reference: ${args.publicError.requestId}.`
       : args.publicError.error
   }
-  return hasRuntimeType(fallback, "string") ? fallback : defaultChatErrorFallbackText
+  return hasRuntimeType(fallback, "string") ? fallback : defaultInternalChatErrorFallback(args)
 }
 
 export function resolveDurableChatErrorFallbackText<TRuntimeConfig extends AgentRuntimeConfig>(

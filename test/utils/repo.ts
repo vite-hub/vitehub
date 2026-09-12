@@ -21,7 +21,7 @@ export const packageManifestSchema = object({
   sideEffects: optional(union([boolean(), array(string())])),
   type: optional(string()),
   types: optional(string()),
-  exports: optional(record(string(), union([string(), stringRecord]))),
+  exports: optional(record(string(), union([string(), record(string(), union([string(), stringRecord]))]))),
   files: optional(array(string())),
   dependencies: optional(stringRecord),
   devDependencies: optional(stringRecord),

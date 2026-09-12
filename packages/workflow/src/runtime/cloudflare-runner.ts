@@ -1,6 +1,6 @@
 import { runWithActiveCloudflareEnv, type CloudflareWorkerEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
-import { runWorkflowHandler } from "./execute.ts"
+import { runSerializedWorkflowHandler } from "./execute.ts"
 import { loadWorkflowDefinition, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "./state.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinitionRegistry, WorkflowProviderStep, WorkflowStepOptions } from "../types.ts"
@@ -69,7 +69,7 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
     }
 
     try {
-      return await runWithWorkflowRuntimeEvent(runtimeEvent, () => runWorkflowHandler({
+      return await runWithWorkflowRuntimeEvent(runtimeEvent, () => runSerializedWorkflowHandler({
         id: event?.instanceId || event?.id,
         name,
         payload: event?.payload,

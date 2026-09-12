@@ -1,5 +1,6 @@
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { workspaceError } from "../core/errors.ts"
+import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
@@ -38,6 +39,14 @@ import type {
   WorkspaceStore,
   WriteFileOptions,
 } from "../core/types.ts"
+
+function assertPublicFileMetadata(path: string, metadata: Record<string, unknown> | undefined) {
+  metadata = copyJsonFileMetadata(path, metadata)
+  if (metadata && Object.hasOwn(metadata, "source")) {
+    throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. metadata.source is reserved for Source materialization.`)
+  }
+  return metadata
+}
 
 export interface WorkspaceSourceView {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
@@ -602,12 +611,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     for (const source of rootSources) {
       await ensurePrepared(source.key)
       await ensureMaterialized(source.key)
-      const file = await store.readFile(path)
+      const file = await store.stat(path)
       if (file?.metadata?.source === source.key) return source
     }
   }
 
   async function isSourceBackedStorePath(path: string) {
+    // A missing sidecar must not release ownership recorded by the current Source.
+    for (const source of allSources) {
+      const snapshot = await readCurrentSourceSnapshot(store, source)
+      if (Object.keys(snapshot?.items || {}).some(item => item === path || !path || item.startsWith(`${path}/`))) return true
+    }
     const file = await store.readFile(path)
     if (typeof file?.metadata?.source === "string" && allSources.some(source => source.key === file.metadata?.source)) return true
     const stat = await store.stat(path)
@@ -694,11 +708,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return decodeFile(file.content, options)
     },
     async writeFile(path, content, options) {
+      const metadata = assertPublicFileMetadata(path, options?.metadata)
       const resolution = await assertWritablePath(path)
       const input = await writePolicy.before({
         content,
         mediaType: options?.mediaType,
-        metadata: options?.metadata,
+        metadata,
         operation: "writeFile",
         path: resolution.workspacePath,
         previous: await previousStat(resolution.workspacePath),
@@ -709,6 +724,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           throw workspaceError(`[vitehub] Workspace validator cannot rewrite preserved path: ${resolution.workspacePath} -> ${input.path}.`)
         }
         const file = { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: input.metadata }
+        file.metadata = assertPublicFileMetadata(input.path, file.metadata)
         if (options?.ifDigest !== undefined) {
           if (!store.writeFileConditional) throw workspaceError("[vitehub] This Workspace Store does not support conditional writes.")
           await store.writeFileConditional(input.path, file, options.ifDigest)

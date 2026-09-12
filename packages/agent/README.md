@@ -486,3 +486,11 @@ hubAgent({
 ```
 
 Aliases use the native webhook handler, retaining the request body and signature headers. The target Channel must be configured on that Agent. Static route collisions fail at build time. Deno and standalone Netlify output do not currently support aliases.
+
+## Capability inspection
+
+Capability definitions can declare `inspection: { label, view? }`. Lifecycle hooks publish serializable state with `await context.inspection.set(state)`. The state replaces the previous snapshot for that Capability and Invocation. Views use the typed, read-only JSON Render catalog in `AgentCapabilityInspectionView`; runtime code has no Vue dependency.
+
+MCP records server discovery and tool provenance. Title records generation settings, progress, and its result. The Console's Capabilities tab reads these snapshots without invoking either capability. Other capabilities use the default tools/configuration view. Set the Invocation journal's `configuration` to `"content"` to retain inspection state and views independently of other trace content. Metadata-only capture keeps labels. Existing redaction and observation bounds apply.
+
+See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-capabilities#contribute-an-inspection-view) for the catalog and a complete example.
