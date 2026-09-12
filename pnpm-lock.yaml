@@ -2438,6 +2438,9 @@ importers:
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
+      valibot:
+        specifier: catalog:runtime
+        version: 1.4.2(typescript@6.0.3)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.1
         version: '@voidzero-dev/vite-plus-core@0.3.1(@types/node@24.13.3)(esbuild@0.27.7)(jiti@2.7.0)(publint@0.3.24)(terser@5.51.2)(tsx@4.21.0)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.0)'
