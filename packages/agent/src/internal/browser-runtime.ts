@@ -42,17 +42,26 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
     let stderr = ""
     child.stdout.on("data", chunk => stdout = `${stdout}${String(chunk)}`.slice(-64_000))
     child.stderr.on("data", chunk => stderr = `${stderr}${String(chunk)}`.slice(-4_000))
-    const abort = () => child.kill("SIGTERM")
+    let forced = false
+    let grace: ReturnType<typeof setTimeout> | undefined
+    const terminate = () => {
+      if (forced) return
+      child.kill("SIGTERM")
+      grace = setTimeout(() => { forced = true; child.kill("SIGKILL") }, 2_000)
+    }
+    const abort = terminate
     options.signal?.addEventListener("abort", abort, { once: true })
     if (options.signal?.aborted) abort()
-    const timeout = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs ?? 120_000)
+    const timeout = setTimeout(terminate, options.timeoutMs ?? 120_000)
     child.once("error", (error) => {
       clearTimeout(timeout)
+      if (grace) clearTimeout(grace)
       options.signal?.removeEventListener("abort", abort)
       reject(error)
     })
     child.once("close", (code) => {
       clearTimeout(timeout)
+      if (grace) clearTimeout(grace)
       options.signal?.removeEventListener("abort", abort)
       if (options.signal?.aborted) return reject(options.signal.reason)
       if (code === 0) return resolve(stdout)
