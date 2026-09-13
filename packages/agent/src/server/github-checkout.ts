@@ -52,6 +52,14 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       || await git(destination, ['remote', 'get-url', '--push', 'origin']) !== push) {
       throw new Error('Provider checkout head or remote mismatch.')
     }
+    // Materialize tracked files while preserving provider-generated instruction files
+    // and any other untracked workspace output.
+    const tracked = (await exec('git', ['ls-files', '-z'], { cwd: source, env, signal: options.signal })).stdout
+      .split('\0').filter(Boolean)
+    for (const file of tracked) {
+      if (file === 'AGENTS.md' || file === 'CLAUDE.md') continue
+      await cp(join(source, file), join(destination, file), { recursive: true })
+    }
   }
   catch (error) {
     await rm(join(destination, '.git'), { recursive: true, force: true })
