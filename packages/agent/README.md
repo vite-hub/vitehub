@@ -345,6 +345,27 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions with `@../bot/instructions.md` and share Skills through explicit Sources or a directory link. Relative file paths resolve from each discovered Agent's directory.
 
+### Named presets
+
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import { notetaker } from "@example/agents"
+
+export default defineAgent({
+  preset: "notetaker",
+  presets: { notetaker },
+  name: "meeting-notes",
+  driver: { model: "gpt-5.6-sol" },
+})
+```
+
+`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
+
+Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Export configured Agents directly, or expose a small typed configuration function that returns a `defineAgent()` definition. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
+
+
 
 ## evlog integration
 
@@ -527,3 +548,23 @@ To discard the inherited template, use
 `instructions: { mode: "replace", value: "A complete instruction document." }`.
 A new `{ template, content }` object also replaces the inherited template.
 Without a template, extending instructions replaces the inherited document.
+
+### Workspace citation preset
+
+Import `@vite-hub/agent/presets/workspace` to opt into GitHub file citations for verified mounted Sources. The preset is an ordinary Agent Definition with a read-only Workspace and the Codex Driver. Its instruction template has one content slot:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import workspace from "@vite-hub/agent/presets/workspace"
+
+export default defineAgent({
+  extends: workspace,
+  driver: { instructions: "Explain migration risks." },
+})
+```
+
+Provider Agents expose verified mounted Source metadata as `sourceProvenance` to instruction resolvers after Workspace preparation. The core does not add citation rules. The preset owns the citation text and the runtime renders it together with the supplied content. Use `driver.instructions: { mode: "replace", value: "..." }` to replace that document. Plain Workspace Agents keep native repository instructions without adding citation policy.
+
+Configured instructions appended to native provider instruction files are transient. If a provider removes or rewrites their delimiters in a nonempty file, cleanup fails and Workspace write-back is skipped because native edits cannot be separated from configured policy. Clearing or deleting the file remains supported.
+
+Applications can import the same preset from `vite-hub/agent/presets/workspace`.

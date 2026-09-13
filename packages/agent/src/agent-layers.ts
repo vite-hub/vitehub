@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { resolveNamedAgentPresetOptions } from "./agent-presets.ts"
 import type { AgentDefinition, AgentSettings } from "./types.ts"
 
 const layerOptions = new WeakMap<object, Record<string, unknown>>()
@@ -21,6 +22,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (path === "driver") {
     if (hasRuntimeType(parent, "string")) parent = { kind: parent }
+    if (hasRuntimeType(child, "string")) child = { kind: child }
     if (record(child) && record(parent) && !("kind" in parent) && !("kind" in child)
       && "model" in parent && hasRuntimeType(child.model, "object") && !("run" in child)) {
       return {
@@ -56,7 +58,13 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (!record(parent) || !record(child)) return child
   if (definitionMaps.has(path)) return { ...parent, ...child }
-  // A different driver, store provider or runtime is a complete replacement.
+  if (path === "driver" && child.kind !== undefined && child.kind !== parent.kind) {
+    return {
+      ...child,
+      instructions: merge(parent.instructions, child.instructions, "driver.instructions"),
+    }
+  }
+  // A different store provider or runtime is a complete replacement.
   for (const discriminator of ["kind", "provider"]) {
     if (child[discriminator] !== undefined && child[discriminator] !== parent[discriminator]) return { ...child }
   }
@@ -70,6 +78,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
 
 /** Rebuild a definition from configuration. Never copy a parent's bound runtime or invocation state. */
 export function resolveAgentLayerOptions(input: unknown): unknown {
+  input = resolveNamedAgentPresetOptions(input)
   if (!record(input) || !("extends" in input)) return input
   const { extends: parent, ...overrides } = input
   if (!parent || !hasRuntimeType(parent, "object") || !layerOptions.has(parent)) {
