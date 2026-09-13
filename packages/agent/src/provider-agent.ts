@@ -100,6 +100,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
+  appendedContent?: string
   content?: Uint8Array
   directories: string[]
   existed: boolean
@@ -143,6 +144,22 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  if (generated.appendedContent !== undefined) {
+    const entry = await lstat(generated.path).catch(() => undefined)
+    if (entry?.isFile()) {
+      const content = await readFile(generated.path, "utf8")
+      const expectedOffset = (generated.content?.length ?? 0) + (generated.content?.length ? 2 : 0)
+      let offset = -1
+      for (let candidate = content.indexOf(generated.appendedContent); candidate !== -1; candidate = content.indexOf(generated.appendedContent, candidate + 1)) {
+        if (offset === -1 || Math.abs(candidate - expectedOffset) < Math.abs(offset - expectedOffset)) offset = candidate
+      }
+      if (offset !== -1) {
+        await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
+      }
+    }
+    return
+  }
+
   await rm(generated.path, { force: true, recursive: true })
   if (generated.link !== undefined) await symlink(generated.link, generated.path)
   else if (generated.existed) {
@@ -2157,10 +2174,12 @@ async function* runProvider<
       })
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context, sourceProvenance), effectiveSignal)
-    if (instructions && options.provider === "claude-code") {
-      const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
-        ?? await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
-      if (nativeInstructions) instructions = `${nativeInstructions.trim()}\n\n${instructions}`
+    if (instructions) {
+      const nativeInstructions = options.provider === "claude-code"
+        ? await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
+          ?? await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+        : await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+      if (nativeInstructions) instructions = `${nativeInstructions}\n\n${instructions}`
     }
     let materializeInstructions = Boolean(instructions)
     if (!instructions && options.provider === "claude-code") {
@@ -2185,6 +2204,12 @@ async function* runProvider<
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
+      if (generated.content !== undefined && generated.link === undefined) {
+        const original = new TextDecoder().decode(generated.content)
+        if (original && instructions.startsWith(`${original}\n\n`)) {
+          generated.appendedContent = instructions.slice(original.length)
+        }
+      }
       generatedProviderFiles.push(generated)
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)

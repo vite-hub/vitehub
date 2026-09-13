@@ -1274,6 +1274,9 @@ function workspaceMetadataInstructions<
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
     ? readColocatedAgentInstructionsRaw(options)
     : undefined
+  const instructionObject = configuredInstructions && hasRuntimeType(configuredInstructions, "object") && !Array.isArray(configuredInstructions) && !("mode" in configuredInstructions) && "template" in configuredInstructions
+    ? configuredInstructions
+    : undefined
   const parts = agentInstructionSources(configuredInstructions)
   const instructions = parts.flatMap((part) => {
     if (hasRuntimeType(part, "string") && part.trim().length > 0) return [part]
@@ -1284,9 +1287,115 @@ function workspaceMetadataInstructions<
     }
     return []
   })
-  if (defaultInstructions) instructions.unshift(defaultInstructions)
-  const content = instructions.join("\n\n").trim()
+  const slotParts = Array.isArray(instructionObject?.content)
+    ? instructionObject.content
+    : [instructionObject?.content]
+  const slotIsDynamic = slotParts.some(part => hasRuntimeType(part, "function"))
+  const slotContent = slotIsDynamic
+    ? (resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined)
+      ?? "Dynamic system instructions resolver configured."
+    : slotParts.filter((part): part is string => hasRuntimeType(part, "string") && part.trim().length > 0).map(part => part.trim()).join("\n\n")
+  const templateParts = Array.isArray(instructionObject?.template) ? instructionObject.template : [instructionObject?.template]
+  const composed = instructionObject
+    && !slotIsDynamic
+    && templateParts.every((part): part is string => hasRuntimeType(part, "string"))
+    ? fillSynchronousInstructionSlot(templateParts.join("\n\n"), slotContent)
+    : undefined
+  const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed !== undefined ? [composed] : instructions)].join("\n\n").trim()
   return content ? [content] : []
+}
+
+function replaceInstructionSlots(value: string, content: string): string {
+  return value.replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+}
+
+function fillSynchronousInstructionSlot(template: string, content: string): string {
+  let fence: string | undefined
+  let inlineFence: string | undefined
+  let paragraph = false
+  let listContinuationIndent = 4
+  let listActive = false
+  return template.split("\n").map((line) => {
+    // Fenced blocks may occur inside block quotes; include the container
+    // prefix when classifying delimiters so static inspection matches Markdown.
+    const marker = line.match(/^( {0,3}(?:> ?)*(?:(?:[-+*]|\d+[.)])[ \t]+)?)(`{3,}|~{3,})(.*)$/)
+    if (marker) {
+      const delimiter = marker[2]
+      const trailing = marker[3]
+      const isClosing = Boolean(fence && delimiter[0] === fence[0] && delimiter.length >= fence.length && /^\s*$/.test(trailing))
+      if (fence) { if (isClosing) fence = undefined; return line }
+      if (!/^\s*$/.test(trailing)) { fence = delimiter; return line }
+      fence = delimiter
+      return line
+    }
+    if (fence) return line
+    const indented = /^(?:    |\t)/.test(line)
+    const indentation = line.match(/^ */)?.[0].length ?? 0
+    if (indented && (!paragraph || (listActive && indentation > listContinuationIndent))) return line
+    const list = line.match(/^( {0,3})(?:[-+*]|\d+[.)])([ \t]+)/)
+    if (list) {
+      listContinuationIndent = (list[1]?.length ?? 0) + (list[0]?.length ?? 0) + 3
+      listActive = true
+    } else if (!indented && line.trim().length > 0) {
+      listActive = false
+    }
+    paragraph = line.trim().length > 0 && !indented && (!/^ {0,3}(?:#{1,6}\s|>)/.test(line) || Boolean(list))
+    if (inlineFence) {
+      const run = inlineFence
+      const end = findInlineCodeClose(line, run)
+      if (end < 0) return line
+      inlineFence = undefined
+      const closeEnd = end + run.length
+      return line.slice(0, closeEnd) + replaceInstructionSlots(line.slice(closeEnd), content)
+    }
+    let out = ""
+    let index = 0
+    while (index < line.length) {
+      const tick = line[index]
+      if (tick !== "`") {
+        const next = line.indexOf("`", index)
+        const end = next < 0 ? line.length : next
+        out += line.slice(index, end).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+        index = end
+        continue
+      }
+      // A backslash-escaped backtick is ordinary text, not an inline-code delimiter.
+      let backslashes = 0
+      for (let cursor = index - 1; cursor >= 0 && line[cursor] === "\\"; cursor--) backslashes++
+      if (backslashes % 2 === 1) {
+        out += "`"
+        index++
+        continue
+      }
+      const start = index
+      while (line[index] === "`") index++
+      const run = line.slice(start, index)
+      const end = findInlineCodeClose(line, run, index)
+      if (end < 0) {
+        // An unmatched backtick run is literal text in CommonMark; do not
+        // carry code-span state into subsequent lines.
+        out += line.slice(start).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+        break
+      }
+      out += line.slice(start, end + run.length)
+      index = end + run.length
+    }
+    return out
+  }).join("\n")
+}
+
+/** Find a backtick closing run with exactly the same length. */
+function findInlineCodeClose(line: string, run: string, from = 0): number {
+  let index = from
+  while (index < line.length) {
+    const found = line.indexOf(run, index)
+    if (found < 0) return -1
+    const before = found > 0 ? line[found - 1] : ""
+    const after = line[found + run.length] ?? ""
+    if (before !== "`" && after !== "`") return found
+    index = found + 1
+  }
+  return -1
 }
 
 async function staticWorkspaceMetadataInstructions<

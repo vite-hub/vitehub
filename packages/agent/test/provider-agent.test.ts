@@ -3918,10 +3918,15 @@ cli_auth_credentials_store = "keyring"
     let instructions = ""
     const file = provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() { instructions = await readFile(`${root}/${file}`, "utf8") },
+      async onStartSession() {
+        instructions = await readFile(`${root}/${file}`, "utf8")
+        await writeFile(`${root}/${file}`, instructions.replace("Native repository guidance.", "Updated repository guidance."))
+      },
     })
     const session = {
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => {
+        expect(await readFile(`${root}/${file}`, "utf8")).toBe("Updated repository guidance.")
+      }),
       exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
       readFile: vi.fn(async () => new Uint8Array()),
     }
@@ -3931,14 +3936,16 @@ cli_auth_credentials_store = "keyring"
         bytes: 0, directories: 0, durationMs: 0, files: 1, path: "",
         sources: [{ mountPath: "docs", provider: "github", revision: { id: "a".repeat(40), immutable: true }, source: "docs", status: "ready" }],
       })),
-      startSession: vi.fn(async (options: { target: string }) => { root = options.target; return session }),
+      startSession: vi.fn(async (options: { target: string }) => { root = options.target; await writeFile(`${root}/${file}`, "Native repository guidance."); return session }),
     }
-    const settings = resolveAgentLayerOptions({ extends: workspacePreset, driver: { instructions: "Explain migration risks." } }) as { driver: { instructions: import("../src/types.ts").AgentAdapterInstructions } }
+    const settings = resolveAgentLayerOptions({ extends: workspacePreset, driver: { kind: provider, instructions: "Explain migration risks." } }) as { driver: { instructions: import("../src/types.ts").AgentAdapterInstructions } }
     await createProviderAgentAdapter({ instructions: settings.driver.instructions, provider }).generate(context(threadId, {
       workspace,
       workspaceDefinition: { name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: "docs#v1" }) } },
     }) as never)
 
+    expect(instructions).toContain("Native repository guidance.")
+    expect(instructions).toContain('"mount": "docs"')
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
     expect(instructions).toContain(`"id": "${"a".repeat(40)}"`)
     expect(instructions).toContain('"root": "docs#v1"')

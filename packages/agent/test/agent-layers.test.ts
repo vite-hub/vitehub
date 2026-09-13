@@ -92,6 +92,24 @@ describe("Agent definition layers", () => {
 
 
 describe("Agent instruction layers", () => {
+  it("retains instruction templates across providers without leaking provider options", () => {
+    const template = "Before\n{{{ instructions }}}\nAfter"
+    const base = defineAgent({ workspace: {}, driver: { kind: "codex", model: "base", reasoningEffort: "high", instructions: { template, content: "Default" } } })
+    const inherited = defineAgent({ extends: base, driver: { kind: "claude-code" } })
+    expect(inherited.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "claude-code", instructions: { template, content: "Default" } })
+    const child = defineAgent({ extends: base, driver: { kind: "claude-code", instructions: "Child" } })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "claude-code", instructions: { template, content: "Child" } })
+    expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { content: "Default" } })
+  })
+
+  it("preserves model preset templates with object-model overrides", () => {
+    const base = defineAgent({ workspace: {}, driver: { model: {} as never, instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } } })
+    const model = {} as never
+    const child = defineAgent({ extends: base, driver: { model, instructions: "Child" } })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ model, instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Child" } })
+    expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { content: "Default" } })
+  })
+
   it("fills an inherited instruction template across generations without mutating its defaults", () => {
     const base = defineAgent({ workspace: {}, driver: { kind: "codex", instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } } })
     const child = defineAgent({ extends: base, driver: { instructions: "Child" } })
