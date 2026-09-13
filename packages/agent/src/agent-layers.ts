@@ -153,8 +153,8 @@ export function rememberAgentLayerOptions<T extends AgentDefinition>(definition:
   // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
   const metadataTarget = asMetadataTarget(definition)
   rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
-  if (inherited?.parent) inheritColocatedSkills(asMetadataTarget(inherited.parent), asMetadataTarget(definition))
-  if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured)
+  if (inherited?.parent) inheritColocatedSkills(asMetadataTarget(inherited.parent as unknown), asMetadataTarget(definition))
+  if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured as unknown as ConfiguredLayer)
   return definition
 }
 
@@ -197,7 +197,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
   inheritColocatedSkills(asMetadataTarget(definition), asMetadataTarget(configured))
-  inheritAgentLayerOptions(asMetadataTarget(definition), configured)
+  inheritAgentLayerOptions(asMetadataTarget(definition), configured as unknown)
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })
   return configured
 }
