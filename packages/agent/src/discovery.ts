@@ -92,7 +92,26 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (/^\s*preset\s*:/.test(rest) || /^\s*preset\s*,/.test(rest)) hasPreset = true
     if (/^\s*presets\s*:/.test(rest) || /^\s*presets\s*,/.test(rest)) hasPresets = true
   }
-  return hasPreset && hasPresets
+  if (!hasPreset || !hasPresets) return false
+  // Inline preset registries can own a Workspace even when the outer options do not.
+  // Restrict this check to the top-level `presets` property value and inspect each
+  // inline defineAgent options object for its own top-level workspace declaration.
+  const presetsMatch = stripped.match(/\bpresets\s*:\s*\{/)
+  if (!presetsMatch || presetsMatch.index === undefined) return false
+  let registryDepth = 1
+  for (let i = presetsMatch.index + presetsMatch[0].length; i < stripped.length; i++) {
+    const char = stripped[i]
+    if (char === "{") registryDepth++
+    else if (char === "}") {
+      registryDepth--
+      if (registryDepth === 0) break
+    }
+    if (registryDepth !== 1) continue
+    const rest = stripped.slice(i)
+    const inline = rest.match(/defineAgent\s*\(\s*\{([\s\S]*?)\}\s*\)/)
+    if (inline && /(?:^|[,{])\s*workspace\s*:/.test(inline[1])) return true
+  }
+  return false
 }
 
 function isAgentDefinitionSource(source: string): boolean {
