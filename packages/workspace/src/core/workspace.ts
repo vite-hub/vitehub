@@ -75,7 +75,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
         // metadata; a metadata-free directory is still the startup mount.
         const current = await store.stat(entry.path)
         const source = current?.metadata?.source
-        if (typeof source === "string" && generatedDirectorySources.get(entry.path)?.has(source)) continue
+        if (hasRuntimeType(source, "string") && generatedDirectorySources.get(entry.path)?.has(source)) continue
       }
     }
     entries.push(entry)
