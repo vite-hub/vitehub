@@ -1626,9 +1626,10 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   const paths = selectedWorkspacePaths(context)
   const materializedSources = await materializeWorkspaceSources(context, paths)
   const provenance = providerSourceProvenance(context, materializedSources)
+  const host = localWorkspaceHost()
   const sessionOptions: WorkspaceSessionOptions = {
     abortSignal: context.input.abortSignal,
-    host: localWorkspaceHost(),
+    host,
     ...(materializedSources?.ready ? { materializeSources: false } : {}),
     onProgress: createWorkspaceSetupObservers(workspaceSetupObserverOptions(context)).preparation,
     paths,
@@ -1636,7 +1637,18 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   }
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
-  await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
+  try {
+    // Session materialization resets the target, so initialize its baseline afterwards.
+    const initialized = await host.exec("git", ["init", "--object-format=sha1", "-q"], {
+      cwd: root,
+      signal: context.input.abortSignal,
+    })
+    if (initialized.code !== 0) throw new Error(`Provider Workspace Git initialization failed: ${initialized.stderr}`)
+  }
+  catch (error) {
+    await session.close()
+    throw error
+  }
   return { provenance, session }
 }
 

@@ -3661,6 +3661,62 @@ cli_auth_credentials_store = "keyring"
     }) as never)).rejects.toThrow()
   })
 
+  it.each([false, true])("initializes SHA-1 baselines without host mutation and rejects conflicting repositories (%s)", async (conflictingRepository) => {
+    const threadId = "thread-workspace-sha1"
+    let root = ""
+    const host = localWorkspaceHost()
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const baseline = await host.exec("git", ["rev-parse", "HEAD"], { cwd: root })
+        expect(baseline.code).toBe(0)
+        expect(baseline.stdout.trim()).toMatch(/^[a-f0-9]{40}$/)
+        expect(process.env.GIT_DEFAULT_HASH).toBe("sha256")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: async (command: string, args: string[]) => {
+        const result = await host.exec(command, args, { cwd: root })
+        return { ...result, exitCode: result.code }
+      },
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        expect(process.env.GIT_DEFAULT_HASH).toBe("sha256")
+        if (conflictingRepository) {
+          const initialized = await host.exec("git", ["init", "--object-format=sha256", "-q"], { cwd: root })
+          expect(initialized.code).toBe(0)
+        }
+        await writeFile(join(root, "file.txt"), "workspace baseline")
+        return session
+      }),
+      tools: {},
+    }
+    vi.stubEnv("GIT_DEFAULT_HASH", "sha256")
+    try {
+      // SAFETY: This fixture provides the Workspace methods used by the adapter.
+      const generation = createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, { workspace, workspaceMode: "write" }) as never)
+      if (conflictingRepository) {
+        await expect(generation).rejects.toThrow("Provider Workspace Git initialization failed")
+        expect(session.close).toHaveBeenCalledOnce()
+        providerRuntimes.pop()
+      }
+      else {
+        await generation
+      }
+      expect(workspace.startSession).toHaveBeenCalledOnce()
+      expect(process.env.GIT_DEFAULT_HASH).toBe("sha256")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each(["", "docs#v1", "docs?draft", "docs 100%/nested"])("reports native Claude Workspace instructions with source root %j to invocation inspection", async (sourceRoot) => {
     const threadId = "thread-native-claude-instructions"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
