@@ -667,7 +667,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       }
       // Initialize an empty checkout and fetch only the requested PR history.
       // Avoid cloning unrelated branches and tags from the base repository.
-      await exec("git", ["-c", "init.templateDir=/dev/null", "init", "--", checkout], commandOptions)
+      await exec("git", ["-c", "init.templateDir=/dev/null", "init", "--object-format=sha1", "--", checkout], commandOptions)
       await exec("git", ["-C", checkout, "remote", "add", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
       if (pullRequest.headRef && pullRequest.headRepository) {
         // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
