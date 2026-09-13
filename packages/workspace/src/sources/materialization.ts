@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 
+import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import { workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
@@ -96,8 +97,12 @@ function sourceConfigFingerprint(source: SourceConfiguration) {
   }
 }
 
-async function sourceConfigHash(source: SourceConfiguration) {
-  return await sha256(sourceConfigFingerprint(source))
+async function sourceConfigHash(source: SourceConfiguration, store: Pick<WorkspaceStore, "getMeta">) {
+  const target = await resolveWorkspaceStoreTarget(store)
+  const version: { fileMetadataVersion?: number } = {}
+  // Replay snapshots created before Local Stores persisted file ownership.
+  if (target?.provider === "local") version.fileMetadataVersion = 1
+  return await sha256({ ...version, ...sourceConfigFingerprint(source) })
 }
 
 function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: ResolvedWorkspaceSource, configHash: string) {
@@ -121,18 +126,18 @@ export async function invalidateSourceSnapshot(store: WorkspaceStore, sourceKey:
 }
 
 export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   const meta = await readSourceSnapshotMetadata(store, source.key)
   return meta?.status === "ready" && meta.configHash === configHash
 }
 
 export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   return isSnapshotFresh(await readSourceSnapshotMetadata(store, source.key), source, configHash)
 }
 
 export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, source: SourceConfiguration) {
-  const configHash = await sourceConfigHash(source)
+  const configHash = await sourceConfigHash(source, store)
   const snapshot = await readSourceSnapshotMetadata(store, source.key)
   return snapshot?.configHash === configHash ? snapshot : undefined
 }
@@ -205,8 +210,8 @@ export async function materializedFileMatches(file: Awaited<ReturnType<Workspace
   // Legacy snapshots must refresh once to establish verifiable content evidence.
   if (!file || !item.materializedContentDigest) return false
   if (await sha256(file.content) !== item.materializedContentDigest) return false
-  // Local Stores cannot restore instance-local attributes after reopening. Only
-  // compare attributes the Store can observe; the content digest still applies.
+  // Compare only attributes the Store can observe; legacy snapshots still
+  // require matching content before reuse.
   if (!item.materializedAttributes || fileAttributesUnavailable(file)) return true
   return file.mediaType === item.materializedMediaType
     && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
@@ -319,6 +324,7 @@ async function removeStaleMaterializedSourceFiles(
   previousSnapshot: SourceSnapshotMetadata | undefined,
   onRemoved?: (path: string, bytes: number) => void,
 ) {
+  const local = (await resolveWorkspaceStoreTarget(store))?.provider === "local"
   const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
@@ -340,9 +346,12 @@ async function removeStaleMaterializedSourceFiles(
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     const currentOwner = file?.metadata?.source
+    const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+    // Filesystem writers can change bytes without updating durable attributes.
+    if (local && previousSnapshot?.items && (!file || !recordedDigest || await sha256(file.content) !== recordedDigest)) continue
     if (currentOwner === undefined && previousSnapshot?.items) {
-      // Local Stores lose file ownership metadata on restart. An indexed path
-      // still belongs to the source only while its materialized content matches.
+      // Older snapshots may lack file attributes. An indexed path still
+      // belongs to the source only while its materialized content matches.
       const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
       if (!file || !fileAttributesUnavailable(file) || !recordedDigest || await sha256(file.content) !== recordedDigest) continue
     }
@@ -366,7 +375,7 @@ async function removeStaleMaterializedSourceFiles(
       // write during that gap must never be removed by stale cleanup.
       const latest = await store.readFile(entry.path)
       if (!latest || latest.metadata?.source !== currentOwner
-        || (currentOwner === undefined && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+        || ((local || currentOwner === undefined) && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
           && await sha256(latest.content) !== previousSnapshot.items[entry.path].materializedContentDigest)) continue
       await control.mutate(() => store.rm(entry.path, { force: true }))
       onRemoved?.(entry.path, contentSize(latest.content))
@@ -424,6 +433,7 @@ async function reconcileRemovedStartupSourcesInternal(
   if (!store.getMeta || !store.setMeta) return
   const startupSourcesMetaKey = `workspace:${workspaceName}:startup-sources`
   const value = await store.getMeta(startupSourcesMetaKey)
+  const local = (await resolveWorkspaceStoreTarget(store))?.provider === "local"
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
   const activeOwners = [...activeSources]
@@ -447,8 +457,9 @@ async function reconcileRemovedStartupSourcesInternal(
       if (!file) continue
       const owner = file.metadata?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
-      // Local Stores lose per-file metadata across restarts. Only recover ownership
-      // from a persisted content digest, so edited user files remain untouched.
+      // Durable attributes can outlive an external filesystem edit.
+      if (local && recordedDigest && await sha256(file.content) !== recordedDigest) continue
+      // Recover unavailable ownership only from unchanged snapshot content.
       if (owner !== source.key && !(owner === undefined && fileAttributesUnavailable(file) && recordedDigest && await sha256(file.content) === recordedDigest)) continue
       for (const currentSource of currentSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
@@ -699,7 +710,7 @@ async function materializeWorkspaceSourcesInternal(
     const completeSource = materializesCompleteSource(source, options)
     let cacheHit = false
     try {
-      configHash = await sourceConfigHash(source)
+      configHash = await sourceConfigHash(source, store)
       existing = await readSourceSnapshotMetadata(store, source.key)
       cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
       if (cacheHit && source.mountPath && (await store.stat(source.mountPath))?.type !== "directory") cacheHit = false

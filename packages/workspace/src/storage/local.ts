@@ -1,13 +1,15 @@
 import { createHash, randomUUID } from "node:crypto"
-import { createReadStream, createWriteStream } from "node:fs"
+import { constants, createReadStream, createWriteStream } from "node:fs"
+import { resolve } from "node:path"
 import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
+import { check, fallback, literal, object, optional, pipe, record, safeParse, string, unknown } from "valibot"
+
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { workspaceStoreTarget } from "./target.ts"
-import { fileAttributesUnavailable, markFileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
@@ -25,6 +27,91 @@ import type {
   WorkspaceStreamFile,
   WorkspaceStore,
 } from "../core/types.ts"
+
+const fileMetadataSchema = optional(pipe(unknown(), check(value => !Array.isArray(value)), record(string(), unknown()), check(value => {
+  return safeParse(optional(string()), value.source).success
+})))
+
+function assertFileMetadata(path: string, metadata: WorkspaceFile["metadata"]) {
+  metadata = copyJsonFileMetadata(path, metadata)
+  if (!safeParse(fileMetadataSchema, metadata).success) {
+    throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}. metadata.source must be a string when provided.`)
+  }
+  return metadata
+}
+
+async function backupFile(path: string, backup: string): Promise<number | undefined> {
+  const { chmod, chown, copyFile, link, rm, stat, utimes } = await import("node:fs/promises")
+  try {
+    await link(path, backup)
+  } catch (error) {
+    if (!["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS", "EXDEV"].includes(Reflect.get(Object(error), "code"))) throw error
+    // Keep the public path readable until atomic replacement, even without links.
+    const original = await stat(path)
+    try {
+      await copyFile(path, backup, constants.COPYFILE_EXCL)
+      const copied = await stat(backup)
+      if (process.platform !== "win32" && copied.gid !== original.gid) {
+        // A group-authorized writer cannot assume another user's UID. Keep the
+        // copy owned by this writer, as an ordinary replacement would be.
+        await chown(backup, copied.uid, original.gid)
+      }
+      await chmod(backup, original.mode & (copied.uid === original.uid ? 0o7777 : 0o777))
+      await utimes(backup, original.atime, original.mtime)
+      if (process.platform !== "win32" && copied.uid !== original.uid) return original.uid
+    } catch (error) {
+      await rm(backup, { force: true }).catch(() => undefined)
+      throw error
+    }
+  }
+}
+
+async function restoreBackup(backup: string, path: string, foreignUid: number | undefined, publicationError: unknown): Promise<void> {
+  if (foreignUid !== undefined) {
+    // Keep the recovery copy, but never claim to restore a different owner's file.
+    throw new AggregateError([publicationError], `[vitehub] Cannot roll back ${path} without changing owner UID ${foreignUid}. Recovery content remains at ${backup}.`)
+  }
+  const { rename } = await import("node:fs/promises")
+  await rename(backup, path)
+}
+
+async function reclaimBackup(path: string, retryDelay = 1000, attempts = 0): Promise<void> {
+  const { rename, rm } = await import("node:fs/promises")
+  try {
+    if (!path.endsWith(".committed.bak")) {
+      const committed = path.replace(/\.bak$/, ".committed.bak")
+      await rename(path, committed).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT") throw error
+      })
+      path = committed
+    }
+    await rm(path, { force: true })
+  } catch {
+    if (attempts >= 5) return
+    // Only committed backups enter this retry loop; active rollback files stay intact.
+    // Keep retrying transient failures without keeping the process alive.
+    setTimeout(() => {
+      void reclaimBackup(path, Math.min(retryDelay * 2, 30_000), attempts + 1)
+    }, retryDelay).unref()
+  }
+}
+
+async function reclaimCommittedBackups(root: string): Promise<void> {
+  const { readdir } = await import("node:fs/promises")
+  // Only the post-publication rename makes a backup eligible for a later sweep.
+  // Plain .bak files may still be needed by active writers or failed rollbacks.
+  const entries = await readdir(root).catch(() => [])
+  await Promise.all(entries.filter(name => /^[0-9a-f-]{36}\.committed\.bak$/.test(name))
+    .map(name => reclaimBackup(`${root}/${name}`)))
+}
+
+function assertTrustedMetadata(path: string, info: import("node:fs").Stats, root: import("node:fs").Stats) {
+  const sharedGroup = (root.mode & 0o020) !== 0 && info.gid === root.gid
+  const trustedOwner = info.uid === root.uid || info.uid === process.geteuid?.() || sharedGroup
+  if (info.isSymbolicLink() || (process.platform !== "win32" && (
+    !trustedOwner || (info.mode & 0o002) !== 0 || ((info.mode & 0o020) !== 0 && !sharedGroup)
+  ))) throw workspaceError(`[vitehub] Untrusted Workspace metadata path: ${path}.`)
+}
 
 async function applyMetadataPermissions(path: string, mode: number, gid: number) {
   const { chmod, chown, stat } = await import("node:fs/promises")
@@ -295,14 +382,154 @@ class LocalWorkspaceStore implements WorkspaceStore {
   [workspaceStoreTarget]() {
     return { provider: "local" as const }
   }
+
   #baseline: WorkspaceSnapshot | undefined
-  #files = new Map<string, Pick<WorkspaceFile, "mediaType" | "metadata">>()
+  #fileMetadataRoot: string
   #meta = new Map<string, unknown>()
   #metaLoaded = false
   #metaPath: string
 
   constructor(public root: string) {
+    this.#fileMetadataRoot = `${root}/.vitehub/file-metadata`
     this.#metaPath = `${root}.meta.json`
+  }
+
+  #removalMarker(path: string) {
+    return `${this.root}/.vitehub/file-removals/${createHash("sha256").update(path).digest("hex")}`
+  }
+
+  async #assertNoPendingRemoval(path: string) {
+    const { lstat, stat } = await import("node:fs/promises")
+    const directory = `${this.root}/.vitehub/file-removals`
+    const info = await lstat(directory).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!info) return
+    assertTrustedMetadata(directory, info, await stat(this.root))
+    if (!info.isDirectory()) throw workspaceError(`[vitehub] Invalid Workspace removal directory.`)
+    const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
+    for (let index = 0; index <= parts.length; index++) {
+      const ancestor = parts.slice(0, index).join("/")
+      const pending = await lstat(this.#removalMarker(ancestor)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (pending) throw workspaceError(`[vitehub] Interrupted Workspace removal at ${ancestor || "/"}; retry removal before accessing ${path}.`)
+    }
+  }
+
+  async #readFileMetadata(path: string) {
+    const { lstat, open } = await import("node:fs/promises")
+    await this.#assertNoPendingRemoval(path)
+    const { root } = await this.#prepareMetadataDirectories(path, false, false)
+    if (!root) return
+    const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
+    const info = await lstat(metadataPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (info) {
+      assertTrustedMetadata(metadataPath, info, root)
+      if (!info.isFile()) return
+    }
+    const file = await open(metadataPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (!file) {
+      return
+    }
+    let content: string
+    try {
+      const opened = await file.stat()
+      assertTrustedMetadata(metadataPath, opened, root)
+      if (!opened.isFile()) return
+      // Read the opened sidecar even if another writer replaces its path.
+      content = await file.readFile("utf8")
+    }
+    finally {
+      await file.close()
+    }
+    let value: unknown
+    try { value = JSON.parse(content) }
+    catch { throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`) }
+    const parsed = safeParse(object({
+      path: literal(path),
+      mediaType: fallback(optional(string()), undefined),
+      metadata: fileMetadataSchema,
+    }), value)
+    // Invalid ownership must not turn a Source file into an ordinary writable file.
+    if (!parsed.success) throw workspaceError(`[vitehub] Invalid Workspace metadata for ${path}.`)
+    const { path: _path, ...result } = parsed.output
+    return { ...result, metadata: assertFileMetadata(path, result.metadata) }
+  }
+
+  async #prepareMetadataDirectories(path: string, create: boolean, repair = true) {
+    const { lstat, mkdir, rm, stat } = await import("node:fs/promises")
+    const root = await stat(this.root).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" && !create) return undefined
+      throw error
+    })
+    if (!root) return { mode: 0o600, gid: undefined, root: undefined }
+    const mode = root.mode & 0o770
+    let directory = this.root
+    for (const part of [".vitehub", "file-metadata", ...normalizeWorkspacePath(path).split("/").filter(Boolean)]) {
+      if (part) directory = resolveInside(directory, part)
+      if (create) await mkdir(directory, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error
+      })
+      const info = await lstat(directory).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT" && !create) return undefined
+        throw error
+      })
+      if (!info) return { mode: mode & 0o666, gid: root.gid, root: undefined }
+      assertTrustedMetadata(directory, info, root)
+      if (!info.isDirectory()) {
+        if (repair) await rm(directory, { force: true })
+        if (!create) return { mode: mode & 0o666, gid: root.gid, root: undefined }
+        await mkdir(directory, { mode: 0o700 })
+      }
+      if (repair && process.platform !== "win32") {
+        await applyMetadataPermissions(directory, mode, root.gid)
+      }
+    }
+    return { mode: mode & 0o666, gid: root.gid, root }
+  }
+
+  async #writeFileMetadata(path: string, value: Pick<WorkspaceFile, "mediaType" | "metadata">) {
+    await this.#assertNoPendingRemoval(path)
+    const { lstat, rename, rm, writeFile } = await import("node:fs/promises")
+    const metadataPath = resolveInside(this.#fileMetadataRoot, `${path}/metadata.json`)
+    const hasMetadata = value.mediaType !== undefined || value.metadata !== undefined
+    const permissions = await this.#prepareMetadataDirectories(path, hasMetadata)
+    if (!permissions.root) {
+      return
+    }
+    const existing = await lstat(metadataPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return undefined
+      throw error
+    })
+    if (existing) {
+      assertTrustedMetadata(metadataPath, existing, permissions.root)
+      if (existing.isDirectory()) await rm(metadataPath, { recursive: true, force: true })
+    }
+    if (!hasMetadata) {
+      await rm(metadataPath, { force: true })
+      return
+    }
+    const temp = `${metadataPath}.${randomUUID()}.tmp`
+    try {
+      await writeFile(temp, JSON.stringify({ path, ...value }), { mode: 0o600 })
+      if (process.platform !== "win32" && permissions.gid !== undefined) {
+        await applyMetadataPermissions(temp, permissions.mode, permissions.gid)
+      }
+      await rename(temp, metadataPath)
+    }
+    catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw error
+    }
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
@@ -318,14 +545,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
     if (!bytes) return undefined
     const normalized = normalizeWorkspacePath(path)
-    const metadata = this.#files.get(normalized)
-    const file: WorkspaceFile = {
+    const metadata = await this.#readFileMetadata(normalized)
+    return {
       path: normalized,
       content: new Uint8Array(bytes),
       mediaType: metadata?.mediaType,
       metadata: metadata?.metadata,
     }
-    return metadata ? file : markFileAttributesUnavailable(file)
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
@@ -335,31 +561,31 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async writeFileConditional(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void> {
     await withWorkspacePathLock(this.root, path, async () => {
       const normalized = normalizeWorkspacePath(path)
-      const current = await this.stat(normalized)
+      const current = await this.#stat(normalized)
       assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? current.digest : undefined)
       await this.#writeFile(normalized, file)
     })
   }
 
-  #recordFileAttributes(path: string, file: WorkspaceFile, metadata: WorkspaceFile["metadata"]): void {
-    // Restoring a file read after restart must retain its unavailable attributes.
-    if (fileAttributesUnavailable(file)) this.#files.delete(path)
-    else this.#files.set(path, { mediaType: file.mediaType, metadata })
-  }
-
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    const metadata = copyJsonFileMetadata(path, file.metadata)
+    file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
+    const backup = `${tempRoot}/${randomUUID()}.bak`
+    await reclaimCommittedBackups(tempRoot)
     const normalized = normalizeWorkspacePath(path)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
-    const existing = await this.stat(normalized)
+    const existing = await this.#stat(normalized)
+    if (existing?.type === "directory") throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
     if (existing?.type === "file" && existing.digest === digest) {
-      this.#recordFileAttributes(normalized, file, metadata)
+      await this.#writeFileMetadata(normalized, {
+        mediaType: file.mediaType,
+        metadata: file.metadata,
+      })
       return
     }
     await Promise.all([
@@ -368,13 +594,30 @@ class LocalWorkspaceStore implements WorkspaceStore {
     ])
     try {
       await writeFile(temp, bytes)
-      await rename(temp, absolute)
+      // Prefer a hard link so the live file remains readable during publication.
+      const hadExisting = existing?.type === "file"
+      const foreignUid = hadExisting ? await backupFile(absolute, backup) : undefined
+      await rename(temp, absolute).catch(async (error) => {
+        await rm(backup, { force: true })
+        throw error
+      })
+      try {
+        await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
+      } catch (error) {
+        if (hadExisting) {
+          await restoreBackup(backup, absolute, foreignUid, error)
+        }
+        else await rm(absolute, { force: true })
+        throw error
+      }
+      // Publication has committed; backup cleanup must not turn success into failure.
+      await reclaimBackup(backup)
+      return
     }
     catch (error) {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
-    this.#recordFileAttributes(normalized, file, metadata)
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
@@ -382,13 +625,15 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
-    const metadata = copyJsonFileMetadata(path, file.metadata)
+    file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
     const temp = `${tempRoot}/${randomUUID()}.tmp`
+    const backup = `${tempRoot}/${randomUUID()}.bak`
+    await reclaimCommittedBackups(tempRoot)
     const hash = createHash("sha256")
     let size = 0
 
@@ -410,33 +655,44 @@ class LocalWorkspaceStore implements WorkspaceStore {
         createWriteStream(temp),
       )
       const digest = hash.digest("hex")
-      const existing = await this.stat(normalized)
+      const existing = await this.#stat(normalized)
+      if (existing?.type === "directory") throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
       if (existing?.type === "file" && existing.digest === digest) {
         await rm(temp, { force: true })
-        this.#files.set(normalized, {
+        await this.#writeFileMetadata(normalized, {
           mediaType: file.mediaType,
-          metadata,
+          metadata: file.metadata,
         })
         return {
           ...existing,
           mediaType: file.mediaType,
-          metadata,
+          metadata: file.metadata,
           size,
           digest,
         }
       }
 
-      await rename(temp, absolute)
-      this.#files.set(normalized, {
-        mediaType: file.mediaType,
-        metadata,
+      const hadExisting = existing?.type === "file"
+      const foreignUid = hadExisting ? await backupFile(absolute, backup) : undefined
+      await rename(temp, absolute).catch(async (error) => {
+        await rm(backup, { force: true })
+        throw error
       })
+      try {
+        await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
+      } catch (error) {
+        if (hadExisting) await restoreBackup(backup, absolute, foreignUid, error)
+        else await rm(absolute, { force: true })
+        throw error
+      }
+      // Publication has committed; backup cleanup must not turn success into failure.
+      await reclaimBackup(backup)
       return {
         path: normalized,
         type: "file",
         size,
         mediaType: file.mediaType,
-        metadata,
+        metadata: file.metadata,
         digest,
       }
     }
@@ -453,20 +709,35 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #list(prefix: string, options: ListOptions, includeDigest: boolean): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
-    const all = await walk(this.root, current, options.exclude, options.recursive === true, includeDigest)
-    return all
+    const all = await walk(this.root, current, options.exclude, options.recursive === true, false)
+    const filtered = all
       .filter((entry) => {
+        if (resolve(this.root, entry.path) === resolve(this.#metaPath)) return false
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")
         if (entry.path === normalizedPrefix) return false
         if (!entry.path.startsWith(`${normalizedPrefix}/`)) return false
         return options.recursive || !entry.path.slice(normalizedPrefix.length + 1).includes("/")
       })
-      .map(entry => ({
-        ...entry,
-        mediaType: entry.type === "file" ? this.#files.get(entry.path)?.mediaType : entry.mediaType,
-        metadata: entry.type === "file" ? this.#files.get(entry.path)?.metadata : entry.metadata,
+    const entries: WorkspaceEntry[] = []
+    // Entries under one top-level path share reader gates. Visit each group
+    // sequentially, while independent groups can still read concurrently.
+    const groups = new Map<string, WorkspaceEntry[]>()
+    for (const entry of filtered) {
+      const key = entry.path.split("/")[0]!
+      const group = groups.get(key) ?? []
+      group.push(entry)
+      groups.set(key, group)
+    }
+    const independent = [...groups.values()]
+    for (let index = 0; index < independent.length; index += 64) {
+      await Promise.all(independent.slice(index, index + 64).map(async (group) => {
+        for (const entry of group) {
+          const info = await withWorkspacePathLock(this.root, entry.path, () => this.#stat(entry.path, includeDigest), true)
+          if (info) entries.push(info)
+        }
       }))
-      .sort((a, b) => a.path.localeCompare(b.path))
+    }
+    return entries.sort((a, b) => a.path.localeCompare(b.path))
   }
 
   async glob(pattern: string | string[], _options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
@@ -476,6 +747,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async stat(path: string): Promise<WorkspaceStat | undefined> {
+    return await withWorkspacePathLock(this.root, path, () => this.#stat(path), true)
+  }
+
+  async #stat(path: string, includeDigest = true): Promise<WorkspaceStat | undefined> {
     const { stat } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, normalized)
@@ -484,15 +759,16 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!info) return undefined
+    const metadata = info.isFile() ? await this.#readFileMetadata(normalized) : undefined
     const entry: WorkspaceStat = {
       path: normalized,
       type: info.isDirectory() ? "directory" : "file",
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
-      mediaType: info.isFile() ? this.#files.get(normalized)?.mediaType : undefined,
-      metadata: info.isFile() ? this.#files.get(normalized)?.metadata : undefined,
-      digest: info.isFile() ? await fileDigest(absolute) : undefined,
+      mediaType: metadata?.mediaType,
+      metadata: metadata?.metadata,
     }
+    if (includeDigest && info.isFile()) entry.digest = await fileDigest(absolute)
     return entry
   }
 
@@ -524,26 +800,53 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { rm, rmdir } = await import("node:fs/promises")
+    const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
+    const metadata = await this.#prepareMetadataDirectories(normalized, false)
+    const marker = this.#removalMarker(normalized)
+    let createdMarker = false
+    if (metadata.root) {
+      const directory = `${this.root}/.vitehub/file-removals`
+      await mkdir(directory, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error
+      })
+      const info = await lstat(directory)
+      assertTrustedMetadata(directory, info, metadata.root)
+      if (!info.isDirectory()) throw workspaceError(`[vitehub] Invalid Workspace removal directory.`)
+      if (process.platform !== "win32") await applyMetadataPermissions(directory, metadata.root.mode & 0o770, metadata.root.gid)
+      // Keep this marker outside the sidecar subtree so interrupted recursive
+      // cleanup cannot expose descendants with reusable ownership metadata.
+      const file = await open(marker, "wx", 0o600).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "EEXIST") return undefined
+        throw error
+      })
+      createdMarker = file !== undefined
+      await file?.close()
+    }
+    let missingTargetError: NodeJS.ErrnoException | undefined
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
     }).catch(async (error: NodeJS.ErrnoException) => {
-      // Node's rm rejects even empty directories without recursive mode.
-      // rmdir preserves the Store's non-recursive, empty-directory contract.
       if (error.code === "ERR_FS_EISDIR" && !options.recursive) {
         await rmdir(resolveInside(this.root, path))
         return
       }
       throw error
-    }).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT" && options.force) return
+    }).catch(async (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        if (!options.force) missingTargetError = error
+        return
+      }
+      // A failed non-recursive removal deleted no descendants. Only
+      // clear our own marker; an earlier interrupted removal still needs recovery.
+      if (createdMarker && !options.recursive) await rm(marker, { force: true })
       throw error
     })
-    for (const key of this.#files.keys()) {
-      if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
-    }
+    const { rm: removeMetadata } = await import("node:fs/promises")
+    if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
+    await rm(marker, { force: true })
+    if (missingTargetError) throw missingTargetError
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {

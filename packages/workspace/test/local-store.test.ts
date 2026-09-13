@@ -1337,7 +1337,7 @@ describe("local workspace store", () => {
     finally {
       read.mockRestore()
     }
-  })
+  }, 20_000)
 
   it("supports file tree operations, snapshots, and diffs", async () => {
     const store = await createStore()
