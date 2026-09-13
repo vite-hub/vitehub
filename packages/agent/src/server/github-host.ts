@@ -673,7 +673,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         await exec("git", ["-C", checkout, "checkout", "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
       }
       else {
-        await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
+        // When source metadata is unavailable, fetch GitHub's synthetic PR ref first.
+        // It resolves heads from forks that are not reachable in the base repository.
+        try {
+          await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", `refs/pull/${pullRequest.number}/head`], commandOptions)
+        }
+        catch {
+          // Older GitHub Enterprise installations may not expose PR refs; retain
+          // the exact-SHA fallback for those repositories.
+          await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
+        }
         await exec("git", ["-C", checkout, "checkout", "--detach", "FETCH_HEAD"], commandOptions)
       }
       await exec("git", ["-C", checkout, "remote", "set-url", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
