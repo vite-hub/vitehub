@@ -142,3 +142,9 @@ function rememberConfiguredLayer(definition: AgentDefinition, configured: Config
     configurable: true,
   })
 }
+
+/** Read resolved settings for package-owned workflows without depending on runtime markers. */
+export function getAgentLayerOptions(definition: AgentDefinition): AgentSettings | undefined {
+  const options = layerOptions.get(definition)
+  return options ? { ...options } : undefined
+}
