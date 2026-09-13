@@ -38,6 +38,15 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   }
   options.signal?.throwIfAborted()
   // Recycled directories must not retain refs or config from an earlier PR.
+  // Capture the prior index so files deleted by the new tree can be removed while
+  // leaving provider-generated and other untracked workspace output untouched.
+  let previousTracked: string[] = []
+  try {
+    previousTracked = (await exec('git', ['ls-files', '-z'], { cwd: destination, env, signal: options.signal })).stdout
+      .split('\0').filter(Boolean)
+  } catch {
+    // A plain target has no prior index.
+  }
   await rm(join(destination, '.git'), { recursive: true, force: true })
   try {
     await cp(join(source, '.git'), join(destination, '.git'), { recursive: true })
@@ -52,10 +61,15 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       || await git(destination, ['remote', 'get-url', '--push', 'origin']) !== push) {
       throw new Error('Provider checkout head or remote mismatch.')
     }
-    // Materialize tracked files while preserving provider-generated instruction files
-    // and any other untracked workspace output.
+    // Remove files tracked by the previous checkout but absent from the new tree.
+    // Keep provider-generated instruction files intact.
     const tracked = (await exec('git', ['ls-files', '-z'], { cwd: source, env, signal: options.signal })).stdout
       .split('\0').filter(Boolean)
+    const current = new Set(tracked)
+    for (const file of previousTracked) {
+      if (current.has(file) || file === 'AGENTS.md' || file === 'CLAUDE.md') continue
+      await rm(join(destination, file), { recursive: true, force: true })
+    }
     for (const file of tracked) {
       if (file === 'AGENTS.md' || file === 'CLAUDE.md') continue
       await cp(join(source, file), join(destination, file), { recursive: true })
