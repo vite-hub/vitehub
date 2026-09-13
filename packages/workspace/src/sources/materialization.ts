@@ -472,8 +472,23 @@ async function reconcileRemovedStartupSourcesInternal(
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
-      await control.mutate(() => store.rm(path, { force: true }))
-      removedOwnedPaths.push(path)
+      // Revalidate ownership and content inside the mutation boundary immediately
+      // before removal so a concurrent writer cannot be deleted after the
+      // optimistic checks above.
+      const removed = await control.mutate(async () => {
+        const latest = await store.readFile(path).catch((error: unknown) => {
+          if (error && hasRuntimeType(error, "object") && "code" in error
+            && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) return undefined
+          throw error
+        })
+        if (!latest) return false
+        const latestOwner = latest.metadata?.source
+        if (latestOwner !== source.key && !(latestOwner === undefined && fileAttributesUnavailable(latest))) return false
+        if (local && recordedDigest && await sha256(latest.content) !== recordedDigest) return false
+        await store.rm(path, { force: true })
+        return true
+      })
+      if (removed) removedOwnedPaths.push(path)
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       // A replaced ancestor can also make stat fail with ENOTDIR. Neither case
