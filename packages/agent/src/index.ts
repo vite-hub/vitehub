@@ -2171,7 +2171,7 @@ export interface DefineAgent {
       extends?: never
       driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>["driver"]>
       workspace?: TWorkspace
-    },
+    } & ValidateWorkspaceAgentOptions<{ workspace?: TWorkspace, capabilities?: TCapabilities }>,
   ): TWorkspace extends WorkspaceAgentWorkspaceConfig
     ? WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
     : AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>

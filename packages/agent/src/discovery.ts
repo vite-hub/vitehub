@@ -321,7 +321,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     const registry = options.get("presets")
     if (preset === undefined || registry === undefined) return false
     const selection = tokens[resolveReference(preset)]
-    if (!/^["'`]/.test(selection)) return false
+    if (!/^["'`]/.test(selection)) {
+      for (const entry of properties(registry).values()) if (ownsWorkspace(entry, new Set(seen))) return true
+      return false
+    }
     const entry = properties(registry).get(propertyName(selection))
     return entry !== undefined && ownsWorkspace(entry, seen)
   }
