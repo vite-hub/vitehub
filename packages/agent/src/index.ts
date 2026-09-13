@@ -2428,6 +2428,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
   Reflect.deleteProperty(decorations, agentLayerMetadata)
   delete decorations.__vitehubAgentSettings
+  delete decorations.options
   Reflect.deleteProperty(decorations, baseAgentResolve)
   Reflect.deleteProperty(decorations, baseAgentModel)
   Reflect.deleteProperty(decorations, baseAgentDriverKind)
