@@ -46,6 +46,7 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
     let forced = false
     let terminating = false
     let settled = false
+    let timedOut = false
     let grace: ReturnType<typeof setTimeout> | undefined
     const terminate = () => {
       if (forced || terminating || settled) return
@@ -68,7 +69,10 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
     const abort = terminate
     options.signal?.addEventListener("abort", abort, { once: true })
     if (options.signal?.aborted) abort()
-    const timeout = setTimeout(terminate, options.timeoutMs ?? 120_000)
+    const timeout = setTimeout(() => {
+      timedOut = true
+      terminate()
+    }, options.timeoutMs ?? 120_000)
     child.once("error", (error) => {
       settled = true
       clearTimeout(timeout)
@@ -82,6 +86,7 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
       if (grace) clearTimeout(grace)
       options.signal?.removeEventListener("abort", abort)
       if (options.signal?.aborted) return reject(options.signal.reason)
+      if (timedOut) return reject(new Error(`[vitehub] Browser runtime command timed out (${command})`))
       if (code === 0) return resolve(stdout)
       let detail = redactCredentialText(stderr.trim())
       for (const value of Object.values(options.env)) {
