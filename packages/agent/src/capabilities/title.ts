@@ -198,12 +198,20 @@ function triggeringUserMessage(messages: Message[], input: AgentRunInput): Messa
 
 function titleTraceLog(traceLog: TraceEventLog | undefined): TraceEventLog | undefined {
   if (!traceLog) return
+  const local = createTraceEventLog({ content: "metadata" })
   return {
-    append: event => traceLog.append({
-      ...event,
-      attributes: { ...event.attributes, [auxiliaryTraceKindAttribute]: "title" },
-    }),
-    entries: () => traceLog.entries().filter(entry => entry.attributes?.[auxiliaryTraceKindAttribute] === "title"),
+    async append(event) {
+      const tagged = { ...event, attributes: { ...event.attributes, [auxiliaryTraceKindAttribute]: "title" } }
+      const entry = await local.append(tagged)
+      if (event.name !== "run.error" && event.name !== "run.finish" && event.name !== "agent.invocation.finish"
+        && event.name !== "agent.message.delta"
+        && (event.name !== "agent.stream.error" || event.attributes?.["error.recoverable"] === true)
+        && event.name !== "agent.invocation.error" && event.name !== "agent.invocation.cancelled") {
+        await traceLog.append(tagged)
+      }
+      return entry
+    },
+    entries: () => local.entries(),
   }
 }
 
