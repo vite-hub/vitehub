@@ -153,7 +153,7 @@ export const agentCapacity = createProcessAgentCapacity({
 
 Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits, memory events, and pressure stall information when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. Tune `memory.perInvocationBytes`, `memory.reserveBytes`, and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
-Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` clones over HTTPS, checks out the pull request's pushable branch, configures Git to use the base repository token, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
+Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Checkout and push operations need Git but do not need the GitHub CLI. Generic `command()` operations still use the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
 ```ts
 await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
@@ -161,6 +161,8 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
   await push()
 }, { signal: invocation.abortSignal, timeout: 60_000 })
 ```
+
+For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. The standalone `prepareGitHubPullRequestWorkspace(checkoutPath, cwd, { signal })` export performs the same preparation. For plain targets without Git metadata, preparation resets materialized tracked files to the PR version, protects omitted tracked files from deletion, and excludes generated-only files from ordinary staging. Make repair edits after preparation. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
 
 `access()`, `command()`, and `ensureGraphQLBudget()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution, token refresh, and GitHub CLI work stop on cancellation. Pass an upper bound for the GraphQL query's point cost as `ensureGraphQLBudget(repository, { cost })`; the host returns a reservation. Call `reservation.submit()` immediately before sending the query, then call `reservation.settle(actualCost)` with the non-negative point cost reported by GitHub after it completes. The actual cost cannot exceed the reserved cost. Call `reservation.release()` if work stops before submission. The host keeps submitted reservations deducted during concurrent budget refreshes until settlement confirms that the query completed. A later refresh reconciles GitHub's reported remaining points. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. Installation tokens and GraphQL budgets remain separate across installations, including concurrent checkout work. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. When GitHub cannot resolve an opaque token through `/user`, return a stable `rateLimitKey` with the token so rotations of the same credential share one budget while different credentials stay isolated. Shared GraphQL admission checks have an independent 60-second command limit. Set `graphQLCheckTimeout` on `createGitHubHost()` when the host needs a different limit.
 
@@ -345,6 +347,27 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions with `@../bot/instructions.md` and share Skills through explicit Sources or a directory link. Relative file paths resolve from each discovered Agent's directory.
 
+### Named presets
+
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import { notetaker } from "@example/agents"
+
+export default defineAgent({
+  preset: "notetaker",
+  presets: { notetaker },
+  name: "meeting-notes",
+  driver: { model: "gpt-5.6-sol" },
+})
+```
+
+`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
+
+Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Export configured Agents directly, or expose a small typed configuration function that returns a `defineAgent()` definition. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
+
+
 
 ## evlog integration
 
@@ -494,3 +517,56 @@ Capability definitions can declare `inspection: { label, view? }`. Lifecycle hoo
 MCP records server discovery and tool provenance. Title records generation settings, progress, and its result. The Console's Capabilities tab reads these snapshots without invoking either capability. Other capabilities use the default tools/configuration view. Set the Invocation journal's `configuration` to `"content"` to retain inspection state and views independently of other trace content. Metadata-only capture keeps labels. Existing redaction and observation bounds apply.
 
 See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-capabilities#contribute-an-inspection-view) for the catalog and a complete example.
+
+
+### Instruction templates
+
+An Agent can reserve one place for extending instructions. Define a template in
+`driver.instructions` with exactly one `{{{ instructions }}}` marker outside code:
+
+```ts
+const base = defineAgent({
+  driver: {
+    kind: "codex",
+    instructions: {
+      template: "Inspect the request.\n\n{{{ instructions }}}\n\nExplain the result.",
+      content: "Use concise language.",
+    },
+  },
+})
+
+const agent = defineAgent({
+  extends: base,
+  driver: { instructions: "Check migration safety." },
+})
+```
+
+The extension replaces the slot content. It does not append instructions or add
+headings. Omitted content uses the inherited default. Strings, arrays, and async
+instruction resolvers work in both `template` and `content`. Markdown files can
+be loaded through the existing instruction resolver or Markdown import path.
+
+To discard the inherited template, use
+`instructions: { mode: "replace", value: "A complete instruction document." }`.
+A new `{ template, content }` object also replaces the inherited template.
+Without a template, extending instructions replaces the inherited document.
+
+### Workspace citation preset
+
+Import `@vite-hub/agent/presets/workspace` to opt into GitHub file citations for verified mounted Sources. The preset is an ordinary Agent Definition with a read-only Workspace and the Codex Driver. Its instruction template has one content slot:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import workspace from "@vite-hub/agent/presets/workspace"
+
+export default defineAgent({
+  extends: workspace,
+  driver: { instructions: "Explain migration risks." },
+})
+```
+
+Provider Agents expose verified mounted Source metadata as `sourceProvenance` to instruction resolvers after Workspace preparation. The core does not add citation rules. The preset owns the citation text and the runtime renders it together with the supplied content. Use `driver.instructions: { mode: "replace", value: "..." }` to replace that document. Plain Workspace Agents keep native repository instructions without adding citation policy.
+
+Configured instructions appended to native provider instruction files are transient. If a provider removes or rewrites their delimiters in a nonempty file, cleanup fails and Workspace write-back is skipped because native edits cannot be separated from configured policy. Clearing or deleting the file remains supported.
+
+Applications can import the same preset from `vite-hub/agent/presets/workspace`.

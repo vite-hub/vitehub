@@ -260,15 +260,23 @@ export async function channelRegistration(
   }
   const registration = matching[0]!
   const secretToken = await resolvedChannelValue(registration.secretToken, context)
-  return {
+  const result: {
+    id: string
+    path?: string
+    secretHeader?: string
+    secretToken?: false | string
+    signature?: string
+    url?: string
+  } = {
     id: registration.id,
-    ...(registration.path ? { path: registration.path } : {}),
-    ...(registration.secretHeader ? { secretHeader: registration.secretHeader } : {}),
-    ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CLI serialization accepts signature identifiers and omits executable verifier callbacks.
-    ...(typeof registration.signature === "string" ? { signature: registration.signature } : {}),
-    ...(registration.url ? { url: registration.url } : {}),
   }
+  if (registration.path) result.path = registration.path
+  if (registration.secretHeader) result.secretHeader = registration.secretHeader
+  if (secretToken === false || typeof secretToken === "string") result.secretToken = secretToken
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CLI serialization accepts signature identifiers and omits executable verifier callbacks.
+  if (typeof registration.signature === "string") result.signature = registration.signature
+  if (registration.url) result.url = registration.url
+  return result
 }
 
 function uniqueAgentDefinitions(

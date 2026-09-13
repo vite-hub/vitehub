@@ -1193,6 +1193,23 @@ export type AgentAdapterInstructions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > =
+  | AgentInstructionsContent<TRuntimeConfig, Name>
+  | {
+    /** Markdown with exactly one {{{ instructions }}} slot outside code. */
+    template: AgentInstructionsContent<TRuntimeConfig, Name>
+    /** Default slot content. Extending instructions replaces this content. */
+    content?: AgentInstructionsContent<TRuntimeConfig, Name>
+  }
+  | {
+    /** Discard an inherited template and use this document. */
+    mode: "replace"
+    value: AgentInstructionsContent<TRuntimeConfig, Name>
+  }
+
+export type AgentInstructionsContent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
   | AgentAdapterInstructionsPart<TRuntimeConfig, Name>
   | Array<AgentAdapterInstructionsPart<TRuntimeConfig, Name>>
 
@@ -2215,10 +2232,22 @@ export interface AgentUsageRecord {
   usage?: AgentUsage
 }
 
+/** Verified mounted Sources available to an invocation's instruction resolver. */
+export interface AgentSourceProvenance {
+  mount: string
+  provider: "github"
+  repository: string
+  revision: { id: string, ref?: string }
+  root: string
+  source: string
+}
+
 export interface AgentAdapterMetadataContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig>, AgentInvocationCallbackContextValues {
+  /** Present after a provider Workspace is prepared; omitted during static inspection. */
+  sourceProvenance?: readonly AgentSourceProvenance[]
   actor: AgentActor
   context: AgentInvocationContextStore
   driver?: {
