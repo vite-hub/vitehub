@@ -13,6 +13,62 @@ import { invocationActivities, invocationActivityTitle } from "../src/internal/i
 import type { AgentInvocationView } from "../src/types.ts";
 
 describe("Agent Invocation UI", () => {
+  it("preserves terminal usage and capability visibility in details", () => {
+    const invocation: AgentInvocationView = {
+      id: "summary", status: "completed", traceId: "trace", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:00Z", observations: [],
+      usage: { totalTokens: 1234, cost: { display: "$0.02", estimated: true } },
+      configuration: { capabilities: [{ id: "files" }] },
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation, showCapabilities: false } });
+    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("1,234");
+    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("$0.02 (estimated)");
+    expect(wrapper.text()).not.toContain("Capabilities");
+    expect(mount(AgentInvocationInspector, { props: { invocation } }).text()).toContain("Capabilities");
+  });
+
+  it("forwards workspace artifact paths without navigating", async () => {
+    const invocation: AgentInvocationView = { id: "artifact", status: "running", traceId: "trace", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:00Z", observations: [] };
+    const wrapper = mount(AgentInvocation, { props: { invocation }, slots: { footer: () => h("a", { href: "/workspace/id/reports/a%23b.md" }, "Artifact") } });
+    await wrapper.get("a").trigger("click");
+    expect(wrapper.emitted("inspect")).toEqual([["workspace", "reports/a#b.md"]]);
+    await wrapper.setProps({ workspaceInspectable: false });
+    await wrapper.get("a").trigger("click");
+    expect(wrapper.emitted("inspect")).toHaveLength(1);
+  });
+
+  it("forwards each recorded skill path", async () => {
+    const timestamp = "2026-09-05T00:00:00Z";
+    const wrapper = mount(AgentInvocation, { props: { invocation: {
+      id: "skills", status: "running", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      observations: [{ name: "agent.tool.completed", type: "run", timestamp, sequence: 1, attributes: {
+        "tool.name": "read", "tool.output": { commandActions: [
+          { type: "read", path: ".agents/skills/first/SKILL.md" },
+          { type: "read", path: ".agents/skills/second/SKILL.md" },
+        ] },
+      } }],
+    } } });
+    const buttons = wrapper.findAll("button").filter(button => button.text().startsWith("Read "));
+    expect(buttons).toHaveLength(2);
+    await buttons[0]!.trigger("click");
+    await buttons[1]!.trigger("click");
+    expect(wrapper.emitted("inspect")).toEqual([["workspace", ".agents/skills/first/SKILL.md"], ["workspace", ".agents/skills/second/SKILL.md"]]);
+  });
+
+  it("keeps late commentary after the final answer", () => {
+    const timestamp = "2026-09-05T00:00:00Z";
+    const wrapper = mount(AgentInvocation, { props: { invocation: {
+      id: "phases", status: "completed", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      observations: [...[
+        { role: "user", body: "Question", phase: "message" },
+        { role: "assistant", body: "Final answer", phase: "final" },
+        { role: "assistant", body: "Late commentary", phase: "commentary" },
+      ].map((message, index) => ({ name: "agent.message", type: "run" as const, timestamp, sequence: index + 1, attributes: { "message.id": String(index), "message.role": message.role, "message.content": message.body, "message.phase": message.phase } })), { name: "agent.step.completed", type: "run", timestamp, sequence: 4, attributes: {} }],
+    } } });
+    expect(wrapper.text().indexOf("Final answer")).toBeLessThan(wrapper.text().indexOf("Late commentary"));
+    expect(wrapper.text()).toContain("Final answer");
+    expect(wrapper.get(".vh-invocation-work").element.nextElementSibling?.textContent).toContain("Final answer");
+  });
+
   it("places one semantic run timestamp before the session activities and falls back to creation time", () => {
     const invocation: AgentInvocationView = { id: "time", status: "completed", traceId: "trace", createdAt: "2026-09-05T10:00:00Z", startedAt: "2026-09-05T10:01:00Z", updatedAt: "2026-09-05T10:02:00Z", observations: [] };
     const wrapper = mount(AgentInvocation, { props: { invocation } });

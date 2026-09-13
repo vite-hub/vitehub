@@ -189,6 +189,16 @@ function renderFolderIcon() {
   ]);
 }
 
+export function workspaceArtifactPath(value: string): string | undefined {
+  // Separate URL metadata before decoding literal filename delimiters.
+  const pathname = value.split(/[?#]/, 1)[0]!;
+  const match = /^\/workspace\/[^/]+\/(.+)$/.exec(pathname);
+  if (!match) return;
+  const path = (() => { try { return decodeURIComponent(match[1]!); } catch { return match[1]!; } })();
+  if (!path || path.startsWith("/") || path.includes("\\") || path.split("/").some(part => !part || part === "." || part === "..")) return;
+  return path;
+}
+
 type InspectTarget = "agent" | "workspace";
 
 function payloadText(value: unknown): string {
@@ -588,7 +598,7 @@ function renderActivityIconSvg(icon: ActivityIcon) {
   })));
 }
 
-function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
+function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarget, path?: string) => void) {
   const command = activity.command;
   const tokenLabel = activity.kind === "reasoning" || activity.kind === "model"
     ? formatTokens(activity.reasoningTokens)
@@ -613,21 +623,31 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
     : undefined;
   const hasDetails = Boolean(deliveryFailure || activity.truncated)
     || (!visibleDelivery && (activity.patches.length > 0 || Boolean(command || hasPayloads || activity.body || activity.truncated)));
-  const inspectTarget = activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
+  const inspectTarget = activity.skill ? "workspace" : activity.attributes["vitehub.inspect.target"] ?? (activity.name === "vitehub.agent.configured" ? "agent" : undefined);
   const inspectable = inspectTarget === "agent" || inspectTarget === "workspace";
+  const skillReads = activity.skills ?? (activity.skill ? [activity.skill] : []);
   const summaryContent = [
     renderActivityIcon(activity),
-    h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
+    skillReads.length
+      ? h("span", { class: "vh-invocation-event__title" }, skillReads.map(skill => h("button", {
+          type: "button",
+          onClick: (event: Event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            inspect("workspace", skill.path);
+          },
+        }, `Read ${skill.name} skill`)))
+      : h("span", { class: "vh-invocation-event__title" }, invocationActivityTitle(activity)),
     activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
     hasDetails
       ? renderChevronDown("vh-invocation-event__disclosure")
       : null,
   ];
-  const summary = inspectable && !hasDetails
+  const summary = inspectable && !hasDetails && !skillReads.length
     ? h("button", {
         class: "vh-invocation-event__summary",
-        onClick: () => inspect(inspectTarget),
+        onClick: () => inspect(inspectTarget, activity.skill?.path),
         type: "button",
       }, summaryContent)
     : h(hasDetails ? "summary" : "div", { class: "vh-invocation-event__summary" }, summaryContent);
@@ -676,7 +696,7 @@ function renderEvent(activity: InvocationActivity, inspect: (target: InspectTarg
         inspectable
           ? h("button", {
               class: "vh-invocation-event__inspect",
-              onClick: () => inspect(inspectTarget),
+              onClick: () => inspect(inspectTarget, activity.skill?.path),
               type: "button",
             }, `Inspect ${inspectTarget}`)
           : null,
@@ -706,7 +726,7 @@ function activityDetail(activity: InvocationActivity): string | undefined {
   return activity.preview ?? stringAttribute(activity.attributes, "vitehub.activity.detail");
 }
 
-function renderPreparationAction(activity: InvocationActivity, inspect: (target: InspectTarget) => void) {
+function renderPreparationAction(activity: InvocationActivity, inspect: (target: InspectTarget, path?: string) => void) {
   const target = activity.attributes["vitehub.inspect.target"];
   if (target !== "workspace" && target !== "agent") return;
   return h("button", {
@@ -858,7 +878,7 @@ function renderGroupedActivityIcon(activity: InvocationActivity) {
 function renderActivityGroup(
   group: string,
   activities: readonly InvocationActivity[],
-  inspect: (target: InspectTarget) => void,
+  inspect: (target: InspectTarget, path?: string) => void,
 ) {
   return h("li", {
     class: "vh-invocation-lifecycle",
@@ -1123,7 +1143,7 @@ function inspectorDisclosure(
   );
 }
 
-function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView) {
+function renderConfiguration(configuration: AgentInvocationConfiguration, invocation: AgentInvocationView, showCapabilities: boolean) {
   const recordedTools = Array.isArray(configuration.tools) ? configuration.tools : [];
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted catalogs can contain truncation markers; validate tool names at the inspector boundary.
   const tools = recordedTools.filter(tool => tool && typeof tool.name === "string");
@@ -1164,7 +1184,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
           ),
         )
       : null,
-    configuration.capabilities?.length
+    showCapabilities && configuration.capabilities?.length
       ? h("div", { class: "vh-invocation-inspector__group" }, [
           h("div", { class: "vh-invocation-inspector__group-heading" }, [
             h("strong", "Capabilities"),
@@ -1222,7 +1242,7 @@ function renderInvocationActivity(
   activity: InvocationActivity,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: (target: InspectTarget, path?: string) => void,
 ) {
   return activity.kind === "message"
     ? renderMessage(activity, expanded, toggleExpanded)
@@ -1234,7 +1254,7 @@ function renderActivitySequence(
   invocation: AgentInvocationView,
   expanded: ReadonlySet<string>,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: (target: InspectTarget, path?: string) => void,
 ) {
   const rendered = [];
   for (let index = 0; index < activities.length;) {
@@ -1273,7 +1293,7 @@ function renderWorkSummary(
   open: boolean,
   setOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: (target: InspectTarget, path?: string) => void,
 ) {
   if (!activities.length) return null;
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
@@ -1331,7 +1351,7 @@ function renderInvocationActivities(
   workOpen: boolean,
   setWorkOpen: (open: boolean) => void,
   toggleExpanded: (id: string) => void,
-  inspect: (target: InspectTarget) => void,
+  inspect: (target: InspectTarget, path?: string) => void,
 ) {
   const orderedActivities = orderSessionThread(activities).filter(activity =>
     activity.kind !== "message" || Boolean(activity.body?.trim()),
@@ -1349,7 +1369,7 @@ function renderInvocationActivities(
   }
   let lastAssistant = -1;
   for (let index = orderedActivities.length - 1; index >= 0; index -= 1) {
-    if (index > lastUser && orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "assistant") {
+    if (index > lastUser && orderedActivities[index]!.kind === "message" && orderedActivities[index]!.role === "assistant" && orderedActivities[index]!.attributes["message.phase"] !== "commentary") {
       lastAssistant = index;
       break;
     }
@@ -1396,7 +1416,7 @@ function renderInvocationActivities(
 export const AgentInvocation = defineComponent({
   name: "AgentInvocation",
   emits: {
-    inspect: (target: InspectTarget) => target === "agent" || target === "workspace",
+    inspect: (target: InspectTarget, path?: string) => (target === "agent" || target === "workspace") && (path === undefined || hasRuntimeType(path, "string")),
   },
   props: {
     header: { default: true, type: Boolean },
@@ -1406,10 +1426,10 @@ export const AgentInvocation = defineComponent({
   },
   setup(props, { emit, slots }) {
     const activities = computed(() => invocationActivities(props.invocation).map((activity) => {
-      if (props.workspaceInspectable || activity.attributes["vitehub.inspect.target"] !== "workspace") return activity;
+      if (props.workspaceInspectable) return activity;
       const attributes = { ...activity.attributes };
-      delete attributes["vitehub.inspect.target"];
-      return { ...activity, attributes };
+      if (attributes["vitehub.inspect.target"] === "workspace") delete attributes["vitehub.inspect.target"];
+      return { ...activity, attributes, skill: undefined, skills: undefined };
     }));
     const expandedMessages = ref<ReadonlySet<string>>(new Set());
     const workOpen = ref(false);
@@ -1421,6 +1441,15 @@ export const AgentInvocation = defineComponent({
       if (next.has(id)) next.delete(id);
       else next.add(id);
       expandedMessages.value = next;
+    }
+
+    function inspectWorkspaceArtifact(event: MouseEvent) {
+      if (!props.workspaceInspectable || event.defaultPrevented || event.button !== 0) return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : undefined;
+      const path = target ? workspaceArtifactPath(target.getAttribute("href") || "") : undefined;
+      if (!path) return;
+      event.preventDefault();
+      emit("inspect", "workspace", path);
     }
 
     function clearSelectedElement() {
@@ -1464,6 +1493,7 @@ export const AgentInvocation = defineComponent({
         "data-status": props.invocation.status,
         "data-slot": "invocation",
         ref: root,
+        onClick: inspectWorkspaceArtifact,
       }, [
         props.header ? h("header", { class: "vh-invocation-header" }, [
           h("div", { class: "vh-invocation-header__breadcrumb", title: `${agentInvocationProject(props.invocation)} / ${agentInvocationTitle(props.invocation)}` }, [
@@ -1509,6 +1539,7 @@ export const AgentInvocationInspector = defineComponent({
   },
   props: {
     invocation: { required: true, type: Object as PropType<AgentInvocationView> },
+    showCapabilities: { default: true, type: Boolean },
     showStatus: { default: true, type: Boolean },
     showTimeline: { default: true, type: Boolean },
     showError: { default: true, type: Boolean },
@@ -1524,7 +1555,7 @@ export const AgentInvocationInspector = defineComponent({
       steps: activities.value.filter((activity) =>
         activity.kind !== "message" && activity.name !== "vitehub.observation.truncated"
       ).length,
-      tokens: latestInvocationTokens(activities.value),
+      tokens: props.invocation.usage?.totalTokens ?? latestInvocationTokens(activities.value),
     }));
 
     async function copyIdentifier(kind: "invocation" | "trace", value: string | undefined) {
@@ -1644,6 +1675,9 @@ export const AgentInvocationInspector = defineComponent({
             inspectorSection(
               "Run summary",
               h("dl", { class: "vh-invocation-inspector__metrics" }, [
+                props.invocation.usage?.cost?.display
+                  ? h("div", [h("dt", "Cost"), h("dd", `${props.invocation.usage.cost.display}${props.invocation.usage.cost.estimated === true ? " (estimated)" : props.invocation.usage.cost.estimated === false ? " (reported)" : ""}`)])
+                  : null,
                 h("div", [h("dt", "Messages"), h("dd", metrics.value.messages)]),
                 h("div", [h("dt", "Steps"), h("dd", metrics.value.steps)]),
                 metrics.value.changes
@@ -1660,7 +1694,7 @@ export const AgentInvocationInspector = defineComponent({
             props.showTimeline
               ? traceTimeline(activities.value, props.invocation, id => emit("selectActivity", id))
               : null,
-            ...(configuration ? renderConfiguration(configuration, props.invocation) : []),
+            ...(configuration ? renderConfiguration(configuration, props.invocation, props.showCapabilities) : []),
             slots.metadata?.({ invocation: props.invocation }),
             inspectorSection(
               "Identifiers",
