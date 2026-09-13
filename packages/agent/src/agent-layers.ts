@@ -10,7 +10,7 @@ interface ConfiguredLayer {
 
 const configuredLayers = new WeakMap<object, ConfiguredLayer>()
 const pendingConfiguredLayers = new WeakMap<object, ConfiguredLayer>()
-const layerOptions = new WeakMap<object, Record<string, unknown>>()
+const layerOptions = new WeakMap<object, AgentSettings>()
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && hasRuntimeType(value, "object")
@@ -122,7 +122,7 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
   return result
 }
 
-export function createConfiguredAgentDefinition(input: unknown): AgentDefinition | undefined {
+export function createConfiguredAgentDefinition(input: unknown, create: (options: AgentSettings) => AgentDefinition): AgentDefinition | undefined {
   if (!record(input) || !("configure" in input)) return undefined
   if (!record(input.options) || !hasRuntimeType(input.configure, "function")
     || Object.keys(input).some(key => key !== "options" && key !== "configure")) {
@@ -132,8 +132,10 @@ export function createConfiguredAgentDefinition(input: unknown): AgentDefinition
   const options = mergePresetOptions({}, input.options)
   const definition = configure(mergePresetOptions({}, options))
   assertLayerDefinition(definition)
-  rememberConfiguredLayer(definition, { options, configure, overrides: {} })
-  return definition
+  // A callback may return a shared definition. Keep its configuration and runtime private.
+  const configured = create(layerOptions.get(definition)!)
+  rememberConfiguredLayer(configured, { options, configure, overrides: {} })
+  return configured
 }
 
 function rememberConfiguredLayer(definition: AgentDefinition, configured: ConfiguredLayer): void {

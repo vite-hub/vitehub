@@ -2348,7 +2348,7 @@ function createWorkspaceAgentDefinition<
 
 // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
 export const defineAgent: DefineAgent = ((options: unknown) => {
-  const configured = createConfiguredAgentDefinition(options)
+  const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings))
   if (configured) return configured
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = resolveAgentLayerOptions(options) as AgentSettings
