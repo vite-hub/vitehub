@@ -279,7 +279,11 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
     // exist, preserve the original as the explicit conflict policy.
     if ((await lstat(generated.path).catch(() => undefined))?.isDirectory()) {
       const sourceEntry = await lstat(generated.copiedBridgeSource).catch(() => undefined)
-      if (!sourceEntry) {
+      // The source may have been replaced by a file, symlink, or other entry
+      // while the bridge was active. That entry is not valid custody of the
+      // original Skill tree; restore the bridge contents in its place.
+      if (!sourceEntry || !sourceEntry.isDirectory()) {
+        if (sourceEntry) await rm(generated.copiedBridgeSource, { recursive: true, force: true })
         await cp(generated.path, generated.copiedBridgeSource, { recursive: true })
       }
     }
