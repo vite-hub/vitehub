@@ -31,6 +31,10 @@ describe("named Agent presets", () => {
     expect(first.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ model: "first" })
   })
 
+  it.each([undefined, null, false, 42, {}, [], "", " "])("rejects malformed preset %j without a registry", (preset) => {
+    expect(() => defineAgent({ preset } as never)).toThrow("requires a non-empty preset name")
+  })
+
   it("rejects missing, inherited, invalid and ambiguous selections", () => {
     const base = defineAgent({ driver: "codex" })
     expect(() => defineAgent({ preset: "missing", presets: { notes: base } } as never)).toThrow('preset "missing" is not defined')
