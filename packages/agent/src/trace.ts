@@ -1,6 +1,8 @@
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { emitTraceEvent } from "@vite-hub/runtime"
 
+import { redactCredentialText } from "./internal/credential-redaction.ts"
+
 import { agentErrorDetails } from "./agent-error.ts"
 import { agentInvokerLabel } from "./invoker.ts"
 import { isAttachmentPart, type AgentActivity, type Message, type StreamEvent } from "./messages.ts"
@@ -163,8 +165,17 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
     const reasoningTokens = event.usageRecord.usage?.outputTokenDetails?.reasoningTokens
       ?? event.usageRecord.usage?.details?.reasoningOutputTokens
     return {
+      "usage.cachedInputTokens": event.usageRecord.usage?.inputTokenDetails?.cacheReadTokens
+        ?? event.usageRecord.usage?.details?.cachedInputTokens,
+      "usage.costEstimated": event.usageRecord.cost?.estimated,
+      "usage.costSource": event.usageRecord.cost?.source !== undefined ? redactCredentialText(event.usageRecord.cost.source) : undefined,
+      "usage.costUsd": event.usageRecord.cost?.usd,
       "usage.hasCost": event.usageRecord.cost !== undefined,
       "usage.hasRaw": event.usageRecord.raw !== undefined,
+      "usage.inputTokens": event.usageRecord.usage?.inputTokens,
+      "usage.model": event.usageRecord.model !== undefined ? redactCredentialText(event.usageRecord.model) : undefined,
+      "usage.outputTokens": event.usageRecord.usage?.outputTokens,
+      "usage.provider": event.usageRecord.provider !== undefined ? redactCredentialText(event.usageRecord.provider) : undefined,
       "usage.reasoningTokens": reasoningTokens,
       "usage.totalTokens": event.usageRecord.usage?.totalTokens,
     }
@@ -402,12 +413,35 @@ export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRunt
   })
 }
 
+function safeUsageMetadata(value: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...value,
+    ...(hasRuntimeType(value.model, "string") ? { model: redactCredentialText(value.model) } : {}),
+    ...(hasRuntimeType(value.provider, "string") ? { provider: redactCredentialText(value.provider) } : {}),
+    ...(isRuntimeRecord(value.cost) && hasRuntimeType(value.cost.source, "string")
+      ? { cost: { ...value.cost, source: redactCredentialText(value.cost.source) } }
+      : {}),
+  }
+}
+
 export async function traceAgentInvocationFinish<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   attributes: Record<string, unknown> = {},
 ): Promise<void> {
+  const usage = attributes["usage.record"]
+  const safeAttributes = isRuntimeRecord(usage)
+    ? {
+        ...attributes,
+        "usage.record": {
+          ...safeUsageMetadata(usage),
+          ...(Array.isArray(usage.calls)
+            ? { calls: usage.calls.map(call => isRuntimeRecord(call) ? safeUsageMetadata(call) : call) }
+            : {}),
+        },
+      }
+    : attributes
   await traceAgentEvent(context, {
-    attributes: invocationAttributes(context, attributes),
+    attributes: invocationAttributes(context, safeAttributes),
     name: "agent.invocation.finish",
     type: "run",
   })
@@ -470,7 +504,7 @@ export async function traceAgentStreamEvent<TRuntimeConfig extends AgentRuntimeC
   const title = streamTitle(streamEvent)
   if (title) {
     await traceAgentEvent(context, {
-      attributes: { "vitehub.session.title": title },
+      attributes: { "vitehub.session.title": redactCredentialText(title) },
       name: "agent.title.recorded",
       type: "run",
     })

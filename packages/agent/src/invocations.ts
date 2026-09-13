@@ -1,8 +1,8 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
+import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, pendingCredentialUri, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
 import type { AuthorizationState, CredentialAssignmentState } from "./internal/credential-redaction.ts"
@@ -26,6 +26,9 @@ const MAX_OBSERVATIONS = 32 * 1024
 const DEFAULT_OBSERVATION_BYTES = 16 * 1024 * 1024
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
+const MAX_USAGE_RECORD_DEPTH = 16
+const MAX_USAGE_RECORD_ITEMS = 65_536
+const MAX_USAGE_RECORD_CALLS = 4_096
 const MAX_OBSERVATION_DEPTH = 4
 const MAX_AGENT_CONFIGURATION_DEPTH = 64
 const MAX_OBSERVATION_VALUE_ITEMS = 256
@@ -126,7 +129,6 @@ export interface AgentInvocationStore {
     replaceExisting?: boolean
   }): MaybePromise<boolean>
   create(input: AgentInvocationStoreCreateInput): MaybePromise<AgentInvocationStoreCreateResult>
-  /** Filter returned observations by exact name when requested. */
   get(id: string, options?: { observationNames?: readonly string[] }): MaybePromise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
   getSummary(id: string): MaybePromise<AgentInvocationSummary | undefined>
@@ -186,7 +188,6 @@ export interface AgentInvocations {
   /** Durably append evidence to a live or terminal invocation. Repeated IDs return the existing observation. */
   appendObservation(id: string, event: TraceEvent, options: { id: string }): Promise<AgentInvocationRecord | undefined>
   readonly [agentInvocationsBrand]: true
-  /** Filter returned observations by exact name when requested. */
   get(id: string, options?: { observationNames?: readonly string[] }): Promise<AgentInvocationRecord | undefined>
   getByRunId(runId: string, agentName?: string): Promise<AgentInvocationRecord | undefined>
   /** Reads invocation metadata without observation payloads. */
@@ -710,6 +711,20 @@ function boundedObservationAttributeValue(
     budget.truncated ||= contentBudget.truncated
     return content
   }
+  if (key === "usage.record") {
+    // Per-response accounting nests model calls, usage partitions, and pricing evidence.
+    // Keep it intact without raising limits for arbitrary tool payloads.
+    const usageBudget: ObservationBudget = {
+      items: MAX_USAGE_RECORD_ITEMS,
+      collectionItems: MAX_USAGE_RECORD_CALLS,
+      maxDepth: MAX_USAGE_RECORD_DEPTH,
+      stringLength: MAX_OBSERVATION_CONTENT_STRING_LENGTH,
+      truncated: false,
+    }
+    const usage = boundedObservationValue(value, usageBudget, 0, maxStringLength, builtIns)
+    budget.truncated ||= usageBudget.truncated
+    return usage
+  }
   if (key !== "vitehub.agent.configuration") return boundedObservationValue(value, budget, 0, maxStringLength, builtIns)
   const configurationBudget: ObservationBudget = {
     items: 65_536,
@@ -1019,6 +1034,18 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
         ...(observation.payload?.visibility === "public" ? { payload: { visibility: "redacted" as const } } : {}),
       }
       size = encoder.encode(JSON.stringify(candidate)).byteLength
+      const usageRecord = candidate.attributes?.["usage.record"]
+      if (bytes + size + (retained.length ? 1 : 0) > maxBytes && isRuntimeRecord(usageRecord)) {
+        // Keep canonical totals before dropping bulky per-call and raw evidence.
+        const { calls: _calls, raw: _raw, ...summary } = usageRecord
+        candidate = { ...candidate, attributes: { ...candidate.attributes, "usage.record": summary } }
+        size = encoder.encode(JSON.stringify(candidate)).byteLength
+        if (bytes + size + (retained.length ? 1 : 0) > maxBytes) {
+          const { "usage.record": _usage, ...attributes } = candidate.attributes!
+          candidate = { ...candidate, attributes }
+          size = encoder.encode(JSON.stringify(candidate)).byteLength
+        }
+      }
     }
     if (bytes + size + (retained.length ? 1 : 0) > maxBytes) continue
     bytes += size + (retained.length ? 1 : 0)
@@ -1168,10 +1195,13 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
     },
     get(id, options) {
       const record = records.get(id)
-      if (!record) return
-      return cloneRecord(options?.observationNames
-        ? { ...record, observations: record.observations.filter(entry => options.observationNames!.includes(entry.name)) }
-        : record)
+      if (!record) return undefined
+      const cloned = cloneRecord(record)
+      if (options?.observationNames) {
+        const names = new Set(options.observationNames)
+        cloned.observations = cloned.observations.filter(observation => names.has(observation.name))
+      }
+      return cloned
     },
     getSummary(id) {
       const record = records.get(id)
@@ -1215,15 +1245,6 @@ export function createMemoryAgentInvocationStore(): AgentInvocationStore {
       return [...new Set([...records.values()]
         .filter(record => !selectedAgent || record.agentName === selectedAgent)
         .flatMap(record => invocationCapabilityIds(record)))]
-        .sort()
-    },
-    listTriggeredBy(agentName) {
-      const selectedAgent = agentName?.trim()
-      return [...new Set([...records.values()]
-        .filter(record => !selectedAgent || record.agentName === selectedAgent)
-        .flatMap(record => hasRuntimeType(record.annotations?.triggeredBy, "string") && record.annotations.triggeredBy.trim()
-          ? [record.annotations.triggeredBy]
-          : []))]
         .sort()
     },
     release(id, claimId) {
@@ -1278,7 +1299,6 @@ function journalTraceLog(
   metadataContent: ReadonlySet<string>,
   maxMessageDeltaCharacters: number,
   maxMessageDeltaKeys: number,
-  maxSeparatorCharacters: number,
 ): TraceEventLog {
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const messageDeltaChunkCharacters = maxMessageDeltaCharacters
@@ -1288,8 +1308,8 @@ function journalTraceLog(
   let messageDeltaKeysTruncated = false
   let activeMessageDeltaKey: string | undefined
   const precedingMessageText = new Map<string, string>()
-  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number, emittedCharacters?: number }>()
-  const redactingCredentialDeltas = new Map<string, { kind: "authorization", state: AuthorizationState } | { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
+  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
+  const redactingCredentialDeltas = new Map<string, { kind: "uri" } | { kind: "authorization", state: AuthorizationState } | { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1312,7 +1332,6 @@ function journalTraceLog(
     if (!pending) return
     const rawContent = pending.entry.attributes?.["message.content"]
     let retainedContent: string | undefined
-    let emittedCharacters = 0
     if (hasRuntimeType(rawContent, "string")) {
       let content = rawContent
       const precedingText = precedingMessageText.get(key) ?? ""
@@ -1320,16 +1339,31 @@ function journalTraceLog(
         if (!interveningEvent && content.length < maxPendingCredentialCharacters) return
         const quote = pendingCredentialQuote(content, precedingText)
         const scheme = pendingCredentialScheme(content, precedingText)
-        const assignment = pendingCredentialAssignmentState(content, precedingText, maxSeparatorCharacters)
+        const assignment = pendingCredentialAssignmentState(content, precedingText)
         const authorization = pendingAuthorizationState(content)
+        const uri = pendingCredentialUri(content)
         if (authorization) {
           redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
         }
         else if (assignment) {
           redactingCredentialDeltas.set(key, { kind: "shell", state: assignment })
           // Complete only the persisted placeholder; the scanner retains the raw state.
-          if (!assignment.started && !assignment.yamlFlow && assignment.yamlIndent === undefined) content += "[REDACTED]"
+          if (!assignment.started) content += "[REDACTED]"
           else if (assignment.quote) content += `${assignment.escaped ? "\\" : ""}${assignment.quote}`
+        }
+        else if (uri && content.length - uri.start < maxPendingCredentialCharacters) {
+          // An event boundary does not prove that an authority is userinfo.
+          // Keep the bounded suffix until its URI boundary or stream completion.
+          retainedContent = content.slice(uri.start)
+          content = content.slice(0, uri.start)
+        }
+        else if (uri) {
+          pending.entry = {
+            ...pending.entry,
+            attributes: { ...pending.entry.attributes, [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true },
+          }
+          redactingCredentialDeltas.set(key, { kind: "uri" })
+          content = content.slice(0, uri.start) + uri.prefix + "[REDACTED]"
         }
         else if (quote) {
           redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
@@ -1347,15 +1381,26 @@ function journalTraceLog(
           // A possible marker is still ordinary text until its separator arrives.
           retainedContent = pendingCredentialTextSuffix(content)
           if (retainedContent) {
-            emittedCharacters = Math.max(0, (pending.emittedCharacters ?? 0) - (content.length - retainedContent.length))
-            // Emit ordinary marker text in place, but keep it as scanner context.
-            // An authorization header may already contain an unknown credential.
-            if (interveningEvent && !retainedContent.includes(":")) emittedCharacters = retainedContent.length
-            else content = content.slice(0, -retainedContent.length)
+            content = content.slice(0, -retainedContent.length)
+            if (retainedContent.length >= maxPendingCredentialCharacters) {
+              pending.entry = {
+                ...pending.entry,
+                attributes: { ...pending.entry.attributes, [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true },
+              }
+              content += "[REDACTED]"
+              redactingCredentialDeltas.set(key, { kind: "unquoted" })
+              retainedContent = undefined
+            }
           }
         }
       }
-      const redacted = redactCredentialText(content, precedingText).slice(pending.emittedCharacters ?? 0)
+      // A scheme name can itself be split before its colon. Retain a bounded
+      // trailing word even when no credential marker has been established yet.
+      else if (!final && !interveningEvent) {
+        retainedContent = /\b[a-z][a-z0-9+.-]*$/i.exec(content.slice(-128))?.[0]
+        if (retainedContent) content = content.slice(0, -retainedContent.length)
+      }
+      const redacted = redactCredentialText(content, precedingText)
       // Retain only line and authorization-header context, never credential text.
       const emittedRaw = rawContent.slice(0, rawContent.length - (retainedContent?.length ?? 0))
       precedingMessageText.set(key, credentialTextLineContext(precedingText + emittedRaw))
@@ -1376,7 +1421,6 @@ function journalTraceLog(
       pendingMessageDeltas.set(key, {
         entry: { ...pending.entry, attributes: { ...pending.entry.attributes, "message.content": retainedContent } },
         events: 0,
-        emittedCharacters,
       })
     }
   }
@@ -1416,26 +1460,21 @@ function journalTraceLog(
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
-      if (redaction.kind === "shell" || redaction.kind === "authorization") {
-        // YAML mappings can flush before their value starts. Persist separators
-        // immediately and emit the placeholder only when scalar content arrives.
-        const yamlPrefix = redaction.kind === "shell" && (redaction.state.yamlFlow || redaction.state.yamlIndent !== undefined) && !redaction.state.started
-          ? redaction.state.yamlProperty ? "" : content.match(redaction.state.yamlFlow ? /^\s*/ : /^[\t ]*/)?.[0] ?? ""
-          : undefined
-        const yamlQuote = yamlPrefix !== undefined && redaction.kind === "shell" && redaction.state.yamlIndent !== undefined
-          ? /^["']/.exec(content.slice(yamlPrefix.length))?.[0] ?? ""
-          : ""
+      if (redaction.kind === "uri") {
+        const boundary = content.search(/[\s/\\?#@"<>]/)
+        if (boundary === -1) return
+        redactingCredentialDeltas.delete(key)
+        content = content.slice(boundary)
+        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
+      }
+      else if (redaction.kind === "shell" || redaction.kind === "authorization") {
         const boundary = redaction.kind === "authorization"
           ? consumeAuthorization(content, redaction.state)
           : consumeCredentialAssignment(content, redaction.state)
-        if (yamlPrefix !== undefined) {
-          const prefix = yamlPrefix + (redaction.kind === "shell" && redaction.state.started ? `${yamlQuote}[REDACTED]${yamlQuote}` : "")
-          if (prefix) emit({ ...entry, attributes: { ...entry.attributes, "message.content": prefix } })
-        }
         if (boundary === content.length) return
         redactingCredentialDeltas.delete(key)
-        content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? redaction.state.shellProcess ?? "" : "") + content.slice(boundary)
-        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content, ...(redaction.kind === "shell" && redaction.state.yaml?.truncated ? { "content.truncated": true } : {}) } }
+        content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? redaction.state.yamlPlain?.pending ?? "" : "") + content.slice(boundary)
+        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
       }
       else {
         if (redaction.kind === "scheme") {
@@ -1872,7 +1911,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount, limits.maxBytes),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount),
         },
         async finish(status, error) {
           if (finished || finishing) return
@@ -2076,26 +2115,6 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       } while (cursor)
       return [...names].sort()
     },
-    async listCapabilityIds(agentName) {
-      const selectedAgent = agentName?.trim()
-      if (store.listCapabilityIds) {
-        return [...new Set((await store.listCapabilityIds(selectedAgent))
-          .map(capabilityId => capabilityId.trim())
-          .filter(Boolean))]
-          .sort()
-      }
-      const capabilityIds = new Set<string>()
-      let cursor: string | undefined
-      do {
-        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
-        const records = await Promise.all(page.invocations.map(invocation => store.get(invocation.id)))
-        for (const record of records) {
-          if (record) invocationCapabilityIds(record).forEach(capabilityId => capabilityIds.add(capabilityId))
-        }
-        cursor = page.cursor
-      } while (cursor)
-      return [...capabilityIds].sort()
-    },
     async listTriggeredBy(agentName) {
       const selectedAgent = agentName?.trim()
       if (store.listTriggeredBy) {
@@ -2115,6 +2134,26 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         cursor = page.cursor
       } while (cursor)
       return [...triggeredBy].sort()
+    },
+    async listCapabilityIds(agentName) {
+      const selectedAgent = agentName?.trim()
+      if (store.listCapabilityIds) {
+        return [...new Set((await store.listCapabilityIds(selectedAgent))
+          .map(capabilityId => capabilityId.trim())
+          .filter(Boolean))]
+          .sort()
+      }
+      const capabilityIds = new Set<string>()
+      let cursor: string | undefined
+      do {
+        const page = await store.list({ ...(selectedAgent ? { agentName: selectedAgent } : {}), cursor, limit: MAX_LIST_LIMIT })
+        const records = await Promise.all(page.invocations.map(invocation => store.get(invocation.id)))
+        for (const record of records) {
+          if (record) invocationCapabilityIds(record).forEach(capabilityId => capabilityIds.add(capabilityId))
+        }
+        cursor = page.cursor
+      } while (cursor)
+      return [...capabilityIds].sort()
     },
   }
   return invocations

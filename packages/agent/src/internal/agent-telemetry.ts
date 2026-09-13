@@ -1,5 +1,7 @@
-import { hasRuntimeType } from "./runtime-type.ts"
 import type { WorkspaceDefinition } from "@vite-hub/workspace"
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
+import { redactCredentialText } from "./credential-redaction.ts"
 import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {
   AgentInspectionValue,
@@ -10,6 +12,7 @@ import type {
 
 interface AgentTelemetryConfigurationState {
   value: AgentTelemetryConfiguration
+  source: AgentTelemetryConfiguration
 }
 
 function compareCodeUnits(left: string, right: string): number {
@@ -17,8 +20,15 @@ function compareCodeUnits(left: string, right: string): number {
 }
 
 const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTelemetryConfigurationState>()
-const configurationUpdates = new WeakMap<AgentInvocationContextStore, Promise<void>>()
 const inspectionsByContext = new WeakMap<AgentInvocationContextStore, Map<string, AgentCapabilityInspection>>()
+const configurationUpdates = new WeakMap<AgentInvocationContextStore, Promise<void>>()
+
+function enqueueConfigurationUpdate(context: AgentInvocationContextStore, update: () => Promise<void>): Promise<void> {
+  const previous = configurationUpdates.get(context) ?? Promise.resolve()
+  const next = previous.catch(() => undefined).then(update)
+  configurationUpdates.set(context, next)
+  return next
+}
 
 export async function setAgentCapabilityInspection(
   context: AgentInvocationContextStore,
@@ -26,17 +36,20 @@ export async function setAgentCapabilityInspection(
   inspection: AgentCapabilityInspection,
 ): Promise<void> {
   const budget = { maxDepth: 64, truncated: false }
-  const state = inspection.state ? safeAgentTelemetryMetadata(inspection.state, budget) ?? {} : undefined
-  const snapshot = {
-    ...inspection,
-    ...(state ? { state } : {}),
-    ...(budget.truncated ? { truncated: true } : {}),
-  }
-  await queueConfigurationUpdate(context, async () => {
+  const safe = safeMetadataValue(inspection, "", 0, new WeakSet(), budget)
+  if (!safe || Array.isArray(safe) || !hasRuntimeType(safe, "object")) return
+  // SAFETY: Serialization preserves the inspection fields and only omits unsupported values.
+  const snapshot = { ...safe, ...(budget.truncated ? { truncated: true } : {}) } as AgentCapabilityInspection
+  await enqueueConfigurationUpdate(context, async () => {
     let inspections = inspectionsByContext.get(context)
     if (!inspections) inspectionsByContext.set(context, inspections = new Map())
     inspections.set(id, snapshot)
-    await applyConfigurationUpdate(context, {})
+    const current = configurationByContext.get(context)
+    if (!current) return
+    const next = withCapabilityInspections(context, current.source)
+    const fingerprinted = await withConfigurationFingerprint(next)
+    configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
+    await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
   })
 }
 
@@ -50,32 +63,6 @@ function withCapabilityInspections(context: AgentInvocationContextStore, configu
       ...(inspections.has(capability.id) ? { inspection: inspections.get(capability.id) } : {}),
     })),
   }
-}
-
-export function agentTelemetryWorkspaceSources(
-  sources: NonNullable<WorkspaceDefinition["sources"]>,
-): NonNullable<NonNullable<AgentTelemetryConfiguration["workspace"]>["sources"]> {
-  return Object.keys(sources).sort().map((id) => {
-    let source = sources[id]
-    while (hasRuntimeType(source, "object") && source !== null && "source" in source) source = source.source
-    if (!hasRuntimeType(source, "object") || source === null) return id
-    // Custom Sources own their fields; only plain shorthand infers GitHub from repo.
-    const customSource = "getKeys" in source && hasRuntimeType(source.getKeys, "function")
-      && "getItem" in source && hasRuntimeType(source.getItem, "function")
-    // GitHub sources expose the repository in their credential-free fingerprint.
-    let metadata = "name" in source && source.name === "github" && "fingerprint" in source
-      ? source.fingerprint
-      : customSource ? undefined : source
-    while (metadata && hasRuntimeType(metadata, "object") && "sourceResolution" in metadata && "source" in metadata) {
-      metadata = metadata.source
-    }
-    const repository = metadata && hasRuntimeType(metadata, "object") && "repo" in metadata
-      ? metadata.repo
-      : undefined
-    return hasRuntimeType(repository, "string") && /^[\w.-]+\/[\w.-]+$/.test(repository)
-      ? { id, repository }
-      : id
-  })
 }
 
 function secretMetadataKey(key: string): boolean {
@@ -94,9 +81,10 @@ function safeMetadataValue(
   budget?: { maxDepth: number, truncated: boolean },
 ): AgentInspectionValue | undefined {
   if (secretMetadataKey(key)) return "[redacted]"
-  if (value === null || hasRuntimeType(value, "boolean") || hasRuntimeType(value, "string")) return value
+  if (hasRuntimeType(value, "string")) return redactCredentialText(value)
+  if (value === null || hasRuntimeType(value, "boolean")) return value
   if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
-  if (!value || !hasRuntimeType(value, "object") || depth >= (budget?.maxDepth ?? 8) || seen.has(value)) {
+  if (!value || !hasRuntimeType(value, "object") || depth >= (budget?.maxDepth ?? 16) || seen.has(value)) {
     if (budget) budget.truncated = true
     return
   }
@@ -130,8 +118,8 @@ function safeMetadataValue(
   }
 }
 
-export function safeAgentTelemetryMetadata(value: unknown, budget?: { maxDepth: number, truncated: boolean }): Record<string, AgentInspectionValue> | undefined {
-  const safe = safeMetadataValue(value, "", 0, new WeakSet(), budget)
+export function safeAgentTelemetryMetadata(value: unknown): Record<string, AgentInspectionValue> | undefined {
+  const safe = safeMetadataValue(value)
   return safe && !Array.isArray(safe) && hasRuntimeType(safe, "object") && Object.keys(safe).length
     ? safe
     : undefined
@@ -146,15 +134,44 @@ function canonicalConfigurationValue(value: unknown): unknown {
     .map(([key, child]) => [key, canonicalConfigurationValue(child)]))
 }
 
+// Keep the key private to this runtime. Secret-bearing fingerprints are comparable
+// within the runtime without exposing a deterministic oracle for credential guesses.
+let configurationFingerprintKey: ReturnType<typeof crypto.subtle.importKey> | undefined
+
 export async function agentTelemetryConfigurationFingerprint(
   configuration: AgentTelemetryConfiguration,
 ): Promise<string> {
   const { fingerprint: _fingerprint, ...value } = configuration
-  // Inspection state and presentation do not change the Agent's execution contract.
-  if (value.capabilities) value.capabilities = value.capabilities.map(({ inspection: _inspection, ...capability }) => capability)
-  const bytes = new TextEncoder().encode(JSON.stringify(canonicalConfigurationValue(value)))
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes)
-  return `sha256_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
+  const facts = {
+    ...value,
+    capabilities: value.capabilities?.map(({ inspection: _inspection, ...capability }) => capability),
+  }
+  const serialized = JSON.stringify(canonicalConfigurationValue(facts))
+  const redacted = JSON.stringify(canonicalConfigurationValue(redactConfigurationValue(facts)))
+  const bytes = new TextEncoder().encode(serialized)
+  // Free-form instructions and tool metadata may carry secrets that the text
+  // redactor cannot recognize; keep their fingerprints runtime-scoped.
+  const freeForm = JSON.stringify({
+    instructions: value.instructions,
+    tools: value.tools,
+    metadata: "metadata" in value ? value.metadata : undefined,
+  })
+  // Public free-form configuration (for example ordinary instructions) keeps
+  // a stable digest; only text that looks credential-bearing needs the private
+  // runtime-scoped discriminator when the redactor did not recognize it.
+  const containsFreeFormSecrets = /(?:api[_-]?key|access[_-]?token|password|secret|credential|authorization|bearer|private[_-]?key)/i.test(freeForm)
+  const containsSecrets = serialized !== redacted || containsFreeFormSecrets
+  let digest: ArrayBuffer
+  if (containsSecrets) {
+    configurationFingerprintKey ??= globalThis.crypto.subtle.generateKey(
+      { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+    )
+    digest = await globalThis.crypto.subtle.sign("HMAC", await configurationFingerprintKey, bytes)
+  }
+  else {
+    digest = await globalThis.crypto.subtle.digest("SHA-256", bytes)
+  }
+  return `${containsSecrets ? "hmac_sha256" : "sha256"}_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
 async function withConfigurationFingerprint(
@@ -166,66 +183,109 @@ async function withConfigurationFingerprint(
   }
 }
 
+function redactConfigurationValue(
+  value: unknown,
+  seen = { public: new WeakMap<object, unknown>(), secret: new WeakMap<object, unknown>() },
+  key = "",
+  secretAncestor = false,
+): unknown {
+  const secret = secretAncestor || secretMetadataKey(key)
+  if (hasRuntimeType(value, "string")) {
+    if (secret) return "[redacted]"
+    return redactCredentialText(value)
+  }
+  if (!value || !hasRuntimeType(value, "object")) return secret ? "[redacted]" : value
+  const visited = secret ? seen.secret : seen.public
+  const existing = visited.get(value)
+  if (existing) return existing
+  if (Array.isArray(value)) {
+    const result: unknown[] = []
+    visited.set(value, result)
+    for (const child of value) result.push(redactConfigurationValue(child, seen, "", secret))
+    return result
+  }
+  const result: Record<string, unknown> = {}
+  visited.set(value, result)
+  for (const [childKey, child] of Object.entries(value)) result[childKey] = redactConfigurationValue(child, seen, childKey, secret)
+  return result
+}
+
+function redactTelemetryConfiguration(configuration: AgentTelemetryConfiguration): AgentTelemetryConfiguration {
+  // SAFETY: Redaction preserves configuration structure; secret primitive values become redaction markers.
+  const redacted = redactConfigurationValue(configuration) as AgentTelemetryConfiguration
+  return redacted
+}
+
 export async function setAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   value: AgentTelemetryConfiguration,
 ): Promise<void> {
-  await queueConfigurationUpdate(context, async () => {
-    configurationByContext.set(context, { value: await withConfigurationFingerprint(withCapabilityInspections(context, value)) })
+  await enqueueConfigurationUpdate(context, async () => {
+    const source = withCapabilityInspections(context, value)
+    const fingerprinted = await withConfigurationFingerprint(source)
+    configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source })
   })
 }
 
-function queueConfigurationUpdate(context: AgentInvocationContextStore, update: () => Promise<void>): Promise<void> {
-  const task = (configurationUpdates.get(context) ?? Promise.resolve()).then(update)
-  configurationUpdates.set(context, task.catch(() => {}))
-  return task
-}
-
-export function updateAgentTelemetryConfiguration(
+export async function updateAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
   patch: Partial<Pick<AgentTelemetryConfiguration, "instructions" | "tools">> & {
     driver?: Partial<AgentTelemetryConfiguration["driver"]>
   },
 ): Promise<void> {
-  return queueConfigurationUpdate(context, () => applyConfigurationUpdate(context, patch))
-}
-
-async function applyConfigurationUpdate(
-  context: AgentInvocationContextStore,
-  patch: Parameters<typeof updateAgentTelemetryConfiguration>[1],
-): Promise<void> {
+  await enqueueConfigurationUpdate(context, async () => {
   const current = configurationByContext.get(context)
   if (!current) return
   const { driver, ...valuePatch } = patch
+  const source = current.source
   if (valuePatch.tools) {
-    const owners = new Map(current.value.tools?.map(tool => [tool.name, tool.capabilityId]))
+    const owners = new Map(source.tools?.map(tool => [tool.name, tool.capabilityId]))
     valuePatch.tools = valuePatch.tools.map(tool => {
       const capabilityId = tool.capabilityId ?? owners.get(tool.name)
       return capabilityId ? { ...tool, capabilityId } : tool
     })
   }
   const next = {
-    ...current.value,
+    ...source,
     ...valuePatch,
     ...(driver
       ? {
           driver: {
-            ...current.value.driver,
+            ...source.driver,
             ...driver,
-            kind: driver.kind ?? current.value.driver.kind,
+            kind: driver.kind ?? source.driver.kind,
             ...(driver.model
-              ? { model: { ...current.value.driver.model, ...driver.model } }
+              ? { model: { ...source.driver.model, ...driver.model } }
               : {}),
           },
         }
       : {}),
   }
-  configurationByContext.set(context, { value: await withConfigurationFingerprint(withCapabilityInspections(context, next)) })
+  const fingerprinted = await withConfigurationFingerprint(next)
+  configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
   await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
+  })
 }
 
 export function getAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
 ): AgentTelemetryConfigurationState | undefined {
   return configurationByContext.get(context)
+}
+
+export function agentTelemetryWorkspaceSources(sources: WorkspaceDefinition["sources"]): Array<string | { id: string; repository: string }> {
+  return Object.entries(sources ?? {}).sort(([left], [right]) => compareCodeUnits(left, right)).map(([key, entry]) => {
+    if (hasRuntimeType(entry, "string")) return key
+    const source = normalizeWorkspaceSourcesMetadata({ [key]: entry })[0]?.source
+    const rawFingerprint = isRuntimeRecord(source) && isRuntimeRecord(source.fingerprint) ? source.fingerprint : undefined
+    let fingerprint = rawFingerprint
+    while (fingerprint && "sourceResolution" in fingerprint && isRuntimeRecord(fingerprint.source)) fingerprint = fingerprint.source
+    const sourceOptions = fingerprint && isRuntimeRecord(fingerprint.options) ? fingerprint.options : undefined
+    const githubSource = isRuntimeRecord(source) && source.name === "github"
+    const repo = githubSource ? (fingerprint && hasRuntimeType(fingerprint.repo, "string") ? fingerprint.repo : sourceOptions?.repo) : undefined
+    const repository = hasRuntimeType(repo, "string") && /^[\w.-]+\/[\w.-]+$/.test(repo)
+      ? repo
+      : undefined
+    return repository ? { id: key, repository } : key
+  })
 }

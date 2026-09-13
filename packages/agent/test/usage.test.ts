@@ -139,6 +139,116 @@ describe("usage Capability", () => {
     })
   })
 
+  it("prices Codex models from the OpenAI catalog", async () => {
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("openai", "gpt-6-astra", {
+      cache_read: 1,
+      input: 10,
+      output: 50,
+    })))
+    const { modelsDevPricing } = await import("../src/capabilities.ts")
+    const pricing = modelsDevPricing({ fetch })
+
+    await expect(pricing({
+      model: "gpt-6-astra",
+      provider: "codex",
+      usage: {
+        inputTokenDetails: { cacheReadTokens: 2 },
+        inputTokens: 10,
+        outputTokens: 2,
+        totalTokens: 12,
+      },
+    })).resolves.toMatchObject({
+      source: "models.dev",
+      usd: "0.000182",
+    })
+  })
+
+  it("does not assume uncached provider input when cache usage is unavailable", async () => {
+    const fetch = vi.fn()
+    const { modelsDevPricing } = await import("../src/capabilities.ts")
+    const pricing = modelsDevPricing({ fetch })
+
+    await expect(pricing({
+      model: "gpt-6-astra",
+      provider: "codex",
+      usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+    })).resolves.toBeUndefined()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("prices accumulated provider responses at each response context tier", async () => {
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("openai", "gpt-6-astra", {
+      input: 1,
+      output: 0,
+      tiers: [{ input: 2, output: 0, tier: { size: 272_000, type: "context" } }],
+    })))
+    vi.stubGlobal("fetch", fetch)
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const call = {
+      model: "gpt-6-astra",
+      provider: "codex",
+      usage: { inputTokenDetails: { cacheReadTokens: 0 }, inputTokens: 200_000, outputTokens: 1, totalTokens: 200_001 },
+    }
+    const agent = defineAgent({
+      capabilities: [usageCapability()],
+      driver: { run: () => ({
+        text: "ok",
+        usageRecord: {
+          calls: [call, call],
+          model: "gpt-6-astra",
+          provider: "codex",
+          usage: { inputTokens: 400_000, outputTokens: 2, totalTokens: 400_002 },
+        },
+      }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+    expect(finish.mock.calls[0]![0].invocation.usage?.cost).toMatchObject({
+      source: "models.dev",
+      usd: "0.4",
+    })
+    expect(finish.mock.calls[0]![0].invocation.usage?.calls).toHaveLength(2)
+  })
+
+  it("does not price a measured subset when an accumulated response is unmeasured", async () => {
+    const fetch = vi.fn(async () => Response.json(modelsDevCatalog("openai", "gpt-6-astra", {
+      input: 1,
+      output: 2,
+    })))
+    vi.stubGlobal("fetch", fetch)
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCapability()],
+      driver: { run: () => ({
+        text: "ok",
+        usageRecord: {
+          calls: [{
+            model: "gpt-6-astra",
+            provider: "codex",
+            usage: { inputTokenDetails: { cacheReadTokens: 0 }, inputTokens: 10, outputTokens: 2, totalTokens: 12 },
+          }, {
+            model: "gpt-6-astra",
+            provider: "codex",
+            raw: { totalProcessedTokens: 20 },
+          }],
+          model: "gpt-6-astra",
+          provider: "codex",
+        },
+      }) },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, runtime(), { prompt: "hello" })
+    expect(finish.mock.calls[0]![0].invocation.usage?.calls?.[0]?.cost).toBeDefined()
+    expect(finish.mock.calls[0]![0].invocation.usage?.calls?.[1]?.cost).toBeUndefined()
+    expect(finish.mock.calls[0]![0].invocation.usage?.cost).toBeUndefined()
+  })
+
   it("can expose token usage without estimating cost", async () => {
     const fetch = vi.fn()
     vi.stubGlobal("fetch", fetch)
