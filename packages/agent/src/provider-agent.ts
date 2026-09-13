@@ -110,6 +110,7 @@ interface GeneratedProviderFile {
   link?: string
   mode?: number
   ownedLink?: string
+  copiedBridgeSource?: string
   path: string
 }
 
@@ -201,7 +202,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
     if (isRuntimeRecord(error) && (error.code === "EPERM" || error.code === "EACCES")) {
       try {
         await cp(source, target, { recursive: true })
-        return { directories, existed: false, path: target }
+        return { directories, existed: false, path: target, copiedBridgeSource: source }
       }
       catch (copyError) {
         for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
@@ -270,6 +271,15 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
         if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error
       })
     }
+    return
+  }
+  if (generated.copiedBridgeSource !== undefined) {
+    if ((await lstat(generated.path).catch(() => undefined))?.isDirectory()) {
+      await rm(generated.copiedBridgeSource, { recursive: true, force: true })
+      await cp(generated.path, generated.copiedBridgeSource, { recursive: true })
+    }
+    await rm(generated.path, { recursive: true, force: true })
+    for (const directory of generated.directories.reverse()) await rmdir(directory).catch(() => undefined)
     return
   }
   await rm(generated.path, { force: true, recursive: true })
