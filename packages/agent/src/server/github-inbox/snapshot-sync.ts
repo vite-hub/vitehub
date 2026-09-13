@@ -100,13 +100,13 @@ export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGi
   // No more than one PR per minute, and no PR more often than every 15 minutes.
   // The first probe is delayed because bootstrap/claims already hydrate state.
   const globalKey = 'snapshot-reconcile-next'
-  const globalNext = inbox.meta<number>(globalKey)
+  const globalNext = inbox.meta(globalKey) as number | undefined
   if (globalNext === undefined) { inbox.setMeta(globalKey, now + 15 * 60_000); return }
   if (globalNext > now) return
   inbox.setMeta(globalKey, now + 60_000)
   const candidates = inbox.all().filter(s => !s.lease && s.status !== 'terminal')
-    .sort((a, b) => (inbox.meta<number>(`snapshot-probe:${a.repository}:${a.number}`) ?? 0) - (inbox.meta<number>(`snapshot-probe:${b.repository}:${b.number}`) ?? 0))
-  const s = candidates.find(s => (inbox.meta<number>(`snapshot-probe:${s.repository}:${s.number}`) ?? 0) <= now)
+    .sort((a, b) => ((inbox.meta(`snapshot-probe:${a.repository}:${a.number}`) as number | undefined) ?? 0) - ((inbox.meta(`snapshot-probe:${b.repository}:${b.number}`) as number | undefined) ?? 0))
+  const s = candidates.find(s => ((inbox.meta(`snapshot-probe:${s.repository}:${s.number}`) as number | undefined) ?? 0) <= now)
   if (!s) return
   inbox.setMeta(`snapshot-probe:${s.repository}:${s.number}`, now + 15 * 60_000)
   const snapshot = await readSnapshot(read, s.repository, s.number, readThreads)

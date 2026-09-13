@@ -32,6 +32,13 @@ export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 /** Activity comments have a transport marker; all other humans and bots are feedback. */
 export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item && !String(item.body ?? '').startsWith('<!-- vitehub-agent-activity:'))
 
+function parseSnapshot(value: unknown): Snapshot {
+  if (!value || typeof value !== 'object' || !('repository' in value) || !('number' in value) || !('status' in value)) {
+    throw new TypeError('Invalid inbox snapshot')
+  }
+  return value as Snapshot
+}
+
 export interface PullRequestInboxOptions {
   path: string
   repositories: readonly string[]
@@ -71,10 +78,10 @@ export class PullRequestInbox {
   }
   get(repository: string, number: number): Snapshot | undefined {
     const row = this.db.prepare('SELECT value FROM pr_snapshots WHERE repository=? AND number=?').get(repository, number)
-    return row ? JSON.parse(row.value as string) as Snapshot : undefined
+    return row ? parseSnapshot(JSON.parse(row.value as string) as unknown) : undefined
   }
   all(): Snapshot[] {
-    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => JSON.parse(row.value as string) as Snapshot)
+    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => parseSnapshot(JSON.parse(row.value as string) as unknown))
       .filter(s => this.repositories.includes(s.repository))
   }
   private put(s: Snapshot) {
@@ -85,9 +92,9 @@ export class PullRequestInbox {
       status: 'ready', lease: null, leaseUntil: 0, attempts: 0, hydrated: false, refresh: true, feedbackRefresh: true,
       comments: {}, reviews: {}, reviewComments: {}, checks: {}, statuses: {}, threads: [], reasons: [] }
   }
-  meta<T>(key: string): T | undefined {
+  meta(key: string): unknown {
     const row = this.db.prepare('SELECT value FROM inbox_meta WHERE key=?').get(key)
-    return row ? JSON.parse(row.value as string) : undefined
+    return row ? JSON.parse(row.value as string) as unknown : undefined
   }
   setMeta(key: string, value: unknown): void { this.db.prepare('INSERT OR REPLACE INTO inbox_meta VALUES (?,?)').run(key, JSON.stringify(value)) }
   private dirty(s: Snapshot, reason: string) {
