@@ -1296,6 +1296,7 @@ function workspaceMetadataInstructions<
       ?? "Dynamic system instructions resolver configured."
     : slotParts.filter((part): part is string => typeof part === "string").join("\n\n")
   const composed = instructionObject
+    && !slotIsDynamic
     && typeof instructionObject.template === "string"
     ? fillSynchronousInstructionSlot(instructionObject.template, slotContent)
     : undefined
@@ -1308,22 +1309,21 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
   return template.split("\n").map((line) => {
     const marker = line.match(/^\s*(`{3,}|~{3,})/)
     if (marker) { fence = fence ? (line.trimStart().startsWith(fence) ? undefined : fence) : marker[1]; return line }
-    if (fence) return line
-    let result = ""
+    if (fence || /^(?:    |\t)/.test(line)) return line
+    let out = ""
     let index = 0
     while (index < line.length) {
-      const start = line.indexOf("`", index)
-      if (start < 0) break
-      result += line.slice(index, start).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
-      let tickEnd = start
-      while (line[tickEnd] === "`") tickEnd++
-      const ticks = line.slice(start, tickEnd)
-      const end = line.indexOf(ticks, tickEnd)
-      if (end < 0) { result += line.slice(start); index = line.length; break }
-      result += line.slice(start, end + ticks.length)
-      index = end + ticks.length
+      const tick = line[index]
+      if (tick !== "`") { out += line[index++]; continue }
+      const start = index
+      while (line[index] === "`") index++
+      const run = line.slice(start, index)
+      const end = line.indexOf(run, index)
+      if (end < 0) { out += line.slice(start); break }
+      out += line.slice(start, end + run.length)
+      index = end + run.length
     }
-    return result + line.slice(index).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+    return out.replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
   }).join("\n").trim()
 }
 
