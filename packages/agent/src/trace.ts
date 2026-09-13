@@ -422,7 +422,8 @@ function safeUsageMetadata(value: Record<string, unknown>): Record<string, unkno
       ? { cost: { ...value.cost, source: redactCredentialText(value.cost.source) } }
       : {}),
   }
-  if (Array.isArray(value.calls)) safe.calls = value.calls.map(call => isRuntimeRecord(call) ? safeUsageMetadata(call) : call)
+  const calls = value["calls"]
+  if (Array.isArray(calls)) safe.calls = calls.map(call => isRuntimeRecord(call) ? safeUsageMetadata(call) : call)
   return safe
 }
 
