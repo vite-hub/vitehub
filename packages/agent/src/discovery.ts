@@ -175,17 +175,18 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             const expression = tokens.slice(i + 1, close - 1).filter(token => token !== "(" && token !== ")")
             let key: string | undefined
             const literalParts: string[] = []
+            let valid = true
             for (let p = 0; p < expression.length; p += 2) {
               const part = expression[p]
-              if (!part) { key = undefined; break }
+              if (!part) { valid = false; break }
               const partIndex = tokens.indexOf(part, i + 1)
               const resolved = partIndex >= 0 ? resolveReference(partIndex) : partIndex
               const value = resolved >= 0 ? tokens[resolved] : part
-              if (!value || !/^["'`]/.test(value)) { key = undefined; break }
+              if (!value || !/^["'`]/.test(value)) { valid = false; break }
               literalParts.push(propertyName(value))
-              if (p + 1 < expression.length && expression[p + 1] !== "+") { key = undefined; break }
+              if (p + 1 < expression.length && expression[p + 1] !== "+") { valid = false; break }
             }
-            if (literalParts.length) key = literalParts.join("")
+            if (valid && literalParts.length) key = literalParts.join("")
             if (key !== undefined) result.set(key, close + 1)
             i = close
             atProperty = false
