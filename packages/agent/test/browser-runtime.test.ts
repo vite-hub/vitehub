@@ -149,12 +149,13 @@ describe("browser runtime", () => {
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
   })
 
-  it("rejects a pre-existing browser socket symlink", async () => {
+  it("rejects a symlink in the browser socket ancestor chain", async () => {
     const value = await fixture()
-    vi.stubEnv("TMPDIR", value.root)
     const target = join(value.root, "untrusted")
+    const linkedTemp = join(value.root, "linked-temp")
     await mkdir(target)
-    await symlink(target, join(value.root, `vh-ab-${process.getuid?.() ?? process.pid}`))
+    await symlink(target, linkedTemp)
+    vi.stubEnv("TMPDIR", linkedTemp)
     await expect(prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })).rejects.toThrow("private directory")
   })
 
