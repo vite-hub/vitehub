@@ -147,7 +147,14 @@ export async function agentTelemetryConfigurationFingerprint(
   const serialized = JSON.stringify(canonicalConfigurationValue(facts))
   const redacted = JSON.stringify(canonicalConfigurationValue(redactConfigurationValue(facts)))
   const bytes = new TextEncoder().encode(serialized)
-  const containsSecrets = serialized !== redacted
+  // Free-form instructions and tool metadata may carry secrets that the text
+  // redactor cannot recognize; keep their fingerprints runtime-scoped.
+  const containsFreeFormSecrets = Boolean(
+    (value as any).instructions
+    || (value as any).tools
+    || (value as any).metadata,
+  )
+  const containsSecrets = serialized !== redacted || containsFreeFormSecrets
   let digest: ArrayBuffer
   if (containsSecrets) {
     configurationFingerprintKey ??= globalThis.crypto.subtle.generateKey(
