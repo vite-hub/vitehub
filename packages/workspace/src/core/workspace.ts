@@ -73,9 +73,6 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
         // A mount recorded as owned by this startup Source is generated even
         // when the Store cannot persist directory metadata (for example the
         // in-memory and Local Stores).
-        const ownedMount = generatedDirectoryOwners.get(entry.path)?.size
-          && normalizeWorkspaceSources(definition.sources).some(source => source.mountPath === entry.path && source.materialize === "startup")
-        if (ownedMount) continue
         try {
           const directory = await store.stat(entry.path)
           const owner = directory?.metadata?.source
