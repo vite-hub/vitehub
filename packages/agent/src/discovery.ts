@@ -72,33 +72,79 @@ function stripComments(source: string) {
     .replace(/(^|[^:])\/\/.*$/gm, "$1")
 }
 
+// Keep literals as single tokens so their punctuation cannot change object depth.
+function tokenizeAgentSource(source: string): string[] {
+  return source.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|[A-Za-z_$][\w$]*|[^\s]/g)
+    ?.filter(token => !token.startsWith("//") && !token.startsWith("/*")) ?? []
+}
+
 function isWorkspaceAgentDefinition(source: string): boolean {
-  const stripped = stripComments(source)
-  const call = stripped.match(/\bdefineAgent\s*\(\s*\{/)
-  if (!call || call.index === undefined) return false
-  const options = stripped.slice(call.index + call[0].length)
-  let depth = 1; let hasWorkspace = false; let presetExpr: string | undefined; let hasPresets = false
-  for (let i = 0; i < options.length; i++) {
-    const c = options[i]
-    if (c === "{") depth++
-    else if (c === "}") { depth--; if (depth === 0) break }
-    if (depth !== 1) continue
-    const rest = options.slice(i)
-    if (/^\s*workspace\s*:/.test(rest)) hasWorkspace = true
-    const m = rest.match(/^\s*preset\s*:\s*([^,}\n]+)/)
-    if (m) presetExpr = m[1].trim()
-    if (/^\s*preset\s*,/.test(rest)) presetExpr = "preset"
-    if (/^\s*presets\s*(?::|,)/.test(rest)) hasPresets = true
+  const tokens = tokenizeAgentSource(source)
+  const declarations = new Map<string, number>()
+  let exported: number | undefined
+  let depth = 0
+  for (let i = 0; i < tokens.length; i++) {
+    if (depth === 0) {
+      if (["const", "let", "var"].includes(tokens[i]) && tokens[i + 2] === "=") {
+        declarations.set(tokens[i + 1], i + 3)
+      }
+      if (tokens[i] === "export" && tokens[i + 1] === "default") exported = i + 2
+    }
+    if (["{", "(", "["].includes(tokens[i])) depth++
+    if (["}", ")", "]"].includes(tokens[i])) depth--
   }
-  if (hasWorkspace || !presetExpr || !hasPresets) return hasWorkspace
-  const name = presetExpr.match(/^['"]([^'"]+)['"]$/)?.[1] ?? stripped.match(new RegExp(`(?:const|let|var)\\s+${presetExpr}\\s*=\\s*['"]([^'"]+)['"]`))?.[1]
-  if (!name) return false
-  const e = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const entry = stripped.match(new RegExp(`${e}\\s*:\\s*(defineAgent\\s*\\(\\s*\\{[\\s\\S]*?\\}\\)|[A-Za-z_$][\\w$]*)`))?.[1] ?? (stripped.match(new RegExp(`(?:[,{]\\s*)${e}\\s*(?=[,}])`)) ? name : undefined)
-  if (!entry) return false
-  if (/workspace\s*:/.test(entry)) return true
-  const ref = entry.match(/^([A-Za-z_$][\w$]*)$/)?.[1]
-  return !!ref && !!stripped.match(new RegExp(`(?:const|let|var)\\s+${ref}\\s*=\\s*defineAgent\\s*\\(\\s*\\{[\\s\\S]*?workspace\\s*:`))
+
+  function resolveReference(index: number, seen = new Set<number>()): number {
+    if (seen.has(index)) return index
+    seen.add(index)
+    const reference = declarations.get(tokens[index])
+    return reference === undefined ? index : resolveReference(reference, seen)
+  }
+
+  function propertyName(token: string): string {
+    return /^["'`]/.test(token) ? token.slice(1, -1) : token
+  }
+
+  function properties(index: number): Map<string, number> {
+    const result = new Map<string, number>()
+    index = resolveReference(index)
+    if (tokens[index] !== "{") return result
+    let depth = 0
+    let atProperty = true
+    for (let i = index + 1; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (depth === 0 && token === "}") break
+      if (depth === 0 && atProperty) {
+        if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
+        else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
+        atProperty = false
+      }
+      if (depth === 0 && token === ",") atProperty = true
+      if (["{", "(", "["].includes(token)) depth++
+      if (["}", ")", "]"].includes(token)) depth--
+    }
+    return result
+  }
+
+  function ownsWorkspace(index: number, seen = new Set<number>()): boolean {
+    index = resolveReference(index)
+    if (seen.has(index)) return false
+    seen.add(index)
+    if (tokens[index] !== "defineAgent" || tokens[index + 1] !== "(") return false
+    const options = properties(index + 2)
+    if (options.has("workspace")) return true
+    const preset = options.get("preset")
+    const registry = options.get("presets")
+    if (preset === undefined || registry === undefined) return false
+    const selection = tokens[resolveReference(preset)]
+    if (!/^["'`]/.test(selection)) return false
+    const entry = properties(registry).get(propertyName(selection))
+    return entry !== undefined && ownsWorkspace(entry, seen)
+  }
+
+  // The default export owns the folder; helper definitions and unselected presets do not.
+  if (exported !== undefined) return ownsWorkspace(exported)
+  return tokens.some((token, index) => token === "defineAgent" && ownsWorkspace(index))
 }
 function isAgentDefinitionSource(source: string): boolean {
   const stripped = stripComments(source)
