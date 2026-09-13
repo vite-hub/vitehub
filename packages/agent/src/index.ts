@@ -3651,9 +3651,14 @@ async function createAgentInvocationContext<
       invocationContext.set(agentInvocationConfigurationUpdatedContextKey, traceConfiguration, { overwrite: true })
     }
     callbackContext = createAgentCallbackContext(runtimeContext)
-    const preparationController = new AbortController()
-    if (driverKind === "provider" && definition?.status) {
-      input = { ...input, abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, preparationController.signal]) : preparationController.signal }
+    // Capabilities with preparation hooks may install runtimes or allocate
+    // resources. Reject known provider failures before starting those hooks.
+    const preflightReadiness = resolvedCapabilityDefinitions.some(capability => capability.prepare)
+    const readiness = preflightReadiness
+      ? await resolveReadiness()
+      : undefined
+    if (readiness?.readiness === "unavailable" && !readiness.stale) {
+      throw agentDiagnostics.AGENT_R0726({ message: readiness.reason || "The provider is unavailable." })
     }
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
@@ -3667,10 +3672,9 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
-    const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
+    const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => (preflightReadiness ? Promise.resolve(readiness) : resolveReadiness()).then(status => {
       if (status?.readiness === "unavailable" && !status.stale) {
         const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
-        preparationController.abort(error)
         // Input preparation owns resources even when provider preflight fails.
         const cleanup = capabilities.close()
         context.waitUntil?.(cleanup)
