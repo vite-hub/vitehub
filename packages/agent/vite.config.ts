@@ -48,6 +48,7 @@ export default defineConfig({
       "src/runtime/workflow.ts",
       "src/server.ts",
       "src/server/github.ts",
+      "src/server/github-inbox.ts",
       "src/server/internal.ts",
       "src/server/workspace.ts",
       "src/test.ts",
