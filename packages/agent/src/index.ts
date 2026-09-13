@@ -5356,7 +5356,7 @@ async function finishAgentInvocation<
         // Invocation data must not change Agent output or mask the original failure.
       }
     }
-    if (hasFinishWork(context)) {
+    if (hasFinishWork(context) && closeError === undefined) {
       const details = failed ? agentErrorDetails(error) : undefined
       const eventBase = {
         ...(failed ? { error } : {}),
