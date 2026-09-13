@@ -66,7 +66,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*(?:[?+]?=|:)\s*|\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*(?:[?+]?=|:)[\t ]*|\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
@@ -156,6 +156,7 @@ export interface CredentialAssignmentState {
   started: boolean
   quote?: string
   nesting?: number
+  backtick?: boolean
   serialized?: boolean
   serializedQuote?: { delimiter: string, slashes: number }
   yamlFlow?: boolean
@@ -229,6 +230,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       if (!/\s/.test(character)) continue
       delete state.yamlProperty
     }
+    if (!state.started && state.yamlIndent !== undefined && /[\r\n#]/.test(character)) return index
     if (!state.started && /\s/.test(character)) continue
     if (!state.started && state.yamlIndent !== undefined && (character === "&" || character === "!")) {
       state.yamlProperty = true
@@ -319,9 +321,13 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     }
     if (state.escaped) state.escaped = false
     else if (character === "\\" && state.quote !== "'") state.escaped = true
+    else if (state.backtick) {
+      if (character === "`") delete state.backtick
+    }
     else if (state.quote) {
       if (character === state.quote) delete state.quote
     }
+    else if (character === "`") state.backtick = true
     else if (character === '"' || character === "'") state.quote = character
     else if (character === "(" || character === "{" || character === "[") state.nesting = (state.nesting ?? 0) + 1
     else if (state.nesting && (character === ")" || character === "}" || character === "]")) state.nesting--

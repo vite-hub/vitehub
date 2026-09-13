@@ -624,3 +624,28 @@ it.each(["\r", "\n", "\r\n"])("redacts YAML scalars with %j line endings across 
     }
   }
 })
+
+it.each(["\n", "\r", "\r\n"])("preserves empty YAML credentials with %j line endings", (newline) => {
+  for (const comment of ["", " # unset"]) {
+    const input = `password:${comment}${newline}publicSetting: value`
+    expect(redactCredentialText(input)).toBe(input)
+    for (let split = "password:".length; split <= input.indexOf("publicSetting"); split++) {
+      const prefix = input.slice(0, split)
+      const state = pendingCredentialAssignmentState(prefix)
+      if (!state) continue
+      const suffix = input.slice(split)
+      expect(suffix.slice(consumeCredentialAssignment(suffix, state))).toContain("publicSetting: value")
+    }
+  }
+})
+
+it.each(['`printf hunter2`', '`printf "hunter2"`', '`printf hunter2`tail', '`printf \\`hunter2\\``'])("redacts complete backtick substitutions: %s", (value) => {
+  expect(redactCredentialText(`PASSWORD=${value};status=ok`)).toBe("PASSWORD=[REDACTED];status=ok")
+  for (let split = 0; split <= value.length; split++) {
+    const state = pendingCredentialAssignmentState(`PASSWORD=${value.slice(0, split)}`)
+    expect(state).toBeDefined()
+    if (!state) throw new Error("Expected credential continuation state")
+    const suffix = `${value.slice(split)};status=ok`
+    expect(suffix.slice(consumeCredentialAssignment(suffix, state))).toBe(";status=ok")
+  }
+})
