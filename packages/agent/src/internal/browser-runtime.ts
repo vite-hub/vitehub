@@ -208,7 +208,11 @@ try {
     while (true) {
       await collectDescendants()
       let running = false
-      for (const pid of await readdir('/proc')) {
+      const procEntries = await readdir('/proc').catch(error => {
+        if (error.code === 'ENOENT' || error.code === 'EACCES' || error.code === 'EPERM') return []
+        throw error
+      })
+      for (const pid of procEntries) {
         if (!/^[0-9]+$/.test(pid)) continue
         const status = await readFile('/proc/' + pid + '/stat', 'utf8').catch(error => {
           if (error.code === 'ENOENT' || error.code === 'ESRCH') return ''

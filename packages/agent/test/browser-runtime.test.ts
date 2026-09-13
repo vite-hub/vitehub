@@ -170,6 +170,7 @@ describe("browser runtime", () => {
     const target = join(value.root, "untrusted")
     const linkedTemp = join(value.root, "linked-temp")
     await mkdir(target)
+    await chmod(target, 0o777)
     await symlink(target, linkedTemp)
     vi.stubEnv("TMPDIR", linkedTemp)
     await expect(prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })).rejects.toThrow("private directory")
