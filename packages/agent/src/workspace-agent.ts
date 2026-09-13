@@ -1318,7 +1318,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
   return template.split("\n").map((line) => {
     // Fenced blocks may occur inside block quotes; include the container
     // prefix when classifying delimiters so static inspection matches Markdown.
-    const marker = line.match(/^( {0,3}(?:> ?)*)(`{3,}|~{3,})(.*)$/)
+    const marker = line.match(/^( {0,3}(?:(?:> ?)*|(?:[-+*]|\d+[.)])[ \t]+))(`{3,}|~{3,})(.*)$/)
     if (marker) {
       const delimiter = marker[2]
       const trailing = marker[3]
