@@ -1,4 +1,5 @@
 import { inheritAgentLayerOptions } from "./agent-layers.ts"
+import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
