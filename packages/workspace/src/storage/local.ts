@@ -832,6 +832,28 @@ class LocalWorkspaceStore implements WorkspaceStore {
       if (!current || await sha256(current.content) !== options.ifDigest) return
       if (options.ifSource !== undefined && (current.metadata?.source ?? null) !== options.ifSource) return
     }
+    // Retire the checked inode first. This closes the final race with writers
+    // that do not participate in the workspace path lock: a replacement at
+    // the public pathname is never removed by the cleanup operation.
+    if (options.ifDigest !== undefined) {
+      const absolute = resolveInside(this.root, normalized)
+      const retired = `${absolute}.vitehub-retired-${randomUUID()}`
+      const { rename } = await import("node:fs/promises")
+      try {
+        await rename(absolute, retired)
+      }
+      catch (error: NodeJS.ErrnoException) {
+        if (error.code === "ENOENT") return
+        throw error
+      }
+      const retiredFile = await this.#readFile(normalized).catch(() => undefined)
+      if (!retiredFile || await sha256(retiredFile.content) !== options.ifDigest || (options.ifSource !== undefined && (retiredFile.metadata?.source ?? null) !== options.ifSource)) {
+        await rename(retired, absolute).catch(() => undefined)
+        return
+      }
+      await rm(retired, { recursive: options.recursive ?? false, force: options.force ?? false })
+      return
+    }
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
     const marker = this.#removalMarker(normalized)
     let createdMarker = false
