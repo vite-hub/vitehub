@@ -151,9 +151,9 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
 export function rememberAgentLayerOptions<T extends AgentDefinition>(definition: T, options: AgentSettings, source: AgentSettings = options): T {
   const inherited = layerMetadata(source)
   // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
-  const metadataTarget = definition as unknown as Record<string, unknown>
+  const metadataTarget = asMetadataTarget(definition)
   rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
-  if (inherited?.parent) inheritColocatedSkills(inherited.parent, definition as unknown as Record<string, unknown>)
+  if (inherited?.parent) inheritColocatedSkills(inherited.parent, asMetadataTarget(definition))
   if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured)
   return definition
 }
@@ -196,10 +196,15 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   assertLayerDefinition(definition)
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
-  inheritColocatedSkills(definition as unknown as Record<string, unknown>, configured)
-  inheritAgentLayerOptions(definition as unknown as Record<string, unknown>, configured)
+  inheritColocatedSkills(asMetadataTarget(definition), configured)
+  inheritAgentLayerOptions(asMetadataTarget(definition), configured)
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })
   return configured
+}
+
+function asMetadataTarget(value: object): Record<string, unknown> {
+  // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
+  return value as Record<string, unknown>
 }
 
 function rememberConfiguredLayer(definition: AgentDefinition, configured: ConfiguredLayer): void {
