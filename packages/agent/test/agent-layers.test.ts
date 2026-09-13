@@ -92,6 +92,13 @@ describe("Agent definition layers", () => {
 
 
 describe("Agent instruction layers", () => {
+  it.each(["codex", "claude-code"] as const)("retains instruction templates with shorthand %s overrides", (kind) => {
+    const template = "Before\n{{{ instructions }}}\nAfter"
+    const base = defineAgent({ workspace: {}, driver: { kind: "codex", instructions: { template, content: "Default" } } })
+    const child = defineAgent({ extends: base, driver: kind })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind, instructions: { template, content: "Default" } })
+  })
+
   it("retains instruction templates across providers without leaking provider options", () => {
     const template = "Before\n{{{ instructions }}}\nAfter"
     const base = defineAgent({ workspace: {}, driver: { kind: "codex", model: "base", reasoningEffort: "high", instructions: { template, content: "Default" } } })
