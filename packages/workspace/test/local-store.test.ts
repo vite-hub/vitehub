@@ -88,6 +88,44 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each(["source", "digest"])("keeps concurrent %s retirements independent when another target disappears", async (condition) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    for (const path of ["existing.md", "disappearing.md"]) {
+      await store.writeFile(path, { path, content: "generated", metadata: { source: "docs" } })
+    }
+    const options = condition === "source"
+      ? { ifSource: "docs" }
+      : { ifDigest: (await store.stat("existing.md"))!.digest! }
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let signalPaused!: () => void
+    let resume!: () => void
+    const paused = new Promise<void>((resolve) => { signalPaused = resolve })
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (String(from) === `${root}/existing.md`) {
+        signalPaused()
+        await resumed
+      }
+      if (String(from) === `${root}/disappearing.md`) await actual.rm(from)
+      await actual.rename(from, to)
+    })
+    const removing = store.rm("existing.md", options)
+    try {
+      await paused
+      await createLocalWorkspaceStore(root).rm("disappearing.md", options)
+      resume()
+      await removing
+      await expect(actual.stat(`${root}/existing.md`)).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(actual.readdir(`${root}/.vitehub/retired`)).resolves.toEqual([])
+    }
+    finally {
+      resume()
+      await removing
+      vi.mocked(rename).mockImplementation(actual.rename)
+    }
+  })
+
   it.each(["generated", "replacement"])("preserves a replacement before source-only retirement: %s", async (content) => {
     const store = await createStore()
     const target = `${tempDirs.at(-1)!}/generated.md`
