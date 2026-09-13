@@ -162,6 +162,19 @@ Use the `/file` subpath in server projects, including TypeScript projects using 
 
 `renderMarkdownFile(path, options?)` accepts a filesystem path string or a `file:` URL and returns `Promise<string>`. Its `RenderMarkdownFileOptions` accepts `data` and `maxImportDepth`, which defaults to `4`. Relative path strings use the process working directory. File URLs constructed with `import.meta.url` use the executing module's directory. HTTP URLs are not supported.
 
+Pass Comark plugins per render with `plugins`. Plugins run when the Markdown is parsed, so their options can use request or invocation data:
+
+```ts
+import knap from "comark-knap"
+
+const markdown = await renderMarkdownFile("./instructions.md", {
+  data: { user: request.user },
+  plugins: [knap({ variables: { user: request.user } })],
+})
+```
+
+The plugin package is an application dependency. ViteHub does not install or enable Comark plugins globally.
+
 Each call reads the file and its relative fragments. Symlinks resolve to canonical paths; nested fragments resolve beside their canonical importer. Missing files reject with the filesystem error. Conditions, escaping, code literals, and import depth and cycle checks use the same renderer as template strings. Imports resolve before conditions, including imports in unselected branches.
 
 File loading uses the host filesystem permissions. Trusted templates may import parent directories through `../` or symlinks. For a restricted file tree or application storage, use the string renderer with your own `resolveImport`.

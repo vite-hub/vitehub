@@ -86,7 +86,7 @@ export async function renderMarkdownTemplateInternal(
   const normalizedLinks = await normalizeLinkBindings(imported)
   const fragmentToken = `VITEHUBMARKDOWNTEMPLATEFRAGMENT${crypto.randomUUID().replaceAll("-", "")}`
   const normalized = await normalizeTripleBindings(normalizedLinks.template, fragmentToken, preparation.runtime)
-  const tree = await parseTemplateMarkdown(normalized.template, true)
+  const tree = await parseTemplateMarkdown(normalized.template, true, options.plugins)
   const nodes = await composeNodes(tree.nodes, {
     data,
     directiveTokens: preparation.directiveTokens,
