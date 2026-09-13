@@ -857,6 +857,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
         return
       }
       await rm(retired, { recursive: options.recursive ?? false, force: options.force ?? false })
+      const metadata = await this.#prepareMetadataDirectories(normalized, false)
+      if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
       return
     }
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
