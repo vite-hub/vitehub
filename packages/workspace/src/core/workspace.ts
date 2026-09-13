@@ -70,9 +70,13 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
         ? generatedDirectories.has(child.path)
         : generatedFiles.has(child.path))) continue
       if (descendants.length === 0) {
-        // A mount recorded as owned by this startup Source is generated even
-        // when the Store cannot persist directory metadata (for example the
-        // in-memory and Local Stores).
+        // Empty mounts created by startup Sources have no child evidence; use
+        // the persisted ownership record when the Store cannot persist
+        // directory metadata.
+        const ownedMount = (snapshot.ownsMount && path === source.mountPath)
+          || (snapshot.ownedDirectories || []).includes(path)
+          || (snapshot.ownedAncestors || []).includes(path)
+        if (ownedMount) continue
         try {
           const directory = await store.stat(entry.path)
           const owner = directory?.metadata?.source
