@@ -837,16 +837,18 @@ class LocalWorkspaceStore implements WorkspaceStore {
     // the public pathname is never removed by the cleanup operation.
     if (options.ifDigest !== undefined) {
       const absolute = resolveInside(this.root, normalized)
-      const retired = `${absolute}.vitehub-retired-${randomUUID()}`
+      const retiredRelative = `${normalized}.vitehub-retired-${randomUUID()}`
+      const retired = resolveInside(this.root, retiredRelative)
       const { rename } = await import("node:fs/promises")
       try {
         await rename(absolute, retired)
       }
-      catch (error: NodeJS.ErrnoException) {
-        if (error.code === "ENOENT") return
+      catch (error) {
+        const code = Reflect.get(Object(error), "code")
+        if (code === "ENOENT") return
         throw error
       }
-      const retiredFile = await this.#readFile(normalized).catch(() => undefined)
+      const retiredFile = await this.#readFile(retiredRelative).catch(() => undefined)
       if (!retiredFile || await sha256(retiredFile.content) !== options.ifDigest || (options.ifSource !== undefined && (retiredFile.metadata?.source ?? null) !== options.ifSource)) {
         await rename(retired, absolute).catch(() => undefined)
         return
