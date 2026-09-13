@@ -1330,7 +1330,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
     paragraph = line.trim().length > 0 && !indented
     if (inlineFence) {
       const run = inlineFence
-      const end = line.indexOf(run)
+      const end = findInlineCodeClose(line, run)
       if (end < 0) return line
       inlineFence = undefined
       const closeEnd = end + run.length
@@ -1350,13 +1350,27 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
       const start = index
       while (line[index] === "`") index++
       const run = line.slice(start, index)
-      const end = line.indexOf(run, index)
+      const end = findInlineCodeClose(line, run, index)
       if (end < 0) { out += line.slice(start); inlineFence = run; break }
       out += line.slice(start, end + run.length)
       index = end + run.length
     }
     return out
   }).join("\n")
+}
+
+/** Find a backtick closing run with exactly the same length. */
+function findInlineCodeClose(line: string, run: string, from = 0): number {
+  let index = from
+  while (index < line.length) {
+    const found = line.indexOf(run, index)
+    if (found < 0) return -1
+    const before = found > 0 ? line[found - 1] : ""
+    const after = line[found + run.length] ?? ""
+    if (before !== "`" && after !== "`") return found
+    index = found + 1
+  }
+  return -1
 }
 
 async function staticWorkspaceMetadataInstructions<
