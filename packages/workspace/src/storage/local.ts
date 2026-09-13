@@ -581,6 +581,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const backup = `${tempRoot}/${randomUUID()}.bak`
     await reclaimCommittedBackups(tempRoot)
     const normalized = normalizeWorkspacePath(path)
+    await this.#assertWritableAncestors(normalized)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
     const existing = await this.#stat(normalized)
@@ -621,6 +622,21 @@ class LocalWorkspaceStore implements WorkspaceStore {
     catch (error) {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
+    }
+  }
+
+  async #assertWritableAncestors(path: string): Promise<void> {
+    const { lstat } = await import("node:fs/promises")
+    const { dirname } = await import("node:path")
+    let current = dirname(resolveInside(this.root, path))
+    const root = await import("node:path").then(({ resolve }) => resolve(this.root))
+    while (current !== root && current.startsWith(`${root}/`)) {
+      const info = await lstat(current).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (info?.isSymbolicLink()) throw workspaceError(`[vitehub] Refusing to write through symbolic-link ancestor: ${path}.`)
+      current = dirname(current)
     }
   }
 
