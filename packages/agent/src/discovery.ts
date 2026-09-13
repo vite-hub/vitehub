@@ -139,7 +139,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
               if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") {
                 const bindings = tokens.slice(i + 1, j)
                 for (let b = 0; b < bindings.length; b++) {
-                  if (bindings[b] === "defineAgent") importedAgentBindings.add(bindings[b + 2] === "as" ? bindings[b + 3] : bindings[b])
+                  if (bindings[b] === "defineAgent") importedAgentBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
                 }
               }
               i = j; break
@@ -202,6 +202,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   function properties(index: number): Map<string, number> {
     const result = new Map<string, number>()
     index = resolveReference(index)
+    // Preserve object literals wrapped in value-preserving helpers such as
+    // Object.freeze({ ... }).
+    if (tokens[index + 1] === "." && tokens[index + 2] === "freeze" && tokens[index + 3] === "(") {
+      index = resolveReference(index + 4)
+    }
     if (tokens[index] !== "{") return result
     let depth = 0
     let atProperty = true
@@ -302,7 +307,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   }
 
   // The default export owns the folder; helper definitions and unselected presets do not.
-  if (exported !== undefined) return ownsWorkspace(exported)
+  if (exported !== undefined && ownsWorkspace(exported)) return true
   return tokens.some((token, index) => token === "defineAgent" && ownsWorkspace(index))
 }
 function isAgentDefinitionSource(source: string): boolean {
