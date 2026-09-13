@@ -157,6 +157,15 @@ describe("browser runtime", () => {
     await symlink(target, linkedTemp)
     vi.stubEnv("TMPDIR", linkedTemp)
     await expect(prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })).rejects.toThrow("private directory")
+    expect(await readdir(target)).toEqual([])
+  })
+
+  it("removes socket directories when installation fails", async () => {
+    const value = await fixture()
+    vi.stubEnv("TMPDIR", value.root)
+    await writeFile(join(value.root, "fail-next"), "1")
+    await expect(prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })).rejects.toThrow("exit 7")
+    expect((await readdir(value.root)).filter(name => name.startsWith("vh-ab-"))).toEqual([])
   })
 
   it("stops awaiting shared provisioning when one invocation is cancelled", async () => {
@@ -207,6 +216,7 @@ describe("browser runtime", () => {
 
   it("cancels a cached Linux probe without orphaning Chromium or reinstalling", async () => {
     const value = await fixture()
+    vi.stubEnv("TMPDIR", value.root)
     const ready = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
     const markerPath = join(value.cache, "ready.json")
     const marker = JSON.parse(await readFile(markerPath, "utf8"))
@@ -217,6 +227,7 @@ const fs = require('node:fs');
 fs.writeFileSync(${JSON.stringify(started)}, JSON.stringify({ pid: process.pid, profile: process.argv.find(arg => arg.startsWith('--user-data-dir=')).slice('--user-data-dir='.length) }));
 setInterval(() => {}, 1000);
 `)
+    const socketsBefore = (await readdir(value.root)).filter(name => name.startsWith("vh-ab-"))
     const controller = new AbortController()
     const pending = prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "linux", abortSignal: controller.signal })
     await vi.waitFor(async () => expect(await readFile(started, "utf8")).toContain("pid"))
@@ -229,6 +240,7 @@ setInterval(() => {}, 1000);
       await vi.waitFor(async () => {
         expect(() => process.kill(pid, 0)).toThrow()
         await expect(lstat(profile)).rejects.toHaveProperty("code", "ENOENT")
+        expect((await readdir(value.root)).filter(name => name.startsWith("vh-ab-"))).toEqual(socketsBefore)
         await expect(lstat(`${value.cache}.lock`)).rejects.toHaveProperty("code", "ENOENT")
       })
       expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)

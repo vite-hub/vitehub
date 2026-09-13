@@ -286,131 +286,136 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
   const browserVersion = platform === "linux" ? chromiumBundleVersion : chromeForTestingVersion
   const socketRoot = await mkdtemp(join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}-`), { encoding: "utf8" })
-  await chmod(socketRoot, 0o700)
-  // Every ancestor must be owned by the current user and not writable by
-  // group/others; otherwise an attacker could replace the validated socket
-  // directory between this check and use.
-  let ancestor = resolve(socketRoot)
-  while (true) {
-    const ancestorStat = await lstat(ancestor)
-    const mode = ancestorStat.mode & 0o7777
-    const isTrustedSystem = ancestorStat.uid === 0 && (((mode & 0o022) === 0) || (mode & 0o1000) !== 0)
-    const isPrivateUser = ancestorStat.uid === process.getuid?.() && (mode & 0o022) === 0
-    if (!ancestorStat.isDirectory() || (!isTrustedSystem && !isPrivateUser)) {
-      await rm(socketRoot, { force: true, recursive: true }).catch(() => undefined)
-      throw new Error("[vitehub] Browser socket directory ancestors must be private directory paths or trusted system directories.")
-    }
-    const parent = dirname(ancestor)
-    if (parent === ancestor) break
-    ancestor = parent
-  }
-  const socketStat = await lstat(socketRoot)
-  if (!socketStat.isDirectory() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) {
-    await rm(socketRoot, { force: true, recursive: true }).catch(() => undefined)
-    throw new Error("[vitehub] Browser socket directory must be a private directory owned by the current user.")
-  }
-  const skillPath = join(root, "core.SKILL.md")
-  const marker = join(root, "ready.json")
-  const readyRuntime = async (ready: { chrome?: string, noSandbox?: boolean, version?: string, browserVersion?: string, linuxBundle?: boolean }): Promise<PreparedBrowserRuntime | undefined> => {
-    if (ready.version !== agentBrowserVersion || ready.browserVersion !== browserVersion || ready.linuxBundle !== (platform === "linux") || !ready.chrome) return
-    const executablePath = join(root, ready.chrome)
-    if (!(await stat(command).catch(() => undefined))?.isFile() || !(await stat(executablePath).catch(() => undefined))?.isFile()) return
-    const version = await run(command, ["--version"], { env: installerEnvironment(), timeoutMs: 15_000, signal })
-    if (version.trim() !== `agent-browser ${agentBrowserVersion}`) return
-    const browserEnvironment: Record<string, string> = {}
-    if (ready.linuxBundle) {
-      browserEnvironment.LD_LIBRARY_PATH = join(root, "chromium", "al2023", "lib")
-      browserEnvironment.FONTCONFIG_PATH = join(root, "chromium", "fonts")
-    }
-    const noSandbox = await smokeChrome(executablePath, { ...installerEnvironment(), ...browserEnvironment }, ready.noSandbox, ready.linuxBundle, signal)
-    await mkdir(socketRoot, { mode: 0o700, recursive: true })
-    const environment: Record<string, string> = {
-      ...browserEnvironment,
-      AGENT_BROWSER_EXECUTABLE_PATH: executablePath,
-      AGENT_BROWSER_SOCKET_DIR: socketRoot,
-      PATH: binRoot,
-    }
-    if (noSandbox) environment.AGENT_BROWSER_ARGS = noSandbox
-    return {
-      command,
-      environment: Object.freeze(environment),
-      skillContent: `${await readFile(skillPath, "utf8")}\n## Managed runtime\n\nBefore following any browser instructions, check that \`AGENT_BROWSER_SESSION\` is set. If it is absent, the managed browser capability is inactive: do not run browser commands or installation steps from this Skill. Ask the caller to enable browser() for this Agent. If it is set, ViteHub has prepared the CLI and browser and assigned an isolated session for this invocation. Use \`agent-browser\` directly. Keep the configured \`AGENT_BROWSER_SESSION\`; skip installation and session setup examples in the CLI guide. Do not use \`npx\` or override \`--session\`. ViteHub closes the session when this invocation finishes.\n`,
-    }
-  }
   try {
-    const prepared = await readyRuntime(JSON.parse(await readFile(marker, "utf8")))
-    if (prepared) return prepared
-  }
-  catch {
-    signal?.throwIfAborted()
-    // Reinstall incomplete or invalid cache contents under the owned root.
-  }
+    await chmod(socketRoot, 0o700)
+    // Every ancestor must be owned by the current user and not writable by
+    // group/others; otherwise an attacker could replace the validated socket
+    // directory between this check and use.
+    let ancestor = resolve(socketRoot)
+    while (true) {
+      const ancestorStat = await lstat(ancestor)
+      const mode = ancestorStat.mode & 0o7777
+      const isTrustedSystem = ancestorStat.uid === 0 && (((mode & 0o022) === 0) || (mode & 0o1000) !== 0)
+      const isPrivateUser = ancestorStat.uid === process.getuid?.() && (mode & 0o022) === 0
+      if (!ancestorStat.isDirectory() || (!isTrustedSystem && !isPrivateUser)) {
+        throw new Error("[vitehub] Browser socket directory ancestors must be private directory paths or trusted system directories.")
+      }
+      const parent = dirname(ancestor)
+      if (parent === ancestor) break
+      ancestor = parent
+    }
+    const socketStat = await lstat(socketRoot)
+    if (!socketStat.isDirectory() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) {
+      throw new Error("[vitehub] Browser socket directory must be a private directory owned by the current user.")
+    }
+    const skillPath = join(root, "core.SKILL.md")
+    const marker = join(root, "ready.json")
+    const readyRuntime = async (ready: { chrome?: string, noSandbox?: boolean, version?: string, browserVersion?: string, linuxBundle?: boolean }): Promise<PreparedBrowserRuntime | undefined> => {
+      if (ready.version !== agentBrowserVersion || ready.browserVersion !== browserVersion || ready.linuxBundle !== (platform === "linux") || !ready.chrome) return
+      const executablePath = join(root, ready.chrome)
+      if (!(await stat(command).catch(() => undefined))?.isFile() || !(await stat(executablePath).catch(() => undefined))?.isFile()) return
+      const version = await run(command, ["--version"], { env: installerEnvironment(), timeoutMs: 15_000, signal })
+      if (version.trim() !== `agent-browser ${agentBrowserVersion}`) return
+      const browserEnvironment: Record<string, string> = {}
+      if (ready.linuxBundle) {
+        browserEnvironment.LD_LIBRARY_PATH = join(root, "chromium", "al2023", "lib")
+        browserEnvironment.FONTCONFIG_PATH = join(root, "chromium", "fonts")
+      }
+      const noSandbox = await smokeChrome(executablePath, { ...installerEnvironment(), ...browserEnvironment }, ready.noSandbox, ready.linuxBundle, signal)
+      await mkdir(socketRoot, { mode: 0o700, recursive: true })
+      const environment: Record<string, string> = {
+        ...browserEnvironment,
+        AGENT_BROWSER_EXECUTABLE_PATH: executablePath,
+        AGENT_BROWSER_SOCKET_DIR: socketRoot,
+        PATH: binRoot,
+      }
+      if (noSandbox) environment.AGENT_BROWSER_ARGS = noSandbox
+      return {
+        command,
+        environment: Object.freeze(environment),
+        skillContent: `${await readFile(skillPath, "utf8")}\n## Managed runtime\n\nBefore following any browser instructions, check that \`AGENT_BROWSER_SESSION\` is set. If it is absent, the managed browser capability is inactive: do not run browser commands or installation steps from this Skill. Ask the caller to enable browser() for this Agent. If it is set, ViteHub has prepared the CLI and browser and assigned an isolated session for this invocation. Use \`agent-browser\` directly. Keep the configured \`AGENT_BROWSER_SESSION\`; skip installation and session setup examples in the CLI guide. Do not use \`npx\` or override \`--session\`. ViteHub closes the session when this invocation finishes.\n`,
+      }
+    }
+    try {
+      const prepared = await readyRuntime(JSON.parse(await readFile(marker, "utf8")))
+      if (prepared) return prepared
+    }
+    catch {
+      signal?.throwIfAborted()
+      // Reinstall incomplete or invalid cache contents under the owned root.
+    }
 
-  const staging = `${root}.install-${process.pid}-${crypto.randomUUID()}`
-  await rm(staging, { force: true, recursive: true })
-  await mkdir(staging, { recursive: true, mode: 0o700 })
-  const stagingPackage = join(staging, "package")
-  const stagingBin = join(stagingPackage, "node_modules", ".bin")
-  const stagingCommand = join(stagingBin, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
-  const stagingBrowsersCommand = join(stagingBin, process.platform === "win32" ? "browsers.cmd" : "browsers")
-  const stagingBrowserCache = join(staging, "chromium")
-  const installEnv = {
-    ...installerEnvironment(),
-    AGENT_BROWSER_SOCKET_DIR: socketRoot,
-    // npm derives directory modes from its configured/system umask. Keep
-    // every staged cache entry private even when the host uses a permissive
-    // umask such as 0002.
-    npm_config_umask: "077",
-  }
-  try {
-    await mkdir(stagingPackage, { recursive: true, mode: 0o700 })
-    const linuxBundle = platform === "linux"
-    await run(npmCommand, ["install", "--prefix", stagingPackage, "--no-audit", "--no-fund", "--ignore-scripts", `agent-browser@${agentBrowserVersion}`, linuxBundle ? `@sparticuz/chromium@${chromiumBundleVersion}` : `@puppeteer/browsers@${puppeteerBrowsersVersion}`], { env: installEnv, signal })
-    let stagingChrome: string | undefined
-    if (linuxBundle) {
-      await mkdir(stagingBrowserCache, { recursive: true, mode: 0o700 })
-      await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache }, signal })
-      stagingChrome = join(stagingBrowserCache, "chromium")
-    }
-    else {
-      await run(stagingBrowsersCommand, ["install", `chrome@${chromeForTestingVersion}`, "--path", stagingBrowserCache], { env: installEnv, signal })
-      stagingChrome = await findChrome(stagingBrowserCache)
-    }
-    if (!stagingChrome) throw new Error("[vitehub] Browser runtime installation did not produce a Chrome executable.")
-    await normalizePrivateModes(staging)
-    const noSandbox = await smokeChrome(stagingChrome, {
-      ...installEnv,
-      ...(linuxBundle ? { LD_LIBRARY_PATH: join(stagingBrowserCache, "al2023", "lib"), FONTCONFIG_PATH: join(stagingBrowserCache, "fonts") } : {}),
-    }, false, linuxBundle, signal)
-    const officialSkill = await readFile(join(stagingPackage, "node_modules", "agent-browser", "skills", "agent-browser", "SKILL.md"), "utf8")
-    const skillContent = `${officialSkill.replace(/^hidden:\s*true\s*$/m, "").replace(/^Install:.*$/m, "").trim()}\n\n## ViteHub screenshots\n\nSave screenshots under \`screenshots/\`. To attach one to the final reply, add \`![Description](screenshots/name.png)\` on its own line.\n`
-    await writeFile(join(staging, "core.SKILL.md"), skillContent, { mode: 0o600 })
-    const chrome = stagingChrome.slice(staging.length + 1)
-    await writeFile(join(staging, "ready.json"), JSON.stringify({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion }), { mode: 0o600 })
-    await mkdir(dirname(root), { recursive: true, mode: 0o700 })
-    assertLock()
-    // Keep the owned root in place: removing it would let another user claim
-    // its name under a sticky shared parent before the next executable use.
-    for (const entry of await readdir(root)) {
-      assertLock()
-      await rm(join(root, entry), { force: true, recursive: true })
-    }
-    for (const entry of await readdir(staging)) {
-      assertLock()
-      await rename(join(staging, entry), join(root, entry))
-    }
+    const staging = `${root}.install-${process.pid}-${crypto.randomUUID()}`
     await rm(staging, { force: true, recursive: true })
-    await mkdir(socketRoot, { mode: 0o700, recursive: true })
-    const prepared = await readyRuntime({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion })
-    if (!prepared) throw new Error("[vitehub] Browser runtime cache validation failed after installation.")
-    return prepared
+    await mkdir(staging, { recursive: true, mode: 0o700 })
+    const stagingPackage = join(staging, "package")
+    const stagingBin = join(stagingPackage, "node_modules", ".bin")
+    const stagingCommand = join(stagingBin, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
+    const stagingBrowsersCommand = join(stagingBin, process.platform === "win32" ? "browsers.cmd" : "browsers")
+    const stagingBrowserCache = join(staging, "chromium")
+    const installEnv = {
+      ...installerEnvironment(),
+      AGENT_BROWSER_SOCKET_DIR: socketRoot,
+      // npm derives directory modes from its configured/system umask. Keep
+      // every staged cache entry private even when the host uses a permissive
+      // umask such as 0002.
+      npm_config_umask: "077",
+    }
+    try {
+      await mkdir(stagingPackage, { recursive: true, mode: 0o700 })
+      const linuxBundle = platform === "linux"
+      await run(npmCommand, ["install", "--prefix", stagingPackage, "--no-audit", "--no-fund", "--ignore-scripts", `agent-browser@${agentBrowserVersion}`, linuxBundle ? `@sparticuz/chromium@${chromiumBundleVersion}` : `@puppeteer/browsers@${puppeteerBrowsersVersion}`], { env: installEnv, signal })
+      let stagingChrome: string | undefined
+      if (linuxBundle) {
+        await mkdir(stagingBrowserCache, { recursive: true, mode: 0o700 })
+        await run(process.execPath, ["--input-type=module", "-e", extractLinuxChromiumScript, stagingPackage], { env: { ...installEnv, TMPDIR: stagingBrowserCache }, signal })
+        stagingChrome = join(stagingBrowserCache, "chromium")
+      }
+      else {
+        await run(stagingBrowsersCommand, ["install", `chrome@${chromeForTestingVersion}`, "--path", stagingBrowserCache], { env: installEnv, signal })
+        stagingChrome = await findChrome(stagingBrowserCache)
+      }
+      if (!stagingChrome) throw new Error("[vitehub] Browser runtime installation did not produce a Chrome executable.")
+      await normalizePrivateModes(staging)
+      const noSandbox = await smokeChrome(stagingChrome, {
+        ...installEnv,
+        ...(linuxBundle ? { LD_LIBRARY_PATH: join(stagingBrowserCache, "al2023", "lib"), FONTCONFIG_PATH: join(stagingBrowserCache, "fonts") } : {}),
+      }, false, linuxBundle, signal)
+      const officialSkill = await readFile(join(stagingPackage, "node_modules", "agent-browser", "skills", "agent-browser", "SKILL.md"), "utf8")
+      const skillContent = `${officialSkill.replace(/^hidden:\s*true\s*$/m, "").replace(/^Install:.*$/m, "").trim()}\n\n## ViteHub screenshots\n\nSave screenshots under \`screenshots/\`. To attach one to the final reply, add \`![Description](screenshots/name.png)\` on its own line.\n`
+      await writeFile(join(staging, "core.SKILL.md"), skillContent, { mode: 0o600 })
+      const chrome = stagingChrome.slice(staging.length + 1)
+      await writeFile(join(staging, "ready.json"), JSON.stringify({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion }), { mode: 0o600 })
+      await mkdir(dirname(root), { recursive: true, mode: 0o700 })
+      assertLock()
+      // Keep the owned root in place: removing it would let another user claim
+      // its name under a sticky shared parent before the next executable use.
+      for (const entry of await readdir(root)) {
+        assertLock()
+        await rm(join(root, entry), { force: true, recursive: true })
+      }
+      for (const entry of await readdir(staging)) {
+        assertLock()
+        await rename(join(staging, entry), join(root, entry))
+      }
+      await rm(staging, { force: true, recursive: true })
+      await mkdir(socketRoot, { mode: 0o700, recursive: true })
+      const prepared = await readyRuntime({ chrome, linuxBundle, noSandbox: Boolean(noSandbox), version: agentBrowserVersion, browserVersion })
+      if (!prepared) throw new Error("[vitehub] Browser runtime cache validation failed after installation.")
+      return prepared
+    }
+    catch (error) {
+      await rm(staging, { force: true, recursive: true }).catch(() => undefined)
+      throw error
+    }
   }
   catch (error) {
-    await rm(staging, { force: true, recursive: true }).catch(() => undefined)
-    // The socket directory is preparation-owned until the environment is
-    // handed to an invocation. Remove it when provisioning or validation
-    // fails so aborted and cache-repair attempts do not accumulate vh-ab-*.
-    await rm(socketRoot, { force: true, recursive: true }).catch(() => undefined)
+    try {
+      await rm(socketRoot, { force: true, recursive: true })
+    }
+    catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], "[vitehub] Browser preparation failed and its socket directory could not be removed.")
+    }
     throw error
   }
 }
