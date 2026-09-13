@@ -1833,7 +1833,10 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     // Without a response boundary, snapshots cannot establish invocation totals.
     // Keep the latest measured evidence raw so it cannot be priced as a call.
     options.accumulator.identityAmbiguous = true
-    options.accumulator.observedPartition = true
+    // An identity-free snapshot without measurable input/output tokens is
+    // cumulative evidence only; keep the legacy cumulative fallback available
+    // until an actual partition has been observed.
+    if (partitionTotal !== undefined) options.accumulator.observedPartition = true
     const snapshot = { ...(options.model ? { model: options.model } : {}), provider: options.provider, raw: usage }
     if (options.accumulator.lastUsageEvent && options.accumulator.lastResponseIdentity === undefined && options.accumulator.previousTotalProcessedTokens === undefined) {
       options.accumulator.calls[options.accumulator.calls.length - 1] = snapshot
