@@ -1820,11 +1820,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
     : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
   const cumulative = usage.totalProcessedTokens
-  const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined &&
-    options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined &&
-    options.accumulator.lastCallIdentity === undefined && options.accumulator.calls.length > 0 &&
-    options.accumulator.previousTotalProcessedTokens === cumulative &&
-    options.accumulator.calls.at(-1)?.usage === undefined
+  // Identity-free snapshots cannot be safely correlated across provider events.
+  // Keep them ambiguous until the provider supplies a response-level itemId.
+  const completesRawOnly = false
   const changed = responseIdentity !== undefined
     ? responseIdentity !== options.accumulator.lastResponseIdentity
     : cumulative !== undefined
@@ -1886,12 +1884,6 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   }
   const previousCall = options.accumulator.calls.at(-1)
   const sameResponse = responseIdentity !== undefined && responseIdentity === options.accumulator.lastCallIdentity
-    || responseIdentity === undefined
-      && cumulative !== undefined
-      && cumulative === options.accumulator.previousTotalProcessedTokens
-      && previousCall !== undefined
-      && options.accumulator.lastCallIdentity === undefined
-      && previousCall.usage === undefined
   if (options.provider === "codex" && !changed && sameResponse && previousCall && !previousCall.usage && partitionTotal !== undefined) {
     previousCall.usage = { inputTokens, outputTokens, totalTokens: partitionTotal }
     options.accumulator.inputTokens += inputTokens!
