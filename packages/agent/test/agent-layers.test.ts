@@ -56,6 +56,23 @@ describe("Agent definition layers", () => {
     expect(third.resolve).not.toBe(base.resolve)
   })
 
+  it("uses preset as the public name for an inherited agent definition", () => {
+    const preset = defineAgent({
+      name: "preset",
+      driver: { kind: "codex", model: "base", reasoningEffort: "high" },
+      description: "preset defaults",
+      workspace: {},
+    })
+    const agent = defineAgent({ preset, driver: { model: "custom" } })
+    expect(agent.name).toBeUndefined()
+    expect(agent.description).toBe("preset defaults")
+    expect(agent.__vitehubWorkspaceAgentOptions.driver).toMatchObject({
+      kind: "codex",
+      model: "custom",
+      reasoningEffort: "high",
+    })
+  })
+
   it("replaces hooks by name and keeps other hooks", async () => {
     const parentInput = vi.fn()
     const childInput = vi.fn()
@@ -87,5 +104,8 @@ describe("Agent definition layers", () => {
 
   it("rejects arbitrary parents instead of copying a live agent runtime", () => {
     expect(() => defineAgent({ extends: {} as never })).toThrow("requires an Agent Definition")
+    expect(() => defineAgent({ preset: {} as never })).toThrow("requires an Agent Definition")
+    const base = defineAgent({ driver: "codex" })
+    expect(() => defineAgent({ extends: base, preset: base } as never)).toThrow("accepts only one base definition")
   })
 })

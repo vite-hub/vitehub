@@ -48,10 +48,17 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
 
 /** Rebuild a definition from configuration. Never copy a parent's bound runtime or invocation state. */
 export function resolveAgentLayerOptions(input: unknown): unknown {
-  if (!record(input) || !("extends" in input)) return input
-  const { extends: parent, ...overrides } = input
+  if (!record(input)) return input
+  const hasExtends = "extends" in input
+  const hasPreset = "preset" in input
+  if (!hasExtends && !hasPreset) return input
+  if (hasExtends && hasPreset) {
+    throw new TypeError("[vitehub] defineAgent({ extends, preset }) accepts only one base definition.")
+  }
+  const parent = hasPreset ? input.preset : input.extends
+  const { extends: _extends, preset: _preset, ...overrides } = input
   if (!parent || !hasRuntimeType(parent, "object") || !layerOptions.has(parent)) {
-    throw new TypeError("[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().")
+    throw new TypeError(`[vitehub] defineAgent({ ${hasPreset ? "preset" : "extends"} }) requires an Agent Definition created by defineAgent().`)
   }
   const { name: _parentName, ...defaults } = layerOptions.get(parent)!
   return merge(defaults, overrides, "")

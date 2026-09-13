@@ -1554,6 +1554,8 @@ type AgentSharedSettings<
   invocations?: AgentInvocations
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   name?: string
+  /** Optional named workflow definition to use as the base configuration. */
+  preset?: AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
   runtime?: AgentRuntimeBinding
   runEvents?: AgentRunEvents
   uiMessageStream?: AgentUIMessageStreamProjectionResolver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
