@@ -1633,6 +1633,7 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
   const gitInit = await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal })
+  // Workspace adapters may return the legacy host-style `code` field.
   const gitInitCode = gitInit.exitCode ?? (gitInit as { code?: number }).code
   if (gitInitCode !== 0) {
     await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
