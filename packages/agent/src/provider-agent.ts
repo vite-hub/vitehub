@@ -1822,7 +1822,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const cumulative = usage.totalProcessedTokens
   // Identity-free snapshots cannot be safely correlated across provider events.
   // Keep them ambiguous until the provider supplies a response-level itemId.
-  const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && partitionTotal !== undefined && options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined && options.accumulator.previousTotalProcessedTokens === cumulative && options.accumulator.calls.at(-1)?.usage === undefined
+  const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && partitionTotal !== undefined && options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined && options.accumulator.calls.length === 1 && (options.accumulator.previousTotalProcessedTokens === undefined || options.accumulator.previousTotalProcessedTokens === cumulative) && options.accumulator.calls.at(-1)?.usage === undefined
   const changed = responseIdentity !== undefined
     ? responseIdentity !== options.accumulator.lastResponseIdentity
     : cumulative !== undefined
