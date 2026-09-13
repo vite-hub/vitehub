@@ -1287,14 +1287,17 @@ function workspaceMetadataInstructions<
     }
     return []
   })
+  const slotParts = Array.isArray(instructionObject?.content)
+    ? instructionObject.content
+    : [instructionObject?.content]
+  const slotIsDynamic = slotParts.some(part => hasRuntimeType(part, "function"))
+  const slotContent = slotIsDynamic
+    ? (resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined)
+      ?? "Dynamic system instructions resolver configured."
+    : slotParts.filter((part): part is string => typeof part === "string").join("\n\n")
   const composed = instructionObject
     && typeof instructionObject.template === "string"
-    ? fillSynchronousInstructionSlot(
-      instructionObject.template,
-      Array.isArray(instructionObject.content)
-        ? instructionObject.content.filter((part): part is string => typeof part === "string").join("\n\n")
-        : typeof instructionObject.content === "string" ? instructionObject.content : "",
-    )
+    ? fillSynchronousInstructionSlot(instructionObject.template, slotContent)
     : undefined
   const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()
   return content ? [content] : []
