@@ -1641,7 +1641,9 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   }
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
-  await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
+  // Provider baselines must use SHA-1 so they can be reconciled with GitHub
+  // checkouts (which are SHA-1 repositories), regardless of host defaults.
+  await session.exec("git", ["init", "-q", "--object-format=sha1"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
   return { provenance, session }
 }
 
