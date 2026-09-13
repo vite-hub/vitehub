@@ -888,7 +888,11 @@ class LocalWorkspaceStore implements WorkspaceStore {
         }
         catch (error) {
           const marker = this.#removalMarker(normalized)
-          await open(marker, "wx", 0o600).then(file => closeCreatedMarker(file, marker)).catch(() => undefined)
+          const markerDirectory = `${this.root}/.vitehub/file-removals`
+          await mkdir(markerDirectory, { mode: 0o700 }).catch((directoryError: NodeJS.ErrnoException) => {
+            if (directoryError.code !== "EEXIST") throw directoryError
+          })
+          await open(marker, "wx", 0o600).then(file => closeCreatedMarker(file, marker))
           throw error
         }
       }
