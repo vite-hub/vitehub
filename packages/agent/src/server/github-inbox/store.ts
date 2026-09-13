@@ -36,8 +36,10 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   if (requiredStrings.some(key => typeof value[key] !== 'string') || typeof value.number !== 'number' || !Number.isInteger(value.number) || value.number < 1) throw new Error('Invalid stored snapshot')
   const numeric = ['generation', 'handled', 'dirtyAt', 'nextAt', 'leaseUntil', 'attempts']
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
-  // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Runtime validation establishes the persisted shape.
-  if (numeric.some(key => typeof value[key] !== 'number' || !Number.isFinite(value[key] as number))) throw new Error('Invalid stored snapshot')
+  if (numeric.some(key => {
+    const item = value[key]
+    return typeof item !== 'number' || !Number.isFinite(item)
+  })) throw new Error('Invalid stored snapshot')
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Runtime validation establishes the persisted shape.
   if (!['ready', 'working', 'waiting', 'terminal'].includes(value.status as string) || (value.lease !== null && typeof value.lease !== 'string')) throw new Error('Invalid stored snapshot')
