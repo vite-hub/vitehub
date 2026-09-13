@@ -1,5 +1,5 @@
 import type { AgentInspectionValue } from "../src/types.ts"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { agentTelemetryConfigurationFingerprint, getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, setAgentCapabilityInspection, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 
@@ -128,4 +128,39 @@ it("retains deep inspection state and marks each unsupported omission", async ()
   for (let index = 0; index < 64; index++) nested = { child: nested }
   await setAgentCapabilityInspection(context, "custom", { label: "Custom", state: { nested } })
   expect(getAgentTelemetryConfiguration(context)!.value.capabilities?.[0]?.inspection?.truncated).toBe(true)
+})
+
+it("uses a private discriminator for credentials while retaining secret changes", async () => {
+  const configuration = {
+    driver: { kind: "run" as const },
+    runtime: { name: "node" },
+    instructions: ["password=1234"],
+  }
+  const first = await agentTelemetryConfigurationFingerprint(configuration)
+  expect(first).toMatch(/^hmac_sha256_[a-f0-9]{64}$/)
+  expect(await agentTelemetryConfigurationFingerprint(configuration)).toBe(first)
+  expect(await agentTelemetryConfigurationFingerprint({ ...configuration, instructions: ["password=1235"] })).not.toBe(first)
+  expect(await agentTelemetryConfigurationFingerprint({ ...configuration, instructions: ["Public instructions"] })).toMatch(/^sha256_[a-f0-9]{64}$/)
+})
+
+it("excludes only capability inspection snapshots from execution fingerprints", async () => {
+  const configuration = {
+    driver: { kind: "run" as const },
+    runtime: { name: "node" },
+    capabilities: [{ id: "custom", inspection: { label: "Preparing" } }],
+    tools: [{ name: "lookup", inputSchema: { properties: { inspection: { const: "first" } } } }],
+  }
+  const first = await agentTelemetryConfigurationFingerprint(configuration)
+  expect(await agentTelemetryConfigurationFingerprint({ ...configuration, capabilities: [{ id: "custom", inspection: { label: "Ready" } }] })).toBe(first)
+  expect(await agentTelemetryConfigurationFingerprint({ ...configuration, tools: [{ name: "lookup", inputSchema: { properties: { inspection: { const: "second" } } } }] })).not.toBe(first)
+})
+
+it("does not expose a repeatable credential digest across runtime instances", async () => {
+  const configuration = { driver: { kind: "run" as const }, runtime: { name: "node" }, instructions: ["password=1234"] }
+  const first = await agentTelemetryConfigurationFingerprint(configuration)
+  vi.resetModules()
+  const fresh = await import("../src/internal/agent-telemetry.ts")
+  expect(await fresh.agentTelemetryConfigurationFingerprint(configuration)).not.toBe(first)
+  const publicConfiguration = { ...configuration, instructions: ["Public instructions"] }
+  expect(await fresh.agentTelemetryConfigurationFingerprint(publicConfiguration)).toBe(await agentTelemetryConfigurationFingerprint(publicConfiguration))
 })

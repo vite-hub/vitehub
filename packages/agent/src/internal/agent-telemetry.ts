@@ -127,19 +127,38 @@ function canonicalConfigurationValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalConfigurationValue)
   if (!value || !hasRuntimeType(value, "object")) return value
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => key !== "inspection")
     .filter(([, child]) => child !== undefined)
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([key, child]) => [key, canonicalConfigurationValue(child)]))
 }
 
+// Keep the key private to this runtime. Secret-bearing fingerprints are comparable
+// within the runtime without exposing a deterministic oracle for credential guesses.
+let configurationFingerprintKey: Promise<CryptoKey> | undefined
+
 export async function agentTelemetryConfigurationFingerprint(
   configuration: AgentTelemetryConfiguration,
 ): Promise<string> {
   const { fingerprint: _fingerprint, ...value } = configuration
-  const bytes = new TextEncoder().encode(JSON.stringify(canonicalConfigurationValue(value)))
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes)
-  return `sha256_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
+  const facts = {
+    ...value,
+    capabilities: value.capabilities?.map(({ inspection: _inspection, ...capability }) => capability),
+  }
+  const serialized = JSON.stringify(canonicalConfigurationValue(facts))
+  const redacted = JSON.stringify(canonicalConfigurationValue(redactConfigurationValue(facts)))
+  const bytes = new TextEncoder().encode(serialized)
+  const containsSecrets = serialized !== redacted
+  let digest: ArrayBuffer
+  if (containsSecrets) {
+    configurationFingerprintKey ??= globalThis.crypto.subtle.generateKey(
+      { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+    )
+    digest = await globalThis.crypto.subtle.sign("HMAC", await configurationFingerprintKey, bytes)
+  }
+  else {
+    digest = await globalThis.crypto.subtle.digest("SHA-256", bytes)
+  }
+  return `${containsSecrets ? "hmac_sha256" : "sha256"}_${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
 async function withConfigurationFingerprint(

@@ -2563,7 +2563,7 @@ async function* runProvider<
               ? input.prompt
               : hasRuntimeType(input.message, "string")
                 ? input.message
-                : messages.map(getMessageText).filter((value): value is string => typeof value === "string").join("\n\n")
+                : messages.map(getMessageText).filter((value): value is string => hasRuntimeType(value, "string")).join("\n\n")
             if (!activeTurnId || !text?.trim()) return "unsupported"
             try {
               const steered = await activeRuntime.sendTurn({ threadId, input: text })
