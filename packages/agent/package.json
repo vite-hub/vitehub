@@ -145,6 +145,10 @@
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js"
     },
+    "./presets/workspace": {
+      "types": "./dist/presets/workspace.d.ts",
+      "import": "./dist/presets/workspace.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

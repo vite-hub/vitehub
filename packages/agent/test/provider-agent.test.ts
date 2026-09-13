@@ -62,6 +62,9 @@ const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "cl
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
 
+import workspacePreset from "../src/presets/workspace.ts"
+import { resolveAgentLayerOptions } from "../src/agent-layers.ts"
+import type { AgentSourceProvenance } from "../src/types.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { markTrustedWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
@@ -3701,20 +3704,13 @@ cli_auth_credentials_store = "keyring"
     await createProviderAgentAdapter({ provider: "claude-code" }).generate(runContext as never)
 
     const [instructions] = getAgentTelemetryConfiguration(runContext.context)?.value.instructions || []
-    expect(instructions).toMatch(/^native workspace instructions\n\nMounted source provenance/)
-    expect(instructions).toContain("https://github.com/vite-hub/vitehub")
-    expect(instructions).toContain("<repository>/blob/<revision.id>/<root>/<relative-path>#L<line>")
-    expect(instructions).toContain(`"root": ${JSON.stringify(sourceRoot)}`)
-    expect(instructions).toContain("Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding.")
-    expect(instructions).toContain("root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor.")
-    expect(instructions).toContain("Never cite /workspace paths")
-    expect(instructions).toContain("If the mounted path cannot be mapped exactly to one provenance entry, cite no link.")
+    expect(instructions).toBe("native workspace instructions")
   })
 
   it.each([
     { provider: "codex" as const, file: "AGENTS.md" },
     { provider: "claude-code" as const, file: "CLAUDE.md" },
-  ])("preserves native $file changes while removing transient provenance", async ({ provider, file }) => {
+  ])("preserves native $file changes without injecting citation policy", async ({ provider, file }) => {
     for (const change of ["unchanged", "edit", "replace", "delete", "empty"]) {
       const threadId = `thread-native-${provider}-${change}`
       let root = ""
@@ -3916,6 +3912,41 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it.each(["codex", "claude-code"] as const)("applies the explicit workspace preset citation policy with %s", async (provider) => {
+    const threadId = `thread-workspace-preset-${provider}`
+    let root = ""
+    let instructions = ""
+    const file = provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() { instructions = await readFile(`${root}/${file}`, "utf8") },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      materializeSources: vi.fn(async () => ({
+        bytes: 0, directories: 0, durationMs: 0, files: 1, path: "",
+        sources: [{ mountPath: "docs", provider: "github", revision: { id: "a".repeat(40), immutable: true }, source: "docs", status: "ready" }],
+      })),
+      startSession: vi.fn(async (options: { target: string }) => { root = options.target; return session }),
+    }
+    const settings = resolveAgentLayerOptions({ extends: workspacePreset }) as { driver: { instructions: import("../src/types.ts").AgentAdapterInstructions } }
+    await createProviderAgentAdapter({ instructions: settings.driver.instructions, provider }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: "docs#v1" }) } },
+    }) as never)
+
+    expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+    expect(instructions).toContain(`"id": "${"a".repeat(40)}"`)
+    expect(instructions).toContain('"root": "docs#v1"')
+    expect(instructions).toContain("Percent-encode each path segment")
+    expect(instructions).toContain("Never cite /workspace paths")
+    expect(instructions).toContain("If the mounted path cannot be mapped exactly to one provenance entry, cite no link.")
+  })
+
   it.each(["direct", "inferred", "resolved", "resolved-inferred"])("supplies verified %s GitHub source provenance without serializing unsafe source configuration", async (form) => {
     const threadId = "thread-source-provenance"
     let root = ""
@@ -3959,7 +3990,10 @@ cli_auth_credentials_store = "keyring"
         : source({ source: fingerprint, sourceResolution: {} })
     const workspace = { fs: {}, materializeSources, startSession: vi.fn(async (options: { target: string }) => { root = options.target; return session }), tools: {} }
 
-    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+    await createProviderAgentAdapter({
+      provider: "codex",
+      instructions: ({ sourceProvenance }) => JSON.stringify(sourceProvenance),
+    }).generate(context(threadId, {
       workspace,
       workspaceDefinition: {
         name: "docs",
@@ -4006,6 +4040,7 @@ cli_auth_credentials_store = "keyring"
     const threadId = "thread-native-codex-provenance"
     let root = ""
     let instructions = ""
+    let provenance: readonly AgentSourceProvenance[] = []
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       async onStartSession() { instructions = await readFile(`${root}/AGENTS.md`, "utf8") },
     })
@@ -4047,17 +4082,22 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This fixture supplies the trusted access context expected by the helper.
     markTrustedWorkspaceAccessScope(runContext.context as never)
     // SAFETY: This fixture supplies the complete provider generation context.
-    await createProviderAgentAdapter({ provider: "codex", providerSettings: { launchArgs } }).generate(runContext as never)
+    await createProviderAgentAdapter({
+      instructions: ({ sourceProvenance }) => { provenance = sourceProvenance || []; return undefined },
+      provider: "codex",
+      providerSettings: { launchArgs },
+    }).generate(runContext as never)
 
     expect(workspace.materializeSources).toHaveBeenCalledTimes(selectedPaths.length)
+    expect(instructions).toBe(nativeInstructions)
     if (expectedRoot === undefined) {
-      expect(instructions).toBe(nativeInstructions)
+      expect(provenance).toEqual([])
       return
     }
-    expect(instructions).toContain(`"root": "${expectedRoot}"`)
-    expect(instructions.match(/"repository":/g)).toHaveLength(1)
-    expect(instructions.startsWith(`${nativeInstructions}\n\nMounted source provenance`)).toBe(true)
-    expect(instructions).toContain("https://github.com/vite-hub/vitehub")
+    expect(provenance).toEqual([expect.objectContaining({
+      repository: "https://github.com/vite-hub/vitehub",
+      root: expectedRoot,
+    })])
     expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toBe(launchArgs)
   })
 

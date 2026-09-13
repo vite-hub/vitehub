@@ -59,6 +59,7 @@ import type {
   AgentProviderLaunchResolver,
   AgentProviderPermissions,
   AgentRuntimeConfig,
+  AgentSourceProvenance,
   CodexReasoningEffort,
   CodexReasoningSummary,
   AgentToolDefinition,
@@ -98,7 +99,6 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
-  appendedContent?: string
   content?: Uint8Array
   directories: string[]
   existed: boolean
@@ -142,21 +142,6 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
-  if (generated.appendedContent !== undefined) {
-    const entry = await lstat(generated.path).catch(() => undefined)
-    if (entry?.isFile()) {
-      const content = await readFile(generated.path, "utf8")
-      const expectedOffset = (generated.content?.length ?? 0) + (generated.content?.length ? 2 : 0)
-      let offset = -1
-      for (let candidate = content.indexOf(generated.appendedContent); candidate !== -1; candidate = content.indexOf(generated.appendedContent, candidate + 1)) {
-        if (offset === -1 || Math.abs(candidate - expectedOffset) < Math.abs(offset - expectedOffset)) offset = candidate
-      }
-      if (offset !== -1) {
-        await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
-      }
-    }
-    return
-  }
   await rm(generated.path, { force: true, recursive: true })
   if (generated.link !== undefined) await symlink(generated.link, generated.path)
   else if (generated.existed) {
@@ -1559,16 +1544,7 @@ async function materializeWorkspaceSources(context: AgentAdapterRunContext, path
   }
 }
 
-interface ProviderSourceProvenance {
-  mount: string
-  provider: "github"
-  repository: string
-  revision: { id: string, ref?: string }
-  root: string
-  source: string
-}
-
-function providerSourceProvenance(context: AgentAdapterRunContext, materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>): ProviderSourceProvenance[] {
+function providerSourceProvenance(context: AgentAdapterRunContext, materialized: Awaited<ReturnType<typeof materializeWorkspaceSources>>): AgentSourceProvenance[] {
   if (!materialized?.ready || !context.workspaceDefinition?.sources) return []
   let metadata
   try {
@@ -1618,12 +1594,7 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
     && candidate.revision.id === entry.revision.id) === index)
 }
 
-function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvenance[]): string | undefined {
-  if (!provenance.length) return
-  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding. For example, root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor. Never cite /workspace paths, other local filesystem paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
-}
-
-async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
+async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: AgentSourceProvenance[], session: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0701({ message: "[vitehub] Provider Agent Driver Workspaces require a POSIX Node host." })
@@ -1664,8 +1635,8 @@ async function closeWorkspace(context: AgentAdapterRunContext, session: Workspac
 async function resolveInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
->(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
-  const metadataContext = providerMetadataContext(context)
+>(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>, sourceProvenance: readonly AgentSourceProvenance[] = []): Promise<string | undefined> {
+  const metadataContext = { ...providerMetadataContext(context), sourceProvenance }
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
   const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
   const content = [
@@ -2049,7 +2020,7 @@ async function* runProvider<
     throw error
   }
   let workspaceSession: WorkspaceSession | undefined
-  let sourceProvenance: ProviderSourceProvenance[] = []
+  let sourceProvenance: AgentSourceProvenance[] = []
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
@@ -2185,7 +2156,7 @@ async function* runProvider<
         return execution
       })
     }
-    let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
+    let instructions = await waitForProviderOperation(resolveInstructions(options, context, sourceProvenance), effectiveSignal)
     let materializeInstructions = Boolean(instructions)
     if (!instructions && options.provider === "claude-code") {
       const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
@@ -2194,15 +2165,6 @@ async function* runProvider<
         instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
         materializeInstructions = Boolean(instructions)
       }
-    }
-    const preserveNativeInstructions = !materializeInstructions
-    const provenanceInstructions = sourceProvenanceInstructions(sourceProvenance)
-    if (!instructions && provenanceInstructions && options.provider === "codex") {
-      instructions = await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
-    }
-    if (provenanceInstructions) {
-      instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
-      materializeInstructions = true
     }
     if (!auxiliary) {
       const inspectedTools = inspectAgentTools(context.tools)
@@ -2218,10 +2180,6 @@ async function* runProvider<
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
-      if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
-        // Remove only the injected text so native instruction edits reach Workspace write-back.
-        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
-      }
       generatedProviderFiles.push(generated)
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
