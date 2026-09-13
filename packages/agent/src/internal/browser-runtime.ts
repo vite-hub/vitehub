@@ -396,6 +396,10 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   }
   catch (error) {
     await rm(staging, { force: true, recursive: true }).catch(() => undefined)
+    // The socket directory is preparation-owned until the environment is
+    // handed to an invocation. Remove it when provisioning or validation
+    // fails so aborted and cache-repair attempts do not accumulate vh-ab-*.
+    await rm(socketRoot, { force: true, recursive: true }).catch(() => undefined)
     throw error
   }
 }
