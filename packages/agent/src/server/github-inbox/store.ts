@@ -71,10 +71,14 @@ export class PullRequestInbox {
   }
   get(repository: string, number: number): Snapshot | undefined {
     const row = this.db.prepare('SELECT value FROM pr_snapshots WHERE repository=? AND number=?').get(repository, number)
-    return row ? JSON.parse(row.value as string) as Snapshot : undefined
+    // SAFETY: values are written by `put` from validated Snapshot objects.
+    return row ? JSON.parse(String(row.value)) as Snapshot : undefined
   }
   all(): Snapshot[] {
-    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => JSON.parse(row.value as string) as Snapshot)
+    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => {
+      // SAFETY: values are written by `put` from validated Snapshot objects.
+      return JSON.parse(String(row.value)) as Snapshot
+    })
       .filter(s => this.repositories.includes(s.repository))
   }
   private put(s: Snapshot) {
@@ -85,9 +89,9 @@ export class PullRequestInbox {
       status: 'ready', lease: null, leaseUntil: 0, attempts: 0, hydrated: false, refresh: true, feedbackRefresh: true,
       comments: {}, reviews: {}, reviewComments: {}, checks: {}, statuses: {}, threads: [], reasons: [] }
   }
-  meta<T>(key: string): T | undefined {
+  meta(key: string): unknown {
     const row = this.db.prepare('SELECT value FROM inbox_meta WHERE key=?').get(key)
-    return row ? JSON.parse(row.value as string) : undefined
+    return row ? JSON.parse(String(row.value)) : undefined
   }
   setMeta(key: string, value: unknown): void { this.db.prepare('INSERT OR REPLACE INTO inbox_meta VALUES (?,?)').run(key, JSON.stringify(value)) }
   private dirty(s: Snapshot, reason: string) {
