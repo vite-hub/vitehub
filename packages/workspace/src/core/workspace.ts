@@ -58,7 +58,11 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
     if (entry.type === "added" && entry.after?.type === "directory" && generatedDirectories.has(entry.path)) {
       const descendants = await store.list(entry.path, { recursive: true })
-      if (descendants.every(child => child.type === "directory"
+      // An empty directory may have been removed and recreated by a user (or
+      // another Store instance) after the startup snapshot was recorded. With
+      // no child ownership metadata, retain that addition so auto-commit does
+      // not hide the replacement.
+      if (descendants.length > 0 && descendants.every(child => child.type === "directory"
         ? generatedDirectories.has(child.path)
         : generatedFiles.has(child.path))) continue
     }
