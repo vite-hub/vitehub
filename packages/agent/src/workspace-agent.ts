@@ -1313,6 +1313,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
   let fence: string | undefined
   let inlineFence: string | undefined
   let paragraph = false
+  let listContinuationIndent = 4
   return template.split("\n").map((line) => {
     // Fenced blocks may occur inside block quotes; include the container
     // prefix when classifying delimiters so static inspection matches Markdown.
@@ -1328,11 +1329,11 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
     }
     if (fence) return line
     const indented = /^(?:    |\t)/.test(line)
-    // A deeply indented continuation under a list item is an indented code
-    // block; only the standard four-space paragraph continuation is prose.
     const indentation = line.match(/^ */)?.[0].length ?? 0
-    if (indented && (!paragraph || indentation > 4)) return line
-    paragraph = line.trim().length > 0 && !indented && (!/^ {0,3}(?:#{1,6}\s|>)/.test(line) || /^ {0,3}(?:[-+*]\s|\d+[.)]\s)/.test(line))
+    if (indented && (!paragraph || indentation > listContinuationIndent)) return line
+    const list = line.match(/^( {0,3})(?:[-+*]|\d+[.)])([ \t]+)/)
+    if (list) listContinuationIndent = (list[1]?.length ?? 0) + (list[0]?.length ?? 0) + 3
+    paragraph = line.trim().length > 0 && !indented && (!/^ {0,3}(?:#{1,6}\s|>)/.test(line) || Boolean(list))
     if (inlineFence) {
       const run = inlineFence
       const end = findInlineCodeClose(line, run)
