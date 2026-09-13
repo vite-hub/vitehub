@@ -116,6 +116,7 @@ Vite config resolution and builds also refresh the entry. Defining `files` in th
 
 ```ts
 import { defineAgent } from "vite-hub/agent";
+import { createPullRequestInbox } from "vite-hub/agent/server/github-inbox";
 import { workspaceShell } from "vite-hub/agent/capabilities";
 import { env } from "vite-hub/env";
 import { renderMarkdownFile } from "vite-hub/markdown-template/file";
