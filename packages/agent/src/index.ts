@@ -2121,6 +2121,8 @@ type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
 
 type AgentDefinitionLike = { resolve: (...args: never[]) => unknown }
 
+type ConfiguredAgentOptions<TDefinition> = TDefinition extends { options: infer TOptions extends object } ? TOptions : never
+
 type ConfiguredAgentSettings<TDefinition> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
   ? AgentSettings<TRuntimeConfig, TCallOptions, TInvoker, TContext, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>
   : never
@@ -2215,6 +2217,31 @@ export interface DefineAgent {
     },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
 
+  <TOptions extends object, TDefinition extends AgentDefinitionLike>(options: {
+    options: TOptions
+    configure: (options: TOptions) => TDefinition
+  }): ConfiguredAgentDefinition<TOptions, TDefinition>
+
+  <TPresets extends Record<string, AgentDefinitionLike>, const TPreset extends keyof TPresets & string, const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined>(options:
+    Omit<Partial<ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>>, "driver" | "workspace"> & {
+      preset: TPreset
+      presets: TPresets
+      options?: AgentPresetOptions<NoInfer<ConfiguredAgentOptions<TPresets[TPreset]>>>
+      extends?: never
+      driver?: Partial<ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>["driver"]>
+      workspace?: TWorkspace
+    }
+  ): ConfiguredAgentDefinition<ConfiguredAgentOptions<TPresets[TPreset]>, ConfiguredAgentWorkspace<TPresets[TPreset], TWorkspace>>
+
+  <TDefinition extends ConfiguredAgentDefinition<object, AgentDefinitionLike>, const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined>(options:
+    Omit<Partial<ConfiguredAgentSettings<NoInfer<TDefinition>>>, "driver" | "workspace"> & {
+      extends: TDefinition
+      options?: AgentPresetOptions<NoInfer<TDefinition["options"]>>
+      driver?: Partial<ConfiguredAgentSettings<NoInfer<TDefinition>>["driver"]>
+      workspace?: TWorkspace
+    }
+  ): ConfiguredAgentDefinition<TDefinition["options"], ConfiguredAgentWorkspace<TDefinition, TWorkspace>>
+
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
@@ -2302,30 +2329,7 @@ export interface DefineAgent {
       TOutput
     > & { capabilities?: AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, workspace?: never },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TOutput>
-  <TOptions extends object, TDefinition extends AgentDefinitionLike>(options: {
-    options: TOptions
-    configure: (options: TOptions) => TDefinition
-  }): ConfiguredAgentDefinition<TOptions, TDefinition>
 
-  <TPresets extends Record<string, ConfiguredAgentDefinition<object, AgentDefinitionLike>>, const TPreset extends keyof TPresets & string, const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined>(options:
-    Omit<Partial<ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>>, "driver" | "workspace"> & {
-      preset: TPreset
-      presets: TPresets
-      options?: AgentPresetOptions<NoInfer<TPresets[TPreset]["options"]>>
-      extends?: never
-      driver?: Partial<ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>["driver"]>
-      workspace?: TWorkspace
-    }
-  ): ConfiguredAgentDefinition<TPresets[TPreset]["options"], ConfiguredAgentWorkspace<TPresets[TPreset], TWorkspace>>
-
-  <TDefinition extends ConfiguredAgentDefinition<object, AgentDefinitionLike>, const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined>(options:
-    Omit<Partial<ConfiguredAgentSettings<NoInfer<TDefinition>>>, "driver" | "workspace"> & {
-      extends: TDefinition
-      options?: AgentPresetOptions<NoInfer<TDefinition["options"]>>
-      driver?: Partial<ConfiguredAgentSettings<NoInfer<TDefinition>>["driver"]>
-      workspace?: TWorkspace
-    }
-  ): ConfiguredAgentDefinition<TDefinition["options"], ConfiguredAgentWorkspace<TDefinition, TWorkspace>>
 }
 
 function createWorkspaceAgentDefinition<
@@ -2370,6 +2374,7 @@ function createWorkspaceAgentDefinition<
 
 // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
 export const defineAgent: DefineAgent = ((options: unknown) => {
+  // SAFETY: The layer owner only supplies settings from an existing Agent Definition.
   const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings as never))
   if (configured) return configured
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.

@@ -25,7 +25,9 @@ it("types preset options, nested overrides and chained definitions", () => {
       return defineAgent({ driver: "codex", workspace: {} })
     },
   })
-  const configured = defineAgent({ preset: "repair", presets: { repair: preset }, options: { autoMerge: true, filter: { author: { allow: ["me"] } } } })
+  const configured = defineAgent({ preset: "repair", presets: { repair: preset, plain: defineAgent({ driver: "codex" }) }, options: { autoMerge: true, filter: { author: { allow: ["me"] } } } })
+  // @ts-expect-error A configured registry still rejects missing names.
+  defineAgent({ preset: "missing", presets: { repair: preset }, options: {} })
   expectTypeOf(configured.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const child = defineAgent({ extends: configured, options: { autoMerge: false } })
   expectTypeOf(child.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
