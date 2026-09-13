@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
-import { appendFile, cp, lstat, realpath, rm } from 'node:fs/promises'
-import { basename, isAbsolute, join, relative, sep } from 'node:path'
+import { appendFile, cp, lstat, mkdir, realpath, rm } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 const exec = promisify(execFile)
@@ -76,6 +76,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     }
     for (const file of tracked) {
       if (isProviderGenerated(file)) continue
+      await mkdir(dirname(join(destination, file)), { recursive: true })
       await cp(join(source, file), join(destination, file), { recursive: true })
     }
     // Keep provider-generated instruction files outside ordinary repair staging.
