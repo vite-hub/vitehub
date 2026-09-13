@@ -208,7 +208,7 @@ export class PullRequestInbox {
       for (const pr of check?.pull_requests ?? []) if (pr.number) numbers.add(pr.number)
       for (const s of this.all()) if (s.repository === repository && s.pr?.state === 'open') {
         if (sha && s.pr.head?.sha === sha) numbers.add(s.number)
-        if (event === 'push' && payload.ref === `refs/heads/${s.pr.base?.ref}`) numbers.add(s.number)
+        if (event === 'push' && (payload.ref === `refs/heads/${s.pr.base?.ref}` || payload.ref === `refs/heads/${s.pr.head?.ref}`)) numbers.add(s.number)
       }
       for (const number of numbers) {
         const existing = this.get(repository, number)
@@ -216,7 +216,8 @@ export class PullRequestInbox {
         // Event filters govern admission only. Lifecycle evidence must still
         // invalidate active work when the author, labels, head, or state changes.
         if (!existing && !matchesGitHubPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
-        if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha) continue // old-head CI cannot wake current head
+        const pushRefMatch = event === 'push' && (payload.ref === `refs/heads/${s.pr?.base?.ref}` || payload.ref === `refs/heads/${s.pr?.head?.ref}`)
+        if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha && !pushRefMatch) continue // old-head CI cannot wake current head
         let changed = false
         if (payload.pull_request) changed = this.updatePr(s, payload.pull_request)
         const upsert = (map: Record<string, GitHubEvidence>, value: GitHubEvidence | undefined, itemKey?: string) => {
