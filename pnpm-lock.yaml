@@ -1158,6 +1158,9 @@ importers:
 
   packages/content:
     dependencies:
+      '@vite-hub/source':
+        specifier: workspace:*
+        version: link:../source
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
