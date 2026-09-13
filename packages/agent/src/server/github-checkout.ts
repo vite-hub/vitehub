@@ -52,9 +52,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     }
   }
   options.signal?.throwIfAborted()
-  // Preserve the materialized workspace baseline while replacing its Git history.
-  // The baseline index contains generated instructions and selected files; restoring
-  // it after copying prevents out-of-scope paths from appearing deleted.
+  // Record materialized paths, but keep the repair index aligned with the PR head.
   const destinationGit = await lstat(join(destination, '.git')).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== 'ENOENT') throw error
     return undefined
@@ -62,22 +60,14 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   if (destinationGit && !destinationGit.isDirectory()) {
     throw new Error('Provider workspace must use an independent Git directory.')
   }
-  const baselineTree = destinationGit ? await git(destination, ['write-tree']) : undefined
   const baselineBackup = await mkdtemp(join(tmpdir(), 'vitehub-baseline-'))
-  const baselineObjectsBackup = join(baselineBackup, 'objects')
   let replacingMetadata = false
   try {
-    let materializedPaths: Set<string> | undefined
-    if (!destinationGit) {
-      const metadata = join(baselineBackup, 'plain.git')
-      await git(destination, ['init', '--bare', '--template=', '--object-format=sha1', metadata])
-      const baseline = ['--git-dir', metadata, '--work-tree', destination]
-      await git(destination, [...baseline, 'add', '--force', '--all', '--', '.'])
-      materializedPaths = new Set((await git(destination, [...baseline, 'ls-files', '-z'])).split('\0').filter(Boolean))
-    }
-    if (baselineTree) {
-      await cp(join(destination, '.git', 'objects'), baselineObjectsBackup, { recursive: true })
-    }
+    const metadata = join(baselineBackup, 'plain.git')
+    await git(destination, ['init', '--bare', '--template=', '--object-format=sha1', metadata])
+    const baseline = ['--git-dir', metadata, '--work-tree', destination]
+    await git(destination, [...baseline, 'add', '--force', '--all', '--', '.'])
+    const materializedPaths = new Set((await git(destination, [...baseline, 'ls-files', '-z'])).split('\0').filter(Boolean))
     // Recycled directories must not retain refs or config from an earlier PR.
     replacingMetadata = true
     await rm(join(destination, '.git'), { recursive: true, force: true })
@@ -85,10 +75,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     // Host init templates may install executable hooks; never expose or run them
     // in the provider workspace, and ignore any configured hooks directory.
     await rm(join(destination, '.git', 'hooks'), { recursive: true, force: true })
-    if (baselineTree) {
-      await cp(baselineObjectsBackup, join(destination, '.git', 'objects'), { recursive: true })
-      await git(destination, ['read-tree', baselineTree])
-    }
+    await git(destination, ['read-tree', expected])
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
     const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand|hookspath|worktree)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^gitcvs\.dbpass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type|passwordprotected)?|sslcert(?:type|passwordprotected)?|proxysslkey|proxysslcert|proxysslcertpasswordprotected)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
@@ -128,7 +115,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     if (materializedPaths) {
       const trackedPaths = new Set((await git(destination, ['ls-files', '-z'])).split('\0').filter(Boolean))
       for (const path of trackedPaths) {
-        if (!materializedPaths.has(path)) await git(destination, ['update-index', '--skip-worktree', '--', path])
+        if (!materializedPaths.has(path) || /(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(path)) await git(destination, ['update-index', '--skip-worktree', '--', path])
         // Start selected tracked files at the PR version so pre-existing
         // materialization differences cannot enter the provider's repair.
         else await git(destination, ['checkout-index', '--force', '--', path])

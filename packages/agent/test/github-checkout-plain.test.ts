@@ -32,16 +32,24 @@ async function fixture() {
   return { root, source, target, head: await git(source, 'rev-parse', 'HEAD') }
 }
 
-it('keeps omitted files and generated instructions out of plain workspace repairs', async () => {
+it.each([false, true])('keeps omitted files and generated instructions out of repairs (initialized: %s)', async (initialized) => {
   const { source, target, head } = await fixture()
   await writeFile(join(source, 'omitted.txt'), 'preserve me\n')
+  await writeFile(join(source, 'CLAUDE.md'), 'repository instructions\n')
   await git(source, 'add', '.')
   await git(source, 'commit', '-m', 'unmaterialized file')
   const expected = await git(source, 'rev-parse', 'HEAD')
   await writeFile(join(target, 'AGENTS.md'), 'generated instructions\n')
   await writeFile(join(target, 'generated[1].txt'), 'generated\n')
   await writeFile(join(target, 'file.txt'), 'pre-existing materialization difference\n')
+  await writeFile(join(target, 'CLAUDE.md'), 'generated override\n')
+  if (initialized) {
+    await git(target, 'init')
+    await git(target, 'add', '-A')
+    await git(target, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'provider baseline')
+  }
   await prepareGitHubPullRequestWorkspace(source, target)
+  expect(await readFile(join(target, 'CLAUDE.md'), 'utf8')).toBe('generated override\n')
   expect(await readFile(join(target, 'file.txt'), 'utf8')).toBe('before\n')
   await git(target, 'add', '-A')
   expect(await git(target, 'status', '--porcelain')).toBe('')
@@ -53,5 +61,6 @@ it('keeps omitted files and generated instructions out of plain workspace repair
   expect(await git(target, 'diff', 'HEAD^', 'HEAD', '--name-only')).toBe('file.txt')
   expect(await git(target, 'show', 'HEAD:omitted.txt')).toBe('preserve me')
   expect(await git(target, 'show', 'HEAD:file.txt')).toBe('repair')
+  expect(await git(target, 'show', 'HEAD:CLAUDE.md')).toBe('repository instructions')
   expect(await git(target, 'show', `${head}:file.txt`)).toBe('before')
 })
