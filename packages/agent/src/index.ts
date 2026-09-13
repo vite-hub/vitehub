@@ -3675,7 +3675,7 @@ async function createAgentInvocationContext<
     const transformedTools = resolveCapabilityCli
       ? capabilities.tools
       : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
-    const normalizedTools = "tools" in transformedTools && transformedTools.tools
+    const normalizedTools = transformedTools && "tools" in transformedTools && transformedTools.tools
       ? transformedTools.tools
       : transformedTools
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(normalizedTools) || {})
