@@ -104,6 +104,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     await this.#mutate(() => {
       const normalized = normalizeWorkspacePath(path)
       const node = this.#nodes.get(normalized)
+      if (options.ifDigest && node?.type === "file" && (await this.#entry(normalized, node)).digest !== options.ifDigest) return
       if (!node) {
         if (options.force) return
         throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)

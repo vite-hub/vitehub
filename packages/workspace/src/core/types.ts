@@ -59,6 +59,7 @@ export interface MkdirOptions {
 export interface RmOptions {
   recursive?: boolean
   force?: boolean
+  ifDigest?: string
 }
 
 export type WorkspaceWriteOperation = "writeFile" | "mkdir" | "rm"
