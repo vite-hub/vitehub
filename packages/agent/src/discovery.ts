@@ -94,7 +94,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   const name = presetExpr.match(/^['"]([^'"]+)['"]$/)?.[1] ?? stripped.match(new RegExp(`(?:const|let|var)\\s+${presetExpr}\\s*=\\s*['"]([^'"]+)['"]`))?.[1]
   if (!name) return false
   const e = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const entry = stripped.match(new RegExp(`${e}\\s*:\\s*(defineAgent\\s*\\(\\s*\\{[\\s\\S]*?\\}\\)|[A-Za-z_$][\\w$]*)`))?.[1]
+  const entry = stripped.match(new RegExp(`${e}\\s*:\\s*(defineAgent\\s*\\(\\s*\\{[\\s\\S]*?\\}\\)|[A-Za-z_$][\\w$]*)`))?.[1] ?? (stripped.match(new RegExp(`(?:[,{]\\s*)${e}\\s*(?=[,}])`)) ? name : undefined)
   if (!entry) return false
   if (/workspace\s*:/.test(entry)) return true
   const ref = entry.match(/^([A-Za-z_$][\w$]*)$/)?.[1]
