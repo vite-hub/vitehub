@@ -202,7 +202,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   return configured
 }
 
-function asMetadataTarget(value: object): Record<string, unknown> {
+function asMetadataTarget(value: unknown): Record<string, unknown> {
   // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
   return value as Record<string, unknown>
 }
