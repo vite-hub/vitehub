@@ -1,6 +1,6 @@
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
-import { normalizeWorkspacePath } from "../core/path.ts"
+import { normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
@@ -147,6 +147,10 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
     // Snapshot metadata falls back to this Store, so its format must match too.
     [workspaceStoreTarget]: async () => await resolveWorkspaceStoreTarget(workspace) ?? { provider: "memory" },
     isTombstoned,
+    // The overlay can enforce the same ownership checks against its merged
+    // view before hiding a base file. This lets source reconciliation proceed
+    // when the resolver wraps a persistent Store.
+    conditionalRemoval: true,
     async readFile(path) {
       return await memory.readFile(path) || await readBaseFile(path)
     },
@@ -168,6 +172,15 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       await memory.mkdir(path, options)
     },
     async rm(path, options) {
+      if (options?.ifDigest !== undefined || options?.ifSource !== undefined) {
+        const current = await readBaseFile(path) || await memory.readFile(path)
+        if (!current) return
+        if (options.ifSource !== undefined && (current.metadata?.source ?? null) !== options.ifSource) return
+        if (options.ifDigest !== undefined) {
+          const digest = await sha256(current.content)
+          if (digest !== options.ifDigest) return
+        }
+      }
       const removedBaseEntries = options?.recursive ? await baseEntries(path, { recursive: true }) : []
       await memory.rm(path, options)
       tombstones.add(path)
