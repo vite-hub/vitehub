@@ -462,6 +462,11 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     }
   }
   catch (error) {
+    // If canonicalization failed, the lexical path may traverse a mutable
+    // symlinked ancestor.  Do not recursively remove it: that could redirect
+    // cleanup to an unrelated directory.  Leave the private allocation for
+    // owner-scoped temporary-directory cleanup instead.
+    if (socketRoot === socketRootPath) throw error
     try {
       await rm(socketRoot, { force: true, recursive: true })
     }
