@@ -82,7 +82,10 @@ function run(command: string, args: readonly string[], options: { cwd?: string, 
       options.signal?.removeEventListener("abort", abort)
       if (options.signal?.aborted) return reject(options.signal.reason)
       if (code === 0) return resolve(stdout)
-      const detail = redactCredentialText(stderr.trim())
+      let detail = redactCredentialText(stderr.trim())
+      for (const value of Object.values(options.env)) {
+        if (value && /:\/\//.test(value) && /@/.test(value)) detail = detail.split(value).join("[REDACTED]")
+      }
       reject(new Error(`[vitehub] Browser runtime command failed (${command}, exit ${code ?? "unknown"}): ${detail}`))
     })
   })
@@ -288,6 +291,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     const isTrustedSystem = ancestorStat.uid === 0 && (((mode & 0o022) === 0) || (mode & 0o1000) !== 0)
     const isPrivateUser = ancestorStat.uid === process.getuid?.() && (mode & 0o022) === 0
     if (!ancestorStat.isDirectory() || (!isTrustedSystem && !isPrivateUser)) {
+      await rm(socketRoot, { force: true, recursive: true }).catch(() => undefined)
       throw new Error("[vitehub] Browser socket directory ancestors must be private directory paths or trusted system directories.")
     }
     const parent = dirname(ancestor)
@@ -296,6 +300,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   }
   const socketStat = await lstat(socketRoot)
   if (!socketStat.isDirectory() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) {
+    await rm(socketRoot, { force: true, recursive: true }).catch(() => undefined)
     throw new Error("[vitehub] Browser socket directory must be a private directory owned by the current user.")
   }
   const skillPath = join(root, "core.SKILL.md")
@@ -465,14 +470,16 @@ export async function closeBrowserRuntimeSession(environment: Readonly<Record<st
   if (!binRoot || !environment.AGENT_BROWSER_SESSION) return
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
   const installEnvironment = installerEnvironment()
+  let closed = false
   try {
     await run(command, ["close"], {
       env: { ...installEnvironment, ...environment, PATH: `${binRoot}${process.platform === "win32" ? ";" : ":"}${installEnvironment.PATH || ""}` },
       timeoutMs: 15_000,
     })
+    closed = true
   }
   finally {
     const socketDirectory = environment.AGENT_BROWSER_SOCKET_DIR
-    if (socketDirectory) await rm(socketDirectory, { force: true, recursive: true })
+    if (closed && socketDirectory) await rm(socketDirectory, { force: true, recursive: true })
   }
 }
