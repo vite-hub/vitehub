@@ -42,13 +42,24 @@ export async function setAgentCapabilityInspection(
   if (index < 0) return
   const safe = safeMetadataValue(inspection)
   if (!safe || Array.isArray(safe)) return
+  const truncated = hasInspectionOverflow(inspection)
+  const inspectionValue = truncated ? { ...safe, truncated: true } : safe
   // SAFETY: capabilities[index] is known to exist because index is non-negative.
-  capabilities[index] = { ...capabilities[index], inspection: safe } as typeof capabilities[number]
+  capabilities[index] = { ...capabilities[index], inspection: inspectionValue } as typeof capabilities[number]
   const next = { ...current.source, capabilities }
   const fingerprinted = await withConfigurationFingerprint(next)
   configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
     await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
   })
+}
+
+
+function hasInspectionOverflow(value: unknown, depth = 0, seen = new WeakSet<object>()): boolean {
+  if (!value || typeof value !== "object") return false
+  if (depth >= 15 || seen.has(value)) return true
+  seen.add(value)
+  try { return Array.isArray(value) ? value.some(item => hasInspectionOverflow(item, depth + 1, seen)) : Object.values(value).some(item => hasInspectionOverflow(item, depth + 1, seen)) }
+  finally { seen.delete(value) }
 }
 
 function secretMetadataKey(key: string): boolean {
@@ -69,7 +80,7 @@ function safeMetadataValue(
   if (hasRuntimeType(value, "string")) return redactCredentialText(value)
   if (value === null || hasRuntimeType(value, "boolean")) return value
   if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
-  if (!value || !hasRuntimeType(value, "object") || depth >= 8 || seen.has(value)) return
+  if (!value || !hasRuntimeType(value, "object") || depth >= 16 || seen.has(value)) return
 
   seen.add(value)
   try {
