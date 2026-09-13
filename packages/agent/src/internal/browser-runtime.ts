@@ -2,6 +2,7 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, 
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { spawn } from "node:child_process"
+import { setTimeout as delay } from "node:timers/promises"
 import { lock } from "proper-lockfile"
 
 import type { AgentInvocationContextStore } from "../types.ts"
@@ -249,16 +250,31 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
   const assertLock = () => {
     if (lockError) throw lockError
   }
-  const lockPromise = lock(root, {
-    realpath: false,
-    retries: { retries: 1, forever: true, minTimeout: 1_000, maxTimeout: 1_000 },
-    stale: 60_000,
-    update: 10_000,
-    onCompromised(error) { lockError = error },
-  })
+  const lockPromise = (async () => {
+    while (true) {
+      signal?.throwIfAborted()
+      try {
+        return await lock(root, {
+          realpath: false,
+          retries: 0,
+          stale: 60_000,
+          update: 10_000,
+          onCompromised(error) { lockError = error },
+        })
+      }
+      catch (error) {
+        signal?.throwIfAborted()
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "ELOCKED") throw error
+        // Own the retry delay so the final consumer can cancel the wait.
+        await delay(1_000, undefined, { signal })
+      }
+    }
+  })()
+  let onAbort: (() => void) | undefined
   const abortPromise = signal ? new Promise<never>((_, reject) => {
-    if (signal.aborted) reject(signal.reason ?? new Error("The operation was aborted"))
-    else signal.addEventListener("abort", () => reject(signal.reason ?? new Error("The operation was aborted")), { once: true })
+    onAbort = () => reject(signal.reason ?? new Error("The operation was aborted"))
+    if (signal.aborted) onAbort()
+    else signal.addEventListener("abort", onAbort, { once: true })
   }) : undefined
   let release: (() => Promise<void>) | undefined
   try {
@@ -269,6 +285,9 @@ async function provision(root: string, npmCommand = "npm", platform: NodeJS.Plat
     // then so abandoned waiters cannot retain the cache lock.
     void lockPromise.then(unlock => unlock()).catch(() => undefined)
     throw error
+  }
+  finally {
+    if (onAbort) signal?.removeEventListener("abort", onAbort)
   }
   if (signal?.aborted) {
     await release()

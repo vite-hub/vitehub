@@ -202,6 +202,30 @@ describe("browser runtime", () => {
     expect((await readFile(value.count, "utf8")).trim().split("\n")).toHaveLength(1)
   })
 
+  it("stops lock retries when the final consumer cancels", async () => {
+    const value = await fixture()
+    await mkdir(value.cache, { mode: 0o700 })
+    const original = await vi.importActual<typeof import("proper-lockfile")>("proper-lockfile")
+    const unlock = await original.lock(value.cache, { realpath: false })
+    const controller = new AbortController()
+    const options = { cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" as const }
+    try {
+      const pending = prepareBrowserRuntime({ ...options, abortSignal: controller.signal })
+      await vi.waitFor(() => expect(lock).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(lock).mock.calls[0]?.[1]).toMatchObject({ retries: 0 })
+      controller.abort(new Error("cancel held lock wait"))
+      await expect(pending).rejects.toThrow("cancel held lock wait")
+      await new Promise(resolve => setTimeout(resolve, 1_100))
+      expect(lock).toHaveBeenCalledTimes(1)
+      await expect(readFile(value.count, "utf8")).rejects.toHaveProperty("code", "ENOENT")
+    }
+    finally {
+      await unlock()
+    }
+    const prepared = await prepareBrowserRuntime(options)
+    await closeBrowserRuntimeSession({ ...prepared.environment, AGENT_BROWSER_SESSION: "after-cancel" })
+  })
+
   it("replaces a pending lock wait only after all consumers cancel", async () => {
     const value = await fixture()
     let rejectLock!: (error: Error) => void
