@@ -447,7 +447,7 @@ async function transformScheduleRegistry(
   )
   return [
     `import { agentWithColocatedInstructions as vitehubAgentWithColocatedInstructions, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget, inheritAgentLayerOptions } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceRuntime.imports,
     ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
@@ -887,6 +887,8 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  for (const key of Reflect.ownKeys(resolvedAgent)) {",
     `    if (!Object.prototype.propertyIsEnumerable.call(resolvedAgent, key)) Object.defineProperty(decoratedAgent, key, Object.getOwnPropertyDescriptor(resolvedAgent, key)${typescript ? "!" : ""})`,
     "  }",
+    "  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== workspace.sources?.[key]))",
+    "  inheritAgentLayerOptions(resolvedAgent, decoratedAgent, { workspace: { sourceRootDir: resolvedSourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) } })",
     `  return decoratedAgent${typescript ? " as unknown as Agent" : ""}`,
     "}",
   ]
@@ -1692,6 +1694,7 @@ async function generateAgentDeploymentCatalog(
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const serverInternalImports = [
     "agentGeneratedRuntimeError as vitehubAgentRuntimeError",
+    "inheritAgentLayerOptions",
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),

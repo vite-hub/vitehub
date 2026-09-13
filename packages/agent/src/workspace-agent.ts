@@ -1,3 +1,4 @@
+import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
@@ -267,7 +268,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
   const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
+    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build" as const, mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
     : { ...ownedWorkspace.sources }
   const workspaceOptions = {
     ...options,
@@ -285,6 +286,10 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
+  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
+  inheritAgentLayerOptions(workspaceAgent, decoratedAgent, {
+    workspace: { sourceRootDir: resolvedSourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) },
+  })
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent
 }

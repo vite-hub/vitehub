@@ -347,6 +347,59 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions with `@../bot/instructions.md` and share Skills through explicit Sources or a directory link. Relative file paths resolve from each discovered Agent's directory.
 
+### Named presets
+
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import { notetaker } from "@example/agents"
+
+export default defineAgent({
+  preset: "notetaker",
+  presets: { notetaker },
+  name: "meeting-notes",
+  driver: { model: "gpt-5.6-sol" },
+})
+```
+
+`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
+
+Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
+
+A preset can expose typed options with the same `defineAgent()` function:
+
+```ts
+export const notetaker = defineAgent({
+  options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
+  configure: ({ format }) => defineAgent({
+    driver: { kind: "codex", instructions: `Write ${format} notes.` },
+  }),
+})
+```
+
+Consumers select the definition and override only the options they need:
+
+```ts
+const notes = defineAgent({
+  preset: "notetaker",
+  presets: { notetaker },
+  options: { format: "detailed", labels: [] },
+  driver: { model: "gpt-5.4" },
+})
+
+notes.options.format // "concise" | "detailed"
+```
+
+`options` uses nested defaults. Child values replace parent values, including `false`, empty arrays, and callbacks. Arrays never concatenate. Omitted or `undefined` values retain their defaults. Annotate optional fields and literal unions in the defaults to describe the accepted configuration. TypeScript checks options against the selected preset. If options come from untyped input, validate them in `configure`.
+
+`configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
+
+Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
+
+Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+
+
 
 ## evlog integration
 
