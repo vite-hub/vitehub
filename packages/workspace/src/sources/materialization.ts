@@ -1276,8 +1276,8 @@ function createLazyMaterializedMetadata(
     source: resolution.sourceKey,
     sourcePath: resolution.sourcePath,
     materializedAt: now,
-    ...(resolution.validate === "request" ? { validatedAt: now } : {}),
   }
+  if (resolution.validate === "request") result.validatedAt = now
   const etag = readStringMeta(upstreamMeta, "etag"); if (etag !== undefined) result.etag = etag
   const sha = readStringMeta(upstreamMeta, "sha"); if (sha !== undefined) result.sha = sha
   if (digest !== undefined) result.digest = digest
