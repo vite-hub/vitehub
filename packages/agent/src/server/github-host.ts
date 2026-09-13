@@ -675,12 +675,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       else {
         // When source metadata is unavailable, fetch GitHub's synthetic PR ref first.
         // It resolves heads from forks that are not reachable in the base repository.
+        let syntheticHeadMatches = false
         try {
           await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", `refs/pull/${pullRequest.number}/head`], commandOptions)
+          syntheticHeadMatches = (await exec("git", ["-C", checkout, "rev-parse", "FETCH_HEAD"], commandOptions)).stdout.trim() === pullRequest.headSha
         }
         catch {
-          // Older GitHub Enterprise installations may not expose PR refs; retain
-          // the exact-SHA fallback for those repositories.
+          // Older GitHub Enterprise installations may not expose PR refs.
+        }
+        if (!syntheticHeadMatches) {
+          // Retry the exact SHA when the synthetic PR ref is stale or unavailable.
           await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
         }
         await exec("git", ["-C", checkout, "checkout", "--detach", "FETCH_HEAD"], commandOptions)
