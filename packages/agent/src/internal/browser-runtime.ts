@@ -461,8 +461,14 @@ export async function closeBrowserRuntimeSession(environment: Readonly<Record<st
   if (!binRoot || !environment.AGENT_BROWSER_SESSION) return
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
   const installEnvironment = installerEnvironment()
-  await run(command, ["close"], {
-    env: { ...installEnvironment, ...environment, PATH: `${binRoot}${process.platform === "win32" ? ";" : ":"}${installEnvironment.PATH || ""}` },
-    timeoutMs: 15_000,
-  })
+  try {
+    await run(command, ["close"], {
+      env: { ...installEnvironment, ...environment, PATH: `${binRoot}${process.platform === "win32" ? ";" : ":"}${installEnvironment.PATH || ""}` },
+      timeoutMs: 15_000,
+    })
+  }
+  finally {
+    const socketDirectory = environment.AGENT_BROWSER_SOCKET_DIR
+    if (socketDirectory) await rm(socketDirectory, { force: true, recursive: true })
+  }
 }
