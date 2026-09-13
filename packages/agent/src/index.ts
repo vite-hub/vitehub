@@ -28,7 +28,7 @@ import {
 } from "./delivery-effects.ts"
 import { createExecutionContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
-import { getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
+import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { agentResultKind, agentStreamErrorSymbol, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -224,7 +224,6 @@ import type {
 } from "@vite-hub/workspace"
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
-import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 
 export { agentInvocationId } from "./invocations.ts"
 
@@ -288,6 +287,11 @@ export type {
   AgentCapabilityHandle,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentCapabilityInspection,
+  AgentCapabilityInspectionDefinition,
+  AgentCapabilityInspectionBinding,
+  AgentCapabilityInspectionElement,
+  AgentCapabilityInspectionView,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
   AgentCapabilityCliCommand,
@@ -2917,18 +2921,6 @@ function agentTelemetryConfigurationForContent(
   }
 }
 
-function agentTelemetryWorkspaceSources(sources: WorkspaceDefinition["sources"]): Array<{ id: string; repository?: string }> {
-  return normalizeWorkspaceSourcesMetadata(sources).map(({ key, source }) => {
-    const rawFingerprint = isRuntimeRecord(source) && isRuntimeRecord(source.fingerprint) ? source.fingerprint : undefined
-    const fingerprint = rawFingerprint && isRuntimeRecord(rawFingerprint.source) ? rawFingerprint.source : rawFingerprint
-    const sourceOptions = fingerprint && isRuntimeRecord(fingerprint.options) ? fingerprint.options : undefined
-    const repo = fingerprint && hasRuntimeType(fingerprint.repo, "string") ? fingerprint.repo : sourceOptions?.repo
-    const repository = hasRuntimeType(repo, "string") && /^[\w.-]+\/[\w.-]+$/.test(repo)
-      ? repo
-      : undefined
-    return { id: key, ...(repository ? { repository } : {}) }
-  })
-}
 
 function withAgentTelemetryContentAttributes(
   safe: Record<string, unknown> | undefined,
@@ -3027,7 +3019,7 @@ function agentTelemetryCorrelationRecord(
   if (!first || !last) return
   const correlationEvents = first === last ? [first] : [first, last]
   const metadataRecords = traceEventsToOpenTelemetryLogRecords(correlationEvents, { content: "metadata" })
-  const records = registration.content?.inputs || registration.content?.outputs
+  const records = registration.content && agentTelemetryUsesContent(registration)
     ? withAgentTelemetryLogContent(
         metadataRecords,
         traceEventsToOpenTelemetryLogRecords(correlationEvents, { content: "content" }),
@@ -3062,7 +3054,7 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
   const terminalSequence = run.events.at(-1)!.sequence
   const exports = await Promise.allSettled(telemetry.map(async (item) => {
     const { capabilityId, registration } = item
-    const selectedSpans = registration.content?.inputs || registration.content?.outputs
+    const selectedSpans = registration.content && agentTelemetryUsesContent(registration)
       ? withAgentTelemetryContent(
           metadataSpans,
           contentSpans ||= traceEventsToOpenTelemetrySpans(run.events, { content: "content" }),
@@ -3160,7 +3152,7 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
         return hasRuntimeType(sequence, "number") && sequence > afterSequence
       })
       const metadataRecords = currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "metadata" }))
-      const records = registration.content?.inputs || registration.content?.outputs
+      const records = registration.content && agentTelemetryUsesContent(registration)
         ? withAgentTelemetryLogContent(
             metadataRecords,
             currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "content" })),
@@ -3469,6 +3461,7 @@ async function createAgentInvocationContext<
   }
   let runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig> & { runEvents?: AgentRunEventPublisher } = tracedRuntimeContext
   let invoker = createFallbackAgentInvoker(context.run)
+  let capabilityPreparationPending = true
   let failureTelemetry = initialTelemetry
   let failureActivity: TraceActivityContext = { owner: "vitehub", phase: "setup" }
   let failureTraced = false
@@ -3506,18 +3499,25 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
-    const readinessController = new AbortController()
-    const readinessSignal = input.abortSignal ? AbortSignal.any([input.abortSignal, readinessController.signal]) : readinessController.signal
-    const readinessTimer = driverKind === "provider" ? setTimeout(() => readinessController.abort(), 3_000) : undefined
-    const readiness = driverKind === "provider" && definition?.status
-      ? Promise.race([
+    const resolveReadiness = async () => {
+      if (driverKind !== "provider" || !definition?.status) return undefined
+      const readinessController = new AbortController()
+      const readinessSignal = input.abortSignal ? AbortSignal.any([input.abortSignal, readinessController.signal]) : readinessController.signal
+      const readinessTimer = setTimeout(() => readinessController.abort(), 3_000)
+      try {
+        return await Promise.race([
           Promise.resolve().then(() => definition.status!(context, { abortSignal: readinessSignal })).catch(() => undefined),
           new Promise<undefined>(resolve => {
             if (readinessSignal.aborted) resolve(undefined)
             else readinessSignal.addEventListener("abort", () => resolve(undefined), { once: true })
           }),
-        ]).finally(() => { clearTimeout(readinessTimer); readinessController.abort() })
-      : Promise.resolve(undefined)
+        ])
+      }
+      finally {
+        clearTimeout(readinessTimer)
+        readinessController.abort()
+      }
+    }
 
     const invocationResolvedCapabilities = capabilitiesResolver
       ? await resolveAgentCapabilityDefinitions(capabilitiesResolver, {
@@ -3620,6 +3620,38 @@ async function createAgentInvocationContext<
     if (!telemetryContentTraceLogWrapped && runtimeContext.traceLog && failureTelemetry.some(({ registration }) => agentTelemetryUsesContent(registration))) {
       runtimeContext = { ...runtimeContext, traceLog: agentContentTraceLog(runtimeContext.traceLog, telemetryInvocationId, context.run?.runId, runtimeContext.trace) }
     }
+    if (failureTelemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
+      agent: definition?.name ? { name: definition.name } : {},
+      capabilities: resolvedCapabilityDefinitions.map(capability => ({
+        id: capability.id,
+        ...(capability.inspection ? { inspection: capability.inspection } : {}),
+      })),
+      driver: { kind: driverKind },
+      runtime: { name: runtimeContext.runtime },
+    })
+    if (invocationJournal) {
+      const traceConfiguration = async () => {
+        if (capabilityPreparationPending) return
+        const configuration = getAgentTelemetryConfiguration(invocationContext)?.value
+        if (!configuration) return
+        const journalTraceLog = invocationJournal.context.traceLog
+        const persistedConfiguration = invocationJournal.configuration === "content" || (journalTraceLog
+          && agentInvocationJournalContentTraceLogSymbol in journalTraceLog)
+          ? configuration
+          : agentTelemetryConfigurationForContent(configuration, {})
+        await runtimeContext.traceLog?.append({
+          activity: { owner: "vitehub", phase: "setup" },
+          attributes: {
+            "vitehub.agent.configuration": persistedConfiguration,
+            ...(persistedConfiguration.fingerprint ? { "vitehub.agent.configuration.fingerprint": persistedConfiguration.fingerprint } : {}),
+          },
+          name: "vitehub.agent.configured",
+          ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),
+          type: "run",
+        })
+      }
+      invocationContext.set(agentInvocationConfigurationUpdatedContextKey, traceConfiguration, { overwrite: true })
+    }
     callbackContext = createAgentCallbackContext(runtimeContext)
     const preparationController = new AbortController()
     if (driverKind === "provider" && definition?.status) {
@@ -3637,29 +3669,19 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
-    const knownUnavailable = readiness.then(status => {
+    const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
       if (status?.readiness === "unavailable" && !status.stale) {
         const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
         preparationController.abort(error)
-        // Setup may already own resources. Its scope closes on failure; a late successful
-        // setup must also close even though the invocation has already reported the error.
-        const cleanup = preparingCapabilities.then(capabilities => capabilities.close(), () => undefined)
+        // Input preparation owns resources even when provider preflight fails.
+        const cleanup = capabilities.close()
         context.waitUntil?.(cleanup)
         void cleanup.catch(() => undefined)
         throw error
       }
     })
-    // Observe early readiness failures while capability preparation is still pending.
-    void knownUnavailable.catch(() => undefined)
     const capabilities = await preparingCapabilities
-    // Capability responses are provider-independent and must bypass readiness failures.
-    // Keep the concurrent readiness probe observed so a rejection cannot become unhandled.
-    if (capabilities.response) {
-      void knownUnavailable.catch(() => undefined)
-    }
-    else {
-      await knownUnavailable
-    }
+    if (!capabilities.response) await knownUnavailable(capabilities)
     const inputHook = definition?.hooks?.["agent:input"]
     if (inputHook && !capabilities.response) {
       try {
@@ -3766,7 +3788,10 @@ async function createAgentInvocationContext<
         ...(definition?.version ? { version: definition.version } : {}),
       },
       capabilities: [...capabilityTelemetryMetadata.entries()]
-        .map(([id, metadata]) => ({ id, ...(Object.keys(metadata).length ? { metadata } : {}) }))
+        .map(([id, metadata]) => {
+          const inspection = resolvedCapabilityDefinitions.find(capability => capability.id === id)?.inspection
+          return { id, ...(inspection ? { inspection } : {}), ...(Object.keys(metadata).length ? { metadata } : {}) }
+        })
         .sort((left, right) => left.id.localeCompare(right.id)),
       ...(definition?.channels
         ? {
@@ -3789,9 +3814,7 @@ async function createAgentInvocationContext<
             workspace: {
               mode: workspaceMode,
               ...(activeWorkspaceDefinition.name ? { name: activeWorkspaceDefinition.name } : {}),
-              ...(activeWorkspaceDefinition.sources
-                ? { sources: agentTelemetryWorkspaceSources(activeWorkspaceDefinition.sources).sort((left, right) => left.id.localeCompare(right.id)) }
-                : {}),
+              ...(activeWorkspaceDefinition.sources ? { sources: agentTelemetryWorkspaceSources(activeWorkspaceDefinition.sources) } : {}),
             },
           }
         : {}),
@@ -3862,29 +3885,8 @@ async function createAgentInvocationContext<
     }
     invocationContext.set("agent.errorHook", Boolean(invocation.errorHook), { overwrite: true })
     invocationContext.set("agent.finishHook", Boolean(invocation.finishHook), { overwrite: true })
-    if (invocationJournal) {
-      const traceConfiguration = async () => {
-        const configuration = getAgentTelemetryConfiguration(invocationContext)?.value
-        if (!configuration) return
-        const journalTraceLog = invocationJournal.context.traceLog
-        const persistedConfiguration = invocationJournal.configuration === "content" || (journalTraceLog
-          && agentInvocationJournalContentTraceLogSymbol in journalTraceLog)
-          ? configuration
-          : agentTelemetryConfigurationForContent(configuration, {})
-        await runtimeContext.traceLog?.append({
-          activity: { owner: "vitehub", phase: "setup" },
-          attributes: {
-            "vitehub.agent.configuration": persistedConfiguration,
-            ...(persistedConfiguration.fingerprint ? { "vitehub.agent.configuration.fingerprint": persistedConfiguration.fingerprint } : {}),
-          },
-          name: "vitehub.agent.configured",
-          ...(runtimeContext.trace ? { trace: { ...runtimeContext.trace } } : {}),
-          type: "run",
-        })
-      }
-      invocationContext.set(agentInvocationConfigurationUpdatedContextKey, traceConfiguration, { overwrite: true })
-      await traceConfiguration()
-    }
+    capabilityPreparationPending = false
+    await invocationContext.get(agentInvocationConfigurationUpdatedContextKey)?.()
     await traceAgentInvocationStart(toTraceContext(invocation))
     try {
       await applyChannelDeliveryEffectIntents(invocation, invocation.deliveryEffectIntents)
@@ -3917,6 +3919,8 @@ async function createAgentInvocationContext<
     return invocation
   }
   catch (error) {
+    capabilityPreparationPending = false
+    await invocationContext.get(agentInvocationConfigurationUpdatedContextKey)?.()
     if (!failureTraced) {
       await traceAgentInvocationError({
         context: invocationContext,

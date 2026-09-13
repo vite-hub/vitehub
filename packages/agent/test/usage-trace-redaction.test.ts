@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest"
-import { traceAgentStreamEvent, type AgentTraceContext } from "../src/trace.ts"
+import { traceAgentInvocationFinish, traceAgentStreamEvent, type AgentTraceContext } from "../src/trace.ts"
 import type { StreamEvent } from "../src/messages.ts"
 
 const { emitTraceEvent } = vi.hoisted(() => ({ emitTraceEvent: vi.fn() }))
@@ -39,4 +39,40 @@ it.each([
   }))
   expect(JSON.stringify(emitTraceEvent.mock.lastCall)).not.toContain("hunter2")
   expect(event).toEqual(original)
+})
+
+it("redacts terminal usage metadata without changing provider evidence", async () => {
+  const context: AgentTraceContext = {
+    context: { entries: () => new Map<string, unknown>().entries(), get: vi.fn(), has: vi.fn(), set: vi.fn(), toJSON: () => ({}) },
+    // SAFETY: Usage tracing only forwards the runtime to the mocked sink.
+    runtime: {} as AgentTraceContext["runtime"],
+    input: {},
+    invoker: { id: "usage-trace-test" },
+  }
+  const raw = { providerText: "Retain original response evidence" }
+  const call = {
+    model: "postgres://alice:hunter2@host/model",
+    provider: "token=provider-secret",
+    cost: { source: "token=pricing-secret", usd: "0.01", estimated: true },
+    usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+    raw,
+  }
+  const usage = { ...call, calls: [call, { model: "gpt-6-astra", provider: "codex", cost: { source: "models.dev" } }] }
+  const original = structuredClone(usage)
+
+  await traceAgentInvocationFinish(context, { "usage.record": usage })
+
+  const safeCall = {
+    ...call,
+    model: "postgres://[REDACTED]@host/model",
+    provider: "token=[REDACTED]",
+    cost: { ...call.cost, source: "token=[REDACTED]" },
+  }
+  expect(emitTraceEvent).toHaveBeenLastCalledWith(context.runtime, expect.objectContaining({
+    name: "agent.invocation.finish",
+    attributes: expect.objectContaining({
+      "usage.record": { ...safeCall, calls: [safeCall, usage.calls[1]] },
+    }),
+  }))
+  expect(usage).toEqual(original)
 })

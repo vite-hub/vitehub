@@ -413,12 +413,35 @@ export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRunt
   })
 }
 
+function safeUsageMetadata(value: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...value,
+    ...(hasRuntimeType(value.model, "string") ? { model: redactCredentialText(value.model) } : {}),
+    ...(hasRuntimeType(value.provider, "string") ? { provider: redactCredentialText(value.provider) } : {}),
+    ...(isRuntimeRecord(value.cost) && hasRuntimeType(value.cost.source, "string")
+      ? { cost: { ...value.cost, source: redactCredentialText(value.cost.source) } }
+      : {}),
+  }
+}
+
 export async function traceAgentInvocationFinish<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
   attributes: Record<string, unknown> = {},
 ): Promise<void> {
+  const usage = attributes["usage.record"]
+  const safeAttributes = isRuntimeRecord(usage)
+    ? {
+        ...attributes,
+        "usage.record": {
+          ...safeUsageMetadata(usage),
+          ...(Array.isArray(usage.calls)
+            ? { calls: usage.calls.map(call => isRuntimeRecord(call) ? safeUsageMetadata(call) : call) }
+            : {}),
+        },
+      }
+    : attributes
   await traceAgentEvent(context, {
-    attributes: invocationAttributes(context, attributes),
+    attributes: invocationAttributes(context, safeAttributes),
     name: "agent.invocation.finish",
     type: "run",
   })

@@ -30,15 +30,15 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
   return true
 }
 
-function isCredentialScheme(scheme: string, prefix: string): boolean {
+function isCredentialScheme(scheme: string, prefix: string, token = ""): boolean {
   return scheme === "Bearer" || scheme === "Basic"
-    || /(?:^|[\r\n])[\t "']*$/.test(prefix)
+    || /(?:^|[\r\n])[\t "']*$/.test(prefix) && /[^a-z]/i.test(token)
     || /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
 }
 
 export function pendingCredentialScheme(value: string, precedingText = ""): "scheme" | "unquoted" | undefined {
   const match = new RegExp(String.raw`\b(Bearer|Basic)\s+(${unquotedCredentialValue}*)$`, "i").exec(value)
-  if (!match || !isCredentialScheme(match[1]!, precedingText + value.slice(0, match.index))) return
+  if (!match || !isCredentialScheme(match[1]!, precedingText + value.slice(0, match.index), match[2]!)) return
   return match[2] ? "unquoted" : "scheme"
 }
 
@@ -58,6 +58,8 @@ export function pendingCredentialUri(value: string): { start: number, prefix: st
 
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
+  const scheme = /(?:^|[\r\n])[\t "']*((?:bearer|basic)\s+[a-z]*)$/i.exec(value)
+  if (scheme) return scheme[1]
   return /\b[a-z][a-z0-9+.-]*:\/?$/i.exec(tail)?.[0]
     ?? /(?<![A-Za-z0-9_-])--[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
     ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
@@ -140,13 +142,13 @@ export function redactCredentialText(value: string, precedingText = ""): string 
       return `${prefix}${quote}[REDACTED]${closed ? quote : ""}`
     })
     .replace(/\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*"?|'(?:\\[\s\S]|[^'\\])*'?)/gi, (match, scheme: string, quoted: string, offset: number, source: string) => {
-      if (!isCredentialScheme(scheme, precedingText + source.slice(0, offset))) return match
+      if (!isCredentialScheme(scheme, precedingText + source.slice(0, offset), quoted)) return match
       const quote = quoted[0]!
       const closed = quoted.length > 1 && quoted.endsWith(quote) && !/(?:^|[^\\])(?:\\\\)*\\["']$/.test(quoted)
       return `${scheme} ${quote}[REDACTED]${closed ? quote : ""}`
     })
     .replace(new RegExp(String.raw`\b(Bearer|Basic)\s+${unquotedCredentialValue}+`, "gi"), (match, scheme: string, offset: number, source: string) =>
-      isCredentialScheme(scheme, precedingText + source.slice(0, offset)) ? `${scheme} [REDACTED]` : match)
+      isCredentialScheme(scheme, precedingText + source.slice(0, offset), match.slice(scheme.length).trim()) ? `${scheme} [REDACTED]` : match)
 
   return redactCredentialAssignments(redacted, precedingText)
 }
@@ -361,6 +363,7 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
   if (pendingAuthorizationHeader(value)) return true
   if (pendingCredentialQuote(value, precedingText)) return true
   if (pendingCredentialScheme(value, precedingText)) return true
+  if (/(?:^|[\r\n])[\t "']*(?:bearer|basic)\s+[a-z]*$/i.test(precedingText + value)) return true
   if (pendingCredentialAssignment(value, precedingText)) return true
   const tail = value.slice(-128)
   const trailingWord = /\b([A-Za-z][A-Za-z0-9_-]*)["']?\s*$/.exec(tail)?.[1]
@@ -375,7 +378,7 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
 
 export function pendingCredentialQuote(value: string, precedingText = ""): string | undefined {
   const scheme = /\b(Bearer|Basic)\s+("(?:\\[\s\S]|[^"\\])*\\?$|'(?:\\[\s\S]|[^'\\])*\\?$)/i.exec(value)
-  if (scheme && isCredentialScheme(scheme[1]!, precedingText + value.slice(0, scheme.index))) return scheme[2]?.[0]
+  if (scheme && isCredentialScheme(scheme[1]!, precedingText + value.slice(0, scheme.index), scheme[2]!)) return scheme[2]?.[0]
   const assignment = new RegExp(`${credentialAssignmentPrefix}("(?:\\\\[\\s\\S]|[^"\\\\])*\\\\?$|'(?:\\\\[\\s\\S]|[^'\\\\])*\\\\?$)`, "i").exec(value)
   return assignment && isCredentialAssignment(assignment[2]!, assignment[1]!, precedingText + value.slice(0, assignment.index)) ? assignment[3]?.[0] : undefined
 }

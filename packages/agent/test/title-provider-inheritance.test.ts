@@ -4,7 +4,7 @@ import { title } from "../src/capabilities/title.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
 const { createProviderAgentAdapter } = vi.hoisted(() => ({
-  createProviderAgentAdapter: vi.fn((driver: { model?: string }) => ({ generate: vi.fn(async () => ({
+  createProviderAgentAdapter: vi.fn((driver: { model?: string }) => ({ generate: vi.fn(async (): Promise<{ text: string; usageRecord?: { model?: string; usage: { inputTokens: number; outputTokens: number; totalTokens: number } } }> => ({
     text: "Inherited title",
     usageRecord: { model: driver.model, usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } },
   })) })),

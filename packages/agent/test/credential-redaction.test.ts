@@ -111,6 +111,8 @@ it.each([
 
 it.each([
   "This is a basic example",
+  "basic explanation follows",
+  "bearer of good news",
   "Use basic authentication",
   "A basic tutorial;status=ok",
 ])("preserves ordinary prose: %s", (text) => {
@@ -360,7 +362,9 @@ it.each(["The bearer of good news arrived", "A basic explanation follows"])("pre
 it.each(["bearer", "BEARER", "bEaReR", "basic", "BASIC", "bAsIc"])("redacts bare scheme lines: %s", (scheme) => {
   const prefix = `launcher failed\n  ${scheme} `
   expect(redactCredentialText(`${prefix}sensitive-value;status=ok`)).toBe(`${prefix}[REDACTED];status=ok`)
-  expect(pendingCredentialScheme(`${prefix}sensitive`)).toBe("unquoted")
+  expect(pendingCredentialScheme(`${prefix}sensitive`)).toBeUndefined()
+  expect(credentialTextMayContinue(`${prefix}sensitive`)).toBe(true)
+  expect(pendingCredentialScheme(`${prefix}sensitive-`)).toBe("unquoted")
 })
 
 it("keeps preceding prose context across scheme detection boundaries", () => {

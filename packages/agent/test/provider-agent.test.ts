@@ -2220,21 +2220,27 @@ cli_auth_credentials_store = "keyring"
     })
   })
 
-  it("ignores duplicate no-total usage updates", async () => {
+  it.each([
+    { inputTokens: 4, outputTokens: 1 },
+    { inputTokens: 5, outputTokens: 2 },
+    { inputTokens: 4, outputTokens: 1, cachedInputTokens: 2 },
+  ])("retains identity-free snapshots without claiming aggregate usage: %j", async (latest) => {
     const threadId = "thread-duplicate-no-total-usage"
     runtime(threadId, [
-      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1 } }),
-      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1 } }, { eventId: "notification-1" }),
+      event("thread.token-usage.updated", threadId, { usage: latest }, { eventId: "notification-2" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
-
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
     if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
     expect(result.usageRecord).toMatchObject({
-      usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 },
-      raw: { inputTokens: 4, outputTokens: 1 },
+      usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: undefined },
+      raw: latest,
+      calls: [{ provider: "codex", raw: latest }],
     })
+    if (!isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !isRuntimeRecord(result.usageRecord.calls[0])) throw new Error("Expected provider usage calls")
     expect(result.usageRecord.calls).toHaveLength(1)
+    expect(result.usageRecord.calls[0].usage).toBeUndefined()
   })
 
   it("keeps accumulated usage unknown when a distinct response lacks its partition", async () => {
@@ -2336,7 +2342,7 @@ cli_auth_credentials_store = "keyring"
   it.each([undefined, 0, 120])("omits absent provider latency and preserves duration %s", async (durationMs) => {
     const threadId = "thread-optional-latency"
     runtime(threadId, [
-      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 2, ...(durationMs === undefined ? {} : { durationMs }) } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 2, ...(durationMs === undefined ? {} : { durationMs }) } }, { itemId: "response-1" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
@@ -2646,6 +2652,7 @@ cli_auth_credentials_store = "keyring"
     ])
     // SAFETY: This fixture constructs the provider invocation contract.
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
     expect(result.usageRecord?.calls).toHaveLength(earlierUnknown ? 2 : 1)
     expect(result.usageRecord?.calls?.at(-1)).toMatchObject({
       raw: partition,
@@ -2660,6 +2667,19 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
+  it("completes an itemless raw snapshot at the same cumulative total", async () => {
+    const threadId = "thread-itemless-raw-completion"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 47 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord?.calls).toHaveLength(1)
+    expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 2, totalTokens: 7 })
+  })
+
   it.each([undefined, "response-2"])("keeps unmatched raw-only usage unknown: %s", async (laterIdentity) => {
     const threadId = "thread-unmatched-usage"
     runtime(threadId, [
@@ -2669,6 +2689,7 @@ cli_auth_credentials_store = "keyring"
     ])
     // SAFETY: This fixture constructs the provider invocation contract.
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
     expect(result.usageRecord?.calls?.[0]?.usage).toBeUndefined()
     expect(result.usageRecord?.usage?.inputTokens).toBeUndefined()
   })
@@ -2685,6 +2706,7 @@ cli_auth_credentials_store = "keyring"
     ])
     // SAFETY: This fixture constructs the provider invocation contract.
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
     expect(result.usageRecord?.calls).toHaveLength(2)
     expect(result.usageRecord?.calls?.[0]).toMatchObject({ raw: corrected, usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 } })
     expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 8, outputTokens: 3, totalTokens: 11 })
@@ -2701,6 +2723,7 @@ cli_auth_credentials_store = "keyring"
     ])
     // SAFETY: This fixture constructs the provider invocation contract.
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
     expect(result.usageRecord?.calls).toHaveLength(1)
     expect(result.usageRecord?.calls?.[0]).toMatchObject({ raw: corrected, usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 } })
     expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 1, totalTokens: 6 })
@@ -2718,6 +2741,7 @@ cli_auth_credentials_store = "keyring"
     ])
     // SAFETY: This fixture constructs the provider invocation contract.
     const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
     expect(result.usageRecord).toMatchObject({
       calls: [{ usage: { inputTokenDetails: { cacheReadTokens: 3 }, details: { cachedInputTokens: 3, reasoningOutputTokens: 2 } } }],
       usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6, inputTokenDetails: { cacheReadTokens: 3 }, details: { cachedInputTokens: 3, reasoningOutputTokens: 2 } },
@@ -3242,6 +3266,65 @@ cli_auth_credentials_store = "keyring"
     expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "accept")
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
   })
+
+  it("advertises steering only after the initial provider turn exists", async () => {
+    const threadId = "thread-initial-steering-admission"
+    let release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    let finish!: () => void
+    const finishing = new Promise<void>(resolve => { finish = resolve })
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      onSendTurn: () => pending,
+      beforeEvent: () => finishing,
+    })
+    const invocationId = `run-${threadId}`
+    const runContext = context(threadId)
+    runContext.runtime = withAgentInvocationResponseOwner(runContext.runtime, invocationId)
+    const result = collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(runContext as never))
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: false })
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "too soon" }, { mode: "steer" })).resolves.toBe("unsupported")
+    expect(provider.sendTurn).toHaveBeenCalledOnce()
+    release()
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    finish()
+    await result
+  })
+
+  it.each([false, true])("drains pending steering after completion (timeout: %s)", async (timesOut) => {
+    const threadId = "thread-pending-steering-drain"
+    let finish!: () => void
+    const finishing = new Promise<void>(resolve => { finish = resolve })
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { beforeEvent: () => finishing })
+    const invocationId = `run-${threadId}`
+    const runContext = context(threadId)
+    runContext.runtime = withAgentInvocationResponseOwner(runContext.runtime, invocationId)
+    const result = collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(runContext as never))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    let release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    provider.sendTurn.mockImplementationOnce(async () => {
+      await pending
+      return { resumeCursor: undefined, threadId, turnId: "turn-1" }
+    })
+    const steering = sendAgentInvocationInput(invocationId, { prompt: "pending direction" }, { mode: "steer" })
+    finish()
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: false }))
+    expect(provider.close).not.toHaveBeenCalled()
+    if (timesOut) {
+      expect(JSON.stringify(await result)).not.toContain("pending direction")
+      release()
+      await expect(steering).resolves.toBe("unavailable")
+    }
+    else {
+      release()
+      await expect(steering).resolves.toBe("accepted")
+      const events = await result as StreamEvent[]
+      const messageIndex = events.findIndex(event => event.type === "data-agent-event" && isRuntimeRecord(event.data) && event.data.kind === "input.message")
+      expect(messageIndex).toBeGreaterThanOrEqual(0)
+      expect(events.findIndex(event => event.type === "finish")).toBeGreaterThan(messageIndex)
+    }
+  }, 20_000)
 
   it("preserves the primary input handler during auxiliary provider runs", async () => {
     const primaryThreadId = "thread-primary-input"

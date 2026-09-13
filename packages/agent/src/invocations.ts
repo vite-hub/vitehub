@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
@@ -1034,6 +1034,18 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
         ...(observation.payload?.visibility === "public" ? { payload: { visibility: "redacted" as const } } : {}),
       }
       size = encoder.encode(JSON.stringify(candidate)).byteLength
+      const usageRecord = candidate.attributes?.["usage.record"]
+      if (bytes + size + (retained.length ? 1 : 0) > maxBytes && isRuntimeRecord(usageRecord)) {
+        // Keep canonical totals before dropping bulky per-call and raw evidence.
+        const { calls: _calls, raw: _raw, ...summary } = usageRecord
+        candidate = { ...candidate, attributes: { ...candidate.attributes, "usage.record": summary } }
+        size = encoder.encode(JSON.stringify(candidate)).byteLength
+        if (bytes + size + (retained.length ? 1 : 0) > maxBytes) {
+          const { "usage.record": _usage, ...attributes } = candidate.attributes!
+          candidate = { ...candidate, attributes }
+          size = encoder.encode(JSON.stringify(candidate)).byteLength
+        }
+      }
     }
     if (bytes + size + (retained.length ? 1 : 0) > maxBytes) continue
     bytes += size + (retained.length ? 1 : 0)
@@ -1339,7 +1351,17 @@ function journalTraceLog(
           if (!assignment.started) content += "[REDACTED]"
           else if (assignment.quote) content += `${assignment.escaped ? "\\" : ""}${assignment.quote}`
         }
+        else if (uri && content.length - uri.start < maxPendingCredentialCharacters) {
+          // An event boundary does not prove that an authority is userinfo.
+          // Keep the bounded suffix until its URI boundary or stream completion.
+          retainedContent = content.slice(uri.start)
+          content = content.slice(0, uri.start)
+        }
         else if (uri) {
+          pending.entry = {
+            ...pending.entry,
+            attributes: { ...pending.entry.attributes, [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true },
+          }
           redactingCredentialDeltas.set(key, { kind: "uri" })
           content = content.slice(0, uri.start) + uri.prefix + "[REDACTED]"
         }
@@ -1358,7 +1380,18 @@ function journalTraceLog(
         else {
           // A possible marker is still ordinary text until its separator arrives.
           retainedContent = pendingCredentialTextSuffix(content)
-          if (retainedContent) content = content.slice(0, -retainedContent.length)
+          if (retainedContent) {
+            content = content.slice(0, -retainedContent.length)
+            if (retainedContent.length >= maxPendingCredentialCharacters) {
+              pending.entry = {
+                ...pending.entry,
+                attributes: { ...pending.entry.attributes, [AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true },
+              }
+              content += "[REDACTED]"
+              redactingCredentialDeltas.set(key, { kind: "unquoted" })
+              retainedContent = undefined
+            }
+          }
         }
       }
       // A scheme name can itself be split before its colon. Retain a bounded

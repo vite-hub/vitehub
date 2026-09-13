@@ -370,6 +370,7 @@ export interface AgentToolInspection {
   description?: string
   inputSchema?: AgentInspectionValue
   name: string
+  mcp?: { server: string, name: string }
   outputSchema?: AgentInspectionValue
 }
 
@@ -401,7 +402,7 @@ export interface AgentTelemetryConfiguration {
   workspace?: {
     mode: AgentCapabilityMode
     name?: string
-    sources?: Array<string | { id: string; repository?: string }>
+    sources?: Array<string | { id: string, repository?: string }>
   }
 }
 
@@ -692,7 +693,7 @@ export interface ResolvedAgentTriggerDefinition<
   channelId?: string
   definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
   id: `${string}.${string}`
-  input?: unknown
+  input?: string | StandardSchemaV1<unknown, TInput>
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
@@ -1024,6 +1025,12 @@ export interface AgentDriverContribution {
   names?: string[]
 }
 
+/**
+ * Each callback receives copies of tool definitions, one per key, preserving prototypes, property flags, and accessor behavior.
+ * Accessors and executors use bound functions to retain their contributed instance as receiver. Their function identities can change.
+ * Rename non-MCP tools using the supplied definitions to retain Capability ownership.
+ * MCP renames must retain metadata.mcpServer and metadata.originalName. Same-key replacements inherit them.
+ */
 export type AgentToolTransform = (tools: AgentToolSet | undefined) => MaybePromise<AgentToolSet | undefined>
 export interface AgentProviderToolContribution {
   args?: Record<string, unknown>
@@ -1057,6 +1064,10 @@ export interface AgentCapabilityRuntimeContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCapabilityContext<TRuntimeConfig, Name> {
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
+  inspection: {
+    /** Replace this Capability's captured state without running inspection-time work. */
+    set: (state: Record<string, AgentInspectionValue>) => Promise<void>
+  }
   input: AgentCapabilityInputContext
   invocation: { input: AgentCapabilityInputContext, kind: "run" | "stream" }
   delivery: {
@@ -1111,6 +1122,7 @@ export interface AgentCapabilityDefinition<
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
+  inspection?: AgentCapabilityInspectionDefinition
   /** Set to false when the Capability has no model-facing behavior to explain in Agent Driver Instructions. */
   instructionCoverage?: boolean
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
@@ -1850,7 +1862,7 @@ export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
 
 export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | "serial" | "steer" | (string & {})
 
-export type AgentMessageDeliveryKind = "direct" | "mention" | "subscribed"
+export type AgentMessageDeliveryKind = "direct" | "mention"
 
 export type AgentMessageLockScope = "agent" | "channel" | "thread" | (string & {})
 

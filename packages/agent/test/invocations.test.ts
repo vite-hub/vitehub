@@ -46,6 +46,48 @@ function inspectableToolCapability() {
 }
 
 describe("Agent Invocations", () => {
+  it("retains terminal usage totals when raw and call evidence exceeds the byte budget", () => {
+    const usage = { inputTokens: 5, outputTokens: 2, totalTokens: 7 }
+    const result = byteBoundedObservations([{
+      name: "agent.invocation.finish", type: "run", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z",
+      attributes: { "usage.record": { usage, raw: { text: "x".repeat(10_000) }, calls: Array.from({ length: 200 }, () => ({ usage })) } },
+    }], observationLimits({ maxBytes: 512 }))
+    expect(result.truncated).toBe(true)
+    expect(result.observations).toHaveLength(1)
+    expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage })
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
+  })
+
+  it.each(["https://example.com", "postgres://alice:hunter2@db.example"])("retains safe URI evidence across intervening events: %s", async (uri) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("uri-event-boundary"))
+    if (!journal) throw new Error("Expected an invocation journal")
+    await journal.context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "answer", "message.content": `See ${uri}` } })
+    await journal.context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run", attributes: {} })
+    await journal.finish("completed")
+    const record = await invocations.getByRunId("uri-event-boundary")
+    expect(record?.observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")).toBe(`See ${uri.replace("alice:hunter2", "[REDACTED]")}`)
+  })
+
+  it.each([
+    ["basic explanation", " follows", "basic explanation follows"],
+    ["bearer of", " good news", "bearer of good news"],
+    ["postgres://alice", ":hunter2@db.example/path", "postgres://[REDACTED]@db.example/path"],
+  ])("retains ambiguous text across event boundaries: %s", async (prefix, suffix, expected) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("ambiguous-event-boundary"))
+    if (!journal) throw new Error("Expected an invocation journal")
+    await journal.context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "answer", "message.content": prefix } })
+    await journal.context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+    await journal.context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "answer", "message.content": suffix } })
+    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run", attributes: {} })
+    await journal.finish("completed")
+    const record = await invocations.getByRunId("ambiguous-event-boundary")
+    expect(record?.observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")).toBe(expected)
+  })
+
   it("flushes interleaved message identities and safe text before tool events", async () => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({

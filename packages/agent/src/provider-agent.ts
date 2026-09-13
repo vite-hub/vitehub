@@ -1788,6 +1788,7 @@ interface ProviderInvocationUsageAccumulator {
   cachedInputTokensComplete: boolean
   calls: AgentUsageRecord[]
   inputTokens: number
+  identityAmbiguous?: boolean
   lastSignature?: string
   lastResponseIdentity?: string
   lastCallIdentity?: string
@@ -1824,8 +1825,21 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     : cumulative !== undefined
       ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
       : options.accumulator.lastSignature !== signature
-  const countPartition = options.provider === "codex" && partitionTotal !== undefined && changed
-  if (options.provider === "codex" && changed && partitionTotal === undefined) {
+  const identityFree = options.provider === "codex" && responseIdentity === undefined && cumulative === undefined
+  if (identityFree) {
+    // Without a response boundary, snapshots cannot establish invocation totals.
+    // Keep the latest measured evidence raw so it cannot be priced as a call.
+    options.accumulator.identityAmbiguous = true
+    options.accumulator.observedPartition = true
+    const snapshot = { ...(options.model ? { model: options.model } : {}), provider: options.provider, raw: usage }
+    if (options.accumulator.lastUsageEvent && options.accumulator.lastResponseIdentity === undefined && options.accumulator.previousTotalProcessedTokens === undefined) {
+      options.accumulator.calls[options.accumulator.calls.length - 1] = snapshot
+    }
+    else options.accumulator.calls.push(snapshot)
+    options.accumulator.lastCallIdentity = undefined
+  }
+  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && changed
+  if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
     options.accumulator.partitionComplete = false
     options.accumulator.calls.push({
@@ -1875,8 +1889,8 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     options.accumulator.partitionComplete = options.accumulator.calls.every(call => call.usage !== undefined)
   }
   if (options.provider === "codex" && !changed && (sameResponse || (responseIdentity === undefined && options.accumulator.lastCallIdentity === undefined && cumulative !== undefined)) && previousCall?.usage) {
-    const cachedInputTokens = usage.cachedInputTokens ?? previousCall.usage.details?.cachedInputTokens
-    const reasoningOutputTokens = usage.reasoningOutputTokens ?? previousCall.usage.details?.reasoningOutputTokens
+    const cachedInputTokens = usage.cachedInputTokens ?? (hasRuntimeType(previousCall.usage.details?.cachedInputTokens, "number") ? previousCall.usage.details.cachedInputTokens : undefined)
+    const reasoningOutputTokens = usage.reasoningOutputTokens ?? (hasRuntimeType(previousCall.usage.details?.reasoningOutputTokens, "number") ? previousCall.usage.details.reasoningOutputTokens : undefined)
     if (partitionTotal !== undefined) {
       options.accumulator.inputTokens += inputTokens! - previousCall.usage.inputTokens!
       options.accumulator.outputTokens += outputTokens! - previousCall.usage.outputTokens!
@@ -1898,16 +1912,16 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     }
     // A later snapshot can complete or correct the latest response's details.
     const calls = options.accumulator.calls
-    options.accumulator.cachedInputTokensComplete = calls.every(call => call.usage?.details?.cachedInputTokens !== undefined)
-    options.accumulator.reasoningOutputTokensComplete = calls.every(call => call.usage?.details?.reasoningOutputTokens !== undefined)
-    options.accumulator.cachedInputTokens = calls.reduce((total, call) => total + (call.usage?.details?.cachedInputTokens ?? 0), 0)
-    options.accumulator.reasoningOutputTokens = calls.reduce((total, call) => total + (call.usage?.details?.reasoningOutputTokens ?? 0), 0)
+    options.accumulator.cachedInputTokensComplete = calls.every(call => hasRuntimeType(call.usage?.details?.cachedInputTokens, "number"))
+    options.accumulator.reasoningOutputTokensComplete = calls.every(call => hasRuntimeType(call.usage?.details?.reasoningOutputTokens, "number"))
+    options.accumulator.cachedInputTokens = calls.reduce((total, call) => total + (hasRuntimeType(call.usage?.details?.cachedInputTokens, "number") ? call.usage.details.cachedInputTokens : 0), 0)
+    options.accumulator.reasoningOutputTokens = calls.reduce((total, call) => total + (hasRuntimeType(call.usage?.details?.reasoningOutputTokens, "number") ? call.usage.details.reasoningOutputTokens : 0), 0)
   }
   options.accumulator.previousTotalProcessedTokens = cumulative
   options.accumulator.lastSignature = signature
   options.accumulator.lastResponseIdentity = responseIdentity
   options.accumulator.lastUsageEvent = event
-  const accumulatedPartition = options.provider === "codex" && options.accumulator.observedPartition && options.accumulator.partitionComplete
+  const accumulatedPartition = options.provider === "codex" && options.accumulator.observedPartition && options.accumulator.partitionComplete && !options.accumulator.identityAmbiguous
   const totalTokens = accumulatedPartition
     ? options.accumulator.inputTokens + options.accumulator.outputTokens
     : options.provider === "codex" && options.accumulator.observedPartition
@@ -2207,6 +2221,7 @@ async function* runProvider<
   }
   let caught: unknown
   let completed = false
+  let acceptingSteering = true
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
   const generatedProviderFiles: GeneratedProviderFile[] = []
@@ -2553,6 +2568,8 @@ async function* runProvider<
     const activeRuntime = runtime
     const invocationId = ownedAgentInvocationControlId(context.runtime)
     let activeTurnId: string | undefined
+    let drainingSteering = false
+    const pendingSteering = new Set<Promise<void>>()
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
@@ -2564,18 +2581,26 @@ async function* runProvider<
               : hasRuntimeType(input.message, "string")
                 ? input.message
                 : messages.map(getMessageText).filter((value): value is string => hasRuntimeType(value, "string")).join("\n\n")
-            if (!activeTurnId || !text?.trim()) return "unsupported"
+            if (!acceptingSteering || drainingSteering || !activeTurnId || !text?.trim()) return "unsupported"
+            let finishSteering!: () => void
+            const pending = new Promise<void>((resolve) => { finishSteering = resolve })
+            pendingSteering.add(pending)
             try {
               const steered = await activeRuntime.sendTurn({ threadId, input: text })
               if (steered.turnId !== activeTurnId) {
                 await activeRuntime.interruptTurn(threadId, steered.turnId).catch(() => undefined)
                 return "unsupported"
               }
+              if (!acceptingSteering) return "unavailable"
               const id = crypto.randomUUID()
               emitToolEvent({ type: "data-agent-event", id, data: { kind: "input.message", value: { message: text, mode: "steer" } } })
               emitToolEvent({ type: "data-agent-event", id, data: { kind: "input.steered", value: { mode: "steer" } } })
               return "accepted"
             } catch { return "unavailable" }
+            finally {
+              pendingSteering.delete(pending)
+              finishSteering()
+            }
           }
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
@@ -2586,7 +2611,7 @@ async function* runProvider<
             return "unavailable"
           }
         },
-        support: { respond: true, steer: true },
+        get support() { return { respond: true, steer: activeTurnId !== undefined && acceptingSteering && !drainingSteering } },
       })
     }
     const turn = await waitForProviderOperation(
@@ -2679,6 +2704,24 @@ async function* runProvider<
       }
       if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
+      if (isTerminalEvent(current.value, turn.turnId) && !caught) {
+        // A submitted steering request may settle after the terminal event.
+        // Keep the stream open until its acceptance evidence has been drained.
+        drainingSteering = true
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            Promise.all(pendingSteering),
+            new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
+            aborted,
+          ])
+        }
+        finally {
+          acceptingSteering = false
+          if (timeout) clearTimeout(timeout)
+        }
+        while (pendingToolEvents.length) yield pendingToolEvents.shift()!
+      }
       for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
@@ -2696,6 +2739,7 @@ async function* runProvider<
     throw caught
   }
   finally {
+    acceptingSteering = false
     unregister?.()
     clearActiveWorkspaceCommands?.()
     clearActiveWorkspaceFiles?.()

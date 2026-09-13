@@ -1,4 +1,6 @@
-import { hasRuntimeType } from "./runtime-type.ts"
+import type { WorkspaceDefinition } from "@vite-hub/workspace"
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
 import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {
@@ -134,7 +136,7 @@ function canonicalConfigurationValue(value: unknown): unknown {
 
 // Keep the key private to this runtime. Secret-bearing fingerprints are comparable
 // within the runtime without exposing a deterministic oracle for credential guesses.
-let configurationFingerprintKey: Promise<CryptoKey> | undefined
+let configurationFingerprintKey: ReturnType<typeof crypto.subtle.importKey> | undefined
 
 export async function agentTelemetryConfigurationFingerprint(
   configuration: AgentTelemetryConfiguration,
@@ -269,4 +271,21 @@ export function getAgentTelemetryConfiguration(
   context: AgentInvocationContextStore,
 ): AgentTelemetryConfigurationState | undefined {
   return configurationByContext.get(context)
+}
+
+export function agentTelemetryWorkspaceSources(sources: WorkspaceDefinition["sources"]): Array<string | { id: string; repository: string }> {
+  return Object.entries(sources ?? {}).sort(([left], [right]) => compareCodeUnits(left, right)).map(([key, entry]) => {
+    if (hasRuntimeType(entry, "string")) return key
+    const source = normalizeWorkspaceSourcesMetadata({ [key]: entry })[0]?.source
+    const rawFingerprint = isRuntimeRecord(source) && isRuntimeRecord(source.fingerprint) ? source.fingerprint : undefined
+    let fingerprint = rawFingerprint
+    while (fingerprint && "sourceResolution" in fingerprint && isRuntimeRecord(fingerprint.source)) fingerprint = fingerprint.source
+    const sourceOptions = fingerprint && isRuntimeRecord(fingerprint.options) ? fingerprint.options : undefined
+    const githubSource = isRuntimeRecord(source) && source.name === "github"
+    const repo = githubSource ? (fingerprint && hasRuntimeType(fingerprint.repo, "string") ? fingerprint.repo : sourceOptions?.repo) : undefined
+    const repository = hasRuntimeType(repo, "string") && /^[\w.-]+\/[\w.-]+$/.test(repo)
+      ? repo
+      : undefined
+    return repository ? { id: key, repository } : key
+  })
 }
