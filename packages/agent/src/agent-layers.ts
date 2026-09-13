@@ -210,7 +210,7 @@ function asMetadataTarget(value: unknown): Record<string, unknown> {
 
 function rememberConfiguredLayer(definition: AgentDefinition, configured: ConfiguredLayer): void {
   // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
-  const metadataTarget = definition as unknown as Record<string, unknown>
+  const metadataTarget = asMetadataTarget(definition)
   rememberLayerMetadata(metadataTarget, { ...layerMetadata(definition)!, configured })
   Object.defineProperty(definition, "options", {
     value: Object.freeze(mergePresetOptions({}, configured.options)),
