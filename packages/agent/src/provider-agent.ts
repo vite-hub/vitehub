@@ -157,6 +157,9 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
       if (offset !== -1) {
         await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
       }
+      else {
+        throw new Error(`Unable to safely remove generated provider content from ${generated.path}`)
+      }
     }
     return
   }
@@ -1629,7 +1632,11 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   }
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
-  await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
+  const gitInit = await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal })
+  if (gitInit.exitCode !== 0) {
+    await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
+    throw new Error("Unable to initialize workspace Git repository")
+  }
   return { provenance, session }
 }
 
@@ -1836,7 +1843,6 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     // Keep the latest measured evidence raw so it cannot be priced as a call.
     // A cumulative-only snapshot still supports the legacy invocation total;
     // ambiguity begins once an actual response partition is observed.
-    if (partitionTotal !== undefined) options.accumulator.identityAmbiguous = true
     // An identity-free snapshot without measurable input/output tokens is
     // cumulative evidence only; keep the legacy cumulative fallback available
     // until an actual partition has been observed.
