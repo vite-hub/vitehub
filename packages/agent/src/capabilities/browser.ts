@@ -159,6 +159,9 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
         provideBrowserRuntimeEnvironment(context.context, Object.freeze({ VITEHUB_BROWSER_ACTIVE: "1" }))
         return
       }
+      if (isRuntimeRecord(context.agentDriver) && context.agentDriver.launch !== undefined) {
+        throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+      }
       const runtime = await prepareBrowserRuntime({ abortSignal: context.abortSignal })
       provideBrowserRuntimeEnvironment(context.context, Object.freeze({
         ...runtime.environment,

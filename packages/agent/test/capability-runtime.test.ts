@@ -860,6 +860,44 @@ describe("agent capability runtime", () => {
   })
 
   it.each([
+    { command: "ssh", args: ["host"] },
+    () => ({ command: "custom-provider" }),
+  ])("rejects managed browser launchers before provisioning or retaining Skills: %j", async (launch) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const browserRuntime = await import("../src/internal/browser-runtime.ts")
+    const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockRejectedValue(new Error("unexpected browser installation"))
+    const workspaceName = `launcher-browser-${crypto.randomUUID()}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const write = vi.spyOn(workspace.fs, "writeFile")
+    try {
+      await expect(resolveAgentCapabilities({ capabilities: [browser()] }, runtime(), {}, workspace as never, "write", {
+        driver: { kind: "provider", provider: "codex", launch },
+        driverKind: "provider",
+        invocationKind: "run",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })).rejects.toThrow('browser({ runtime: "external" })')
+      expect(prepare).not.toHaveBeenCalled()
+      expect(write).not.toHaveBeenCalled()
+      await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(false)
+      const external = await resolveAgentCapabilities({ capabilities: [browser({ runtime: "external" })] }, runtime(), {}, workspace as never, "write", {
+        driver: { kind: "provider", provider: "codex", launch },
+        driverKind: "provider",
+        invocationKind: "run",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })
+      expect(prepare).not.toHaveBeenCalled()
+      await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(true)
+      await external.close()
+    }
+    finally {
+      prepare.mockRestore()
+      write.mockRestore()
+    }
+  })
+
+  it.each([
     { provider: "memory", path: undefined },
     { provider: "local", path: "skills/review" },
   ] as const)("retains directory-backed Skills through Workspace Sources: %j", async ({ provider, path }) => {
