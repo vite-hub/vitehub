@@ -1168,7 +1168,7 @@ export async function resolveAgentCapabilities<
       workspace: currentWorkspace,
       workspaceDefinition: currentWorkspaceDefinition,
       workspaceMaterializationPaths,
-      workspacePersistencePaths,
+      workspacePersistencePaths: invocationOptions.resolveTools === false ? [] : workspacePersistencePaths,
     }, workspaceMode, workspace || currentWorkspace, invocationOptions.workspaceDefinition)
     if (workspaceContribution) {
       currentWorkspace = hasTrustedWorkspaceAccessScope(invocationContext)

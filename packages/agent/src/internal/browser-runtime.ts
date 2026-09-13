@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, join, resolve } from "node:path"
 import { spawn } from "node:child_process"
@@ -276,8 +276,8 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   const binRoot = join(packageRoot, "node_modules", ".bin")
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
   const browserVersion = platform === "linux" ? chromiumBundleVersion : chromeForTestingVersion
-  const socketRoot = join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}`)
-  await mkdir(socketRoot, { mode: 0o700, recursive: true })
+  const socketRoot = await mkdtemp(join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}-`), { encoding: "utf8" })
+  await chmod(socketRoot, 0o700)
   // Every ancestor must be owned by the current user and not writable by
   // group/others; otherwise an attacker could replace the validated socket
   // directory between this check and use.
