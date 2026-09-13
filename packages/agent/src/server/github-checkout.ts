@@ -39,10 +39,15 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     }
   }
   options.signal?.throwIfAborted()
+  // Preserve the materialized workspace baseline while replacing its Git history.
+  // The baseline index contains generated instructions and selected files; restoring
+  // it after copying prevents out-of-scope paths from appearing deleted.
+  const baselineTree = await git(destination, ['write-tree']).catch(() => undefined)
   // Recycled directories must not retain refs or config from an earlier PR.
   await rm(join(destination, '.git'), { recursive: true, force: true })
   try {
     await cp(join(source, '.git'), join(destination, '.git'), { recursive: true })
+    if (baselineTree) await git(destination, ['read-tree', baselineTree])
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
     const config = await git(destination, ['config', '--local', '--name-only', '--list'])
