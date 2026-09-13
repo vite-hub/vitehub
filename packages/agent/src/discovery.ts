@@ -77,6 +77,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   const call = stripped.match(/\bdefineAgent\s*\(\s*\{/)
   if (!call || call.index === undefined) return false
   let depth = 1
+  let hasPreset = false
+  let hasPresets = false
   for (let i = call.index + call[0].length; i < stripped.length; i++) {
     const char = stripped[i]
     if (char === "{") depth++
@@ -84,9 +86,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       depth--
       if (depth === 0) break
     }
-    if (depth === 1 && /\bworkspace\s*:/.test(stripped.slice(i))) return true
+    if (depth !== 1) continue
+    const rest = stripped.slice(i)
+    if (/^\s*workspace\s*:/.test(rest)) return true
+    if (/^\s*preset\s*:/.test(rest) || /^\s*preset\s*,/.test(rest)) hasPreset = true
+    if (/^\s*presets\s*:/.test(rest) || /^\s*presets\s*,/.test(rest)) hasPresets = true
   }
-  return false
+  return hasPreset && hasPresets
 }
 
 function isAgentDefinitionSource(source: string): boolean {
