@@ -6,17 +6,20 @@ export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
   const pr = snapshot.pr
   if (!pr?.head?.sha || !pr.head.ref || !pr.base?.ref) throw new Error(`Incomplete PR snapshot for ${snapshot.repository}#${snapshot.number}`)
   const head = pr.head
+  const headSha = head.sha
+  const headRef = head.ref
+  const baseRef = pr.base.ref
   return {
     ...pr,
     number: snapshot.number,
     state: String(pr.state).toUpperCase(),
-    headRefOid: head.sha,
-    headRefName: head.ref,
-    baseRefName: pr.base.ref,
+    headRefOid: headSha,
+    headRefName: headRef,
+    baseRefName: baseRef,
     baseRefOid: pr.base.sha ?? '',
     body: pr.body ?? '',
     reviewDecision: pr.reviewDecision ?? '',
-    statusCheckRollup: Object.values(snapshot.checks).filter(check => !check.deleted && (!check.head_sha || check.head_sha === pr.head.sha)).map(check => ({ ...check, name: check.name ?? check.context, status: String(check.status ?? '').toUpperCase(), conclusion: String(check.conclusion ?? '').toUpperCase() })),
+    statusCheckRollup: Object.values(snapshot.checks).filter(check => !check.deleted && (!check.head_sha || check.head_sha === headSha)).map(check => ({ ...check, name: check.name ?? check.context, status: String(check.status ?? '').toUpperCase(), conclusion: String(check.conclusion ?? '').toUpperCase() })),
     headRepository: head.repo ? { nameWithOwner: head.repo.full_name } : null,
         isDraft: Boolean(pr.draft),
     url: pr.html_url ?? '',
