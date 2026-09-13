@@ -1883,7 +1883,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     && options.accumulator.calls.some(call => call.usage === undefined) && !completesRawOnly) {
     options.accumulator.identityAmbiguous = true
   }
-  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
+  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly) && !(responseIdentity === undefined && options.accumulator.calls.some(call => call.usage === undefined) && !completesRawOnly)
   if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
     options.accumulator.partitionComplete = false
