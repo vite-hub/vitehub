@@ -75,7 +75,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
     const config = await git(destination, ['config', '--local', '--name-only', '--list'])
-    for (const key of new Set(config.split('\n').filter(key => /^credential\.|^http\..*extraheader$|^http\.extraheader$/i.test(key)))) {
+    for (const key of new Set(config.split('\n').filter(key => /^credential\.|^http\..*extraheader$|^http\.extraheader$|^http\.proxy$|^http\..*\.proxy$/i.test(key)))) {
       await git(destination, ['config', '--local', '--unset-all', key])
     }
     if (await git(destination, ['rev-parse', 'HEAD']) !== expected
