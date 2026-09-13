@@ -27,6 +27,12 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   delete env.GIT_WORK_TREE
   delete env.GIT_INDEX_FILE
   delete env.GIT_COMMON_DIR
+  delete env.GIT_OBJECT_DIRECTORY
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES
+  delete env.GIT_CONFIG_GLOBAL
+  delete env.GIT_CONFIG_SYSTEM
+  delete env.GIT_CONFIG_NOSYSTEM
+  for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   const git = async (cwd: string, args: string[]) => (await exec('git', args, { cwd, env, signal: options.signal })).stdout.trim()
   // The host checkout already contains complete history; copying must not
   // require network access or credentials in the provider preparation flow.
@@ -77,7 +83,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     }
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
-    const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand|hookspath)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type|passwordprotected)?|sslcert(?:type|passwordprotected)?|proxysslkey|proxysslcert|proxysslcertpasswordprotected)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
+    const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand|hookspath)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^gitcvs\.dbpass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type|passwordprotected)?|sslcert(?:type|passwordprotected)?|proxysslkey|proxysslcert|proxysslcertpasswordprotected)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
     const sanitize = async (scope: '--local' | '--worktree') => {
       let config = ''
       try {
