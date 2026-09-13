@@ -27,6 +27,10 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   delete env.GIT_INDEX_FILE
   delete env.GIT_COMMON_DIR
   const git = async (cwd: string, args: string[]) => (await exec('git', args, { cwd, env, signal: options.signal })).stdout.trim()
+  // Provider workspaces must retain history without depending on the private
+  // origin after credentials are removed. Hydrate blobs omitted by the clone
+  // filter before copying the object database.
+  await git(source, ['fetch', '--refetch', '--no-tags', 'origin'])
   const expected = await git(source, ['rev-parse', 'HEAD'])
   const origin = await git(source, ['remote', 'get-url', 'origin'])
   const push = await git(source, ['remote', 'get-url', '--push', 'origin'])
