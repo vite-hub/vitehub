@@ -1056,6 +1056,39 @@ describe("agent capability runtime", () => {
     }
   })
 
+  it.each([
+    { resolveTools: false },
+    { phases: ["prepare" as const], invocationKind: "run" as const },
+  ])("recognizes retained skills during read-only inspection: %j", async (inspectionOptions) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const workspaceName = `inspection-retained-${crypto.randomUUID()}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const options = {
+      driverKind: "provider" as const,
+      invocationKind: "run" as const,
+      workspaceDefinition: { name: workspaceName, sources: {} },
+    }
+    const capability = browser({ runtime: "external", skillContent: "# Original guidance\n" })
+    const invocation = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", options)
+    await invocation.close()
+    const path = ".agents/skills/agent-browser/SKILL.md"
+    const retained = await workspace.fs.readFile(path)
+    const write = vi.spyOn(workspace.fs, "writeFile")
+    try {
+      const inspected = await resolveAgentCapabilities({
+        capabilities: [browser({ runtime: "external", skillContent: "# Updated guidance\n" })],
+      }, runtime(), {}, workspace as never, "write", { ...options, ...inspectionOptions })
+      await inspected.close()
+      expect(write).not.toHaveBeenCalled()
+      await expect(workspace.fs.readFile(path)).resolves.toBe(retained)
+    }
+    finally {
+      write.mockRestore()
+    }
+  })
+
   it("does not mention Blob tools in the default browser skill", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")

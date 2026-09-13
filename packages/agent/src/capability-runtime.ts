@@ -852,6 +852,7 @@ async function applyCapabilityWorkspaceContributions<
     workspaceDefinition: WorkspaceDefinition
     workspaceMaterializationPaths?: readonly string[]
     workspacePersistencePaths?: readonly { capabilityId: string, path: string }[]
+    persistWorkspaceContributions: boolean
   },
   workspaceMode: AgentCapabilityMode,
   baseWorkspace: ReadonlyWorkspaceFacade<Name>,
@@ -930,7 +931,7 @@ async function applyCapabilityWorkspaceContributions<
       writeFile(path: string, content: string | Uint8Array, options?: { ifDigest?: string | null, mediaType?: string, metadata?: Record<string, unknown> }): Promise<string>
     }
   }
-  if (persistencePaths.length && await supportsSkillPersistence(retainedWorkspace)) {
+  if (context.persistWorkspaceContributions && persistencePaths.length && await supportsSkillPersistence(retainedWorkspace)) {
     await Promise.all(persistencePaths.map(({ path }) => sourceResolution.workspace.fs.materializeSources?.({ path })))
     const pending: Array<{ capabilityId: string, path: string, ifDigest: string | null }> = []
     const desired = new Map<string, { content: string | Uint8Array, digest: string }>()
@@ -1171,12 +1172,11 @@ export async function resolveAgentCapabilities<
       workspace: currentWorkspace,
       workspaceDefinition: currentWorkspaceDefinition,
       workspaceMaterializationPaths,
-      // Persistence is a side effect of an actual invocation. Metadata and
-      // prepare-only resolutions must remain read-only even when the workspace
-      // supports retained skills.
-      workspacePersistencePaths: inspection ||
-        (invocationOptions.invocationKind !== "run" && invocationOptions.invocationKind !== "stream")
-        ? [] : workspacePersistencePaths,
+      workspacePersistencePaths,
+      // Inspection needs retained ownership for conflict validation, but must
+      // never publish generated contributions to the underlying workspace.
+      persistWorkspaceContributions: !inspection
+        && (invocationOptions.invocationKind === "run" || invocationOptions.invocationKind === "stream"),
     }, workspaceMode, workspace || currentWorkspace, invocationOptions.workspaceDefinition)
     if (workspaceContribution) {
       currentWorkspace = hasTrustedWorkspaceAccessScope(invocationContext)
