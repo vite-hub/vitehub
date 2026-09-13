@@ -116,6 +116,7 @@ export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGi
   if (globalNext > now) return
   inbox.setMeta(globalKey, now + 60_000)
   const candidates = inbox.all().filter(s => !s.lease && s.status !== 'terminal')
+    // SAFETY: probe metadata is written as numeric timestamps by this reconciler.
     .sort((a, b) => ((inbox.meta(`snapshot-probe:${a.repository}:${a.number}`) as number | undefined) ?? 0) - ((inbox.meta(`snapshot-probe:${b.repository}:${b.number}`) as number | undefined) ?? 0))
   // SAFETY: probe metadata is written as numeric timestamps by this reconciler.
   const s = candidates.find(s => ((inbox.meta(`snapshot-probe:${s.repository}:${s.number}`) as number | undefined) ?? 0) <= now)
