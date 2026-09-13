@@ -345,6 +345,27 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions with `@../bot/instructions.md` and share Skills through explicit Sources or a directory link. Relative file paths resolve from each discovered Agent's directory.
 
+### Named presets
+
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import { notetaker } from "@example/agents"
+
+export default defineAgent({
+  preset: "notetaker",
+  presets: { notetaker },
+  name: "meeting-notes",
+  driver: { model: "gpt-5.6-sol" },
+})
+```
+
+`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
+
+Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Export configured Agents directly, or expose a small typed configuration function that returns a `defineAgent()` definition. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
+
+
 
 ## evlog integration
 
