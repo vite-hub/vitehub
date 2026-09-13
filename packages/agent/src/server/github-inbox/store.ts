@@ -30,6 +30,7 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid stored snapshot')
   // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Runtime validation establishes the persisted shape.
+  // SAFETY: the preceding runtime checks establish that raw is a non-array object.
   const value = raw as Record<string, unknown>
   const requiredStrings = ['repository', 'status']
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.

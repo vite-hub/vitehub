@@ -5,6 +5,7 @@ const author = (value: GitHubEvidence) => ({ login: value.user?.login ?? value.a
 const commentsOf = (thread: GitHubReviewThread): GitHubEvidence[] => Array.isArray(thread.comments) ? thread.comments : thread.comments?.nodes ?? []
 const ids = (value: GitHubEvidence) => [value.id, value.node_id, value.databaseId].filter(id => id !== undefined && id !== null).map(String)
 const headRelation = (sha: unknown, head: unknown) => !sha ? 'unknown' : sha === head ? 'current' : 'historical'
+// doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped repository timestamps before parsing.
 const timestamp = (value: unknown) => typeof value === 'string' ? Date.parse(value) || 0 : 0
 const currentHeadFirst = (left: { headRelation: string }, right: { headRelation: string }) => Number(right.headRelation === 'current') - Number(left.headRelation === 'current')
 const resolutionPriority = { unresolved: 0, unknown: 1, resolved: 2 } as const
@@ -93,6 +94,7 @@ function xmlElement(name: string, value: unknown): string {
   // XML 1.0 cannot contain control codes or lone surrogates. Preserve them
   // reversibly as a JSON string instead of stripping repository text.
   // eslint-disable-next-line no-control-regex
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped XML values before encoding.
   if (typeof value === 'string' && /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/u.test(value)) {
     return `<${name} encoding="json-string">${escapeSnapshotXml(JSON.stringify(value))}</${name}>`
   }
