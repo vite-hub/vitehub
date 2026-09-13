@@ -52,6 +52,18 @@ it('preserves independent ancestry and source push destination, replacing stale 
   expect(await git(source, 'status', '--porcelain')).toBe('')
 })
 
+it('copies historical blobs without contacting the credentialed origin', async () => {
+  const { source, target } = await fixture()
+  await writeFile(join(source, 'file.txt'), 'current head\n')
+  await git(source, 'commit', '-am', 'update')
+  await cp(join(source, 'file.txt'), join(target, 'file.txt'))
+  // Neither preparation nor historical reads may contact this unavailable remote.
+  await git(source, 'remote', 'set-url', 'origin', 'https://127.0.0.1:1/private.git')
+  await prepareGitHubPullRequestWorkspace(source, target)
+  expect(await git(target, 'show', 'HEAD^:file.txt')).toBe('before')
+  expect(await git(target, 'diff', 'HEAD^', 'HEAD', '--', 'file.txt')).toContain('+current head')
+})
+
 it('rejects shared directories, linked worktrees, and cancelled preparation', async () => {
   const { root, source, target } = await fixture()
   await expect(prepareGitHubPullRequestWorkspace(source, source)).rejects.toThrow('must be separate')
