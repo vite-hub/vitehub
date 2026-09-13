@@ -2459,6 +2459,26 @@ describe("lazy sources", () => {
     })
   })
 
+  it("materializes independent sources in forward order for workspace file dependencies", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "source-context-forward-order",
+      sources: {
+        input: custom({ mount: "input", materialize: "startup", files: [{ path: "value.txt", content: "fresh value" }] }),
+        output: custom({
+          mount: "other",
+          materialize: "startup",
+          getKeys: async () => ["copy.txt"],
+          getItem: async (key, ctx) => ({ key, content: await ctx.workspaceFiles!.readFile("input/value.txt") }),
+        }),
+      },
+    }, store)
+
+    await view.materializeSources()
+
+    await expect(store.readFile("other/copy.txt")).resolves.toMatchObject({ content: "fresh value" })
+  })
+
   it("lets sources read existing workspace files while materializing", async () => {
     let previousReport = ""
     const store = createMemoryWorkspaceStore()

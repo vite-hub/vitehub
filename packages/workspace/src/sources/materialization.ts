@@ -729,9 +729,21 @@ async function materializeWorkspaceSourcesInternal(
   let directories = 0
   let bytes = 0
 
-  // Path resolution selects the first matching Source. Write it last so batch
-  // preparation leaves the same content in the Store as subsequent reads.
-  for (const source of sources.toReversed()) {
+  // Preserve forward execution for independent mounts: a Source can read an
+  // earlier Source's output. Overlapping writers still run in reverse priority
+  // so the first matching Source leaves the content selected by path resolution.
+  const orderedSources: ResolvedWorkspaceSource[] = []
+  const scheduled = new Set<ResolvedWorkspaceSource>()
+  const schedule = (source: ResolvedWorkspaceSource, index: number) => {
+    if (scheduled.has(source)) return
+    scheduled.add(source)
+    for (let next = index + 1; next < sources.length; next++) {
+      if (sourceMountIntersectsPath(source, sources[next]!.mountPath)) schedule(sources[next]!, next)
+    }
+    orderedSources.push(source)
+  }
+  sources.forEach(schedule)
+  for (const source of orderedSources) {
     throwIfAborted(options.abortSignal)
     const sourceStarted = Date.now()
     await reportMaterializationProgress(options, source, { status: "started" })
@@ -1133,7 +1145,7 @@ async function materializeWorkspaceSourcesInternal(
     durationMs: Date.now() - started,
     files,
     path: normalizeWorkspacePath(options.path || ""),
-    sources: resultSources.reverse(),
+    sources: resultSources.sort((left, right) => sources.findIndex(source => source.key === left.source) - sources.findIndex(source => source.key === right.source)),
   }
 }
 
