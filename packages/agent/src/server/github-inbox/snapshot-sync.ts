@@ -85,11 +85,12 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
     readAll(read, `${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
     readThreads?.(repository, number),
   ])
-  return { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
+  const patch: import('./store.ts').SnapshotPatch & { pr: GitHubPullRequestRecord } = { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
     checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
-    statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
-    ...threads ? { threads, threadsHydrated: true, feedbackRefresh: false } : {} }
+    statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true }
+  if (threads) Object.assign(patch, { threads, threadsHydrated: true, feedbackRefresh: false })
+  return patch
 }
 
 export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads): Promise<boolean> {
