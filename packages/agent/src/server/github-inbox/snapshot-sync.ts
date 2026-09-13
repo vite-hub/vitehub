@@ -89,7 +89,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
     reviewComments: index(reviewComments.map(parseEvidence)),
     checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
-    ...(threads ? { threads, threadsHydrated: true, feedbackRefresh: false } : {}) }
+    ...threads ? { threads, threadsHydrated: true, feedbackRefresh: false } : {} }
 }
 
 export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads): Promise<boolean> {
