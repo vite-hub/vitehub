@@ -404,6 +404,24 @@ comments from feedback fingerprints. `feedback.hasDiscussion` is conservative;
 consumers must still check failures and conflicts before deciding to wait.
 `publishAgentActivity()` updates a channel without starting an invocation.
 
+`createGitHubPullRequestOperations(host, { repository, number, expectedHeadOid,
+autoMerge, eligible, push })` binds repair operations to one PR. Expose its
+comment, metadata, thread resolution, failure log, and push methods as selected
+Capabilities. Keep `host`, its credentials, and Git credential configuration out
+of the worker. `eligible` receives current PR fields and all labels, so the host
+can recheck the channel filter before each operation. The host-owned `push`
+callback returns the verified commit SHA; subsequent operations follow that head
+and reject external changes.
+
+`requestAutoMerge()` is disabled by default. When enabled, it checks repository
+settings, required checks in active branch rules or classic protection, and
+outstanding human change requests, then requests GitHub native auto-merge with
+an atomic expected-head check. It returns `enabled`, `already-enabled`, `merged`,
+or `blocked` with a reason. GitHub remains responsible for required checks and
+reviews. The operation never approves, merges directly, or deletes a branch.
+If automatic repository branch deletion could affect open child PRs, it blocks.
+API failures propagate without a direct-merge fallback.
+
 `host.channel({ activity: true })` shares a GitHub host's credentials and identity.
 A provider `env` resolver can call `host.environment()` inside
 `withPullRequestCheckout()`. The environment binds to that callback's checkout,

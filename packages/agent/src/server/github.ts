@@ -21,3 +21,6 @@ export type { GitHubWorkspaceRevision, GitHubWorkspaceInspector } from "./github
 
 export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckState, parseRequiredChecks } from './github-pull-requests.ts'
 export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './github-pull-requests.ts'
+
+export { createGitHubPullRequestOperations } from './github-auto-merge.ts'
+export type { GitHubAutoMergeResult, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot } from './github-auto-merge.ts'
