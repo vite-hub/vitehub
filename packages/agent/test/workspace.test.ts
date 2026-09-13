@@ -2714,6 +2714,7 @@ describe("defineAgent workspace option", () => {
   it("composes object-form instructions in static inspection metadata", async () => {
     const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const agent = defineAgent({
+      workspace: {},
       driver: {
         instructions: {
           template: "Before\n{{{ instructions }}}\nAfter",
