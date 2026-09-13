@@ -1311,11 +1311,14 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
     if (fence) return line
     let result = ""
     let index = 0
-    for (const match of line.matchAll(/`+/g)) {
-      const start = match.index ?? 0
+    while (index < line.length) {
+      const start = line.indexOf("`", index)
+      if (start < 0) break
       result += line.slice(index, start).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
-      const ticks = match[0]
-      const end = line.indexOf(ticks, start + ticks.length)
+      let tickEnd = start
+      while (line[tickEnd] === "`") tickEnd++
+      const ticks = line.slice(start, tickEnd)
+      const end = line.indexOf(ticks, tickEnd)
       if (end < 0) { result += line.slice(start); index = line.length; break }
       result += line.slice(start, end + ticks.length)
       index = end + ticks.length
