@@ -11,6 +11,7 @@ interface ConfiguredLayer {
 interface AgentLayerMetadata {
   options: AgentSettings
   configured?: ConfiguredLayer
+  defaults?: Partial<AgentSettings>
   parent?: object
 }
 
@@ -93,7 +94,8 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
   if (!parent || !hasRuntimeType(parent, "object") || !layerMetadata(parent)) {
     throw new TypeError("[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().")
   }
-  const configured = layerMetadata(parent)?.configured
+  const inherited = layerMetadata(parent)!
+  const configured = inherited.configured
   if (!configured && "options" in input) {
     throw new TypeError("[vitehub] Agent options require a preset with options and configure.")
   }
@@ -108,23 +110,23 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     const inheritedOverrides = merge(parentOverrides, overrides, "")
     if (!record(inheritedOverrides)) throw new TypeError("[vitehub] Invalid Agent layer overrides.")
     const { name: _parentName, ...defaults } = layerMetadata(definition)!.options
-    const resolved = merge(defaults, inheritedOverrides, "")
+    const resolved = merge(merge(inherited.defaults, defaults, ""), inheritedOverrides, "")
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
-    rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, parent })
+    rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     return resolved
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
   const resolved = merge(defaults, overrides, "")
   if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
   // SAFETY: Resolved settings merge a registered definition with its overrides.
-  rememberLayerMetadata(resolved, { options: resolved as AgentSettings, parent })
+  rememberLayerMetadata(resolved, { options: resolved as AgentSettings, defaults: inherited.defaults, parent })
   return resolved
 }
 
 export function rememberAgentLayerOptions<T extends AgentDefinition>(definition: T, options: AgentSettings, source: AgentSettings = options): T {
   const inherited = layerMetadata(source)
-  rememberLayerMetadata(definition, { options: { ...options }, configured: inherited?.configured })
+  rememberLayerMetadata(definition, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
   if (inherited?.parent) inheritColocatedSkills(inherited.parent, definition)
   if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured)
   return definition
@@ -168,12 +170,13 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
   inheritColocatedSkills(definition, configured)
+  inheritAgentLayerOptions(definition, configured)
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })
   return configured
 }
 
 function rememberConfiguredLayer(definition: AgentDefinition, configured: ConfiguredLayer): void {
-  rememberLayerMetadata(definition, { options: layerMetadata(definition)!.options, configured })
+  rememberLayerMetadata(definition, { ...layerMetadata(definition)!, configured })
   Object.defineProperty(definition, "options", {
     value: Object.freeze(mergePresetOptions({}, configured.options)),
     enumerable: true,
@@ -187,17 +190,14 @@ export function getAgentLayerOptions(definition: AgentDefinition): AgentSettings
   return options ? { ...options } : undefined
 }
 
-/** Keep composition available after package-owned Workspace decoration. */
-export function inheritAgentLayerOptions(parent: unknown, child: unknown, overrides?: Partial<AgentSettings>): void {
+/** Keep discovery defaults available without pinning configured values on future extensions. */
+export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaults?: Partial<AgentSettings>): void {
   const metadata = layerMetadata(parent)
   if (!metadata || !child || !hasRuntimeType(child, "object")) return
-  const options = merge(metadata.options, overrides, "")
-  const configuredOverrides = metadata.configured ? merge(metadata.configured.overrides, overrides, "") : undefined
-  // SAFETY: These overrides only update settings of a registered Agent Definition.
+  // SAFETY: Discovery supplies typed defaults for settings of a registered definition.
   rememberLayerMetadata(child, {
-    options: options as AgentSettings,
-    ...(metadata.configured && record(configuredOverrides)
-      ? { configured: { ...metadata.configured, overrides: configuredOverrides } }
-      : {}),
+    options: merge(defaults, metadata.options, "") as AgentSettings,
+    configured: metadata.configured,
+    defaults: merge(metadata.defaults, defaults, "") as Partial<AgentSettings> | undefined,
   })
 }

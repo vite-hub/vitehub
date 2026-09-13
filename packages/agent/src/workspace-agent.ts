@@ -287,7 +287,10 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
-  inheritAgentLayerOptions(workspaceAgent, decoratedAgent, { workspace: workspaceOptions.workspace })
+  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
+  inheritAgentLayerOptions(workspaceAgent, decoratedAgent, {
+    workspace: { sourceRootDir: resolvedSourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) },
+  })
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent
 }
