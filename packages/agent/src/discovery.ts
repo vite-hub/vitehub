@@ -76,33 +76,30 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   const stripped = stripComments(source)
   const call = stripped.match(/\bdefineAgent\s*\(\s*\{/)
   if (!call || call.index === undefined) return false
-  let depth = 1
-  let hasPreset = false
-  let hasPresets = false
-  for (let i = call.index + call[0].length; i < stripped.length; i++) {
-    const char = stripped[i]
-    if (char === "{") depth++
-    else if (char === "}") {
-      depth--
-      if (depth === 0) break
-    }
+  const options = stripped.slice(call.index + call[0].length)
+  let depth = 1; let hasWorkspace = false; let presetExpr: string | undefined; let hasPresets = false
+  for (let i = 0; i < options.length; i++) {
+    const c = options[i]
+    if (c === "{") depth++
+    else if (c === "}") { depth--; if (depth === 0) break }
     if (depth !== 1) continue
-    const rest = stripped.slice(i)
-    if (/^\s*workspace\s*:/.test(rest)) return true
-    if (/^\s*preset\s*:/.test(rest) || /^\s*preset\s*,/.test(rest)) hasPreset = true
-    if (/^\s*presets\s*:/.test(rest) || /^\s*presets\s*,/.test(rest)) hasPresets = true
+    const rest = options.slice(i)
+    if (/^\s*workspace\s*:/.test(rest)) hasWorkspace = true
+    const m = rest.match(/^\s*preset\s*:\s*([^,}\n]+)/)
+    if (m) presetExpr = m[1].trim()
+    if (/^\s*preset\s*,/.test(rest)) presetExpr = "preset"
+    if (/^\s*presets\s*(?::|,)/.test(rest)) hasPresets = true
   }
-  if (!hasPreset || !hasPresets) return false
-  // Inline preset registries can own a Workspace; inspect only the selected entry.
-  const presetValue = stripped.slice(call.index + call[0].length, stripped.length).match(/(?:^|[,{}])\s*preset\s*:\s*["']([^"']+)["']/)?.[1]
-  const presetsMatch = stripped.match(/(?:^|[,{}])\s*presets\s*:\s*\{/ )
-  if (!presetValue || !presetsMatch || presetsMatch.index === undefined) return false
-  const registryStart = presetsMatch.index + presetsMatch[0].length
-  const selected = stripped.slice(registryStart).match(new RegExp(`(?:^|[,{}])\\s*${presetValue.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*defineAgent\\s*\\(\\s*\\{([\\s\\S]*?)\\}\\s*\\)`))
-  return !!selected && /(?:^|[,{])\s*workspace\s*:/.test(selected[1])
-  return false
+  if (hasWorkspace || !presetExpr || !hasPresets) return hasWorkspace
+  const name = presetExpr.match(/^['"]([^'"]+)['"]$/)?.[1] ?? stripped.match(new RegExp(`(?:const|let|var)\\s+${presetExpr}\\s*=\\s*['"]([^'"]+)['"]`))?.[1]
+  if (!name) return false
+  const e = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const entry = stripped.match(new RegExp(`${e}\\s*:\\s*(defineAgent\\s*\\(\\s*\\{[\\s\\S]*?\\}\\)|[A-Za-z_$][\\w$]*)`))?.[1]
+  if (!entry) return false
+  if (/workspace\s*:/.test(entry)) return true
+  const ref = entry.match(/^([A-Za-z_$][\w$]*)$/)?.[1]
+  return !!ref && !!stripped.match(new RegExp(`(?:const|let|var)\\s+${ref}\\s*=\\s*defineAgent\\s*\\(\\s*\\{[\\s\\S]*?workspace\\s*:`))
 }
-
 function isAgentDefinitionSource(source: string): boolean {
   const stripped = stripComments(source)
   return /\bdefineAgent\s*\(/.test(stripped)
