@@ -159,11 +159,14 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
 async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
   const { open, rm, rmdir } = await import("node:fs/promises")
   const reader = `${lock}.readers/${randomUUID()}`
-  const lease = await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
+  await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
     await ensureLockDirectory(`${lock}.readers`)
     if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
-    return await open(reader, "wx")
+    await open(reader, "wx").then(file => file.close())
   })
+  // Keep the reader marker open for the duration of the read so its own
+  // heartbeat remains authoritative while writers inspect the reader set.
+  const lease = await open(reader, "r+")
   try {
     return await withLeaseHeartbeat(lease, operation)
   }
