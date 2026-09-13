@@ -51,12 +51,17 @@ export interface WorkspaceSearchHit {
 }
 
 export interface MkdirOptions {
+  /** Optional creation evidence. Supporting Stores report only directories created by this call, including before failure. */
+  onCreate?: (path: string) => void
   recursive?: boolean
 }
 
 export interface RmOptions {
   recursive?: boolean
   force?: boolean
+  ifDigest?: string
+  /** With ifDigest, also require this Source owner (null means unowned). */
+  ifSource?: string | null
 }
 
 export type WorkspaceWriteOperation = "writeFile" | "mkdir" | "rm"
@@ -318,6 +323,8 @@ export interface WorkspaceRebaseOptions {
 }
 
 export interface WorkspaceStore {
+  /** rm atomically checks SHA-256 content and Source ownership before removing a file. */
+  readonly conditionalRemoval?: boolean
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
@@ -795,5 +802,6 @@ export interface WorkspaceMaterializeSourcesResult {
   durationMs: number
   files: number
   path: string
+  /** Selected Sources in resolution order: longest mount path first, then Source key alphabetically. */
   sources: WorkspaceSourceMaterializationStatus[]
 }

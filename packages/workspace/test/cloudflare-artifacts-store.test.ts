@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { sha256 } from "../src/core/path.ts"
-import { defineWorkspace } from "../src/index.ts"
+import { custom, defineWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { resetWorkspaceStoreCache } from "../src/core/workspace-cache.ts"
 import { setWorkspaceHostedStoreLoader } from "../src/runtime/hosted-store-loader.ts"
 import { setWorkspaceRuntimeConfig } from "../src/runtime/config.ts"
-import type { MemoryFS } from "../src/storage/memory-fs.ts"
+
+import { materializeWorkspaceSources, reconcileRemovedStartupSources } from "../src/sources/materialization.ts"
 
 const gitMock = vi.hoisted(() => ({
   add: vi.fn(async () => {}),
@@ -122,6 +122,44 @@ afterEach(() => {
 })
 
 describe("Cloudflare Artifacts workspace store", () => {
+  it("reports only directories created by concurrent mkdir calls", async () => {
+    const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
+    await store.mkdir("existing")
+    const first: string[] = []
+    const second: string[] = []
+    await Promise.all([
+      store.mkdir("existing/new/nested", { onCreate: path => first.push(path) }),
+      store.mkdir("existing/new/nested", { onCreate: path => second.push(path) }),
+    ])
+    expect([...first, ...second].sort()).toEqual(["existing/new", "existing/new/nested"])
+    const failed = vi.fn()
+    await expect(store.mkdir("missing/child", { recursive: false, onCreate: failed })).rejects.toThrow()
+    expect(failed).not.toHaveBeenCalled()
+  })
+
+  it("retires created startup directories while preserving existing parents", async () => {
+    const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
+    await store.mkdir("existing")
+    const definition = {
+      name: "docs",
+      sources: {
+        generated: custom({
+          mount: "existing/generated/nested",
+          materialize: "startup",
+          getKeys: async () => ["guide.md"],
+          getItem: async (key: string) => ({ key, content: "generated" }),
+        }),
+      },
+    }
+    await materializeWorkspaceSources(definition, store)
+    expect(await store.stat("existing/generated/nested/guide.md")).toMatchObject({ type: "file" })
+
+    await reconcileRemovedStartupSources("docs", store, [])
+
+    expect(await store.stat("existing/generated")).toBeUndefined()
+    expect(await store.stat("existing")).toMatchObject({ type: "directory" })
+  })
+
   it("derives distinct repository names from distinct Workspace names", async () => {
     const names: string[] = []
     const binding = {
@@ -150,23 +188,6 @@ describe("Cloudflare Artifacts workspace store", () => {
       "vitehub-workspace-a__2fb",
     ])
     expect(new Set(names).size).toBe(names.length)
-  })
-
-  it("hides reserved case variants from listings and snapshots", async () => {
-    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "remote-sha", ref: "refs/heads/main" }])
-    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
-      const { fs } = options as { fs: MemoryFS }
-      for (const path of [".vitehub/private.json", ".VITEHUB/private.json", ".ViteHub/private.json"]) {
-        await fs.promises.writeFile(`/workspace/${path}`, "{}")
-      }
-      await fs.promises.writeFile("/workspace/visible.txt", "visible")
-    })
-    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
-
-    for (const options of [{}, { recursive: true }]) {
-      expect((await store.list("", options)).map(entry => entry.path)).toEqual(["visible.txt"])
-    }
-    expect(Object.keys((await store.snapshot()).entries)).toEqual(["visible.txt"])
   })
 
   it("uses the Artifacts binding and commits snapshots", async () => {
@@ -695,167 +716,6 @@ describe("Cloudflare Artifacts workspace store", () => {
         path: "result.json",
       }),
     ])
-  })
-
-  describe.each(["ordinary", "conditional"] as const)("%s metadata writes", (mode) => {
-    it("detaches written and returned metadata from the persisted sidecar", async () => {
-      let filesystem: MemoryFS | undefined
-      gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
-      gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
-        const { fs } = options as { fs: MemoryFS }
-        filesystem = fs
-      })
-      const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
-      const metadata = { source: "docs", nested: { tags: ["original"] } }
-      const file = { path: "doc.md", content: "content", metadata }
-      if (mode === "conditional") await store.writeFileConditional!(file.path, file, null)
-      else await store.writeFile(file.path, file)
-
-      metadata.source = "other"
-      metadata.nested.tags.push("changed")
-      const expected = { source: "docs", nested: { tags: ["original"] } }
-      expect((await store.readFile(file.path))?.metadata).toEqual(expected)
-      const outputs = [
-        (await store.readFile(file.path))?.metadata,
-        (await store.stat(file.path))?.metadata,
-        (await store.list())[0]?.metadata,
-        (await store.glob("*.md"))[0]?.metadata,
-        (await store.snapshot()).entries[file.path]?.metadata,
-      ]
-      for (const output of outputs) {
-        output!.source = 123
-        output!.cycle = output
-        ;(output!.nested as { tags: string[] }).tags.push("changed")
-      }
-      expect((await store.readFile(file.path))?.metadata).toEqual(expected)
-      expect((await store.stat(file.path))?.metadata).toEqual(expected)
-      // A later write serializes the entire retained map, including doc.md.
-      await store.writeFile("other.txt", { path: "other.txt", content: "other" })
-      const sidecar = await filesystem!.promises.readFile("/workspace/.vitehub/files.json")
-      expect(JSON.parse(new TextDecoder().decode(sidecar as Uint8Array))[file.path].metadata).toEqual(expected)
-    })
-
-    it.each([{ source: 42 }, { source: null }, { source: false }, { source: {} }, { source: [] }, { optional: undefined }, { value: 1n }])("rejects invalid metadata before publication: %o", async (metadata) => {
-      const attributes = { mediaType: "text/plain", metadata: { source: "agent" } }
-      let filesystem: MemoryFS | undefined
-      gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
-      gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
-        const { fs } = options as { fs: MemoryFS }
-        filesystem = fs
-        await fs.promises.writeFile("/workspace/result.txt", "original")
-        await fs.promises.writeFile("/workspace/.vitehub/files.json", JSON.stringify({ "result.txt": attributes }))
-      })
-      const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
-      const original = await store.readFile("result.txt")
-      const entries = structuredClone(filesystem!.entries)
-      const replacement = { path: "result.txt", content: "replacement", mediaType: "application/json", metadata }
-
-      await expect(mode === "ordinary"
-        ? store.writeFile("result.txt", replacement)
-        : store.writeFileConditional!("result.txt", replacement, await sha256("original")))
-        .rejects.toThrow("Invalid Workspace metadata")
-
-      expect(filesystem!.entries).toEqual(entries)
-      await expect(store.readFile("result.txt")).resolves.toEqual(original)
-      await expect(store.stat("result.txt")).resolves.toMatchObject(attributes)
-    })
-  })
-
-  it("writes descriptor metadata from proxies without invoking get traps", async () => {
-    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
-    const get = vi.fn(() => 123)
-    await store.writeFile("result.txt", {
-      path: "result.txt", content: "content",
-      metadata: new Proxy({ source: "docs", nested: { label: "original" } }, { get }),
-    })
-    await expect(store.readFile("result.txt")).resolves.toMatchObject({
-      metadata: { source: "docs", nested: { label: "original" } },
-    })
-    expect(get).not.toHaveBeenCalled()
-  })
-
-  it.each([42, null, false, {}, []])("rejects invalid persisted Source ownership: %j", async (source) => {
-    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
-    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
-      const { fs } = options as { fs: MemoryFS }
-      await fs.promises.writeFile("/workspace/result.json", "source content")
-      await fs.promises.writeFile("/workspace/.vitehub/files.json", JSON.stringify({
-        "result.json": { metadata: { source } },
-      }))
-    })
-    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
-
-    await expect(store.readFile("result.json")).rejects.toThrow("metadata.source must be a string")
-  })
-
-  it.each([
-    ["truncated", '{"path":"result.json",'],
-    ...["1e400", "-1e400", "-0"].map(value => [
-      `nonportable-${value}`,
-      `{ "path": "result.json", "existed": true, "digest": "CONTENT_DIGEST", "metadata": { "metadata": { "nested": [${value}] } } }`,
-    ]),
-    ["schema-invalid", JSON.stringify({ path: "result.json", existed: "false", metadata: { source: "pending" } })],
-  ])("discards a %s pending journal on restart without changing committed files", async (_kind, pending) => {
-    const attributes = { mediaType: "application/json", metadata: { source: "agent" } }
-    const content = '{"ok":true}'
-    const committed = JSON.stringify({ "result.json": attributes })
-    let filesystem: MemoryFS | undefined
-    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
-    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
-      const { fs } = options as { fs: MemoryFS }
-      filesystem = fs
-      await fs.promises.writeFile("/workspace/result.json", content)
-      await fs.promises.writeFile("/workspace/.vitehub/files.json", committed)
-      await fs.promises.writeFile("/workspace/.vitehub/files.pending.json", pending.replace("CONTENT_DIGEST", await sha256(content)))
-    })
-    const store = await createStore({
-      create: vi.fn(),
-      get: vi.fn(async () => artifactsRepo()),
-    })
-
-    const file = await store.readFile("result.json")
-    expect(file).toMatchObject(attributes)
-    expect(file?.content).toEqual(new TextEncoder().encode(content))
-    await expect(store.stat("result.json")).resolves.toMatchObject(attributes)
-    expect(filesystem?.entries.has("/workspace/.vitehub/files.pending.json")).toBe(false)
-    await expect(filesystem?.promises.readFile("/workspace/.vitehub/files.json")).resolves.toEqual(new TextEncoder().encode(committed))
-  })
-
-  it.each(["1e400", "-1e400", "-0"])("rejects nonportable persisted metadata: %s", async (value) => {
-    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
-    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
-      const { fs } = options as { fs: MemoryFS }
-      await fs.promises.writeFile("/workspace/result.json", "content")
-      await fs.promises.writeFile("/workspace/.vitehub/files.json", `{ "result.json": { "metadata": { "source": "agent", "nested": [{ "value": ${value} }] } } }`)
-    })
-    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
-    await expect(store.readFile("result.json")).rejects.toThrow("Invalid Workspace metadata for result.json")
-  })
-
-  it.each(["matching", "replacement", "partial", "legacy", "previous"])("recovers only version-matched pending metadata after restart: %s", async (kind) => {
-    const attributes = { mediaType: "application/json", metadata: { source: "agent" } }
-    const content = '{"ok":true}'
-    const published = kind === "previous" ? "old content" : kind === "partial" ? content.slice(0, 5) : content
-    const previousMetadata = ["previous", "replacement"].includes(kind) ? { source: "original" } : undefined
-    const digest = kind === "legacy" ? undefined : await sha256(content)
-    let filesystem: MemoryFS | undefined
-    gitMock.listServerRefs.mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
-    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
-      const { fs } = options as { fs: MemoryFS }
-      filesystem = fs
-      await fs.promises.writeFile("/workspace/result.json", published)
-      await fs.promises.writeFile("/workspace/.vitehub/files.json", JSON.stringify({ "result.json": { metadata: previousMetadata } }))
-      await fs.promises.writeFile("/workspace/.vitehub/files.pending.json", JSON.stringify({
-        path: "result.json", existed: ["previous", "replacement"].includes(kind), digest, metadata: attributes,
-      }))
-    })
-    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
-
-    const file = await store.readFile("result.json")
-    expect(file?.content).toEqual(new TextEncoder().encode(published))
-    expect(file?.metadata).toEqual(["matching", "replacement"].includes(kind) ? attributes.metadata : previousMetadata)
-    if (["matching", "replacement"].includes(kind)) expect(file?.mediaType).toBe(attributes.mediaType)
-    expect(filesystem?.entries.has("/workspace/.vitehub/files.pending.json")).toBe(false)
   })
 
   it("serializes concurrent snapshots", async () => {

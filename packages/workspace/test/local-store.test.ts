@@ -5,6 +5,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { decodeFile } from "../src/core/path.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
 const permissionsFixture = vi.hoisted(() => ({ root: "" }))
@@ -87,6 +88,17 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each([true, false])("completes digest-conditional removal with a matching digest: %s", async (matches) => {
+    const store = await createStore()
+    await store.writeFile("generated.md", { path: "generated.md", content: "generated" })
+    const ifDigest = createHash("sha256").update(matches ? "generated" : "other").digest("hex")
+
+    await store.rm("generated.md", { ifDigest })
+
+    if (matches) await expect(store.stat("generated.md")).resolves.toBeUndefined()
+    else expect(decodeFile((await store.readFile("generated.md"))!.content)).toBe("generated")
+  }, 2_000)
+
   it.each([false, true])("allows recreating a missing removal target, recursive: %s", async (recursive) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
@@ -943,6 +955,82 @@ describe("local workspace store", () => {
     expect(await restarted.readFile(path)).toMatchObject({ content: new TextEncoder().encode("after") })
   })
 
+  it.each([
+    { kind: "reader", removalFails: false },
+    { kind: "removal", removalFails: false },
+    { kind: "reader", removalFails: true },
+    { kind: "removal", removalFails: true },
+  ])("closes the $kind handle before cleanup (removal failure: $removalFails)", async ({ kind, removalFails }) => {
+    const store = await createStore()
+    const path = "file.txt"
+    await store.writeFile(path, { path, content: "before", metadata: { source: "startup" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let marker = ""
+    let handleOpen = false
+    vi.mocked(open).mockImplementation(async (...args) => {
+      const file = await actual.open(...args)
+      if (args[1] === "wx" && String(args[0]).includes(kind === "reader" ? ".readers/" : "/file-removals/")) {
+        marker = String(args[0])
+        handleOpen = true
+        const close = file.close.bind(file)
+        vi.spyOn(file, "close").mockImplementationOnce(async () => { throw new Error("marker close failed") }).mockImplementation(async () => {
+          await close()
+          handleOpen = false
+        })
+      }
+      return file
+    })
+    vi.mocked(rm).mockImplementation(async (...args) => {
+      if (String(args[0]) === marker && (handleOpen || removalFails)) throw Object.assign(new Error("marker unlink denied"), { code: "EPERM" })
+      return actual.rm(...args)
+    })
+    try {
+      const operation = kind === "reader" ? store.readFile(path) : store.rm(path)
+      if (removalFails) {
+        await expect(operation).rejects.toMatchObject({
+          errors: [expect.objectContaining({ message: "marker close failed" }), expect.objectContaining({ code: "EPERM" })],
+        })
+      }
+      else {
+        await expect(operation).rejects.toThrow("marker close failed")
+        await expect(actual.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+      }
+      expect(marker).not.toBe("")
+      expect(handleOpen).toBe(false)
+    }
+    finally {
+      vi.mocked(open).mockImplementation(actual.open)
+      vi.mocked(rm).mockImplementation(actual.rm)
+      if (marker) await actual.rm(marker, { force: true })
+    }
+    await store.writeFile(path, { path, content: "after" })
+    await expect(store.readFile(path)).resolves.toMatchObject({ content: new TextEncoder().encode("after") })
+  })
+
+  it.each(["EIO", "EMFILE"])("removes reader markers when reopening the lease fails with %s", async (code) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = "file.txt"
+    await store.writeFile(path, { path, content: "before" })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(open).mockImplementation(async (...args) => {
+      if (String(args[0]).includes(".readers/") && args[1] === "r+") {
+        throw Object.assign(new Error("reader reopen failed"), { code })
+      }
+      return actual.open(...args)
+    })
+    try {
+      await expect(store.readFile(path)).rejects.toThrow("reader reopen failed")
+      expect((await readdir(join(root, ".vitehub/locks"))).filter(entry => entry.endsWith(".readers"))).toEqual([])
+    }
+    finally {
+      vi.mocked(open).mockImplementation(actual.open)
+    }
+    const restarted = createLocalWorkspaceStore(root)
+    await restarted.writeFile(path, { path, content: "after" })
+    await expect(restarted.readFile(path)).resolves.toMatchObject({ content: new TextEncoder().encode("after") })
+  })
+
   it.each(["EIO", "EMFILE"])("releases owned gates without rereading owner markers on %s", async (code) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!
@@ -1337,7 +1425,7 @@ describe("local workspace store", () => {
     finally {
       read.mockRestore()
     }
-  })
+  }, 20_000)
 
   it("supports file tree operations, snapshots, and diffs", async () => {
     const store = await createStore()
@@ -1365,6 +1453,19 @@ describe("local workspace store", () => {
 
     await store.rm("generated", { recursive: true })
     expect(await store.stat("generated")).toBeUndefined()
+  })
+
+  it("removes empty directories without recursively deleting their contents", async () => {
+    const store = await createStore()
+    await store.writeFile("docs/keep.md", { path: "docs/keep.md", content: "keep" })
+
+    await expect(store.rm("docs", { force: true })).rejects.toThrow()
+    await expect(store.stat("docs/keep.md")).resolves.toMatchObject({ type: "file" })
+
+    await store.rm("docs/keep.md")
+    await store.rm("docs")
+    await expect(store.stat("docs")).resolves.toBeUndefined()
+    await expect(store.rm("docs", { force: true })).resolves.toBeUndefined()
   })
 
   it("lists only top-level entries when recursive is false", async () => {

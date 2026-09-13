@@ -1,15 +1,16 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream, createWriteStream } from "node:fs"
+import { resolve } from "node:path"
 import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { check, fallback, literal, object, optional, pipe, record, safeParse, string, unknown } from "valibot"
 
-import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
-import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
+import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { workspaceStoreTarget } from "./target.ts"
+import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
   DiffOptions,
@@ -242,18 +243,43 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
   }
 }
 
+async function closeCreatedMarker(file: import("node:fs/promises").FileHandle, path: string): Promise<void> {
+  try { await file.close() }
+  catch (error) {
+    const errors = [error]
+    // A rejected close may leave the handle open, preventing unlink on Windows.
+    try { await file.close() }
+    catch (closeError) { errors.push(closeError) }
+    const { rm } = await import("node:fs/promises")
+    try { await rm(path, { force: true }) }
+    catch (removeError) { errors.push(removeError) }
+    if (errors.length > 1) throw new AggregateError(errors, `[vitehub] Failed to close and clean Workspace marker ${path}.`)
+    throw error
+  }
+}
+
 async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
   const { open, rm, rmdir } = await import("node:fs/promises")
   const reader = `${lock}.readers/${randomUUID()}`
-  const lease = await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
+  await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
     await ensureLockDirectory(`${lock}.readers`)
     if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
-    return await open(reader, "wx")
+    const marker = await open(reader, "wx")
+    await closeCreatedMarker(marker, reader)
   })
+  // Keep the reader marker open for the duration of the read so its own
+  // heartbeat remains authoritative while writers inspect the reader set.
+  let lease: import("node:fs/promises").FileHandle | undefined
   try {
+    lease = await open(reader, "r+")
     return await withLeaseHeartbeat(lease, operation)
   }
+  catch (error) {
+    if (!lease) await rm(reader, { force: true }).catch(() => {})
+    throw error
+  }
   finally {
+    if (lease) await lease.close().catch(() => {})
     await rm(reader, { force: true })
     // Cleanup must not wait behind a writer or reject an already completed read.
     // Keep registration serialized; a writer also reclaims empty reader directories.
@@ -320,17 +346,13 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
 
 async function walk(
   root: string,
-  current: string,
-  privatePaths: readonly string[],
+  current = root,
   excluded: readonly string[] = [],
   recursive = true,
+  includeDigest = false,
 ): Promise<WorkspaceEntry[]> {
   const { readdir } = await import("node:fs/promises")
-  const { isAbsolute, relative, sep } = await import("node:path")
-  if (privatePaths.some((path) => {
-    const relativePath = relative(path, current)
-    return !relativePath || (!isAbsolute(relativePath) && relativePath !== ".." && !relativePath.startsWith(`..${sep}`))
-  })) return []
+  const { relative } = await import("node:path")
   const entries: WorkspaceEntry[] = []
   const dirents = await readdir(current, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") return []
@@ -339,9 +361,9 @@ async function walk(
 
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
-    if (privatePaths.some(path => !relative(path, absolute))) continue
     const path = normalizeWorkspacePath(relative(root, absolute))
-    if (path.split("/")[0]?.toLowerCase() === ".vitehub") continue
+    const first = path.split("/")[0]
+    if (first?.toLowerCase() === ".vitehub") continue
     if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -351,7 +373,7 @@ async function walk(
     if (!info) continue
     if (dirent.isDirectory()) {
       entries.push({ path, type: "directory", mtime: info.mtimeMs })
-      if (recursive) entries.push(...await walk(root, absolute, privatePaths, excluded, true))
+      if (recursive) entries.push(...await walk(root, absolute, excluded, true, includeDigest))
       continue
     }
     if (dirent.isFile()) {
@@ -361,6 +383,7 @@ async function walk(
         size: info.size,
         mtime: info.mtimeMs,
       }
+      if (includeDigest) entry.digest = await fileDigest(absolute)
       entries.push(entry)
     }
   }
@@ -378,12 +401,13 @@ async function fileDigest(path: string): Promise<string> {
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
+  // Local filesystem checks cannot make compare-and-delete atomic against direct writers.
+  readonly conditionalRemoval = false;
   [workspaceStoreTarget]() {
-    return { provider: "local" }
+    return { provider: "local" as const }
   }
 
   #baseline: WorkspaceSnapshot | undefined
-  #files = new Map<string, { version: string, value: Pick<WorkspaceFile, "mediaType" | "metadata"> }>()
   #fileMetadataRoot: string
   #meta = new Map<string, unknown>()
   #metaLoaded = false
@@ -438,7 +462,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
       throw error
     })
     if (!file) {
-      this.#files.delete(path)
       return
     }
     let content: string
@@ -505,7 +528,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const hasMetadata = value.mediaType !== undefined || value.metadata !== undefined
     const permissions = await this.#prepareMetadataDirectories(path, hasMetadata)
     if (!permissions.root) {
-      this.#files.delete(path)
       return
     }
     const existing = await lstat(metadataPath).catch((error: NodeJS.ErrnoException) => {
@@ -518,7 +540,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
     }
     if (!hasMetadata) {
       await rm(metadataPath, { force: true })
-      this.#files.delete(path)
       return
     }
     const temp = `${metadataPath}.${randomUUID()}.tmp`
@@ -533,7 +554,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
-    this.#files.delete(path)
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
@@ -554,7 +574,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       path: normalized,
       content: new Uint8Array(bytes),
       mediaType: metadata?.mediaType,
-      metadata: metadata?.metadata,
+      metadata: copyJsonFileMetadata(normalized, metadata?.metadata),
     }
   }
 
@@ -665,12 +685,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
         await rm(temp, { force: true })
         await this.#writeFileMetadata(normalized, {
           mediaType: file.mediaType,
-          metadata: file.metadata,
+          metadata: copyJsonFileMetadata(normalized, file.metadata),
         })
         return {
           ...existing,
           mediaType: file.mediaType,
-          metadata: file.metadata,
+          metadata: copyJsonFileMetadata(normalized, file.metadata),
           size,
           digest,
         }
@@ -696,7 +716,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         type: "file",
         size,
         mediaType: file.mediaType,
-        metadata: file.metadata,
+        metadata: copyJsonFileMetadata(normalized, file.metadata),
         digest,
       }
     }
@@ -713,10 +733,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #list(prefix: string, options: ListOptions, includeDigest: boolean): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const current = normalizedPrefix ? resolveInside(this.root, normalizedPrefix) : this.root
-    const privatePaths = [this.#fileMetadataRoot, this.#metaPath]
-    const all = await walk(this.root, current, privatePaths, options.exclude, options.recursive === true)
+    const all = await walk(this.root, current, options.exclude, options.recursive === true, false)
     const filtered = all
       .filter((entry) => {
+        if (resolve(this.root, entry.path) === resolve(this.#metaPath)) return false
         if (!normalizedPrefix) return options.recursive || !entry.path.includes("/")
         if (entry.path === normalizedPrefix) return false
         if (!entry.path.startsWith(`${normalizedPrefix}/`)) return false
@@ -770,15 +790,33 @@ class LocalWorkspaceStore implements WorkspaceStore {
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
       mediaType: metadata?.mediaType,
-      metadata: metadata?.metadata,
+      metadata: copyJsonFileMetadata(normalized, metadata?.metadata),
     }
     if (includeDigest && info.isFile()) entry.digest = await fileDigest(absolute)
     return entry
   }
 
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
-    const { mkdir } = await import("node:fs/promises")
-    await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
+    const { mkdir, stat } = await import("node:fs/promises")
+    if (!options.onCreate) {
+      await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
+      return
+    }
+    const normalized = normalizeWorkspacePath(path)
+    const parts = normalized.split("/").filter(Boolean)
+    const directories = options.recursive === false ? [normalized] : parts.map((_, index) => parts.slice(0, index + 1).join("/"))
+    await mkdir(this.root, { recursive: true })
+    for (const directory of directories) {
+      const absolute = resolveInside(this.root, directory)
+      try {
+        await mkdir(absolute)
+      }
+      catch (error) {
+        if (Reflect.get(Object(error), "code") !== "EEXIST" || !(await stat(absolute)).isDirectory()) throw error
+        continue
+      }
+      options.onCreate(directory)
+    }
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
@@ -786,8 +824,36 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { lstat, mkdir, open, rm } = await import("node:fs/promises")
+    const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
+    if (options.ifDigest !== undefined) {
+      if ((await this.#stat(normalized, false))?.type !== "file") return
+      const current = await this.#readFile(normalized)
+      if (!current || await sha256(current.content) !== options.ifDigest) return
+      if (options.ifSource !== undefined && (current.metadata?.source ?? null) !== options.ifSource) return
+    }
+    // Retire the checked inode first. This closes the final race with writers
+    // that do not participate in the workspace path lock: a replacement at
+    // the public pathname is never removed by the cleanup operation.
+    if (options.ifDigest !== undefined) {
+      const absolute = resolveInside(this.root, normalized)
+      const retired = `${absolute}.vitehub-retired-${randomUUID()}`
+      const { rename } = await import("node:fs/promises")
+      try {
+        await rename(absolute, retired)
+      }
+      catch (error: NodeJS.ErrnoException) {
+        if (error.code === "ENOENT") return
+        throw error
+      }
+      const retiredFile = await this.#readFile(normalized).catch(() => undefined)
+      if (!retiredFile || await sha256(retiredFile.content) !== options.ifDigest || (options.ifSource !== undefined && (retiredFile.metadata?.source ?? null) !== options.ifSource)) {
+        await rename(retired, absolute).catch(() => undefined)
+        return
+      }
+      await rm(retired, { recursive: options.recursive ?? false, force: options.force ?? false })
+      return
+    }
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
     const marker = this.#removalMarker(normalized)
     let createdMarker = false
@@ -807,12 +873,18 @@ class LocalWorkspaceStore implements WorkspaceStore {
         throw error
       })
       createdMarker = file !== undefined
-      await file?.close()
+      if (file) await closeCreatedMarker(file, marker)
     }
     let missingTargetError: NodeJS.ErrnoException | undefined
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
+    }).catch(async (error: NodeJS.ErrnoException) => {
+      if (error.code === "ERR_FS_EISDIR" && !options.recursive) {
+        await rmdir(resolveInside(this.root, path))
+        return
+      }
+      throw error
     }).catch(async (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
         if (!options.force) missingTargetError = error
@@ -823,9 +895,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
       if (createdMarker && !options.recursive) await rm(marker, { force: true })
       throw error
     })
-    for (const key of this.#files.keys()) {
-      if (key === normalized || key.startsWith(`${normalized}/`)) this.#files.delete(key)
-    }
     const { rm: removeMetadata } = await import("node:fs/promises")
     if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
     await rm(marker, { force: true })
@@ -859,12 +928,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async getMeta(key: string): Promise<unknown> {
     await this.#loadMeta()
-    return this.#meta.get(key)
+    const value = this.#meta.get(key)
+    return value === undefined ? undefined : structuredClone(value)
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
     await this.#loadMeta()
-    this.#meta.set(key, value)
+    this.#meta.set(key, structuredClone(value))
     await this.#writeMeta()
   }
 

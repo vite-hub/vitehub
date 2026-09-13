@@ -1,10 +1,13 @@
+import { isDeepStrictEqual } from "node:util"
+
 import { useWorkspaceAssets } from "./asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { files as filesLoader } from "./loaders/files.ts"
-import { normalizeWorkspacePath } from "./core/path.ts"
+import { normalizeWorkspacePath, sha256 } from "./core/path.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
-import { sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
+import { invalidateSourceSnapshot, materializedFileMatches, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
@@ -75,7 +78,7 @@ function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal)
   const fenced = new Proxy(store, {
     get(target, property) {
       const value = Reflect.get(target, property, target)
-      if (!STORE_MUTATIONS.has(String(property))) return value?.bind(target)
+      if (!STORE_MUTATIONS.has(String(property))) return hasRuntimeType(value, "function") ? value.bind(target) : value
       if (value === undefined) return undefined
       return (...args: unknown[]) => {
         abortSignal.throwIfAborted()
@@ -118,6 +121,9 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const buildSources = sources
     .filter(source => source.materialize === "build")
   const startupSources = sources.filter(source => source.materialize === "startup")
+  await reconcileRemovedStartupSources(definition.name, store, startupSources, undefined, materializationStore)
+  abortSignal?.throwIfAborted()
+  const startupBaseline = await captureStartupFiles(store, startupSources)
   const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
   const bundledBuildSources = !hasExplicitLoaders
@@ -125,6 +131,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
     : undefined
   abortSignal?.throwIfAborted()
   if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
+    await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources, startupBaseline)
     const snapshot = await store.snapshot({ name: "sync" })
     await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
     return
@@ -151,8 +158,67 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
     await loader.load(ctx)
   }
   abortSignal?.throwIfAborted()
+  await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources, startupBaseline)
   const snapshot = await store.snapshot({ name: "sync" })
   await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
+}
+
+async function readStartupSnapshotFile(store: WorkspaceStore, path: string) {
+  try {
+    return (await store.stat(path))?.type === "file" ? await store.readFile(path) : undefined
+  }
+  catch (error) {
+    // A loader can replace an ancestor directory with a file or remove it.
+    if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) return undefined
+    throw error
+  }
+}
+
+async function startupFileEvidence(store: WorkspaceStore, path: string) {
+  const file = await readStartupSnapshotFile(store, path)
+  return file ? { digest: await sha256(file.content), mediaType: file.mediaType, metadata: structuredClone(file.metadata) } : undefined
+}
+
+async function captureStartupFiles(store: WorkspaceStore, sources: ResolvedWorkspaceSource[]) {
+  const baseline = new Map<string, Awaited<ReturnType<typeof startupFileEvidence>>>()
+  for (const source of sources) {
+    const snapshot = await readCurrentSourceSnapshot(store, source)
+    for (const path of Object.keys(snapshot?.items || {})) {
+      const key = `${source.key}\0${path}`
+      // Capture shared paths once, for the highest-precedence source. Lower-precedence
+      // sources must not treat the visible higher-precedence file as their baseline.
+      if (![...baseline.keys()].some(existing => existing.endsWith(`\0${path}`))) baseline.set(key, await startupFileEvidence(store, path))
+    }
+  }
+  return baseline
+}
+
+async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[], baseline: Awaited<ReturnType<typeof captureStartupFiles>>) {
+  for (const source of startupSources) {
+    const snapshot = await readCurrentSourceSnapshot(store, source)
+    if (!snapshot) continue
+    for (const [path, recorded] of Object.entries(snapshot.items || {})) {
+      const baselineKey = `${source.key}\0${path}`
+      // An overlapping path belongs to the first (higher-precedence) source only.
+      // Skip lower-precedence sources whose visible evidence cannot represent their baseline.
+      if (!baseline.has(baselineKey) && [...baseline.keys()].some(key => key.endsWith(`\0${path}`))) continue
+      if (isDeepStrictEqual(baseline.get(baselineKey), await startupFileEvidence(store, path))) continue
+      const file = await readStartupSnapshotFile(store, path)
+      if (await materializedFileMatches(file, recorded)) continue
+      await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
+      const current = await readCurrentSourceSnapshot(store, source)
+      if (!current) break
+      const items = { ...current.items }
+      for (const [itemPath, recordedItem] of Object.entries(items)) {
+        const item = await readStartupSnapshotFile(store, itemPath)
+        if (!isDeepStrictEqual(baseline.get(`${source.key}\0${itemPath}`), await startupFileEvidence(store, itemPath))
+          && !await materializedFileMatches(item, recordedItem)) delete items[itemPath]
+      }
+      // Keep cleanup evidence for paths that build synchronization did not replace.
+      await store.setMeta?.(sourceSnapshotMetaKey(source.key), { ...current, items, status: "updating" })
+      break
+    }
+  }
 }
 
 async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
@@ -177,7 +243,9 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
-    for (const source of affected) await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
+    for (const source of affected) {
+      await invalidateSourceSnapshot(store, source.key)
+    }
     abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
     abortSignal?.throwIfAborted()
@@ -193,7 +261,9 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
-    for (const startup of affected) await store.setMeta?.(sourceSnapshotMetaKey(startup.key), {})
+    for (const startup of affected) {
+      await invalidateSourceSnapshot(store, startup.key)
+    }
     abortSignal?.throwIfAborted()
     await removeRootBuildSourceFiles(store, removedPaths)
     abortSignal?.throwIfAborted()

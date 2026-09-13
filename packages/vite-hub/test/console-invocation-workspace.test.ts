@@ -42,7 +42,7 @@ describe("invocation Workspace inspection", () => {
   it("identifies current mounted files without claiming a historical snapshot", async () => {
     expect(await handler(request())).toEqual({ paths: ["AGENTS.md"], repository: "bot", revision: "current" })
     expect(mocks.definition).toHaveBeenCalledWith("bot", "inspect")
-    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read" })
+    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read", refresh: false })
   })
   it("reads a visible file", async () => {
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })

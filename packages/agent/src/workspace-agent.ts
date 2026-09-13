@@ -34,6 +34,7 @@ import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-cap
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
+import { colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -81,6 +82,7 @@ import type {
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
   WorkspaceRules,
+  WorkspaceSourceInput,
   WorkspaceSourceMaterializationStatus,
 } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -266,9 +268,15 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const ownedWorkspace = asUnknownBoundary(workspace) as WorkspaceAgentWorkspaceOptions
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
-  const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
-    : { ...ownedWorkspace.sources }
+  // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
+  const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
+  const sources: Record<string, WorkspaceSourceInput> = {
+    ...colocatedSkills,
+    ...ownedWorkspace.sources,
+  }
+  if (colocatedInstructions && !Object.hasOwn(sources, "__vitehubAgentInstructions")) {
+    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
+  }
   const workspaceOptions = {
     ...options,
     workspace: {
@@ -283,6 +291,18 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
+  }
+  // Explicit Workspace sources take precedence over colocated Skills. Keep the
+  // legacy symbol in sync so provider-side fallback materialization cannot
+  // overwrite an explicit source.
+  if (colocatedSkills) {
+    const remainingSkills = Object.fromEntries(Object.entries(colocatedSkills).filter(([key]) => !Object.hasOwn(ownedWorkspace.sources ?? {}, key)))
+    if (Object.keys(remainingSkills).length) {
+      Object.defineProperty(decoratedAgent, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })
+    } else {
+      // SAFETY: The decorated agent is a mutable record, and this symbol is removed only when no skills remain.
+      delete (decoratedAgent as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]
+    }
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
