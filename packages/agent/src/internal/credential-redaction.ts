@@ -6,6 +6,8 @@ const uppercaseCredentialKeys = [
 ]
 
 function isCredentialKey(key: string): boolean {
+  // Token-count and size limits are ordinary configuration, not secrets.
+  if (/^(?:max|min|num|count|limit)?tokens?$/i.test(key)) return false
   return uppercaseCredentialKeys.includes(key.toUpperCase())
     || /(?:^|[_-])(?:key|secret|token|password|passphrase|auth)$/i.test(key)
     || /[a-z0-9](?:Key|Secret|Token|Password|Passphrase|Auth|KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|AUTH)$/.test(key)
@@ -68,7 +70,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9-])((?:--)?["']?_*((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*(?::?=|\?=|\+=|:=|:)[\t ]*|\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9])((?:--)?["']?_*((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*(?::?=|\?=|\+=|:=|:)[\t ]*|\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
