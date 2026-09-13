@@ -23,7 +23,10 @@ describe("instruction composition", () => {
 
   it("records authored coverage directives", async () => {
     const coverage = createInstructionCoverage()
-    await composeInstructionDocument(":::capability{key=\"search\"}\nSearch\n:::\n:::skill{path=\"docs\"}\nDocs\n:::", { coverage })
+    const rendered = await composeInstructionDocument(":::capability{key=\"search\"}\nSearch\n:::\n:::skill{path=\"docs\"}\nDocs\n:::", { coverage })
+    expect(rendered).toContain("Search")
+    expect(rendered).not.toContain(":::capability")
+    expect(rendered).not.toContain(":::skill")
     expect(coverage.capabilities).toEqual(new Set(["search"]))
     expect(coverage.skills).toEqual(new Set(["docs"]))
   })
@@ -34,22 +37,22 @@ describe("instruction composition", () => {
   })
 
   it("renders scalar bindings and conditions", async () => {
-    await expect(composeInstructionDocument("{{{ context.mode }}}\n:::if{when=\"context.enabled\"}\nShown\n:::", { context: { mode: "safe", enabled: true } }))
+    await expect(composeInstructionDocument("{{ context.mode }}\n:::if{if=\"context.enabled\"}\nShown\n:::", { context: { mode: "safe", enabled: true } }))
       .resolves.toContain("safe")
-    await expect(composeInstructionDocument(":::if{when=\"context.enabled\"}\nShown\n:::", { context: { enabled: false } }))
+    await expect(composeInstructionDocument(":::if{if=\"context.enabled\"}\nShown\n:::", { context: { enabled: false } }))
       .resolves.not.toContain("Shown")
   })
 
   it("maps invalid bindings and conditions to diagnostics", async () => {
     await expect(composeInstructionDocument("{{{ secret.value }}}"))
       .rejects.toMatchObject({ code: "AGENT_R0445" })
-    await expect(composeInstructionDocument(":::if{when=\"secret.enabled\"}\nNope\n:::", { context: {} }))
+    await expect(composeInstructionDocument(":::if{if=\"secret.enabled\"}\nNope\n:::", { context: {} }))
       .rejects.toMatchObject({ code: "AGENT_R0446" })
   })
 
   it("tracks selected and unselected coverage branches", async () => {
     const coverage = createInstructionCoverage()
-    await composeInstructionDocument(":::capability{key=\"on\"}\nOn\n:::\n:::if{when=\"context.enabled\"}\n:::skill{path=\"chosen\"}\nChosen\n:::\n:::", { context: { enabled: false }, coverage })
+    await composeInstructionDocument(":::capability{key=\"on\"}\nOn\n:::\n:::if{if=\"context.enabled\"}\n:::skill{path=\"chosen\"}\nChosen\n:::\n:::", { context: { enabled: false }, coverage })
     expect(coverage.capabilities).toEqual(new Set(["on"]))
     expect(coverage.skills).toEqual(new Set())
   })
