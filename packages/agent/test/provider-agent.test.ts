@@ -3720,7 +3720,7 @@ cli_auth_credentials_store = "keyring"
         async onStartSession() {
           const path = `${root}/${file}`
           const content = await readFile(path, "utf8")
-          expect(content).toContain("Mounted source provenance")
+          expect(content).not.toContain("Mounted source provenance")
           if (change === "edit") await writeFile(path, content.replace(original, "edited instructions") + "\nprovider addition")
           if (change === "replace") await writeFile(path, "replacement instructions")
           if (change === "delete") await rm(path)
@@ -3994,7 +3994,7 @@ cli_auth_credentials_store = "keyring"
 
     await createProviderAgentAdapter({
       provider: "codex",
-      instructions: ({ sourceProvenance }) => JSON.stringify(sourceProvenance),
+      instructions: ({ sourceProvenance }) => "```json\n" + JSON.stringify(sourceProvenance, null, 2) + "\n```",
     }).generate(context(threadId, {
       workspace,
       workspaceDefinition: {
