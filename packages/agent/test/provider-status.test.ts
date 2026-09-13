@@ -158,6 +158,24 @@ describe("invocation preflight", () => {
     expect(close).not.toHaveBeenCalled()
   })
 
+  it("applies the provider deadline during capability preparation", async () => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const prepare = vi.fn(async (context: { abortSignal?: AbortSignal }) => {
+      const signal = context.abortSignal
+      expect(signal).toBeInstanceOf(AbortSignal)
+      if (!signal) throw new Error("Missing preparation deadline")
+      await new Promise<void>((_resolve, reject) => {
+        if (signal.aborted) reject(signal.reason)
+        else signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+      })
+    })
+    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({ id: "slow-runtime", prepare })] })
+    vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "ready", checkedAt: new Date().toISOString(), stale: false })
+    await expect(runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello", timeout: 50 }))
+      .rejects.toThrow(/timeout|timed out/i)
+    expect(prepare).toHaveBeenCalledTimes(1)
+  })
+
   it.each(["ready", "unknown", "stale"])("continues preparation for %s provider evidence", async (evidence) => {
     const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     const prepare = vi.fn()

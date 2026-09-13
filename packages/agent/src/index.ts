@@ -3497,6 +3497,13 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
+    if (driverKind === "provider" && input.timeout !== undefined) {
+      if (input.timeout > 2_147_483_647) {
+        throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
+      }
+      const timeoutSignal = AbortSignal.timeout(input.timeout)
+      input = { ...input, abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, timeoutSignal]) : timeoutSignal }
+    }
     const resolveReadiness = async () => {
       if (driverKind !== "provider" || !definition?.status) return undefined
       const readinessController = new AbortController()
