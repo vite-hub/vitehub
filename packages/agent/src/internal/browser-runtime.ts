@@ -334,8 +334,11 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   const socketRootPath = await mkdtemp(join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}-`), { encoding: "utf8" })
   // Validate the canonical path so symlinked system ancestors (such as
   // macOS's /var -> /private/var) are inspected as their real directories.
-  const socketRoot = await realpath(socketRootPath)
+  let socketRoot = socketRootPath
   try {
+    // Canonicalization is part of the post-allocation failure boundary; retain
+    // the original mkdtemp path so a realpath failure can still be cleaned up.
+    socketRoot = await realpath(socketRootPath)
     await chmod(socketRoot, 0o700)
     // Every ancestor must be owned by the current user and not writable by
     // group/others; otherwise an attacker could replace the validated socket
