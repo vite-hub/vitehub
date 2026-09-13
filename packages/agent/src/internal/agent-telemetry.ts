@@ -150,9 +150,9 @@ export async function agentTelemetryConfigurationFingerprint(
   // Free-form instructions and tool metadata may carry secrets that the text
   // redactor cannot recognize; keep their fingerprints runtime-scoped.
   const freeForm = JSON.stringify({
-    instructions: (value as any).instructions,
-    tools: (value as any).tools,
-    metadata: (value as any).metadata,
+    instructions: value.instructions,
+    tools: value.tools,
+    metadata: "metadata" in value ? value.metadata : undefined,
   })
   // Public free-form configuration (for example ordinary instructions) keeps
   // a stable digest; only text that looks credential-bearing needs the private
