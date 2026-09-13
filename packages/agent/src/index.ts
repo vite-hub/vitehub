@@ -1508,8 +1508,8 @@ async function applyChannelDeliveryEffectIntents<
         },
         workspace: context.workspace,
       }
+      await verifyOwnership?.()
       try {
-        await verifyOwnership?.()
         try {
           await delivery?.event({ type: "outbound.started", runId: context.run?.runId })
         }
