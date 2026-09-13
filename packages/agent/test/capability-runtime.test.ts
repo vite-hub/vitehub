@@ -1082,6 +1082,11 @@ describe("agent capability runtime", () => {
     expect(content).not.toContain("Blob")
   })
 
+  it.each(["manage", "", null, false, 0, {}])("rejects unsupported browser runtime %j before capability preparation", async runtimeMode => {
+    const { browser } = await import("../src/capabilities/browser.ts")
+    expect(() => browser({ runtime: runtimeMode as never })).toThrow("runtime must be managed or external")
+  })
+
   it("exposes the effective browser runtime in inspection metadata", async () => {
     const { browser } = await import("../src/capabilities.ts")
     expect(browser().metadata).toMatchObject({ runtime: "managed" })
