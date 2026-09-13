@@ -89,6 +89,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         declarations.set(tokens[i + 1], i + 3)
       }
       if (tokens[i] === "export" && tokens[i + 1] === "default") exported = i + 2
+      if (tokens[i] === "export" && tokens[i + 1] === "{" ) {
+        const local = tokens[i + 2]
+        if (local && tokens[i + 3] === "as" && tokens[i + 4] === "default") exported = declarations.get(local) ?? i + 2
+      }
     }
     if (["{", "(", "["].includes(tokens[i])) depth++
     if (["}", ")", "]"].includes(tokens[i])) depth--
@@ -128,11 +132,17 @@ function isWorkspaceAgentDefinition(source: string): boolean {
 
   function ownsWorkspace(index: number, seen = new Set<number>()): boolean {
     index = resolveReference(index)
+    while (tokens[index] === "(") index++
     if (seen.has(index)) return false
     seen.add(index)
     if (tokens[index] !== "defineAgent" || tokens[index + 1] !== "(") return false
     const options = properties(index + 2)
-    if (options.has("workspace")) return true
+    const workspace = options.get("workspace")
+    if (workspace !== undefined) {
+      const value = resolveReference(workspace)
+      if (tokens[value] === "{") return true
+      if (tokens[value] === "defineWorkspace") return true
+    }
     const preset = options.get("preset")
     const registry = options.get("presets")
     if (preset === undefined || registry === undefined) return false
