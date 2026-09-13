@@ -83,6 +83,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   const declarations = new Map<string, number>()
   const imported = new Set<string>()
   const importedNamespaces = new Set<string>()
+  const importedAgentBindings = new Set<string>()
   let exported: number | undefined
   let depth = 0
   for (let i = 0; i < tokens.length; i++) {
@@ -130,7 +131,16 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           }
           if (!sawFrom && /^['"`]/.test(token)) { i = j; break }
           if (sawFrom) {
-            if (/^["'`]/.test(token)) { i = j; break }
+            if (/^["'`]/.test(token)) {
+              const moduleName = token.slice(1, -1)
+              if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") {
+                const bindings = tokens.slice(i + 1, j)
+                for (let b = 0; b < bindings.length; b++) {
+                  if (bindings[b] === "defineAgent") importedAgentBindings.add(bindings[b + 2] === "as" ? bindings[b + 3] : bindings[b])
+                }
+              }
+              i = j; break
+            }
             continue
           }
           if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token)) imported.add(token)
@@ -226,7 +236,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     while (tokens[index] === "(") index++
     if (seen.has(index)) return false
     seen.add(index)
-    if (tokens[index] !== "defineAgent") {
+    if (tokens[index] !== "defineAgent" && !importedAgentBindings.has(tokens[index])) {
       if (!(tokens[index + 1] === "." && tokens[index + 2] === "defineAgent" && importedNamespaces.has(tokens[index]))) return false
       index += 2
     }
