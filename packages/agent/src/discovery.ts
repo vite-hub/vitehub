@@ -9,6 +9,7 @@ import {
   mergeDefinitions,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
+import { parse, string } from "valibot"
 
 import type { DiscoveredAgentDefinition } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -176,9 +177,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (!/^["'`]/.test(token)) return token
     if (token[0] === '`') return token.slice(1, -1)
     try {
-      return token[0] === '"'
-        ? JSON.parse(token) as string
-        : JSON.parse(`"${token.slice(1, -1).replace(/\\"/g, '\\\\"')}"`) as string
+      const value: unknown = token[0] === '"'
+        ? JSON.parse(token)
+        : JSON.parse(`"${token.slice(1, -1).replace(/\\"/g, '\\\\"')}"`)
+      return parse(string(), value)
     } catch {
       return token.slice(1, -1)
     }
