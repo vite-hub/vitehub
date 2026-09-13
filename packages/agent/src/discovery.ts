@@ -90,7 +90,19 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // Dynamic imports are expressions, not static declarations. Ignore
         // them entirely so identifiers in the surrounding module cannot be
         // mistaken for imported Workspace bindings.
-        if (tokens[i + 1] === "(") continue
+        if (tokens[i + 1] === "(") {
+          // Skip the complete dynamic import expression; its argument may
+          // contain identifiers that must not be treated as static imports.
+          let dynamicDepth = 0
+          for (let j = i + 1; j < tokens.length; j++) {
+            if (tokens[j] === "(") dynamicDepth++
+            else if (tokens[j] === ")" && --dynamicDepth === 0) {
+              i = j
+              break
+            }
+          }
+          continue
+        }
         // Imports are often semicolonless; stop at the module specifier rather
         // than consuming identifiers from following declarations.
         let sawFrom = false
