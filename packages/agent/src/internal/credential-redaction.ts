@@ -410,7 +410,7 @@ export function credentialTextMayContinue(value: string, precedingText = ""): bo
   return isCredentialKey(trailingWord)
     || uppercaseCredentialKeys.some(key => key.startsWith(normalized))
     || ["BEARER", "BASIC"].some(marker => marker.startsWith(normalized))
-    || ["KEY", "SECRET", "TOKEN", "PASSWORD", "PASSPHRASE"].some(marker => marker.startsWith(finalSegment))
+    || ["KEY", "SECRET", "TOKEN", "PASSWORD", "PASSPHRASE", "AUTH"].some(marker => marker.startsWith(finalSegment))
 }
 
 export function pendingCredentialQuote(value: string, precedingText = ""): string | undefined {

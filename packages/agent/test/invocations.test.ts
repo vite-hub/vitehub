@@ -3565,7 +3565,10 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}apiToken=[REDACTED];status=ok`)
   })
 
-  it.each(["characters", "events"])("redacts a passphrase key split at a %s journal flush", async (boundary) => {
+  it.each(["characters", "events"].flatMap(boundary => [
+    { boundary, first: "sshPassp", rest: "hrase" },
+    { boundary, first: "apiAu", rest: "th" },
+  ]))("redacts $first$rest split at a $boundary journal flush", async ({ boundary, first, rest }) => {
     const invocations = defineAgentInvocations({
       content: "content",
       observations: { maxStringLength: 128 },
@@ -3574,7 +3577,7 @@ describe("Agent Invocations", () => {
     const prefix = boundary === "characters" ? ".".repeat(512) : ""
     const agent = defineAgent({
       driver: { async run(context) {
-        for (const value of [`${prefix}sshPassp`, "hrase=sensitive-value;status=ok"]) {
+        for (const value of [`${prefix}${first}`, `${rest}=sensitive-value;status=ok`]) {
           await context.traceLog?.append({
             attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
             name: "agent.message.delta",
@@ -3591,7 +3594,7 @@ describe("Agent Invocations", () => {
     const observations = (await invocations.getByRunId("split-passphrase-credential"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
-    expect(text).toBe(`${prefix}sshPassphrase=[REDACTED];status=ok`)
+    expect(text).toBe(`${prefix}${first}${rest}=[REDACTED];status=ok`)
   })
 
   it("does not detach a closed marker-like credential from its assignment", async () => {
