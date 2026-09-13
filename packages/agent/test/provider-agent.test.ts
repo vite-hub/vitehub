@@ -2706,6 +2706,7 @@ cli_auth_credentials_store = "keyring"
     if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
     expect(result.usageRecord?.calls?.[0]?.usage).toBeUndefined()
     expect(result.usageRecord?.usage?.inputTokens).toBeUndefined()
+    expect(result.usageRecord?.usage?.totalTokens).toBeUndefined()
   })
 
   it.each(["itemId"] as const)("replaces progressive Codex snapshots for one %s", async (identityKey) => {
