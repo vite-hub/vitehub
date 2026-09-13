@@ -339,6 +339,7 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
   const browserVersion = platform === "linux" ? chromiumBundleVersion : chromeForTestingVersion
   const socketRootPath = await mkdtemp(join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}-`), { encoding: "utf8" })
+  const socketAllocation = await lstat(socketRootPath)
   // Validate the canonical path so symlinked system ancestors (such as
   // macOS's /var -> /private/var) are inspected as their real directories.
   let socketRoot = socketRootPath
@@ -474,9 +475,12 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     // cleanup to an unrelated directory.  Leave the private allocation for
     // owner-scoped temporary-directory cleanup instead.
     if (socketRoot === socketRootPath) {
-      // Canonicalization failed and the lexical path may traverse a mutable
-      // ancestor. Leave the allocation untouched rather than risking removal
-      // of a replacement directory; owner-scoped temporary cleanup can reclaim it.
+      // Only remove the allocation when the leaf still names the inode we
+      // created.  If an ancestor or the leaf was replaced, leave it untouched.
+      const current = await lstat(socketRootPath).catch(() => undefined)
+      if (current && current.dev === socketAllocation.dev && current.ino === socketAllocation.ino && current.uid === socketAllocation.uid && current.isDirectory()) {
+        await rm(socketRootPath, { force: true, recursive: false }).catch(() => undefined)
+      }
       throw error
     }
     try {
