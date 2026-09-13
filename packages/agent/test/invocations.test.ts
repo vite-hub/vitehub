@@ -90,6 +90,8 @@ describe("Agent Invocations", () => {
 
   it.each([
     ["basic explanation", " follows", "basic explanation follows"],
+    ["API_TOKEN ?", "= sensitive;status=ok", "API_TOKEN ?= [REDACTED];status=ok"],
+    ["PASSWORD +", "= sensitive;status=ok", "PASSWORD += [REDACTED];status=ok"],
     ["bearer of", " good news", "bearer of good news"],
     ["postgres://alice", ":hunter2@db.example/path", "postgres://[REDACTED]@db.example/path"],
   ])("retains ambiguous text across event boundaries: %s", async (prefix, suffix, expected) => {

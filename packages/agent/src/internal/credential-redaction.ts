@@ -58,6 +58,11 @@ export function pendingCredentialUri(value: string): { start: number, prefix: st
   return match ? { start: match.index, prefix: match[1]! } : undefined
 }
 
+function pendingCompoundAssignment(value: string): string | undefined {
+  const match = /(?<![A-Za-z0-9_-])(?:--)?["']?_*([A-Za-z][A-Za-z0-9_-]*)["']?[\t ]*[?+][\t ]*$/.exec(value.slice(-128))
+  return match && isCredentialKey(match[1]!) ? match[0] : undefined
+}
+
 export function pendingCredentialTextSuffix(value: string): string | undefined {
   const tail = value.slice(-128)
   const scheme = /(?:^|[\r\n])[\t "']*((?:bearer|basic)\s+[a-z]*)$/i.exec(value)
@@ -67,6 +72,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?<![A-Za-z0-9_-])--?$/.exec(tail)?.[0]
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
     ?? pendingAuthorizationHeader(value)
+    ?? pendingCompoundAssignment(value)
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
@@ -358,6 +364,7 @@ export function pendingCredentialAssignment(value: string, precedingText = ""): 
 }
 
 export function credentialTextMayContinue(value: string, precedingText = ""): boolean {
+  if (pendingCompoundAssignment(value)) return true
   if (pendingCredentialUri(value) || /\b[a-z][a-z0-9+.-]*:\/?$/i.test(value)) return true
   if (pendingAuthorizationState(value)) return true
   if (/\b(?:proxy-)?authorization["']?[\t ]*:[\t ]*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.test(value)) return true
