@@ -28,7 +28,7 @@ import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, getMessageText, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
@@ -2557,9 +2557,18 @@ async function* runProvider<
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const candidate = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : undefined
-            const structured = hasRuntimeType(input.message, "object") && hasRuntimeType(input.message.content, "string") ? input.message.content : undefined
-            const text = candidate ?? structured
+            const structuredMessage = (value: unknown): string | undefined => {
+              if (!hasRuntimeType(value, "object")) return undefined
+              const text = getMessageText(value as Parameters<typeof getMessageText>[0])
+              return text || undefined
+            }
+            const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : undefined)
+            const text = hasRuntimeType(input.prompt, "string")
+              ? input.prompt
+              : hasRuntimeType(input.message, "string")
+                ? input.message
+                : structuredMessage(input.message)
+                  ?? (messages ? messages.map(structuredMessage).filter((value): value is string => value !== undefined).join("") : undefined)
             if (!activeTurnId || !text?.trim()) return "unsupported"
             try { await activeRuntime.sendTurn({ threadId, input: text }); return "accepted" } catch { return "unavailable" }
           }
