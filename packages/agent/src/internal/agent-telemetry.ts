@@ -149,11 +149,15 @@ export async function agentTelemetryConfigurationFingerprint(
   const bytes = new TextEncoder().encode(serialized)
   // Free-form instructions and tool metadata may carry secrets that the text
   // redactor cannot recognize; keep their fingerprints runtime-scoped.
-  const containsFreeFormSecrets = Boolean(
-    (value as any).instructions
-    || (value as any).tools
-    || (value as any).metadata,
-  )
+  const freeForm = JSON.stringify({
+    instructions: (value as any).instructions,
+    tools: (value as any).tools,
+    metadata: (value as any).metadata,
+  })
+  // Public free-form configuration (for example ordinary instructions) keeps
+  // a stable digest; only text that looks credential-bearing needs the private
+  // runtime-scoped discriminator when the redactor did not recognize it.
+  const containsFreeFormSecrets = /(?:api[_-]?key|access[_-]?token|password|secret|credential|authorization|bearer|private[_-]?key)/i.test(freeForm)
   const containsSecrets = serialized !== redacted || containsFreeFormSecrets
   let digest: ArrayBuffer
   if (containsSecrets) {
