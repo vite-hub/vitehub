@@ -2118,8 +2118,8 @@ type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
 
 export interface DefineAgent {
   <
-    const TPreset extends string,
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    const TPreset extends string = string,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,
@@ -2137,8 +2137,8 @@ export interface DefineAgent {
   ): WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
 
   <
-    const TPreset extends string,
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    const TPreset extends string = string,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,
@@ -2156,8 +2156,8 @@ export interface DefineAgent {
   ): WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
 
   <
-    const TPreset extends string,
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    const TPreset extends string = string,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
     const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,

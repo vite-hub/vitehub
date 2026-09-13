@@ -85,8 +85,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   let depth = 0
   for (let i = 0; i < tokens.length; i++) {
     if (depth === 0) {
-      if (["const", "let", "var"].includes(tokens[i]) && tokens[i + 2] === "=") {
-        declarations.set(tokens[i + 1], i + 3)
+      if (["const", "let", "var"].includes(tokens[i])) {
+        const name = tokens[i + 1]
+        let equals = i + 2
+        while (equals < tokens.length && tokens[equals] !== "=" && tokens[equals] !== ";") equals++
+        if (name && tokens[equals] === "=") declarations.set(name, equals + 1)
       }
       if (tokens[i] === "export" && tokens[i + 1] === "default") exported = i + 2
       if (tokens[i] === "export" && tokens[i + 1] === "{" ) {
