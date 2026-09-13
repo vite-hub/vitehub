@@ -264,6 +264,7 @@ export type {
   AgentAdapterInstructions,
   AgentAdapterInstructionsPart,
   AgentAdapterInstructionsValue,
+  AgentInstructionsContent,
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentAdapterRunContext,
