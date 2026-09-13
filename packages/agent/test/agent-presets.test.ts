@@ -140,7 +140,7 @@ it("keeps configured presets extendable after colocated Skills and Workspace dis
 
 it("keeps plain Agents extendable after colocated Skills discovery", () => {
   const base = defineAgent({ driver: "codex" })
-  const skills = { review: { content: "Review." } }
+  const skills = { review: { content: "Review.", workspacePath: "SKILL.md" } }
   const discovered = withColocatedAgentSkills(base, skills)
   expect(getAgentLayerOptions(discovered)?.driver).toBe("codex")
   const child = defineAgent({ extends: discovered, description: "Child" })
