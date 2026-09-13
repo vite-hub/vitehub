@@ -74,10 +74,21 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     }
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
-    const config = await git(destination, ['config', '--local', '--name-only', '--list'])
-    for (const key of new Set(config.split('\n').filter(key => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type)?|sslcert(?:type|passwordprotected)?)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)))) {
-      await git(destination, ['config', '--local', '--unset-all', key])
+    const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type)?|sslcert(?:type|passwordprotected)?)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
+    const sanitize = async (scope: '--local' | '--worktree') => {
+      let config = ''
+      try {
+        config = await git(destination, ['config', scope, '--name-only', '--list'])
+      } catch (error) {
+        if (scope === '--local') throw error
+      }
+      for (const key of new Set(config.split('\n').filter(sensitive))) {
+        await git(destination, ['config', scope, '--unset-all', key])
+      }
     }
+    await sanitize('--local')
+    // Authentication can also live in config.worktree when extensions.worktreeConfig is enabled.
+    await sanitize('--worktree')
     if (await git(destination, ['rev-parse', 'HEAD']) !== expected
       || await git(destination, ['remote', 'get-url', '--all', 'origin']) !== origin
       || await git(destination, ['remote', 'get-url', '--all', '--push', 'origin']) !== push) {
