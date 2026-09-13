@@ -892,6 +892,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
           await mkdir(markerDirectory, { mode: 0o700 }).catch((directoryError: NodeJS.ErrnoException) => {
             if (directoryError.code !== "EEXIST") throw directoryError
           })
+          const markerDirectoryInfo = await lstat(markerDirectory)
+          assertTrustedMetadata(markerDirectory, markerDirectoryInfo, metadata.root)
+          if (!markerDirectoryInfo.isDirectory()) throw workspaceError(`[vitehub] Invalid Workspace removal directory.`)
+          if (process.platform !== "win32") await applyMetadataPermissions(markerDirectory, metadata.root.mode & 0o770, metadata.root.gid)
           await open(marker, "wx", 0o600).then(file => closeCreatedMarker(file, marker))
           throw error
         }
