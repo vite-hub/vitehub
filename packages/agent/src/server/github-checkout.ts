@@ -90,8 +90,13 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       for (const key of new Set(config.split('\n').filter(Boolean))) {
         let remove = sensitive(key)
         if (!remove && /^url\..+\.(?:insteadOf|pushInsteadOf)$/i.test(key)) {
+          const base = key.slice(4, key.lastIndexOf('.'))
+          if (URL.canParse(base)) {
+            const baseUrl = new URL(base)
+            remove = Boolean(baseUrl.username || baseUrl.password)
+          }
           const values = await git(destination, ['config', scope, '--get-all', key]).catch(() => '')
-          remove = values.split('\n').some(value => {
+          remove ||= values.split('\n').some(value => {
             if (!URL.canParse(value)) return false
             const url = new URL(value)
             return Boolean(url.username || url.password)
