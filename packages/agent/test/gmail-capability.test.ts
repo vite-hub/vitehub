@@ -56,13 +56,14 @@ describe("gmail capability", () => {
 
     expect(read).toMatchObject({
       id: "gmail",
-      metadata: { command: "gog", mode: "read", skillPath: "skills/gmail/SKILL.md", sourceKey: "skill.gmail" },
+      metadata: { command: "gog", mode: "read", skillPath: ".agents/skills/gmail/SKILL.md", sourceKey: "skill.gmail" },
       mode: "read",
       requires: [
         { primitive: "workspace", workspace: { mode: "write", required: true } },
       ],
     })
     expect(Object.keys(readRuntime.tools).sort()).toEqual(["gmail_auth", "gmail_search"])
+    expect(readWorkspace.sources?.["skill.gmail"]).toHaveProperty("workspacePath", ".agents/skills/gmail/SKILL.md")
     expect(readWorkspace.sources?.["skill.gmail"]).toHaveProperty("content", expect.stringContaining("Use `gmail_search`"))
     expect(readWorkspace.sources?.["skill.gmail"]).toHaveProperty("content", expect.stringContaining("authorization codes separately from the required full redirect URL"))
     expect(readWorkspace.sources?.["skill.gmail"]).toHaveProperty("content", expect.stringContaining("using the `access` returned"))

@@ -88,7 +88,7 @@ The Capability accepts only an HTTP loopback URL with both `code` and `state`. I
 - A Workspace Session host with command execution and `gog` available.
 - Operator-owned OAuth client configuration and persistent service-account state.
 
-Each underlying `gog` command opens its own Workspace Session and closes the Session on success or failure. Gmail search results remain untrusted external content and the contributed `skills/gmail/SKILL.md` tells the Agent to treat them as data, not instructions.
+Each underlying `gog` command opens its own Workspace Session and closes the Session on success or failure. Gmail search results remain untrusted external content and the contributed `.agents/skills/gmail/SKILL.md` tells the Agent to treat them as data, not instructions.
 
 Draft authorization may grant the Gmail account scope that `gog` needs to create drafts. The no-send contract applies only to the Capability-owned tools and their command flags.
 

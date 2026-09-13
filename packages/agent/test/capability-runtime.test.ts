@@ -987,12 +987,12 @@ describe("agent capability runtime", () => {
         workspaceDefinition: { name: workspaceName, sources: {} },
       })
       await expect(resolved.workspace!.fs.readFile(skillPath)).resolves.toBe(browserSkillContent(skillContent, skillPath, false))
-      const gmailGuidance = await resolved.workspace!.fs.readFile("skills/gmail/SKILL.md")
+      const gmailGuidance = await resolved.workspace!.fs.readFile(".agents/skills/gmail/SKILL.md")
       expect(gmailGuidance).toContain("This Skill is available only for this invocation.")
       expect(gmailGuidance).not.toContain("persists between invocations")
       expect(gmailGuidance).toContain("gmail_search")
       expect(gmailGuidance).toContain("gmail_auth")
-      await expect(workspace.fs.exists("skills/gmail/SKILL.md")).resolves.toBe(false)
+      await expect(workspace.fs.exists(".agents/skills/gmail/SKILL.md")).resolves.toBe(false)
       await expect(workspace.fs.exists(skillPath)).resolves.toBe(false)
       await resolved.close()
     }

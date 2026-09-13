@@ -360,7 +360,7 @@ export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefi
   if (mode !== "read" && mode !== "draft") {
     throw agentDiagnostics.AGENT_R0095({ message: '[vitehub] gmail({ mode }) must be "read" or "draft".' })
   }
-  const skillPath = "skills/gmail/SKILL.md"
+  const skillPath = ".agents/skills/gmail/SKILL.md"
   const sourceKey = "skill.gmail"
 
   return Object.assign(defineCapability({
