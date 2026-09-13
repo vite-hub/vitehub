@@ -827,16 +827,17 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     let conditionalCurrent: WorkspaceFile | undefined
-    if (options.ifDigest !== undefined) {
+    if (options.ifDigest !== undefined || options.ifSource !== undefined) {
       if ((await this.#stat(normalized, false))?.type !== "file") return
       conditionalCurrent = await this.#readFile(normalized)
-      if (!conditionalCurrent || await sha256(conditionalCurrent.content) !== options.ifDigest) return
+      if (!conditionalCurrent) return
+      if (options.ifDigest !== undefined && await sha256(conditionalCurrent.content) !== options.ifDigest) return
       if (options.ifSource !== undefined && (conditionalCurrent.metadata?.source ?? null) !== options.ifSource) return
     }
     // Retire the checked inode first. This closes the final race with writers
     // that do not participate in the workspace path lock: a replacement at
     // the public pathname is never removed by the cleanup operation.
-    if (options.ifDigest !== undefined) {
+    if (options.ifDigest !== undefined || options.ifSource !== undefined) {
       const absolute = resolveInside(this.root, normalized)
       const retiredRelative = `${normalized}.vitehub-retired-${randomUUID()}`
       const retired = resolveInside(this.root, retiredRelative)
@@ -851,7 +852,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
       const { readFile } = await import("node:fs/promises")
       const retiredBytes = await readFile(retired).catch(() => undefined)
-      if (!retiredBytes || await sha256(new Uint8Array(retiredBytes)) !== options.ifDigest || (options.ifSource !== undefined && (conditionalCurrent?.metadata?.source ?? null) !== options.ifSource)) {
+      if (!retiredBytes || (options.ifDigest !== undefined && await sha256(new Uint8Array(retiredBytes)) !== options.ifDigest) || (options.ifSource !== undefined && (conditionalCurrent?.metadata?.source ?? null) !== options.ifSource)) {
         await rename(retired, absolute).catch(() => undefined)
         return
       }
