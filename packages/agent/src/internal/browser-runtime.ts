@@ -460,7 +460,7 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
         if (remaining > 0) socketDirectoryReferences.set(socketDirectory, remaining)
         else {
           socketDirectoryReferences.delete(socketDirectory)
-          void rm(socketDirectory, { force: true, recursive: true }).catch(() => undefined)
+          queueMicrotask(() => { void rm(socketDirectory, { force: true, recursive: true }).catch(() => undefined) })
         }
       }
     }, (error) => {
