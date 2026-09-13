@@ -34,7 +34,6 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   const numeric = ['generation', 'handled', 'dirtyAt', 'nextAt', 'leaseUntil', 'attempts']
   if (numeric.some(key => typeof value[key] !== 'number' || !Number.isFinite(value[key] as number))) throw new Error('Invalid stored snapshot')
   if (!['ready', 'working', 'waiting', 'terminal'].includes(value.status as string) || (value.lease !== null && typeof value.lease !== 'string')) throw new Error('Invalid stored snapshot')
-  const arrays = ['reasons', 'threads']
   if (!Array.isArray(value.reasons) || !value.reasons.every(item => typeof item === 'string') || !Array.isArray(value.threads)) throw new Error('Invalid stored snapshot')
   for (const thread of value.threads) parseThread(thread)
   for (const key of ['comments', 'reviews', 'reviewComments', 'checks', 'statuses']) {
