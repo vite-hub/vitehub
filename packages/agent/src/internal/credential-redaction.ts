@@ -95,7 +95,9 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /["']?\b(?:proxy-)?authorization["']?\s*:\s*["']?[!#$%&'*+.^_`|~A-Za-z0-9-]*$/i.exec(tail)?.[0]
     ?? pendingAuthorizationHeader(value)
     ?? pendingCompoundAssignment(value)
-    ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
+    // Permit leading underscores while avoiding matches embedded in larger
+    // hyphenated identifiers (for example `123-api-key`).
+    ?? /(?<![A-Za-z0-9-])(?:--)?["']?_*[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
 const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9-])((?:--)?["']?_*((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*(?::?=|\?=|\+=|:=|:)[\t ]*|\s+))`
