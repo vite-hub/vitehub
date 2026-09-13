@@ -37,9 +37,9 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   if (requiredStrings.some(key => typeof value[key] !== 'string') || typeof value.number !== 'number' || !Number.isInteger(value.number) || value.number < 1) throw new Error('Invalid stored snapshot')
   const numeric = ['generation', 'handled', 'dirtyAt', 'nextAt', 'leaseUntil', 'attempts']
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   if (numeric.some(key => {
     const item = value[key]
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
     return typeof item !== 'number' || !Number.isFinite(item)
   })) throw new Error('Invalid stored snapshot')
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
