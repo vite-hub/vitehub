@@ -557,6 +557,33 @@ describe("lazy sources", () => {
     })
   })
 
+  it.each(["search", "list"])("reuses both ready overlapping snapshots offline during %s", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    const lowerItem = vi.fn(async (key: string) => ({ key, content: "lower needle" }))
+    const definition = {
+      name: "offline-overlapping-inspection",
+      sources: {
+        first: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "higher needle" }] }),
+        second: custom({ materialize: "startup", mount: "docs", getKeys: async () => ["shared.md"], getItem: lowerItem }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).list("docs", { recursive: true })
+    lowerItem.mockClear().mockRejectedValue(new Error("offline"))
+    const view = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+    if (operation === "search") {
+      await expect(view.search({ pattern: "needle" })).resolves.toEqual([
+        expect.objectContaining({ path: "docs/shared.md", text: "higher needle" }),
+      ])
+    }
+    else {
+      await expect(view.list("docs", { recursive: true })).resolves.toEqual([
+        expect.objectContaining({ path: "docs/shared.md" }),
+      ])
+    }
+    expect(lowerItem).not.toHaveBeenCalled()
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("higher needle")
+  })
+
   it.each(["search", "list"].flatMap(operation => [false, true].flatMap(local => ["", "docs"].map(mount => ({ operation, local, mount })))))("preserves overlapping inspection snapshots during $operation with local=$local and mount=$mount", async ({ operation, local, mount }) => {
     const rootDir = await mkdtemp(join(tmpdir(), "workspace-inspection-overlap-"))
     tempDirs.push(rootDir)

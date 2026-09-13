@@ -436,6 +436,21 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
             if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "EISDIR") throw error
           }
           if (!file || !await materializedFileMatches(file, item)) {
+            // A ready higher-priority snapshot may own the visible bytes.
+            // Keep that file with its owner rather than replaying it as this Source.
+            let shadowed = false
+            if (file && item.materializedContentDigest) {
+              for (const owner of items.slice(0, items.indexOf(source))) {
+                if (!preserved.has(owner.key)) continue
+                const ownerSnapshot = await readCurrentSourceSnapshot(store, owner)
+                const ownerItem = ownerSnapshot?.items?.[path]
+                if (ownerItem && await materializedFileMatches(file, ownerItem)) {
+                  shadowed = true
+                  break
+                }
+              }
+            }
+            if (shadowed) continue
             incomplete.add(source.key)
             break
           }
