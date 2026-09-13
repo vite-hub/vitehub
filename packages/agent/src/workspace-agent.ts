@@ -1314,7 +1314,9 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
   let inlineFence: string | undefined
   let paragraph = false
   return template.split("\n").map((line) => {
-    const marker = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/)
+    // Fenced blocks may occur inside block quotes; include the container
+    // prefix when classifying delimiters so static inspection matches Markdown.
+    const marker = line.match(/^( {0,3}(?:> ?)*)(`{3,}|~{3,})(.*)$/)
     if (marker) {
       const delimiter = marker[2]
       const trailing = marker[3]
