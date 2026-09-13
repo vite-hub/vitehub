@@ -4,7 +4,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: ["comark-content", /^comark-content\//],
+      neverBundle: ["@vite-hub/source", "comark-content", /^comark-content\//],
       onlyBundle: false,
     },
     entry: ["src/client.ts", "src/index.ts"],

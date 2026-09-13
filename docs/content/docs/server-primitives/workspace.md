@@ -196,7 +196,8 @@ export default defineWorkspace({
 
 The Source key `intro.md` appears at `docs/intro.md`. The binding owns placement,
 materialization, sync, and access rules. Source owns retrieval. Pass the same
-`docs` definition to `createSource(docs)` for direct reads. Each consumer owns its
+`docs` definition to `createSource(docs)` for direct reads or
+`defineContent({ source: docs })` for parsed Content. Each consumer owns its
 reader lifecycle and revision.
 
 The Workspace `file()`, `glob()`, and other binding helpers remain available

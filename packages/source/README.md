@@ -70,7 +70,16 @@ content receive file methods too. Record readers use `get()` and `items()`.
 
 ## Reuse a definition
 
-Workspace binds a Source definition to a persistent file tree:
+Content accepts Source definitions directly. It opens a new reader on each
+refresh, so overlapping loads keep separate revisions:
+
+```ts
+import { defineContent } from "@vite-hub/content"
+
+export const content = defineContent({ source: docs })
+```
+
+Workspace binds the same definition to a persistent file tree:
 
 ```ts
 import { defineWorkspace } from "@vite-hub/workspace"
