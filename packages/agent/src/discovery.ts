@@ -74,10 +74,10 @@ function stripComments(source: string) {
 
 function isWorkspaceAgentDefinition(source: string): boolean {
   const stripped = stripComments(source)
-  // A preset selection alone does not imply Workspace ownership. Classify inline
-  // preset definitions only when the source also contains a workspace property;
-  // this avoids registering ordinary presets as hosted Workspaces.
-  return /\bdefineAgent\s*\(\s*\{[\s\S]*\bworkspace\s*(?::|[,}])/.test(stripped)
+  // Workspace ownership may come from an inline override or from a named preset
+  // declared in the same module. Require an explicit workspace property somewhere
+  // in the module so ordinary preset selections remain ordinary Agents.
+  return /\bworkspace\s*(?::|[,}])/.test(stripped)
 }
 
 function isAgentDefinitionSource(source: string): boolean {
