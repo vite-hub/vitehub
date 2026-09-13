@@ -381,7 +381,7 @@ async function removeStaleMaterializedSourceFiles(
         || ((local || currentOwner === undefined) && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
           && await sha256(latest.content) !== previousSnapshot.items[entry.path].materializedContentDigest)) continue
       const removalDigest = await sha256(latest.content)
-      await control.mutate(() => store.rm(entry.path, { force: true, ifDigest: removalDigest, ifSource: typeof currentOwner === "string" ? currentOwner : null }))
+      await control.mutate(() => store.rm(entry.path, { force: true, ifDigest: removalDigest, ifSource: hasRuntimeType(currentOwner, "string") ? currentOwner : null }))
       onRemoved?.(entry.path, contentSize(latest.content))
     }
   }
@@ -488,7 +488,7 @@ async function reconcileRemovedStartupSourcesInternal(
         const latestOwner = latest.metadata?.source
         if (latestOwner !== source.key && !(latestOwner === undefined && fileAttributesUnavailable(latest))) return false
         if (local && recordedDigest && await sha256(latest.content) !== recordedDigest) return false
-        await store.rm(path, { force: true, ifDigest: await sha256(latest.content), ifSource: typeof latestOwner === "string" ? latestOwner : null })
+        await store.rm(path, { force: true, ifDigest: await sha256(latest.content), ifSource: hasRuntimeType(latestOwner, "string") ? latestOwner : null })
         return !(await store.stat(path))
       })
       if (removed) removedOwnedPaths.push(path)
