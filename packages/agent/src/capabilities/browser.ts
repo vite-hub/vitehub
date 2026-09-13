@@ -1,17 +1,27 @@
-import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
+import { supportsSkillPersistence } from "../internal/skill-persistence.ts"
+import { isCapabilityInspection } from "../internal/capability-inspection.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "../capability-runtime.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentWorkspaceDiff } from "../agent-workspace-runtime.ts"
 import { normalizeDeliveryArtifactPath } from "../delivery-artifacts.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { cloneWithPropertyDescriptors } from "../internal/stream-result.ts"
+import { browserRuntimeEnvironment, closeBrowserRuntimeSession, prepareBrowserRuntime, provideBrowserRuntimeEnvironment } from "../internal/browser-runtime.ts"
+import { browserSkillContent, managedBrowserSkillContent } from "../internal/browser-skill.ts"
 
 import type { AgentCapabilityDefinition, AgentDeliveryArtifact } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 export interface BrowserCapabilityOptions {
+  /** Executable name for an external browser runtime. Defaults to `agent-browser`. */
   command?: string
+  /** Managed installs a pinned local runtime; external expects the command to be ready in the provider environment. Defaults to managed for the default command. */
+  runtime?: "external" | "managed"
+  /** Skill content mounted for the provider. Managed mode defaults to the installed CLI's official discovery skill. */
   skillContent?: string
+  /** Workspace path for the browser skill. Defaults to `.agents/skills/agent-browser/SKILL.md`. */
   skillPath?: string
+  /** Workspace source key for the browser skill. Defaults to `skill.browser`. */
   sourceKey?: string
 }
 
@@ -119,36 +129,65 @@ function attachBrowserScreenshots(
 }
 
 export function browser(options: BrowserCapabilityOptions = {}): AgentCapabilityDefinition {
-  const command = assertCommand(options.command || "agent-browser")
-  const skillPath = normalizeSkillPath(options.skillPath || "skills/browser/SKILL.md")
+  if (options.runtime !== undefined && options.runtime !== "managed" && options.runtime !== "external") {
+    throw agentDiagnostics.AGENT_R0025({ message: "[vitehub] browser() runtime must be managed or external." })
+  }
+  const command = assertCommand(options.command ?? "agent-browser")
+  if (command !== "agent-browser" && options.runtime === "managed") {
+    throw agentDiagnostics.AGENT_R0025({ message: "[vitehub] browser({ runtime: \"managed\" }) owns the agent-browser command. Remove command or use runtime: \"external\" for a custom executable." })
+  }
+  const skillPath = normalizeSkillPath(options.skillPath || ".agents/skills/agent-browser/SKILL.md")
   const sourceKey = options.sourceKey || "skill.browser"
-  const skillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
+  const runtimeMode = options.runtime ?? (command === "agent-browser" ? "managed" : "external")
+  let skillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
 
   return Object.assign(defineCapability({
     id: "browser",
-    metadata: { command, skillPath, sourceKey },
+    metadata: { command, runtime: runtimeMode, skillPath, sourceKey },
     output(context) {
       if (context.driver?.kind === "provider") {
         context.output.final(result => attachBrowserScreenshots(result, context), { order: "last" })
       }
     },
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
-    prepare(context) {
+    async prepare(context) {
       if (context.driver?.kind !== "provider") throw agentDiagnostics.AGENT_R0026({ message: "[vitehub] browser() requires a Provider Agent Driver." })
+      // Inspection also receives a synthetic invocation, so use the resolver's
+      // trusted phase marker before allocating browser resources.
+      if (!context.invocation || isCapabilityInspection(context)) return
+      if (runtimeMode !== "managed") {
+        provideBrowserRuntimeEnvironment(context.context, Object.freeze({ VITEHUB_BROWSER_ACTIVE: "1" }))
+        return
+      }
+      if (isRuntimeRecord(context.agentDriver) && context.agentDriver.launch !== undefined) {
+        throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+      }
+      const runtime = await prepareBrowserRuntime({ abortSignal: context.abortSignal })
+      provideBrowserRuntimeEnvironment(context.context, Object.freeze({
+        ...runtime.environment,
+        VITEHUB_BROWSER_ACTIVE: "1",
+        AGENT_BROWSER_SESSION: `vh-${crypto.randomUUID().slice(0, 12)}`,
+      }))
+      if (options.skillContent === undefined) skillContent = managedBrowserSkillContent(runtime.skillContent, skillPath)
     },
-    workspace: {
+    async close(context) {
+      const environment = browserRuntimeEnvironment(context.context)
+      if (environment) await closeBrowserRuntimeSession(environment)
+    },
+    workspace: async context => ({
       rules: {
         [`${screenshotRoot}/**`]: { commit: true, write: true },
       },
       sources: {
         [sourceKey]: {
-          content: skillContent,
+          content: browserSkillContent(skillContent, skillPath, await supportsSkillPersistence(context.workspace)),
           mediaType: "text/markdown",
           workspacePath: skillPath,
         },
       },
-    },
+    }),
   }), {
     [workspaceMaterializationPathsSymbol]: [skillPath],
+    [workspacePersistencePathsSymbol]: [skillPath],
   })
 }

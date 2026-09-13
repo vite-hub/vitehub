@@ -1707,18 +1707,40 @@ describe("local workspace store", () => {
     const content = new Uint8Array([0, 1, 2, 3, 254, 255])
     const digest = createHash("sha256").update(content).digest("hex")
 
-    await expect(store.writeFileStream?.("assets/blob.bin", {
+    const root = tempDirs.at(-1)!
+    let release!: () => void
+    const paused = new Promise<void>((resolve) => { release = resolve })
+    const writing = store.writeFileStream!("assets/blob.bin", {
       path: "assets/blob.bin",
-      content: new ReadableStream({
-        start(controller) {
-          controller.enqueue(content.slice(0, 3))
-          controller.enqueue(content.slice(3))
-          controller.close()
-        },
-      }),
+      content: (async function* () {
+        yield content.slice(0, 3)
+        await paused
+        yield content.slice(3)
+      })(),
       mediaType: "application/octet-stream",
       metadata: { source: "stream" },
-    })).resolves.toMatchObject({ digest, path: "assets/blob.bin", size: content.byteLength })
+    })
+    try {
+      // Observe bytes on disk before the source permits completion. Buffering
+      // the entire input before opening the writer cannot satisfy this check.
+      await vi.waitFor(async () => {
+        const entries = await readdir(`${root}/.vitehub/tmp`)
+        const temporary = entries.find(entry => entry.endsWith(".tmp"))
+        expect(temporary).toBeDefined()
+        expect(await readFile(`${root}/.vitehub/tmp/${temporary}`)).toEqual(Buffer.from(content.slice(0, 3)))
+      })
+      await expect(stat(`${root}/assets/blob.bin`)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      release()
+      await writing
+    }
+    await expect(writing).resolves.toMatchObject({ digest, path: "assets/blob.bin", size: content.byteLength })
+    await expect(createLocalWorkspaceStore(root).readFile("assets/blob.bin")).resolves.toMatchObject({
+      content,
+      mediaType: "application/octet-stream",
+      metadata: { source: "stream" },
+    })
 
     expect(vi.mocked(writeFile).mock.calls.every(call => String(call[0]).includes("/.vitehub/file-metadata"))).toBe(true)
     await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({

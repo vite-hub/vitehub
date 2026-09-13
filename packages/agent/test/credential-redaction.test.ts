@@ -837,3 +837,18 @@ it.each(["Authorization: ", "Proxy-Authorization: "]) ("retains authorization co
   expect(redactCredentialText(`${partial}/`)).toBe(`${prefix}[REDACTED]`)
 })
 
+
+describe("structured credential redaction", () => {
+  it.each(["password", "secret", "api_key"])("redacts the complete YAML %s plain scalar across chunks", (key) => {
+    const prefix = `  ${key}: `
+    const scalar = "correct horse\tbattery"
+    const suffix = "\n  status: ok"
+    expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    for (let split = 1; split < scalar.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + scalar.slice(0, split))!
+      const rest = scalar.slice(split) + suffix
+      const boundary = consumeCredentialAssignment(rest, state)
+      expect((state.yaml?.whitespace ?? "") + rest.slice(boundary)).toBe(suffix)
+    }
+  })
+})

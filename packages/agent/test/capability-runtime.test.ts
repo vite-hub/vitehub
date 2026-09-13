@@ -1,6 +1,13 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
+import { browserSkillContent } from "../src/internal/browser-skill.ts"
+
 import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
+import { defineWorkspace, useWorkspace } from "@vite-hub/workspace"
+import { registerWorkspace } from "@vite-hub/workspace/test"
 import type { WorkspaceSession } from "@vite-hub/workspace"
 
 const runtime = () => ({
@@ -852,16 +859,110 @@ describe("agent capability runtime", () => {
     ])
   })
 
-  it("applies browser workspace source contributions", async () => {
+  it.each([
+    { command: "ssh", args: ["host"] },
+    () => ({ command: "custom-provider" }),
+  ])("rejects managed browser launchers before provisioning or retaining Skills: %j", async (launch) => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
+    const browserRuntime = await import("../src/internal/browser-runtime.ts")
+    const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockRejectedValue(new Error("unexpected browser installation"))
+    const workspaceName = `launcher-browser-${crypto.randomUUID()}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const write = vi.spyOn(workspace.fs, "writeFile")
+    try {
+      await expect(resolveAgentCapabilities({ capabilities: [browser()] }, runtime(), {}, workspace as never, "write", {
+        driver: { kind: "provider", provider: "codex", launch },
+        driverKind: "provider",
+        invocationKind: "run",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })).rejects.toThrow('browser({ runtime: "external" })')
+      expect(prepare).not.toHaveBeenCalled()
+      expect(write).not.toHaveBeenCalled()
+      await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(false)
+      const external = await resolveAgentCapabilities({ capabilities: [browser({ runtime: "external" })] }, runtime(), {}, workspace as never, "write", {
+        driver: { kind: "provider", provider: "codex", launch },
+        driverKind: "provider",
+        invocationKind: "run",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })
+      expect(prepare).not.toHaveBeenCalled()
+      await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(true)
+      await external.close()
+    }
+    finally {
+      prepare.mockRestore()
+      write.mockRestore()
+    }
+  })
+
+  it.each([
+    { provider: "memory", path: undefined },
+    { provider: "local", path: "skills/review" },
+  ] as const)("retains directory-backed Skills through Workspace Sources: %j", async ({ provider, path }) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser, skills } = await import("../src/capabilities.ts")
+    const workspaceName = `retained-directory-${crypto.randomUUID()}`
+    const root = await mkdtemp(join(tmpdir(), "vitehub-retained-directory-"))
+    const files: Record<string, string> = { "SKILL.md": "# Review", "references/guide.md": "Review guide" }
+    const skillDirectory = path ?? "skills"
+    const capability = skills({ path, source: {
+      materialize: "lazy",
+      async getKeys() { return Object.keys(files) },
+      async getItem(key: string) { return { key, content: files[key], mediaType: "text/markdown" } },
+    } })
+    const definition = defineWorkspace({ store: provider === "local" ? { provider, root } : { provider }, sources: capability.workspaceSources })
+    registerWorkspace(workspaceName, definition)
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const resolve = () => resolveAgentCapabilities({
+      capabilities: [capability, browser({ runtime: "external", skillContent: "# Browser" })],
+    }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider",
+      workspaceDefinition: { ...definition, name: workspaceName },
+    })
+    try {
+      await resolve()
+      for (const [key, content] of Object.entries(files)) {
+        await expect(workspace.fs.readFile(`${skillDirectory}/${key}`)).resolves.toBe(content)
+        expect((await workspace.fs.stat(`${skillDirectory}/${key}`)).digest).toEqual(expect.any(String))
+      }
+      await resolve()
+      await expect(workspace.fs.readFile(`${skillDirectory}/references/guide.md`)).resolves.toBe("Review guide")
+      await expect(workspace.fs.writeFile(`${skillDirectory}/references/guide.md`, "User guide")).rejects.toThrow("Source-backed workspace paths are read-only")
+      await expect(workspace.fs.readFile(`${skillDirectory}/references/guide.md`)).resolves.toBe("Review guide")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ".agents/skills/agent-browser/SKILL.md",
+    ".codex/skills/agent-browser/SKILL.md",
+    ".claude/skills/custom-browser/SKILL.md",
+    "custom/browser-guide.md",
+  ].flatMap(skillPath => [
+    { existingSkill: false, directEdit: false },
+    { existingSkill: true, directEdit: false },
+    { existingSkill: true, directEdit: true },
+  ].map(scenario => ({ ...scenario, skillPath }))))("applies browser workspace source contributions: %j", async ({ existingSkill, directEdit, skillPath }) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const workspaceName = `retained-browser-${crypto.randomUUID()}`
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-retained-browser-"))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    await workspace.fs.writeFile(".agents/skills/coding/SKILL.md", "# Coding\n")
+    if (existingSkill) await workspace.fs.writeFile(skillPath, browserSkillContent("# Browser\nUse bash.\n", skillPath))
 
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser({ skillContent: "# Browser\nUse bash.\n" })],
-    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUse bash.\n" })],
+    }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider",
+      invocationKind: "run",
       workspaceDefinition: {
-        name: "review",
+        name: workspaceName,
         sources: {},
       },
     })
@@ -869,7 +970,7 @@ describe("agent capability runtime", () => {
     expect(resolved.workspaceDefinition?.sources?.["skill.browser"]).toMatchObject({
       materialize: "lazy",
       mediaType: "text/markdown",
-      workspacePath: "skills/browser/SKILL.md",
+      workspacePath: skillPath,
     })
     expect(resolved.tools).toBeUndefined()
     expect(resolved.registries.workspaceContributions).toEqual([
@@ -880,6 +981,150 @@ describe("agent capability runtime", () => {
       },
     ])
     expect(resolved.workspaceDefinition?.rules?.["screenshots/**"]).toEqual({ commit: true, write: true })
+    await expect(workspace.fs.readFile(skillPath)).resolves.toBe(browserSkillContent("# Browser\nUse bash.\n", skillPath))
+    await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
+    expect((await workspace.fs.stat(skillPath)).metadata?.capabilityWorkspaceContribution).toMatchObject({ capabilityId: "browser" })
+    await resolveAgentCapabilities({
+      capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
+    }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider",
+      invocationKind: "run",
+      workspaceDefinition: { name: workspaceName, sources: {} },
+    })
+    await expect(workspace.fs.readFile(skillPath)).resolves.toBe(browserSkillContent("# Browser\nUpdated guidance.\n", skillPath))
+    await expect(workspace.fs.readFile(".agents/skills/coding/SKILL.md")).resolves.toBe("# Coding\n")
+    if (directEdit) await writeFile(join(workspaceRoot, skillPath), "# Custom browser skill\n")
+    else await workspace.fs.writeFile(skillPath, "# Custom browser skill\n")
+    await expect(resolveAgentCapabilities({
+      capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
+    }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider",
+      invocationKind: "run",
+      workspaceDefinition: { name: workspaceName, sources: {} },
+    })).rejects.toThrow("conflicts with an existing Workspace path")
+    await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Custom browser skill\n")
+    await rm(workspaceRoot, { force: true, recursive: true })
+  })
+
+  it("keeps Browser and Gmail Skills invocation-local when the Store lacks conditional writes", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser, gmail } = await import("../src/capabilities.ts")
+    const workspaceName = `nonconditional-browser-${crypto.randomUUID()}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    workspace.capabilities = async () => ({ conditionalWrites: false })
+    const write = vi.spyOn(workspace.fs, "writeFile").mockRejectedValue(new Error("conditional writes unavailable"))
+    const skillPath = ".agents/skills/agent-browser/SKILL.md"
+
+    for (const skillContent of ["# Browser\nUse bash.\n", "# Browser\nUpdated guidance.\n"]) {
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [browser({ runtime: "external", skillContent }), gmail()],
+      }, runtime(), {}, workspace as never, "write", {
+        driverKind: "provider",
+        invocationKind: "run",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })
+      await expect(resolved.workspace!.fs.readFile(skillPath)).resolves.toBe(browserSkillContent(skillContent, skillPath, false))
+      const gmailGuidance = await resolved.workspace!.fs.readFile(".agents/skills/gmail/SKILL.md")
+      expect(gmailGuidance).toContain("This Skill is available only for this invocation.")
+      expect(gmailGuidance).not.toContain("persists between invocations")
+      expect(gmailGuidance).toContain("gmail_search")
+      expect(gmailGuidance).toContain("gmail_auth")
+      await expect(workspace.fs.exists(".agents/skills/gmail/SKILL.md")).resolves.toBe(false)
+      await expect(workspace.fs.exists(skillPath)).resolves.toBe(false)
+      await resolved.close()
+    }
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it("preserves a Skill created during Capability resolution", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const workspaceName = `concurrent-browser-${crypto.randomUUID()}`
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "vitehub-concurrent-browser-"))
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "local", root: workspaceRoot } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const write = workspace.fs.writeFile.bind(workspace.fs)
+    const spy = vi.spyOn(workspace.fs, "writeFile").mockImplementationOnce(async (path, content, options) => {
+      await write(path, "# Concurrent developer edit\n")
+      return await write(path, content, options)
+    })
+    try {
+      await expect(resolveAgentCapabilities({
+        capabilities: [browser({ runtime: "external", skillContent: "# Generated browser skill\n" })],
+      }, runtime(), {}, workspace as never, "write", {
+        driverKind: "provider",
+        invocationKind: "run",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })).rejects.toThrow("changed before the conditional write")
+      await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Concurrent developer edit\n")
+    }
+    finally {
+      spy.mockRestore()
+      await rm(workspaceRoot, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { phases: ["prepare" as const], resolveTools: false },
+    { phases: ["prepare" as const], invocationKind: "run" as const },
+  ])("keeps managed browser inspection read-only: %j", async (inspectionOptions) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const browserRuntime = await import("../src/internal/browser-runtime.ts")
+    const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockRejectedValue(new Error("inspection provisioned a browser"))
+    const workspaceName = `inspection-browser-${crypto.randomUUID()}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const write = vi.spyOn(workspace.fs, "writeFile")
+    try {
+      const resolved = await resolveAgentCapabilities({ capabilities: [browser()] }, runtime(), {}, workspace as never, "write", {
+        ...inspectionOptions,
+        driverKind: "provider",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })
+      expect(prepare).not.toHaveBeenCalled()
+      expect(write).not.toHaveBeenCalled()
+      await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(false)
+      await resolved.close()
+    }
+    finally {
+      prepare.mockRestore()
+      write.mockRestore()
+    }
+  })
+
+  it.each([
+    { resolveTools: false },
+    { phases: ["prepare" as const], invocationKind: "run" as const },
+  ])("recognizes retained skills during read-only inspection: %j", async (inspectionOptions) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const workspaceName = `inspection-retained-${crypto.randomUUID()}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const options = {
+      driverKind: "provider" as const,
+      invocationKind: "run" as const,
+      workspaceDefinition: { name: workspaceName, sources: {} },
+    }
+    const capability = browser({ runtime: "external", skillContent: "# Original guidance\n" })
+    const invocation = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", options)
+    await invocation.close()
+    const path = ".agents/skills/agent-browser/SKILL.md"
+    const retained = await workspace.fs.readFile(path)
+    const write = vi.spyOn(workspace.fs, "writeFile")
+    try {
+      const inspected = await resolveAgentCapabilities({
+        capabilities: [browser({ runtime: "external", skillContent: "# Updated guidance\n" })],
+      }, runtime(), {}, workspace as never, "write", { ...options, ...inspectionOptions })
+      await inspected.close()
+      expect(write).not.toHaveBeenCalled()
+      await expect(workspace.fs.readFile(path)).resolves.toBe(retained)
+    }
+    finally {
+      write.mockRestore()
+    }
   })
 
   it("does not mention Blob tools in the default browser skill", async () => {
@@ -887,7 +1132,7 @@ describe("agent capability runtime", () => {
     const { browser } = await import("../src/capabilities.ts")
 
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser()],
+      capabilities: [browser({ runtime: "external" })],
     }, runtime(), {}, emptyWorkspace() as never, "write", {
       driverKind: "provider",
       workspaceDefinition: {
@@ -902,9 +1147,101 @@ describe("agent capability runtime", () => {
     if (!source || typeof source !== "object") throw new Error("Expected browser skill source object.")
     const content = (source as { content?: unknown }).content
     expect(content).toContain("save screenshots inside that workspace directory")
+    expect(content).toContain('name: "agent-browser"')
     expect(content).toContain("![Description](screenshots/name.png)")
     expect(content).not.toContain("blob_edit")
     expect(content).not.toContain("Blob")
+  })
+
+  it.each(["manage", "", null, false, 0, {}])("rejects unsupported browser runtime %j before capability preparation", async runtimeMode => {
+    const { browser } = await import("../src/capabilities/browser.ts")
+    expect(() => browser({ runtime: runtimeMode as never })).toThrow("runtime must be managed or external")
+  })
+
+  it("exposes the effective browser runtime in inspection metadata", async () => {
+    const { browser } = await import("../src/capabilities.ts")
+    expect(browser().metadata).toMatchObject({ runtime: "managed" })
+    expect(browser({ command: "agent-browser" }).metadata).toMatchObject({ runtime: "managed" })
+    expect(browser({ command: "agent-browser", runtime: "managed" }).metadata).toMatchObject({ runtime: "managed" })
+    expect(browser({ command: "agent-browser", runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
+    expect(browser({ runtime: "external" }).metadata).toMatchObject({ runtime: "external" })
+    expect(browser({ command: "custom-browser" }).metadata).toMatchObject({ runtime: "external" })
+    expect(() => browser({ command: "" })).toThrow("must be a single executable name")
+    expect(() => browser({ command: "", runtime: "managed" })).toThrow("must be a single executable name")
+    expect(() => browser({ command: "", runtime: "external" })).toThrow("must be a single executable name")
+  })
+
+  it("keeps default Skill identity independent of a custom command", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [browser({ command: "custom-browser" })],
+    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      driverKind: "provider",
+      workspaceDefinition: { name: "review", sources: {} },
+    })
+    const source = resolved.workspaceDefinition?.sources?.["skill.browser"] as { content?: string }
+    expect(source.content).toContain('name: "agent-browser"\n')
+    expect(source.content).toContain("`custom-browser --help`")
+  })
+
+  it.each([undefined, "---\nname: caller-browser\ndescription: Caller guidance\n---\nCustom instructions."])("preserves custom Skill identity during managed preparation: %s", async (skillContent) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const browserRuntime = await import("../src/internal/browser-runtime.ts")
+    const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockResolvedValue({
+      command: "agent-browser",
+      environment: {},
+      skillContent: "---\nname: agent-browser\ndescription: Official guidance\n---\nRun agent-browser.",
+    })
+    try {
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [browser({ skillPath: ".codex/skills/custom-browser/SKILL.md", skillContent })],
+      }, runtime(), {}, emptyWorkspace() as never, "write", {
+        driverKind: "provider",
+        workspaceDefinition: { name: "review", sources: {} },
+      })
+      expect(prepare).toHaveBeenCalledOnce()
+      expect(resolved.workspaceDefinition?.sources?.["skill.browser"]).toMatchObject({
+        workspacePath: ".codex/skills/custom-browser/SKILL.md",
+        content: expect.stringContaining(skillContent ? "name: caller-browser" : 'name: "custom-browser"'),
+      })
+      await resolved.close()
+    }
+    finally {
+      prepare.mockRestore()
+    }
+  })
+
+  it.each([undefined, "custom-browser"])("activates retained custom browser guidance only with the capability: %s", async (command) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const { browserRuntimeEnvironment } = await import("../src/internal/browser-runtime.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const context = createAgentInvocationContextStore()
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [browser({ command, runtime: "external", skillContent: "Run custom-browser." })],
+    }, runtime(), {}, emptyWorkspace() as never, "write", {
+      context,
+      driverKind: "provider",
+      workspaceDefinition: { name: "review", sources: {} },
+    })
+    expect(browserRuntimeEnvironment(context)).toEqual({ VITEHUB_BROWSER_ACTIVE: "1" })
+    expect(resolved.workspaceDefinition?.sources?.["skill.browser"]).toMatchObject({
+      content: expect.stringContaining("check that `VITEHUB_BROWSER_ACTIVE` is `1`"),
+    })
+    await expect(resolved.close()).resolves.toBeUndefined()
+    const nextContext = createAgentInvocationContextStore()
+    await resolveAgentCapabilities({ capabilities: [] }, runtime(), {}, emptyWorkspace() as never, "write", {
+      context: nextContext,
+      driverKind: "provider",
+    })
+    expect(browserRuntimeEnvironment(nextContext)).toBeUndefined()
+  })
+
+  it("rejects a custom command for the managed browser runtime", async () => {
+    const { browser } = await import("../src/capabilities.ts")
+    expect(() => browser({ command: "custom-browser", runtime: "managed" })).toThrow('runtime: "external"')
   })
 
   it("attaches changed browser screenshots referenced by Provider final replies", async () => {
@@ -922,7 +1259,7 @@ describe("agent capability runtime", () => {
       to: "next",
     })
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser()],
+      capabilities: [browser({ runtime: "external" })],
     }, {
       ...runtime(),
       driver: { kind: "provider" },
@@ -990,7 +1327,7 @@ describe("agent capability runtime", () => {
     const { applyOutputRenderers, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")
     const resolved = await resolveAgentCapabilities({
-      capabilities: [browser()],
+      capabilities: [browser({ runtime: "external" })],
     }, runtime(), {}, emptyWorkspace() as never, "write", {
       driverKind: "provider",
       workspaceDefinition: {

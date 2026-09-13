@@ -122,6 +122,8 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
       : {}),
   })
 
+  // Skills reference existing Workspace files or declared Workspace Sources.
+  // Keep persistence with the Workspace so Sources retain their write policy.
   return Object.assign(capability, {
     [workspaceMaterializationPathsSymbol]: [providerWorkspacePath],
   })
