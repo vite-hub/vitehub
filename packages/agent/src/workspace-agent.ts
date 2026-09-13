@@ -269,7 +269,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
   const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
+    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build" as const, mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
     : { ...ownedWorkspace.sources }
   const workspaceOptions = {
     ...options,
