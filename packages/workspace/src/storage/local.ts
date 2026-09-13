@@ -401,7 +401,8 @@ async function fileDigest(path: string): Promise<string> {
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
-  readonly conditionalRemoval = true;
+  // Local filesystem checks cannot make compare-and-delete atomic against direct writers.
+  readonly conditionalRemoval = false;
   [workspaceStoreTarget]() {
     return { provider: "local" as const }
   }
