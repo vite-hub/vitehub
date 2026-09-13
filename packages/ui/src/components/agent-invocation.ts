@@ -1150,7 +1150,7 @@ function renderConfiguration(configuration: AgentInvocationConfiguration, invoca
       ? inspectorCollection(
           "Sources",
           configuration.workspace.sources.map((source) =>
-            typeof source === "string"
+            hasRuntimeType(source, "string")
               ? source
               : source.repository ? `${source.id} · ${source.repository}` : source.id,
           ),

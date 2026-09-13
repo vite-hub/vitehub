@@ -2557,18 +2557,13 @@ async function* runProvider<
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const structuredMessage = (value: unknown): string | undefined => {
-              if (!hasRuntimeType(value, "object")) return undefined
-              const text = getMessageText(value as Parameters<typeof getMessageText>[0])
-              return text || undefined
-            }
-            const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : undefined)
+            const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message && !hasRuntimeType(input.message, "string") ? [input.message] : [])
+            if (messages.some(message => message.parts.some(part => part.type !== "text"))) return "unsupported"
             const text = hasRuntimeType(input.prompt, "string")
               ? input.prompt
               : hasRuntimeType(input.message, "string")
                 ? input.message
-                : structuredMessage(input.message)
-                  ?? (messages ? messages.map(structuredMessage).filter((value): value is string => value !== undefined).join("") : undefined)
+                : messages.map(getMessageText).join("\n\n")
             if (!activeTurnId || !text?.trim()) return "unsupported"
             try { await activeRuntime.sendTurn({ threadId, input: text }); return "accepted" } catch { return "unavailable" }
           }

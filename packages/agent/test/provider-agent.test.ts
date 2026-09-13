@@ -3173,7 +3173,7 @@ cli_auth_credentials_store = "keyring"
     expect(resumed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue", threadId }))
   })
 
-  it("routes live approval and provider input responses without claiming steering", async () => {
+  it("routes live approval and provider input responses and text-only steering", async () => {
     const threadId = "thread-live-input"
     let release!: () => void
     const response = new Promise<void>((resolve) => {
@@ -3205,9 +3205,19 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = collect(await adapter.stream!(liveContext as never))
 
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
     await ready
-    await expect(sendAgentInvocationInput(invocationId, { prompt: "change course" }, { mode: "steer" })).resolves.toBe("unsupported")
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "change course" }, { mode: "steer" })).resolves.toBe("accepted")
+    const message = { id: "steering", role: "user" as const, parts: [{ type: "text" as const, text: "new direction" }] }
+    for (const input of [{ message }, { messages: [message] }, { prompt: [message] }]) {
+      await expect(sendAgentInvocationInput(invocationId, input, { mode: "steer" })).resolves.toBe("accepted")
+      expect(provider.sendTurn).toHaveBeenLastCalledWith({ threadId, input: "new direction" })
+    }
+    await expect(sendAgentInvocationInput(invocationId, { messages: [message, message] }, { mode: "steer" })).resolves.toBe("accepted")
+    expect(provider.sendTurn).toHaveBeenLastCalledWith({ threadId, input: "new direction\n\nnew direction" })
+    const calls = provider.sendTurn.mock.calls.length
+    await expect(sendAgentInvocationInput(invocationId, { messages: [{ ...message, parts: [...message.parts, { type: "data", data: "private" }] }] }, { mode: "steer" })).resolves.toBe("unsupported")
+    expect(provider.sendTurn).toHaveBeenCalledTimes(calls)
     await expect(sendAgentInvocationInput(invocationId, {
       messages: [{
         id: "response-1",
@@ -3238,7 +3248,7 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const primaryResult = adapter.generate(primaryContext as never)
 
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true }))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
     const auxiliaryThreadId = "thread-auxiliary-input"
     runtime(auxiliaryThreadId, [event("turn.completed", auxiliaryThreadId, { state: "completed" }, { turnId: "turn-1" })])
     const auxiliaryContext = context(auxiliaryThreadId)
@@ -3246,7 +3256,7 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await adapter.generate(markAuxiliaryMessageChannelInstructionContext(auxiliaryContext) as never)
 
-    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true })
+    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true })
     controller.abort("cancelled")
     await expect(primaryResult).rejects.toBe("cancelled")
     expect(primary.interruptTurn).toHaveBeenCalledWith(primaryThreadId, "turn-1")
