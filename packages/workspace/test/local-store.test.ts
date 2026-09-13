@@ -88,6 +88,47 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each(["generated", "replacement"])("preserves a replacement before source-only retirement: %s", async (content) => {
+    const store = await createStore()
+    const target = `${tempDirs.at(-1)!}/generated.md`
+    await store.writeFile("generated.md", { path: "generated.md", content: "generated", metadata: { source: "docs" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(rename).mockImplementationOnce(async (from, to) => {
+      expect(String(from)).toBe(target)
+      await actual.writeFile(`${target}.replacement`, content)
+      await actual.rename(`${target}.replacement`, target)
+      await actual.rename(from, to)
+    })
+
+    await store.rm("generated.md", { ifSource: "docs" })
+
+    await expect(readFile(target, "utf8")).resolves.toBe(content)
+  })
+
+  it("preserves both files when a replacement races with retirement restoration", async () => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const target = `${root}/generated.md`
+    await store.writeFile("generated.md", { path: "generated.md", content: "generated", metadata: { source: "docs" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(rename).mockImplementationOnce(async (from, to) => {
+      await actual.writeFile(`${target}.replacement`, "first replacement")
+      await actual.rename(`${target}.replacement`, target)
+      await actual.rename(from, to)
+    })
+    vi.mocked(link).mockImplementationOnce(async (from, to) => {
+      expect(String(to)).toBe(target)
+      await actual.writeFile(target, "second replacement")
+      await actual.link(from, to)
+    })
+
+    await expect(store.rm("generated.md", { ifSource: "docs" })).rejects.toMatchObject({ code: "EEXIST" })
+
+    await expect(readFile(target, "utf8")).resolves.toBe("second replacement")
+    const retired = (await readdir(root)).find(path => path.startsWith("generated.md.vitehub-retired-"))!
+    await expect(readFile(`${root}/${retired}`, "utf8")).resolves.toBe("first replacement")
+  })
+
   it.each([true, false])("completes digest-conditional removal with a matching digest: %s", async (matches) => {
     const store = await createStore()
     await store.writeFile("generated.md", { path: "generated.md", content: "generated" })

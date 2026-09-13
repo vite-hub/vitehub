@@ -824,10 +824,18 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { lstat, mkdir, open, rm, rm: removeMetadata, rmdir } = await import("node:fs/promises")
+    const { lstat, link, mkdir, open, rm, rm: removeMetadata, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     let conditionalCurrent: WorkspaceFile | undefined
+    const absolute = resolveInside(this.root, normalized)
+    const conditionalInfo = options.ifDigest !== undefined || options.ifSource !== undefined
+      ? await lstat(absolute).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return undefined
+          throw error
+        })
+      : undefined
     if (options.ifDigest !== undefined || options.ifSource !== undefined) {
+      if (!conditionalInfo?.isFile()) return
       if ((await this.#stat(normalized, false))?.type !== "file") return
       conditionalCurrent = await this.#readFile(normalized)
       if (!conditionalCurrent) return
@@ -838,7 +846,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
     // that do not participate in the workspace path lock: a replacement at
     // the public pathname is never removed by the cleanup operation.
     if (options.ifDigest !== undefined || options.ifSource !== undefined) {
-      const absolute = resolveInside(this.root, normalized)
       const retiredRelative = `${normalized}.vitehub-retired-${randomUUID()}`
       const retired = resolveInside(this.root, retiredRelative)
       const { rename } = await import("node:fs/promises")
@@ -851,9 +858,15 @@ class LocalWorkspaceStore implements WorkspaceStore {
         throw error
       }
       const { readFile } = await import("node:fs/promises")
+      const retiredInfo = await lstat(retired)
       const retiredBytes = await readFile(retired).catch(() => undefined)
-      if (!retiredBytes || (options.ifDigest !== undefined && await sha256(new Uint8Array(retiredBytes)) !== options.ifDigest) || (options.ifSource !== undefined && (conditionalCurrent?.metadata?.source ?? null) !== options.ifSource)) {
-        await rename(retired, absolute).catch(() => undefined)
+      if (retiredInfo.dev !== conditionalInfo?.dev || retiredInfo.ino !== conditionalInfo?.ino || !retiredBytes || await sha256(new Uint8Array(retiredBytes)) !== await sha256(conditionalCurrent!.content)) {
+        // Restore without allowing a direct-filesystem replacement to be
+        // overwritten. A hard link with exclusive creation is atomic with
+        // respect to pathname replacement. If restoration fails, keep the
+        // retired file for recovery and propagate the error.
+        await link(retired, absolute)
+        await rm(retired, { force: true })
         return
       }
       await rm(retired, { recursive: options.recursive ?? false, force: options.force ?? false })
