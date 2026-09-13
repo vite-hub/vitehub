@@ -786,8 +786,10 @@ async function materializeWorkspaceSourcesInternal(
       // A reused pathname alone cannot establish generated ownership. Local
       // Stores can recover missing metadata only from the recorded content.
       if (!descendants.some(Boolean)) {
-        ownedDirectories.delete(directory)
-        if (directory === source.mountPath) ownsMount = false
+        // Keep ownership of the original generated mount when only its
+        // generated descendants were removed. A later refresh can recreate
+        // those files and cleanup should still remove the empty mount.
+        if (directory !== source.mountPath) ownedDirectories.delete(directory)
       }
     }
     let revision = existing?.revision
