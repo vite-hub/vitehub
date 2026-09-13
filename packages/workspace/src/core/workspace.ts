@@ -32,7 +32,6 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
   if (!diff.entries.length) return diff
   const generatedFiles = new Set<string>()
   const generatedDirectories = new Set<string>()
-  const generatedDirectorySources = new Map<string, Set<string>>()
   for (const source of normalizeWorkspaceSources(definition.sources)) {
     if (source.materialize !== "startup") continue
     const snapshot = await readCurrentSourceSnapshot(store, source)
@@ -52,9 +51,6 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     }
     for (const path of [...(snapshot.ownedDirectories || []), ...(snapshot.ownedAncestors || []), ...(snapshot.ownsMount ? [source.mountPath] : [])]) {
       generatedDirectories.add(path)
-      let owners = generatedDirectorySources.get(path)
-      if (!owners) generatedDirectorySources.set(path, owners = new Set())
-      owners.add(source.key)
     }
   }
   const entries: WorkspaceDiff["entries"] = []
@@ -66,17 +62,9 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       // another Store instance) after the startup snapshot was recorded. With
       // no child ownership metadata, retain that addition so auto-commit does
       // not hide the replacement.
-      if (descendants.length > 0 && descendants.every(child => child.type === "directory"
+      if (descendants.every(child => child.type === "directory"
         ? generatedDirectories.has(child.path)
         : generatedFiles.has(child.path))) continue
-      if (descendants.length === 0) {
-        // Empty mounts have no descendants to establish ownership. Preserve
-        // the addition only when the directory itself carries replacement
-        // metadata; a metadata-free directory is still the startup mount.
-        const current = await store.stat(entry.path)
-        const source = current?.metadata?.source
-        if (hasRuntimeType(source, "string") && generatedDirectorySources.get(entry.path)?.has(source)) continue
-      }
     }
     entries.push(entry)
   }
