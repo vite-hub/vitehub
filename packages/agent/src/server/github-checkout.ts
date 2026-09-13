@@ -129,6 +129,9 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       const trackedPaths = new Set((await git(destination, ['ls-files', '-z'])).split('\0').filter(Boolean))
       for (const path of trackedPaths) {
         if (!materializedPaths.has(path)) await git(destination, ['update-index', '--skip-worktree', '--', path])
+        // Start selected tracked files at the PR version so pre-existing
+        // materialization differences cannot enter the provider's repair.
+        else await git(destination, ['checkout-index', '--force', '--', path])
       }
       // Keep generated-only baseline files out of a provider's ordinary git add -A.
       const generated = [...materializedPaths].filter(path => !trackedPaths.has(path))

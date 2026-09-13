@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { cp, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -40,7 +40,10 @@ it('keeps omitted files and generated instructions out of plain workspace repair
   const expected = await git(source, 'rev-parse', 'HEAD')
   await writeFile(join(target, 'AGENTS.md'), 'generated instructions\n')
   await writeFile(join(target, 'generated[1].txt'), 'generated\n')
+  await writeFile(join(target, 'file.txt'), 'pre-existing materialization difference\n')
   await prepareGitHubPullRequestWorkspace(source, target)
+  expect(await readFile(join(target, 'file.txt'), 'utf8')).toBe('before\n')
+  await git(target, 'add', '-A')
   expect(await git(target, 'status', '--porcelain')).toBe('')
   expect(await git(target, 'diff', '--cached', '--name-only')).toBe('')
   await writeFile(join(target, 'file.txt'), 'repair\n')
@@ -49,5 +52,6 @@ it('keeps omitted files and generated instructions out of plain workspace repair
   expect(await git(target, 'rev-parse', 'HEAD^')).toBe(expected)
   expect(await git(target, 'diff', 'HEAD^', 'HEAD', '--name-only')).toBe('file.txt')
   expect(await git(target, 'show', 'HEAD:omitted.txt')).toBe('preserve me')
+  expect(await git(target, 'show', 'HEAD:file.txt')).toBe('repair')
   expect(await git(target, 'show', `${head}:file.txt`)).toBe('before')
 })
