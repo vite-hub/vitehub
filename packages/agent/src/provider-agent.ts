@@ -1633,7 +1633,8 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
   const gitInit = await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal })
-  if (gitInit.exitCode !== 0) {
+  const gitInitCode = gitInit.exitCode ?? (gitInit as { code?: number }).code
+  if (gitInitCode !== 0) {
     await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
     throw new Error("Unable to initialize workspace Git repository")
   }
