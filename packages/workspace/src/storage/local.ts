@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream, createWriteStream } from "node:fs"
 import { Readable, Transform } from "node:stream"
+import { relative } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
