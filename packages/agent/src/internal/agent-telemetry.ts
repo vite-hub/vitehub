@@ -118,6 +118,7 @@ function canonicalConfigurationValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalConfigurationValue)
   if (!value || !hasRuntimeType(value, "object")) return value
   return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => key !== "inspection")
     .filter(([, child]) => child !== undefined)
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([key, child]) => [key, canonicalConfigurationValue(child)]))
