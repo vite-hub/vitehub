@@ -470,21 +470,9 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     // cleanup to an unrelated directory.  Leave the private allocation for
     // owner-scoped temporary-directory cleanup instead.
     if (socketRoot === socketRootPath) {
-      // Canonicalization failed; remove the allocation only after validating
-      // its parent and directory entry, and never recurse through a mutable
-      // ancestor. Otherwise leave it for the host's owner-scoped cleanup.
-      try {
-        const parent = dirname(socketRootPath)
-        const canonicalParent = await realpath(parent)
-        const entry = await lstat(socketRootPath)
-        const parentStat = await lstat(canonicalParent)
-        if (canonicalParent === parent && parentStat.isDirectory() && entry.isDirectory() && entry.uid === process.getuid?.() && (entry.mode & 0o077) === 0) {
-          await rm(socketRootPath, { force: true, recursive: false })
-        }
-      }
-      catch {
-        // Leave uncertain paths untouched.
-      }
+      // Canonicalization failed and the lexical path may traverse a mutable
+      // ancestor. Leave the allocation untouched rather than risking removal
+      // of a replacement directory; owner-scoped temporary cleanup can reclaim it.
       throw error
     }
     try {
