@@ -648,7 +648,7 @@ headings. Explicit `driver.instructions` replaces that slot. Use
 SQLite inbox, bounded GitHub discovery, claims, checkout preparation, repair
 passes and wake handling. Provide a configured Agent, GitHub host, inbox path,
 repositories and concurrency. In a ViteHub application, obtain the Agent through
-`getAgentFromRegistry("babysitter")` so discovery applies its colocated files.
+`getAgentFromRegistry("babysitter")` so discovery applies its colocated files. The Vite plugin binds `#vitehub/agent/registry` in Vite and Nitro to generated lazy loaders. Build output embeds colocated instructions and skills, so lookup works before any webhook handler loads and does not read Markdown from the deployed filesystem. Outside a ViteHub build, pass an explicit registry to `getAgentFromRegistry(name, registry)`.
 Connect `reconcile` to a Process Agent Host, `inbox.ingest` to the signed GitHub
 webhook receiver, and `workload` to health inspection. Keep credentials, provider
 settings, host capacity, telemetry and deployment resources in the application.
