@@ -1274,7 +1274,7 @@ function workspaceMetadataInstructions<
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
     ? readColocatedAgentInstructionsRaw(options)
     : undefined
-  const instructionObject = configuredInstructions && hasRuntimeType(configuredInstructions, "object") && !Array.isArray(configuredInstructions) && !("mode" in configuredInstructions)
+  const instructionObject = configuredInstructions && hasRuntimeType(configuredInstructions, "object") && !Array.isArray(configuredInstructions) && !("mode" in configuredInstructions) && "template" in configuredInstructions
     ? configuredInstructions
     : undefined
   const parts = agentInstructionSources(configuredInstructions)

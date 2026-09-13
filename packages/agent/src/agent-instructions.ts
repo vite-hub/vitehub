@@ -17,7 +17,7 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
 ): Promise<string> {
-  if (input && hasRuntimeType(input, "object") && !Array.isArray(input)) {
+  if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     if ("mode" in input) return await resolveContent(input.value, context)
     const template = await resolveContent(input.template, context)
     const content = await resolveContent(input.content, context)
@@ -30,7 +30,7 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
 export function agentInstructionSources<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
 ) {
-  if (input && hasRuntimeType(input, "object") && !Array.isArray(input)) {
+  if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     return ("mode" in input ? [input.value] : [input.template, input.content]).flat(2)
   }
   return [input].flat(2)
