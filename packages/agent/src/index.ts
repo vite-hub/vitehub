@@ -3679,7 +3679,7 @@ async function createAgentInvocationContext<
       resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
-    const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => (preflightReadiness ? Promise.resolve(readiness) : resolveReadiness()).then(status => {
+    const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
       if (status?.readiness === "unavailable" && !status.stale) {
         const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
         // Input preparation owns resources even when provider preflight fails.
