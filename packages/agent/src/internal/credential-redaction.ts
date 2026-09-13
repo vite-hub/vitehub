@@ -7,15 +7,15 @@ const uppercaseCredentialKeys = [
 
 function isCredentialKey(key: string): boolean {
   // Token-count and size limits are ordinary configuration, not secrets.
-  if (/^(?:max|min|num|count|limit)?tokens?$/i.test(key)) return false
+  if (/^(?:(?:max|min|num|count|limit)tokens?|tokens)$/i.test(key)) return false
   return uppercaseCredentialKeys.includes(key.toUpperCase())
     || /(?:^|[_-])(?:key|secret|token|password|passphrase|auth)$/i.test(key)
     || /[a-z0-9](?:Key|Secret|Token|Password|Passphrase|Auth|KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|AUTH)$/.test(key)
 }
 
 function isCredentialAssignment(key: string, prefix: string, precedingText: string): boolean {
-  if (!isCredentialKey(key)) return false
   const cli = prefix.startsWith("--")
+  if (!isCredentialKey(key)) return false
   if (cli && /^key$/i.test(key)) return false
   if (!/[:=]\s*$/.test(prefix)) {
     return cli || /^password$/i.test(key) && /(?:^|\s)(?:machine\s+\S+|default)(?:\s+login\s+\S+)?\s+$/i.test(precedingText)
@@ -33,7 +33,7 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
 }
 
 function isCredentialScheme(scheme: string, prefix: string, token = ""): boolean {
-  return /^(?:Bearer|Basic)$/i.test(scheme)
+  return scheme === "Bearer" || scheme === "Basic"
     || /(?:^|[\r\n])[\t "']*$/.test(prefix) && /[^a-z]/i.test(token)
     || /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(prefix)
 }
@@ -156,7 +156,7 @@ export function redactCredentialText(value: string, precedingText = ""): string 
       return `${scheme} ${quote}[REDACTED]${closed ? quote : ""}`
     })
     .replace(new RegExp(String.raw`\b(Bearer|Basic)\s+${unquotedCredentialValue}+`, "gi"), (match, scheme: string, offset: number, source: string) =>
-      isCredentialScheme(scheme, precedingText + source.slice(0, offset), match.slice(scheme.length).trim()) ? `${scheme} [REDACTED]` : match)
+      (isCredentialScheme(scheme, precedingText + source.slice(0, offset), match.slice(scheme.length).trim()) || /(?:^|[\r\n])[\t "']*$/.test(precedingText + source.slice(0, offset)) && /^[\t ]*(?:$|[\r\n])/.test(source.slice(offset + match.length))) ? `${scheme} [REDACTED]` : match)
 
   return redactCredentialAssignments(redacted, precedingText)
 }
@@ -167,6 +167,7 @@ export interface CredentialAssignmentState {
   quote?: string
   nesting?: number
   backtick?: boolean
+  processSubstitution?: boolean
   serialized?: boolean
   serializedQuote?: { delimiter: string, slashes: number }
   yamlFlow?: boolean
@@ -332,6 +333,10 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       }
       continue
     }
+    if (state.processSubstitution) {
+      delete state.processSubstitution
+      if (character !== "(") return index
+    }
     if (state.escaped) state.escaped = false
     else if (character === "\\" && state.quote !== "'") state.escaped = true
     else if (state.backtick) {
@@ -344,6 +349,7 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
     else if (character === '"' || character === "'") state.quote = character
     else if (character === "(" || character === "{" || character === "[") state.nesting = (state.nesting ?? 0) + 1
     else if (state.nesting && (character === ")" || character === "}" || character === "]")) state.nesting--
+    else if ((character === "<" || character === ">") && (value[index + 1] === "(" || index + 1 === value.length)) state.processSubstitution = true
     else if (!state.nesting && /[\s,;&{}<>]/.test(character)) return index
   }
   return value.length

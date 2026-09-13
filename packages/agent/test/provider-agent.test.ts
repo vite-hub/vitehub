@@ -2680,6 +2680,20 @@ cli_auth_credentials_store = "keyring"
     expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 2, totalTokens: 7 })
   })
 
+  it("keeps a raw itemless call unknown when the cumulative total changes", async () => {
+    const threadId = "thread-distinct-raw-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord.calls).toHaveLength(2)
+    expect(result.usageRecord.calls[0]?.usage).toBeUndefined()
+    expect(result.usageRecord.usage.totalTokens).toBeUndefined()
+  })
+
   it.each([undefined, "response-2"])("keeps unmatched raw-only usage unknown: %s", async (laterIdentity) => {
     const threadId = "thread-unmatched-usage"
     runtime(threadId, [

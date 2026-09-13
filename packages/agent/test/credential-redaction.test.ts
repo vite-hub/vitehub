@@ -657,3 +657,19 @@ it.each(['`printf hunter2`', '`printf "hunter2"`', '`printf hunter2`tail', '`pri
 it("redacts immediate credential assignments", () => {
   expect(redactCredentialText("PASSWORD := hunter2;status=ok")).toBe("PASSWORD := [REDACTED];status=ok")
 })
+
+it.each(["<(printf hunter2)", ">(cat hunter2)", "<(printf $(echo hunter2))", ">(cat hunter2)tail"])("redacts process substitutions across every split: %s", (value) => {
+  expect(redactCredentialText(`PASSWORD=${value};status=ok`)).toBe("PASSWORD=[REDACTED];status=ok")
+  for (let split = 0; split <= value.length; split++) {
+    const state = pendingCredentialAssignmentState(`PASSWORD=${value.slice(0, split)}`)
+    expect(state).toBeDefined()
+    if (!state) throw new Error("Expected credential continuation state")
+    const suffix = `${value.slice(split)};status=ok`
+    expect(suffix.slice(consumeCredentialAssignment(suffix, state))).toBe(";status=ok")
+  }
+})
+
+it.each(["bearer", "BEARER", "bEaReR", "basic", "BASIC"])("redacts completed alphabetic credentials for %s", (scheme) => {
+  expect(redactCredentialText(`${scheme} abcdef`)).toBe(`${scheme} [REDACTED]`)
+  expect(redactCredentialText(`${scheme} abcdef\nstatus=ok`)).toBe(`${scheme} [REDACTED]\nstatus=ok`)
+})

@@ -1820,9 +1820,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
     : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
   const cumulative = usage.totalProcessedTokens
-  // Identity-free snapshots cannot be safely correlated across provider events.
-  // Keep them ambiguous until the provider supplies a response-level itemId.
-  const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && partitionTotal !== undefined && options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined && options.accumulator.calls.length === 1 && options.accumulator.calls.at(-1)?.usage === undefined
+  // A sole raw itemless snapshot can acquire its first measured partition.
+  // A changed known cumulative total instead establishes a distinct partition.
+  const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && (options.accumulator.previousTotalProcessedTokens === undefined || options.accumulator.previousTotalProcessedTokens === cumulative) && partitionTotal !== undefined && options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined && options.accumulator.calls.length === 1 && options.accumulator.calls.at(-1)?.usage === undefined
   const changed = responseIdentity !== undefined
     ? responseIdentity !== options.accumulator.lastResponseIdentity
     : cumulative !== undefined
@@ -1879,6 +1879,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       // Clear ambiguity only when every retained call now has measured usage.
       // Earlier unresolved raw-only partitions must keep aggregate evidence unknown.
       options.accumulator.identityAmbiguous = options.accumulator.calls.some(call => call.usage === undefined)
+      options.accumulator.partitionComplete = !options.accumulator.identityAmbiguous
     } else options.accumulator.calls.push(call)
     options.accumulator.observedPartition = true
   }
