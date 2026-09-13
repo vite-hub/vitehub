@@ -1,5 +1,5 @@
 import { withProviderCallbackMetadata } from "../internal/provider-callback-metadata.ts"
-import { resolveRuntimeValue } from "@vite-hub/runtime"
+import { createTraceEventLog, resolveRuntimeValue } from "@vite-hub/runtime"
 import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
