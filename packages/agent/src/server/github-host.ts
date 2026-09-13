@@ -669,9 +669,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       // Avoid cloning unrelated branches and tags from the base repository.
       await exec("git", ["init", "--", checkout], commandOptions)
       await exec("git", ["-C", checkout, "remote", "add", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
-      if (pullRequest.headRef) {
+      if (pullRequest.headRef && pullRequest.headRepository) {
         // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
-        const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
+        const sourceRepository = pullRequest.headRepository
         const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
         await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
         await exec("git", ["-C", checkout, "checkout", "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
