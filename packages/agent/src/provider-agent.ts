@@ -1820,6 +1820,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
     : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
   const cumulative = usage.totalProcessedTokens
+  const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined &&
+    options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined &&
+    options.accumulator.previousTotalProcessedTokens === undefined && options.accumulator.calls.length > 0
   const changed = responseIdentity !== undefined
     ? responseIdentity !== options.accumulator.lastResponseIdentity
     : cumulative !== undefined
@@ -1838,7 +1841,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     else options.accumulator.calls.push(snapshot)
     options.accumulator.lastCallIdentity = undefined
   }
-  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && changed
+  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
   if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
     options.accumulator.partitionComplete = false
@@ -1856,7 +1859,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     else options.accumulator.cachedInputTokens += usage.cachedInputTokens
     if (usage.reasoningOutputTokens === undefined) options.accumulator.reasoningOutputTokensComplete = false
     else options.accumulator.reasoningOutputTokens += usage.reasoningOutputTokens
-    options.accumulator.calls.push({
+    const call = {
       ...(options.model ? { model: options.model } : {}),
       provider: options.provider,
       raw: usage,
@@ -1870,7 +1873,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
         outputTokens,
         totalTokens: partitionTotal,
       },
-    })
+    }
+    if (completesRawOnly) options.accumulator.calls[options.accumulator.calls.length - 1] = call
+    else options.accumulator.calls.push(call)
     options.accumulator.observedPartition = true
   }
   const previousCall = options.accumulator.calls.at(-1)
