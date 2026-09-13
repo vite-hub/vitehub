@@ -1874,8 +1874,12 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
         totalTokens: partitionTotal,
       },
     }
-    if (completesRawOnly) options.accumulator.calls[options.accumulator.calls.length - 1] = call
-    else options.accumulator.calls.push(call)
+    if (completesRawOnly) {
+      options.accumulator.calls[options.accumulator.calls.length - 1] = call
+      // The previously raw-only snapshot is now proven to be this measured
+      // partition; it no longer makes the aggregate identity ambiguous.
+      options.accumulator.identityAmbiguous = false
+    } else options.accumulator.calls.push(call)
     options.accumulator.observedPartition = true
   }
   const previousCall = options.accumulator.calls.at(-1)
