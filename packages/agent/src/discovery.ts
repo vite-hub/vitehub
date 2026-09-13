@@ -176,6 +176,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (tokens[value] === "defineWorkspace") return true
       if (imported.has(tokens[value])) return true
       if (/^["'`]/.test(tokens[value] ?? "")) return false
+      // An explicit Workspace value (including a string reference or an
+      // unresolved imported binding) overrides any preset Workspace. Do not
+      // fall through to preset lookup when the child supplied `workspace`.
+      return false
     }
     const preset = options.get("preset")
     const registry = options.get("presets")
