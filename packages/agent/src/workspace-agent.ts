@@ -1347,6 +1347,12 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
         index = end
         continue
       }
+      // A backslash-escaped backtick is ordinary text, not an inline-code delimiter.
+      if (index > 0 && line[index - 1] === "\\") {
+        out += "`"
+        index++
+        continue
+      }
       const start = index
       while (line[index] === "`") index++
       const run = line.slice(start, index)
