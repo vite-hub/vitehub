@@ -665,7 +665,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         if (pullRequest.headRef.startsWith("-")) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef cannot start with a dash." })
       }
       // Fetch complete objects with host credentials so provider history works offline.
-      await exec("git", ["clone", "--no-checkout", "--", `https://github.com/${pullRequest.repository}.git`, checkout], commandOptions)
+      await exec("git", ["clone", "--no-checkout", "--no-filter", "--", `https://github.com/${pullRequest.repository}.git`, checkout], commandOptions)
       if (pullRequest.headRef) {
         // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
         const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
