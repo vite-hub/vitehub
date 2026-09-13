@@ -1870,13 +1870,6 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     && options.accumulator.lastResponseIdentity !== undefined) {
     options.accumulator.identityAmbiguous = true
   }
-  // Itemless measured snapshots are ambiguous only when they cannot complete or
-  // enrich a known response. Valid same-response corrections and enrichments must
-  // remain measurable.
-  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
-    && options.accumulator.calls.some(call => call.usage === undefined && call !== options.accumulator.calls.at(-1))) {
-    options.accumulator.identityAmbiguous = true
-  }
   const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
   if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
