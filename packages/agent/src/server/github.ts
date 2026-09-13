@@ -7,6 +7,7 @@ export type {
   GitHubHost,
   GitHubHostAccess,
   GitHubHostAccessOptions,
+  GitHubHostCheckout,
   GitHubHostCheckoutOptions,
   GitHubHostCommandOptions,
   GitHubHostCredentialContext,
@@ -21,3 +22,5 @@ export type { GitHubWorkspaceRevision, GitHubWorkspaceInspector } from "./github
 
 export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckState, parseRequiredChecks } from './github-pull-requests.ts'
 export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './github-pull-requests.ts'
+
+export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
