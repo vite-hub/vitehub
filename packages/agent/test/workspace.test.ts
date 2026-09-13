@@ -2715,6 +2715,7 @@ describe("defineAgent workspace option", () => {
     const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       driver: {
+        kind: "codex",
         instructions: {
           template: "Before\n{{{ instructions }}}\nAfter",
           content: "Default",

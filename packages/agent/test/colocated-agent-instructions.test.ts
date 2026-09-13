@@ -38,11 +38,9 @@ describe("colocated Agent instructions", () => {
 
   it.each(["codex", "claude-code", "model"] as const)("fills an inherited %s template from a colocated document", async (kind) => {
     const instructions = { template: "Before.\n\n{{{ instructions }}}\n\nAfter." }
-    const base = defineAgent({
-      driver: kind === "model" ? { model, instructions } : { kind, instructions },
-      workspace: {},
-      runtime: false,
-    })
+    const base = kind === "model"
+      ? defineAgent({ driver: { model, instructions }, workspace: {}, runtime: false })
+      : defineAgent({ driver: { kind, instructions }, workspace: {}, runtime: false })
     const child = defineAgent({ extends: base })
     const loaded = agentWithColocatedInstructions(child, "## Additional context\nCheck migrations.")
     const resolved = loaded.__vitehubWorkspaceAgentOptions.driver
