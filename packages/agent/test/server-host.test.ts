@@ -899,7 +899,7 @@ describe("GitHub host", () => {
 
     await expect(access(checkout)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(commandLog, "utf8")).resolves.toContain(
-      "git -c init.templateDir=/dev/null init --object-format=sha1 -- ",
+      "git init --template=/dev/null --object-format=sha1 -- ",
     )
     await expect(readFile(commandLog, "utf8")).resolves.toContain(
       "fetch --no-tags -- https://github.com/contributor/vitehub.git refs/heads/feature|token",
@@ -1002,7 +1002,7 @@ describe("GitHub host", () => {
     })
 
     const log = await readFile(commandLog, "utf8")
-    expect(log).toContain("git -c init.templateDir=/dev/null init --object-format=sha1 -- ")
+    expect(log).toContain("git init --template=/dev/null --object-format=sha1 -- ")
     expect(log).toContain("|base-token")
     expect(log).toContain("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/feature|head-token")
   })
