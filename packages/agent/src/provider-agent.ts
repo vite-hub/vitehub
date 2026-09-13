@@ -2206,7 +2206,7 @@ async function* runProvider<
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
       if (generated.content !== undefined && generated.link === undefined) {
         const original = new TextDecoder().decode(generated.content)
-        if (original && instructions.startsWith(`${original}\n\n`)) {
+        if (instructions.startsWith(`${original}${original ? "\n\n" : ""}`)) {
           generated.appendedContent = instructions.slice(original.length)
         }
       }
