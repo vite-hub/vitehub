@@ -91,7 +91,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
-    await this.#mutate(() => {
+    await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
       this.#ensureParents(normalized, options.onCreate)
       const existed = this.#nodes.has(normalized)
@@ -101,7 +101,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    await this.#mutate(() => {
+    await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
       const node = this.#nodes.get(normalized)
       if (options.ifDigest && node?.type === "file" && (await this.#entry(normalized, node)).digest !== options.ifDigest) return
