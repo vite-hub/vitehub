@@ -2855,7 +2855,7 @@ export default defineAgent({
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain('import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
+      expect(denoServer).toContain('import { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
       expect(denoServer).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(agent0)")
       expect(denoServer).toContain('workspaceRegistryEntry("support", agent0')
