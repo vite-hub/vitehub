@@ -418,7 +418,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         const files: WorkspaceFile[] = []
         for (const [path, item] of Object.entries(snapshot.items || {})) {
-          const file = await store.readFile(path)
+          let file: WorkspaceFile | undefined
+          try {
+            const entry = await store.stat(path)
+            if (entry?.type === "file") file = await store.readFile(path)
+          }
+          catch (error) {
+            if (!(error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR"))) throw error
+          }
           if (!file || !await materializedFileMatches(file, item)) {
             incomplete.add(source.key)
             break

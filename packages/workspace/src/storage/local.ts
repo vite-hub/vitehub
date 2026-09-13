@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
+import { workspaceStoreTarget } from "./target.ts"
 import { fileAttributesUnavailable, markFileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
@@ -178,6 +179,9 @@ async function fileDigest(path: string): Promise<string> {
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
+  [workspaceStoreTarget]() {
+    return { provider: "local" as const }
+  }
   #baseline: WorkspaceSnapshot | undefined
   #files = new Map<string, Pick<WorkspaceFile, "mediaType" | "metadata">>()
   #meta = new Map<string, unknown>()
