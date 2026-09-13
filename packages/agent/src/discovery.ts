@@ -144,8 +144,18 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     while (tokens[index] === "(") index++
     if (seen.has(index)) return false
     seen.add(index)
-    if (tokens[index] !== "defineAgent" || tokens[index + 1] !== "(") return false
-    const options = properties(index + 2)
+    if (tokens[index] !== "defineAgent") return false
+    let call = index + 1
+    if (tokens[call] === "<") {
+      let genericDepth = 0
+      do {
+        if (tokens[call] === "<") genericDepth++
+        if (tokens[call] === ">") genericDepth--
+        call++
+      } while (call < tokens.length && genericDepth > 0)
+    }
+    if (tokens[call] !== "(") return false
+    const options = properties(call + 1)
     const workspace = options.get("workspace")
     if (workspace !== undefined) {
       const value = resolveReference(workspace)
@@ -158,6 +168,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         return true
       }
       if (tokens[value] === "defineWorkspace") return true
+      if (/^["'`]/.test(tokens[value] ?? "")) return false
     }
     const preset = options.get("preset")
     const registry = options.get("presets")
