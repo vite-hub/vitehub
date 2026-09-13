@@ -195,3 +195,11 @@ process.exit(result.status ?? 1);
   })
 
 }, 30_000)
+
+it('strips authenticated per-remote proxy settings before copying metadata', async () => {
+  const { source, target } = await fixture()
+  await git(source, 'config', 'remote.origin.proxy', 'http://user:secret@proxy.example.com:8080')
+  await prepareGitHubPullRequestWorkspace(source, target)
+  await expect(git(target, 'config', '--local', '--get', 'remote.origin.proxy')).rejects.toThrow()
+  expect(await readFile(join(target, '.git/config'), 'utf8')).not.toContain('secret')
+})
