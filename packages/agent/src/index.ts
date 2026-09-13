@@ -2118,6 +2118,40 @@ type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
 
 export interface DefineAgent {
   <
+    const TPreset extends string,
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    CALL_OPTIONS = unknown,
+    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    TContextValues extends object = AgentInvocationContextValues,
+    TOutput = unknown,
+  >(
+    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>>, "driver" | "workspace"> & {
+      preset: TPreset
+      presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput> & { __vitehubWorkspaceAgent: true }> & Record<string, unknown>
+      extends?: never
+      driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>["driver"]>
+      workspace?: WorkspaceAgentWorkspaceConfig
+    },
+  ): WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>
+
+  <
+    const TPreset extends string,
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    CALL_OPTIONS = unknown,
+    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    TContextValues extends object = AgentInvocationContextValues,
+    TOutput = unknown,
+  >(
+    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>>, "driver" | "workspace"> & {
+      preset: TPreset
+      presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>> & Record<string, unknown>
+      extends?: never
+      driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>["driver"]>
+      workspace?: WorkspaceAgentWorkspaceConfig
+    },
+  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
+
+  <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
