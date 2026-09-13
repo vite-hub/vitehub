@@ -1301,7 +1301,7 @@ function workspaceMetadataInstructions<
     && templateParts.every((part): part is string => hasRuntimeType(part, "string"))
     ? fillSynchronousInstructionSlot(templateParts.join("\n\n"), slotContent)
     : undefined
-  const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()
+  const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed !== undefined ? [composed] : instructions)].join("\n\n").trim()
   return content ? [content] : []
 }
 
