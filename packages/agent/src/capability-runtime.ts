@@ -1168,7 +1168,12 @@ export async function resolveAgentCapabilities<
       workspace: currentWorkspace,
       workspaceDefinition: currentWorkspaceDefinition,
       workspaceMaterializationPaths,
-      workspacePersistencePaths: invocationOptions.resolveTools === false ? [] : workspacePersistencePaths,
+      // Persistence is a side effect of an actual invocation. Metadata and
+      // prepare-only resolutions must remain read-only even when the workspace
+      // supports retained skills.
+      workspacePersistencePaths: invocationOptions.resolveTools === false ||
+        (invocationOptions.invocationKind !== "run" && invocationOptions.invocationKind !== "stream")
+        ? [] : workspacePersistencePaths,
     }, workspaceMode, workspace || currentWorkspace, invocationOptions.workspaceDefinition)
     if (workspaceContribution) {
       currentWorkspace = hasTrustedWorkspaceAccessScope(invocationContext)
