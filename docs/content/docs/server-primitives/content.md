@@ -44,7 +44,7 @@ Explicit readers and native Comark Content Sources can coexist with definitions.
 
 Use `contentSource(definition, { prefix, schema })` to set Comark options for one Source. A direct adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Use `defineContent()` to isolate overlapping loads.
 
-Use `sqlite-wasm` where Node SQLite is unavailable. Comark Content owns parsed document cache entries and exposes `refresh(source)`, `invalidate(key)`, and `expire(key)`.
+Use `sqlite-wasm` where Node SQLite is unavailable. Comark Content owns parsed document cache entries and exposes these through `content.cache.refresh(source)`, `content.cache.invalidate(key)`, and `content.cache.expire(key)`.
 
 ## Use the client
 
@@ -56,7 +56,7 @@ export const content = createContentClient({
   plugins: [searchClient()],
 })
 
-await content.search(['docs'], 'runtime')
+await content.search('runtime', { instances: ['docs'] })
 ```
 
 ## Public imports

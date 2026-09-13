@@ -107,17 +107,17 @@ catalogs:
       version: 1.15.11
   markdown:
     '@comark/html':
-      specifier: 0.6.2
-      version: 0.6.2
+      specifier: 0.7.0
+      version: 0.7.0
     '@types/mdast':
       specifier: ^4.0.4
       version: 4.0.4
     comark:
-      specifier: 0.6.2
-      version: 0.6.2
+      specifier: 0.7.0
+      version: 0.7.0
     comark-content:
-      specifier: 0.3.0
-      version: 0.3.0
+      specifier: 0.4.0
+      version: 0.4.0
   nuxt:
     '@nuxt/content':
       specifier: ^3.16.0
@@ -727,7 +727,7 @@ importers:
         version: 4.40.0(ai@7.0.58(zod@4.5.4))(workflow@5.0.0-beta.47(@aws-sdk/credential-provider-web-identity@3.972.76)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.4)(react@19.2.6)(typescript@6.0.3)(ws@8.21.3))(zod@4.5.4)
       comark:
         specifier: catalog:markdown
-        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+        version: 0.7.0(katex@0.17.0)(shiki@4.4.3)
       effect:
         specifier: catalog:effect
         version: 4.0.0-rc.112
@@ -1173,7 +1173,7 @@ importers:
         version: 24.13.3
       comark-content:
         specifier: catalog:markdown
-        version: 0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
+        version: 0.4.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
       publint:
         specifier: catalog:tooling
         version: 0.3.24
@@ -1259,7 +1259,7 @@ importers:
     dependencies:
       '@comark/html':
         specifier: catalog:markdown
-        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+        version: 0.7.0(katex@0.17.0)(shiki@4.4.3)
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -1469,7 +1469,7 @@ importers:
         version: 3.0.0
       comark:
         specifier: catalog:markdown
-        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+        version: 0.7.0(katex@0.17.0)(shiki@4.4.3)
       nostics:
         specifier: catalog:runtime
         version: 1.2.0
@@ -1985,8 +1985,8 @@ importers:
   packages/ui:
     dependencies:
       '@comark/vue':
-        specifier: 0.6.2
-        version: 0.6.2(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))
+        specifier: 0.7.0
+        version: 0.7.0(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
@@ -2203,7 +2203,7 @@ importers:
         version: 1.19.1
       comark-content:
         specifier: catalog:markdown
-        version: 0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
+        version: 0.4.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3))
       devframe:
         specifier: catalog:runtime
         version: 0.9.12(@modelcontextprotocol/client@2.0.0)(cac@7.0.0)(ocache@0.3.0)(srvx@1.0.3)
@@ -3487,8 +3487,8 @@ packages:
   '@colordx/core@5.5.0':
     resolution: {integrity: sha512-3PxTH8itZzltK0U9jTwVVnjLXvnDYuq3m+QXsHkENxWiPRh4WaoLcs1SQjqgZ55kS+QyirpH5BVwzP2gMVG6EQ==}
 
-  '@comark/html@0.6.2':
-    resolution: {integrity: sha512-ke1/rxpgsrRdfx/4LFURFQCqc2Bv/eVZd+Eenk8x/8IX4346HOGReiWuWWs11mpzHibkKFaPq56zWsnn7Eu8lw==}
+  '@comark/html@0.7.0':
+    resolution: {integrity: sha512-lTt7C2DK5gQt5BFcGD9GAfLhw8MnrZ15CKKJbqMJf2oQGZyjPe56CnL73Nj/cx+B/59t22pLRknpdbJmhNabWA==}
     peerDependencies:
       beautiful-mermaid: '>=1.0'
       katex: '>=0.16'
@@ -3516,8 +3516,8 @@ packages:
       shiki:
         optional: true
 
-  '@comark/vue@0.6.2':
-    resolution: {integrity: sha512-ToRyzz4I96DjXtDgYOC1WnNWt0W6YgOcazuT8rVRMJRR86NXBLATnIWb3hdMM0/8lMaDz+DmlcpX5EN1hqsG0Q==}
+  '@comark/vue@0.7.0':
+    resolution: {integrity: sha512-C63ObcCAiM5DKVDhWPz27pCRsvl0IG9XZJDGjFef1h/V4kS6lEjsoyepLdl4pvAPoSn6U0oGiJTgHLj5GCw2rQ==}
     peerDependencies:
       beautiful-mermaid: ^1.1.3
       katex: ^0.17.0
@@ -8105,7 +8105,7 @@ packages:
     resolution: {integrity: sha512-K6h3iUlqeM946U4sXFYeahefR1YBbXJvko+hv8WS8/0BNJ4OHiHRywMnQUJCqkR7Y9+hqQ1TvEpiKqUhz7NEFg==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@f603ba290f3fba0706137f485bdda71e6a0dec7c':
-    resolution: {integrity: sha512-5/6KJ5SRsv8fU6r18GmIScaeHjo3nG6QVGXHy3cvTnBS1R7kBTOg7o6AyMih6sdi1EZ0QuD0qQ+80MpzfVGNEQ==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@f603ba290f3fba0706137f485bdda71e6a0dec7c}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@f603ba290f3fba0706137f485bdda71e6a0dec7c}
     version: 0.0.38
     peerDependencies:
       effect: 4.0.0-beta.103
@@ -10275,8 +10275,8 @@ packages:
   colortranslator@5.0.0:
     resolution: {integrity: sha512-Z3UPUKasUVDFCDYAjP2fmlVRf1jFHJv1izAmPjiOa0OCIw1W7iC8PZ2GsoDa8uZv+mKyWopxxStT9q05+27h7w==}
 
-  comark-content@0.3.0:
-    resolution: {integrity: sha512-t+gq902R8AorpCqAAa3TgDpFc+cimeNt4z41KcKWTReY7IU4ezkPeUaeGHRzS9f0jmBTtQOPSbhx0CzcddjfIQ==}
+  comark-content@0.4.0:
+    resolution: {integrity: sha512-wUCFpDdEl9tNXcAFVMkqpQL+Aa5hcg1YL5X8r+5oAohQkofRp+We4puz6QP4XR33MPbasA41pPfIVf4j+WrT4Q==}
     hasBin: true
 
   comark@0.5.1:
@@ -10295,6 +10295,23 @@ packages:
 
   comark@0.6.2:
     resolution: {integrity: sha512-hlWa7KlGPfRxovQavnHZlLlTUKrfwE7/o4ewCY0FzqFtRvVT8VdslrumQwELIiK9utsurpoSWCBFj1yVMtDOtw==}
+    peerDependencies:
+      beautiful-mermaid: ^1.1.3
+      katex: ^0.17.0
+      rangi: ^2.2.0
+      shiki: ^4.3.1
+    peerDependenciesMeta:
+      beautiful-mermaid:
+        optional: true
+      katex:
+        optional: true
+      rangi:
+        optional: true
+      shiki:
+        optional: true
+
+  comark@0.7.0:
+    resolution: {integrity: sha512-680hLtUOBcvBEJCD+iCU20jk5TrIJlIcE6X4npdC4x7LBhCvmiYJgByozR2fKav6DYw7AYoXsJVae65kXV6Qhw==}
     peerDependencies:
       beautiful-mermaid: ^1.1.3
       katex: ^0.17.0
@@ -12385,10 +12402,6 @@ packages:
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
-
-  js-yaml@4.3.0:
-    resolution: {integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==}
-    hasBin: true
 
   js-yaml@4.3.2:
     resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
@@ -17559,9 +17572,9 @@ snapshots:
 
   '@colordx/core@5.5.0': {}
 
-  '@comark/html@0.6.2(katex@0.17.0)(shiki@4.4.3)':
+  '@comark/html@0.7.0(katex@0.17.0)(shiki@4.4.3)':
     dependencies:
-      comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+      comark: 0.7.0(katex@0.17.0)(shiki@4.4.3)
     optionalDependencies:
       katex: 0.17.0
       shiki: 4.4.3
@@ -17576,9 +17589,9 @@ snapshots:
       katex: 0.17.0
       shiki: 4.4.3
 
-  '@comark/vue@0.6.2(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))':
+  '@comark/vue@0.7.0(katex@0.17.0)(shiki@4.4.3)(vue@3.5.40(typescript@6.0.3))':
     dependencies:
-      comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
+      comark: 0.7.0(katex@0.17.0)(shiki@4.4.3)
       vue: 3.5.40(typescript@6.0.3)
     optionalDependencies:
       katex: 0.17.0
@@ -23352,7 +23365,7 @@ snapshots:
   '@rollup/plugin-yaml@4.1.2(rollup@4.63.1)':
     dependencies:
       '@rollup/pluginutils': 5.4.0(rollup@4.63.1)
-      js-yaml: 4.3.0
+      js-yaml: 4.3.2
       tosource: 2.0.0-alpha.3
     optionalDependencies:
       rollup: 4.63.1
@@ -26754,7 +26767,7 @@ snapshots:
 
   colortranslator@5.0.0: {}
 
-  comark-content@0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
+  comark-content@0.4.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(fastify@5.10.0)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
     dependencies:
       citty: 0.2.2
       comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
@@ -26791,7 +26804,7 @@ snapshots:
       - shiki
       - uploadthing
 
-  comark-content@0.3.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
+  comark-content@0.4.0(@azure/identity@4.13.2)(@azure/storage-blob@12.33.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.38.3)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.4.3)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0))(tailwindcss@4.3.3)):
     dependencies:
       citty: 0.2.2
       comark: 0.6.2(katex@0.17.0)(shiki@4.4.3)
@@ -26839,6 +26852,16 @@ snapshots:
       shiki: 4.4.3
 
   comark@0.6.2(katex@0.17.0)(shiki@4.4.3):
+    dependencies:
+      entities: 8.0.0
+      htmlparser2: 12.0.0
+      js-yaml: 5.2.1
+      markdown-exit: 1.1.0-beta.2
+    optionalDependencies:
+      katex: 0.17.0
+      shiki: 4.4.3
+
+  comark@0.7.0(katex@0.17.0)(shiki@4.4.3):
     dependencies:
       entities: 8.0.0
       htmlparser2: 12.0.0
@@ -29492,10 +29515,6 @@ snapshots:
   js-tokens@10.0.0: {}
 
   js-tokens@4.0.0: {}
-
-  js-yaml@4.3.0:
-    dependencies:
-      argparse: 2.0.1
 
   js-yaml@4.3.2:
     dependencies:
