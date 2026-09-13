@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { expect, it } from "vitest"
-import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations, observationLimits } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 
 it.each(["memory", "sqlite"] as const)("appends concurrent live and terminal evidence idempotently in %s", async (adapter) => {
@@ -122,7 +122,7 @@ it.each(["record", "undefined"] as const)("fails visibly when a store ignores ap
 it("retains appended evidence under journal pressure and fails before silently dropping a new append", async () => {
   const store = createMemoryAgentInvocationStore()
   const timestamp = "2026-01-01T00:00:00.000Z"
-  await store.create({ id: "fixture", observations: [], status: "running", createdAt: timestamp, updatedAt: timestamp, traceId: "fixture-trace" })
+  await store.create({ id: "fixture", observations: [], observationLimits: observationLimits({ maxCount: 256 }), status: "running", createdAt: timestamp, updatedAt: timestamp, traceId: "fixture-trace" })
   const invocations = defineAgentInvocations({ store })
   await invocations.appendObservation("fixture", { name: "report.pending", type: "capability", attributes: { "capability.id": "papercuts" } }, { id: "pending" })
   for (let sequence = 2; sequence < 300; sequence++) {

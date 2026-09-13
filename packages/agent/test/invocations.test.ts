@@ -267,6 +267,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "priority-outcomes-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: [...ordinary, streamError, runError],
       status: "running",
       traceId: "trace",
@@ -307,6 +308,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "cancelled-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: ordinary,
       status: "cancelled",
       traceId: "trace",
@@ -364,6 +366,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "delivery-overflow-lifecycle",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: [...lifecycle, ...deliveries],
       status: "completed",
       traceId: "trace",
@@ -401,6 +404,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "failure-evidence-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: failures,
       status: "failed",
       traceId: "trace",
@@ -472,6 +476,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "full-journal-order",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations,
       status: "running",
       traceId: "trace",
@@ -509,6 +514,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "mixed-identity-order",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations,
       status: "running",
       traceId: "trace",
@@ -713,7 +719,7 @@ describe("Agent Invocations", () => {
     try {
       for (const [index, store] of stores.entries()) {
         const runId = `truncated-capability-${index}`
-        const invocations = defineAgentInvocations({ store })
+        const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, store })
         const journal = await bindAgentInvocations(invocations, runtime(runId))
         if (!journal) throw new Error("Expected the invocation journal to be configured.")
         await journal.running()
@@ -766,6 +772,7 @@ describe("Agent Invocations", () => {
           reportTerminalObservationWriteStarted = resolve
         })
         const invocations = defineAgentInvocations({
+          observations: { maxCount: 256 },
           store: {
             ...memory,
             async update(id, input, claimId) {
@@ -1214,7 +1221,7 @@ describe("Agent Invocations", () => {
   })
 
   it("retains late delivery outcomes when a completed journal is at capacity", async () => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("late-delivery-at-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     for (let index = 0; index < 255; index++) {
@@ -1250,7 +1257,7 @@ describe("Agent Invocations", () => {
   })
 
   it("retains delivery outcomes when a running journal is at capacity", async () => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-delivery-at-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.running()
@@ -1275,7 +1282,7 @@ describe("Agent Invocations", () => {
   })
 
   it("persists truncation when a running invocation reaches observation capacity", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-observation-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.running()
@@ -2238,6 +2245,7 @@ describe("Agent Invocations", () => {
     try {
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           update(id, input, claimId) {
@@ -2275,6 +2283,7 @@ describe("Agent Invocations", () => {
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const terminalPersisted = new Promise<void>((resolve) => { reportTerminalPersisted = resolve })
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -2334,6 +2343,7 @@ describe("Agent Invocations", () => {
       let reportActiveStarted!: () => void
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -2821,6 +2831,7 @@ describe("Agent Invocations", () => {
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -2879,6 +2890,7 @@ describe("Agent Invocations", () => {
     const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
+      observations: { maxCount: 256 },
       store: {
         ...memory,
         async update(id, input, claimId) {
@@ -2943,6 +2955,7 @@ describe("Agent Invocations", () => {
       const fatalRetried = new Promise<void>((resolve) => { reportFatalRetried = resolve })
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -3048,7 +3061,7 @@ describe("Agent Invocations", () => {
       await journal.finish("failed", new Error("earliest fatal"))
 
       const record = await invocations.getByRunId("timed-out-earliest-fatal")
-      expect(record?.observations).toHaveLength(256)
+      expect(record?.observations).toHaveLength(258)
       expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
         { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
         { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
@@ -4033,14 +4046,11 @@ describe("Agent Invocations", () => {
     }, { timeout: 2_000 })
     const record = await invocations.getByRunId("bounded-observations")
     expect(record).toMatchObject({ status: "completed" })
-    expect(record?.observations).toHaveLength(256)
-    expect(record?.observations.at(-1)).toMatchObject({
-      attributes: { "vitehub.trace.truncated": true },
-      name: "agent.invocation.finish",
-    })
+    expect(record?.observations).toHaveLength(304)
+    expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
     expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(updates).toBeLessThanOrEqual(261)
+    expect(updates).toBeLessThanOrEqual(307)
   })
 
   it("retains fatal stream evidence and the lifecycle terminal beyond the durable cap", async () => {
@@ -4064,17 +4074,15 @@ describe("Agent Invocations", () => {
     await runAgent(agent, runtime("bounded-fatal-observations"), {})
 
     const observations = (await invocations.getByRunId("bounded-fatal-observations"))?.observations || []
-    expect(observations).toHaveLength(256)
+    expect(observations).toHaveLength(304)
     expect(observations.slice(-2)).toMatchObject([
       {
         attributes: {
           "error.message": "provider stream failed",
-          "vitehub.trace.truncated": true,
         },
         name: "agent.stream.error",
       },
       {
-        attributes: { "vitehub.trace.truncated": true },
         name: "agent.invocation.finish",
       },
     ])

@@ -168,6 +168,26 @@ describe("agent webhook verification", () => {
     expect(secretToken).toHaveBeenCalledWith(expect.objectContaining({ capabilities: {} }))
   })
 
+  it("supports custom signature verifiers with the raw request body", async () => {
+    const verify = vi.fn(({ header, rawBody, request, secret }) =>
+      header === "signed" && new TextDecoder().decode(rawBody) === "payload" && request.method === "POST" && secret === "secret-token")
+
+    const result = await verifyAgentWebhookRequest([{
+      id: "custom",
+      provider: "custom",
+      secretHeader: "x-signature",
+      secretToken: "secret-token",
+      signature: { verify },
+    }], new Request("https://example.com", {
+      method: "POST",
+      headers: { "x-signature": "signed" },
+      body: "payload",
+    }))
+
+    expect(result.verified).toBe(true)
+    expect(verify).toHaveBeenCalledTimes(1)
+  })
+
   it("allows explicit unverified webhook registrations", async () => {
     const invoked = vi.fn(() => "ok")
     const agent = defineAgent({

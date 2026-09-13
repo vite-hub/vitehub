@@ -265,7 +265,8 @@ export async function channelRegistration(
     ...(registration.path ? { path: registration.path } : {}),
     ...(registration.secretHeader ? { secretHeader: registration.secretHeader } : {}),
     ...(secretToken === false || typeof secretToken === "string" ? { secretToken } : {}),
-    ...(registration.signature ? { signature: registration.signature } : {}),
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- CLI serialization accepts signature identifiers and omits executable verifier callbacks.
+    ...(typeof registration.signature === "string" ? { signature: registration.signature } : {}),
     ...(registration.url ? { url: registration.url } : {}),
   }
 }

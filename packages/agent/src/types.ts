@@ -595,7 +595,14 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   method?: "POST" | (string & {})
   path?: string
   provider: string
-  signature?: "github-sha256" | (string & {})
+  signature?: "github-sha256" | (string & {}) | {
+    verify: (input: {
+      header: string
+      rawBody: Uint8Array
+      request: Request
+      secret: string
+    }) => boolean | Promise<boolean>
+  }
   secretHeader?: string
   secretToken?: AgentWebhookSecretToken<TRuntimeConfig>
   url?: string

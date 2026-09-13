@@ -1,4 +1,5 @@
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
+import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
 
@@ -47,7 +48,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       path: normalized,
       content: node.content || "",
       mediaType: node.mediaType,
-      metadata: node.metadata,
+      metadata: structuredClone(node.metadata),
     }
   }
 
@@ -151,13 +152,14 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   #writeFile(path: string, file: WorkspaceFile): void {
+    file = { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }
     const normalized = normalizeWorkspacePath(path)
     this.#ensureParents(normalized)
     this.#nodes.set(normalized, {
       type: "file",
       content: file.content,
       mediaType: file.mediaType,
-      metadata: file.metadata,
+      metadata: structuredClone(file.metadata),
       mtime: now(),
     })
   }
@@ -185,7 +187,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       size,
       mtime: node.mtime,
       mediaType: node.mediaType,
-      metadata: node.metadata,
+      metadata: structuredClone(node.metadata),
       digest: node.type === "file" ? await sha256(content) : undefined,
     }
   }
