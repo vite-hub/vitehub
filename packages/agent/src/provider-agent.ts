@@ -2560,7 +2560,7 @@ async function* runProvider<
             const candidate = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : undefined
             const structured = hasRuntimeType(input.message, "object") && hasRuntimeType(input.message.content, "string") ? input.message.content : undefined
             const text = candidate ?? structured
-            if (!text?.trim()) return "unsupported"
+            if (!activeTurnId || !text?.trim()) return "unsupported"
             try { await activeRuntime.sendTurn({ threadId, input: text }); return "accepted" } catch { return "unavailable" }
           }
           if (inputOptions.mode !== "respond") return "unsupported"
