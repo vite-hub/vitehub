@@ -147,10 +147,10 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
     // Snapshot metadata falls back to this Store, so its format must match too.
     [workspaceStoreTarget]: async () => await resolveWorkspaceStoreTarget(workspace) ?? { provider: "memory" },
     isTombstoned,
-    // The overlay can enforce the same ownership checks against its merged
-    // view before hiding a base file. This lets source reconciliation proceed
-    // when the resolver wraps a persistent Store.
-    conditionalRemoval: true,
+    // Overlay validation and tombstoning are separate operations. Do not
+    // advertise conditional removal without an atomic backing-store check.
+    // Reconciliation will conservatively skip conditional cleanup instead.
+    conditionalRemoval: false,
     async readFile(path) {
       return await memory.readFile(path) || await readBaseFile(path)
     },
