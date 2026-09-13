@@ -853,6 +853,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
       const { mkdir: makeDirectory, rename } = await import("node:fs/promises")
       const retiredRoot = resolveInside(this.root, ".vitehub/retired")
       await makeDirectory(retiredRoot, { recursive: true, mode: 0o700 })
+      const retiredRootInfo = await lstat(retiredRoot)
+      if (retiredRootInfo.isSymbolicLink()) throw workspaceError(`[vitehub] Invalid Workspace retirement directory.`)
+      if (!retiredRootInfo.isDirectory()) throw workspaceError(`[vitehub] Invalid Workspace retirement directory.`)
       try {
         await rename(absolute, retired)
       }
@@ -879,7 +882,16 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
       await rm(retired, { recursive: options.recursive ?? false, force: options.force ?? false })
       const metadata = await this.#prepareMetadataDirectories(normalized, false)
-      if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
+      if (metadata.root) {
+        try {
+          await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
+        }
+        catch (error) {
+          const marker = this.#removalMarker(normalized)
+          await open(marker, "wx", 0o600).then(file => closeCreatedMarker(file, marker)).catch(() => undefined)
+          throw error
+        }
+      }
       return
     }
     const metadata = await this.#prepareMetadataDirectories(normalized, false)

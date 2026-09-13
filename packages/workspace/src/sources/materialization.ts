@@ -738,7 +738,13 @@ async function materializeWorkspaceSourcesInternal(
     if (scheduled.has(source)) return
     scheduled.add(source)
     for (let next = index + 1; next < sources.length; next++) {
-      if (sourceMountIntersectsPath(source, sources[next]!.mountPath)) schedule(sources[next]!, next)
+      if (sourceMountIntersectsPath(source, sources[next]!.mountPath)) {
+        // Preserve independent predecessors of an overlapping writer.
+        for (let between = index + 1; between < next; between++) {
+          if (!sourceMountIntersectsPath(sources[between]!, sources[next]!.mountPath)) schedule(sources[between]!, between)
+        }
+        schedule(sources[next]!, next)
+      }
     }
     orderedSources.push(source)
   }
