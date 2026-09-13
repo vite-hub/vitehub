@@ -1829,6 +1829,8 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
       : options.accumulator.lastSignature !== signature
   const identityFree = options.provider === "codex" && responseIdentity === undefined && cumulative === undefined
+  const unmatchedIdentityFree = options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+    && options.accumulator.calls.some(call => call.usage === undefined && options.accumulator.lastResponseIdentity !== undefined)
   if (identityFree) {
     // Without a response boundary, snapshots cannot establish invocation totals.
     // Keep the latest measured evidence raw so it cannot be priced as a call.
@@ -1846,6 +1848,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     else options.accumulator.calls.push(snapshot)
     options.accumulator.lastCallIdentity = undefined
   }
+  if (unmatchedIdentityFree) options.accumulator.identityAmbiguous = true
   // An itemless measured snapshot cannot be correlated with an existing identified
   // call; retain aggregate ambiguity rather than pricing unmatched evidence.
   if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined && options.accumulator.calls.some(call => call.usage === undefined)) {
