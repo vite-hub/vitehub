@@ -2460,7 +2460,7 @@ async function writeNetlifyAgentProviderOutput(
   }, serverDirs ?? [join(config.root, "server")], retainedDefinitions)
   await write({
     afterWrite: retainedSourcesDir
-      ? async signal => await publishNetlifyAgentProviderSources(config, retainedSourcesDir, signal)
+      ? async signal => await publishNetlifyAgentProviderSources(config, retainedSourcesDir, generatedOptions.sourceRootDir ?? config.root, signal)
       : undefined,
     clientOutDir: config.build?.outDir ?? "dist",
     netlify: {
@@ -2490,7 +2490,7 @@ async function writeNetlifyAgentProviderOutput(
   })
 }
 
-async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retainedSourcesDir: string, signal?: AbortSignal): Promise<void> {
+async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retainedSourcesDir: string, retainedAgentRoot: string, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   const generatedAgentDir = resolve(resolveViteHubGeneratedRoot(config), "agent")
   const publishedSourcesDir = resolve(generatedAgentDir, "sources")
@@ -2516,6 +2516,15 @@ async function publishNetlifyAgentProviderSources(config: ResolvedConfig, retain
     await mkdir(dirname(nextNetlifySourcesDir), { recursive: true })
     await cp(retainedSourcesDir, nextNetlifySourcesDir, { recursive: true })
     await rebasePublishedProviderSourceLinks(nextNetlifySourcesDir, retainedSourcesDir, netlifySourcesDir)
+    const retainedCatalog = join(retainedAgentRoot, ".vitehub", generatedAgentRegistryCatalog)
+    if (existsSync(retainedCatalog)) {
+      const catalogContents = await readFile(retainedCatalog, "utf8")
+      const catalogRelativePath = relative(retainedSourcesDir, retainedCatalog)
+      await Promise.all([
+        writeFile(join(nextSourcesDir, catalogRelativePath), rewriteRetainedProviderSourcePaths(catalogContents, retainedSourcesDir, publishedSourcesDir), "utf8"),
+        writeFile(join(nextNetlifySourcesDir, catalogRelativePath), rewriteRetainedProviderSourcePaths(catalogContents, retainedSourcesDir, deployedSourcesDir), "utf8"),
+      ])
+    }
     const nextHandler = resolve(nextAgentDir, "netlify-function.mjs")
     const publishedHandler = resolve(generatedAgentDir, "netlify-function.mjs")
     const nextHandlerContents = await readFile(nextHandler, "utf8")
@@ -3060,10 +3069,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ? resolve(config.root, ".vitehub/agent-generations", randomUUID())
           : undefined
         const contributionArtifactDir = artifactDir
-        const providerImportAliases = {
-          ...getProviderImportAliases(agent, frameworkOptions),
-          ...(normalized ? { [agentRegistryId]: join(resolveViteHubGeneratedRoot(config), generatedAgentRegistry) } : {}),
-        }
+        const providerImportAliases = getProviderImportAliases(agent, frameworkOptions) ?? {}
         const definitionSources = await Promise.all(definitions.map(async (definition) => {
           const instructionDependencies = new Set<string>()
           const instructions = await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
