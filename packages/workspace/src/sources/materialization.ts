@@ -7,6 +7,7 @@ import { workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
+import { normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
@@ -579,6 +580,8 @@ function createMaterializationEntry(
   upstreamMeta: Record<string, unknown> | undefined,
 ): MaterializationEntry {
   const { path, sourcePath } = normalizeSourceItemPath(source, item, { operation: "source materialization" })
+  item = { ...item, metadata: normalizeSourceFileMetadata(item.metadata || {}) }
+  if (upstreamMeta) upstreamMeta = normalizeSourceFileMetadata(upstreamMeta)
   return {
     item,
     metadata: createLazyMaterializedMetadata({

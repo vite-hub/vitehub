@@ -99,7 +99,7 @@ describe("Workspace Source Sync", () => {
   })
 
   it.each([true, false])("rejects invalid Source metadata without invoking getters, sync=%s", async (sync) => {
-    for (const kind of ["getter", "cycle", "array-cycle", "symbol", "hidden", "top-getter"]) {
+    for (const kind of ["getter", "cycle", "array-cycle", "symbol", "hidden", "top-getter", "digest-getter"]) {
       const getter = vi.fn(() => "unexpected")
       const nested: Record<string, unknown> = {}
       if (kind === "getter") Object.defineProperty(nested, "value", { enumerable: true, get: getter })
@@ -113,6 +113,7 @@ describe("Workspace Source Sync", () => {
       if (kind === "hidden") Object.defineProperty(nested, "value", { value: "invalid" })
       const metadata = { nested }
       if (kind === "top-getter") Object.defineProperty(metadata, "value", { enumerable: true, get: getter })
+      if (kind === "digest-getter") Object.defineProperty(metadata, "digest", { enumerable: true, get: getter })
       const name = `invalid-${kind}-${sync}`
       registerWorkspace(name, defineWorkspace({
         store: { provider: "memory" },
