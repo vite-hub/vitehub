@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { appendFile, cp, lstat, realpath, rm } from 'node:fs/promises'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { basename, isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 const exec = promisify(execFile)
@@ -66,20 +66,24 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     const tracked = (await exec('git', ['ls-files', '-z'], { cwd: source, env, signal: options.signal })).stdout
       .split('\0').filter(Boolean)
     const current = new Set(tracked)
+    const isProviderGenerated = (file: string) => {
+      const name = basename(file)
+      return name === 'AGENTS.md' || name === 'CLAUDE.md' || name.startsWith('generated')
+    }
     for (const file of previousTracked) {
-      if (current.has(file) || file === 'AGENTS.md' || file === 'CLAUDE.md') continue
+      if (current.has(file) || isProviderGenerated(file)) continue
       await rm(join(destination, file), { recursive: true, force: true })
     }
     for (const file of tracked) {
-      if (file === 'AGENTS.md' || file === 'CLAUDE.md') continue
+      if (isProviderGenerated(file)) continue
       await cp(join(source, file), join(destination, file), { recursive: true })
     }
     // Keep provider-generated instruction files outside ordinary repair staging.
     await appendFile(join(destination, '.git', 'info', 'exclude'), '\nAGENTS.md\nCLAUDE.md\ngenerated*\n')
     // Generated instruction files may also be tracked by the source checkout;
     // mark their working-tree copies as provider-owned so repair staging ignores them.
-    for (const file of ['AGENTS.md', 'CLAUDE.md']) {
-      if (tracked.includes(file)) await git(destination, ['update-index', '--skip-worktree', '--', file])
+    for (const file of tracked) {
+      if (isProviderGenerated(file)) await git(destination, ['update-index', '--skip-worktree', '--', file])
     }
   }
   catch (error) {
