@@ -1634,7 +1634,6 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           description: tool.description,
           icon: name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench",
           name,
-          preset: "vitehub-workspace",
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           status: "available" as const,
         })),

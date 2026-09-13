@@ -21,6 +21,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub` | Register the framework Vite Integration with `vitehub()`. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
+| `vite-hub/agent/presets/workspace` | Opt-in workspace source-provenance citation preset. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/evlog` | Host-level evlog integration for Agent lifecycle events and diagnostics. |
@@ -30,6 +31,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
+| `vite-hub/agent/server/github-inbox` | Durable GitHub pull request inbox storage, webhook ingestion, hydration, and claims. |
 | `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and explicit schema statements. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
@@ -102,6 +104,7 @@ for libraries, focused integrations, and advanced composition.
 | Import path | Owner | Use |
 | --- | --- | --- |
 | `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, and trusted caller types. |
+| `@vite-hub/agent/presets/workspace` | Agent Package | Opt-in workspace source-provenance citation preset. |
 | `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `browser()`, `workspaceShell()`, and `inputCommands()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/evlog` | Agent Package | Host-level evlog integration. |
