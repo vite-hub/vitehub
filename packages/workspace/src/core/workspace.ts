@@ -73,10 +73,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
         // Empty mounts created by startup Sources have no child evidence; use
         // the persisted ownership record when the Store cannot persist
         // directory metadata.
-        const ownedMount = (snapshot.ownsMount && path === source.mountPath)
-          || (snapshot.ownedDirectories || []).includes(path)
-          || (snapshot.ownedAncestors || []).includes(path)
-        if (ownedMount) continue
+        if (generatedDirectoryOwners.has(entry.path)) continue
         try {
           const directory = await store.stat(entry.path)
           const owner = directory?.metadata?.source
