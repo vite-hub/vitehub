@@ -43,7 +43,7 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   })) throw new Error('Invalid stored snapshot')
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Runtime validation establishes the persisted shape.
-  if (!['ready', 'working', 'waiting', 'terminal'].includes(value.status as string) || (value.lease !== null && typeof value.lease !== 'string')) throw new Error('Invalid stored snapshot')
+  if (!['ready', 'working', 'waiting', 'terminal'].includes(String(value.status)) || (value.lease !== null && typeof value.lease !== 'string')) throw new Error('Invalid stored snapshot')
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   if (!Array.isArray(value.reasons) || !value.reasons.every(item => typeof item === 'string') || !Array.isArray(value.threads)) throw new Error('Invalid stored snapshot')
   for (const thread of value.threads) parseThread(thread)
