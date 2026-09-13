@@ -22,8 +22,10 @@ export interface AgentEvlogExporter {
 }
 
 export interface AgentEvlogOptions {
-  service: string
-  environment: string
+  /** Service name defaults to the enclosing agent name when available. */
+  service?: string
+  /** Runtime environment defaults to NODE_ENV (or development). */
+  environment?: string
   metadata?: Record<string, unknown>
   exporter?: AgentEvlogExporter
   maxPending?: number
@@ -42,7 +44,7 @@ export interface AgentEvlogOptions {
 }
 
 export type AgentObservabilityOptions = AgentEvlogOptions & {
-  preset: "evlog"
+  preset?: "evlog"
   level?: "minimal" | "standard" | "full"
 }
 
@@ -79,7 +81,11 @@ export function observability(options: AgentObservabilityOptions): AgentCapabili
 
 /** One shared exporter per host. Capability invocations keep their metadata separate. */
 export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
-  if (!options.service?.trim() || !options.environment?.trim()) throw new TypeError("[vitehub] evlog requires service and environment.")
+  const service = options.service?.trim() || "vitehub-agent"
+  // SAFETY: The runtime may expose a partial process object; this narrows only the fields read below.
+  // SAFETY: The runtime may expose a partial process object; this narrows only the fields read below.
+  const runtimeProcess = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process
+  const environment = options.environment?.trim() || runtimeProcess?.env?.NODE_ENV || "development"
   const maxPending = options.maxPending ?? 1000
   if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw new TypeError("[vitehub] evlog maxPending must be a positive integer.")
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
@@ -169,7 +175,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
 
   async function invocationMetadata(runtime: Pick<ResolvedAgentRuntimeContext, "agentIdentity" | "run" | "trace">, run = runtime.run) {
     const agentName = runtime.agentIdentity?.name
-    const id = agentName && run?.runId ? await agentInvocationId(run.runId, agentName) : undefined
+    const id = run?.runId
     return {
       agent_name: agentName, run_id: run?.runId, invocation_id: id, thread_id: run?.threadId,
       trace_id: runtime.trace?.id, parent_trace_id: runtime.trace?.parentId,
@@ -247,7 +253,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
         && !(hasRuntimeType(context.event.status, "number") && context.event.status >= 400)) return
       const safe = sanitizeAgentLog(filterAgentObservability(level, { ...context.event, ...metadata }), { allowContent: level === "full" })
       if (safe.error) safe.error = { message: "Request failed; inspect the correlated exception." }
-      logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service: options.service, environment: options.environment })
+      logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service, environment })
     },
     status: () => ({ configured: Boolean(exporter), ...counts, pending: pending.size + logs.pending, closed: closing }),
     flush() {
