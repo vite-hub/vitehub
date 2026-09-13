@@ -3769,7 +3769,13 @@ cli_auth_credentials_store = "keyring"
 
   it("materializes AGENTS.md fallback instructions for Claude", async () => {
     const threadId = "thread-claude-agents-fallback"
-    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+        const promptFile = args.split("--append-system-prompt-file ")[1]!
+        expect(await readFile(join(root, promptFile), "utf8")).toBe("workspace instructions")
+      },
+    })
     let root = ""
     const session = {
       close: vi.fn(async () => undefined),
@@ -3777,7 +3783,7 @@ cli_auth_credentials_store = "keyring"
       diff: vi.fn(async () => ({ entries: [] })),
       exec: vi.fn(async (command: string, args: string[]) => {
         if (command === "git" && args.includes("add")) {
-          expect(await readFile(`${root}/CLAUDE.md`, "utf8")).toBe("workspace instructions")
+          expect(await readFile(`${root}/CLAUDE.md`, "utf8")).toBe("")
         }
         return { code: 0, stderr: "", stdout: "" }
       }),
@@ -3802,6 +3808,70 @@ cli_auth_credentials_store = "keyring"
     }) as never)
 
     expect(session.exec).toHaveBeenCalled()
+  })
+
+  it.each([
+    "--append-system-prompt-file caller.md",
+    "--verbose --append-system-prompt-file=caller.md",
+    '--append-system-prompt-file "caller prompt.md"',
+    '"--append-system-prompt-file" caller.md',
+    "'--append-system-prompt-file' caller.md",
+  ])("rejects conflicting Claude prompt files before provider startup: %s", async (launchArgs) => {
+    const callsBefore = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({
+      instructions: "Follow @./README.md literally.",
+      provider: "claude-code",
+      providerSettings: { launchArgs },
+    }).generate(context("thread-claude-prompt-conflict") as never)).rejects.toThrow("Compose the caller prompt file contents into driver.instructions and remove the flag.")
+    expect(createProviderRuntime).toHaveBeenCalledTimes(callsBefore)
+  })
+
+  it.each(["completed", "failed"])("delivers literal Claude instructions and restores Workspace files after a %s turn", async (state) => {
+    const threadId = `thread-claude-literal-${state}`
+    const instructions = "Follow @./README.md and @workspace.policy literally.\n<policy>Keep text intact.</policy>"
+    let root = ""
+    let promptFile = ""
+    runtime(threadId, [event("turn.completed", threadId, { state, ...(state === "failed" ? { errorMessage: "provider failed" } : {}) }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+        expect(args).toContain("--verbose --append-system-prompt-file ")
+        expect(args).not.toContain(instructions)
+        promptFile = args.split("--append-system-prompt-file ")[1]!
+        expect(await readFile(join(root, promptFile), "utf8")).toBe(instructions)
+        expect(await readFile(join(root, "CLAUDE.md"), "utf8")).toBe("")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => {
+        expect(await readFile(join(root, "CLAUDE.md"), "utf8")).toBe("original instructions")
+        await expect(access(join(root, promptFile))).rejects.toThrow()
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(root, { recursive: true })
+        await writeFile(join(root, "CLAUDE.md"), "original instructions")
+        await writeFile(join(root, "README.md"), "must not be imported")
+        return session
+      }),
+      tools: {},
+    }
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const result = createProviderAgentAdapter({ instructions, provider: "claude-code", providerSettings: { launchArgs: "--verbose" } }).generate(context(threadId, {
+      workspace,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+    if (state === "failed") await expect(result).rejects.toThrow("provider failed")
+    else await result
+    expect(session.close).toHaveBeenCalled()
   })
 
   it("reports runtime-wide provider errors without a thread association", async () => {

@@ -213,12 +213,9 @@ export async function sendWelcome(name: string, to: string) {
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |
 | `data` | `Record<string, unknown>` | `{}` | Supplies scalar bindings, Markdown fragments, and conditional values. |
-| `resolveImport` | `RenderEmailMarkdownOptions['resolveImport']` | None | Resolves relative imports synchronously or asynchronously. Return `{ id, template }`, or `undefined` when an import is unavailable. No files or URLs are read without it. |
-| `sourceId` | `string` | `'<template>'` | Identifies the root template to the import resolver and cycle detector. |
-| `maxImportDepth` | `number` | `4` | Limits nested imports. It must be a non-negative integer. |
 
 ::warning
-`renderEmailMarkdown()` does not sanitize authored HTML, trusted Markdown fragments, or imported templates, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `{{{ fragment }}}` binding or an imported template.
+`renderEmailMarkdown()` does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `{{{ fragment }}}` binding.
 ::
 
 ## Provider behavior for Resend

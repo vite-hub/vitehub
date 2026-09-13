@@ -2399,6 +2399,9 @@ importers:
       '@vite-hub/box':
         specifier: workspace:*
         version: link:../box
+      '@vite-hub/markdown-template':
+        specifier: workspace:*
+        version: link:../markdown-template
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -2457,9 +2460,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      '@vite-hub/markdown-template':
-        specifier: workspace:*
-        version: link:../markdown-template
       '@vite-hub/shell':
         specifier: workspace:*
         version: link:../shell

@@ -144,14 +144,14 @@
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs",
-    "valibot": "catalog:runtime"
+    "valibot": "catalog:runtime",
+    "@vite-hub/markdown-template": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vercel/blob": "catalog:storage",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
     "ocache": "catalog:unjs",

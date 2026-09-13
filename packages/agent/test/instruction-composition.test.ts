@@ -1,96 +1,16 @@
-import { dirname, resolve } from "node:path"
-
 import { describe, expect, it } from "vitest"
 
 import {
   composeInstructionDocument,
   createInstructionCoverage,
-  resolveInstructionImports,
 } from "../src/instruction-composition.ts"
 
-function importReader(files: Map<string, string>) {
-  return (specifier: string, importer: string) => {
-    const file = resolve(dirname(importer), specifier)
-    const content = files.get(file)
-    if (content === undefined) throw new Error(`Missing test file: ${file}`)
-    return { content, file }
-  }
-}
-
 describe("instruction composition", () => {
-  it("expands relative markdown imports outside code spans and fences", async () => {
-    const files = new Map([
-      ["/agent/nested.md", "Nested\n@./policy.md"],
-      ["/agent/policy.md", "Policy"],
-    ])
-
-    expect(await resolveInstructionImports([
-      "Base",
-      "@./nested.md",
-      "`@./ignored.md`",
-      "``@./ignored.md``",
-      "```",
-      "@./ignored.md",
-      "```",
-    ].join("\n"), {
-      file: "/agent/instructions.md",
-      read: importReader(files),
-    })).toBe([
-      "Base",
-      "Nested",
-      "Policy",
-      "`@./ignored.md`",
-      "`@./ignored.md`",
-      "",
-      "```",
-      "@./ignored.md",
-      "```",
-    ].join("\n"))
-  })
-
-  it("allows sibling imports to reuse the same file", async () => {
-    const files = new Map([["/agent/shared.md", "Shared"]])
-
-    expect(await resolveInstructionImports([
-      "@./shared.md",
-      "",
-      "@./shared.md",
-    ].join("\n"), {
-      file: "/agent/instructions.md",
-      read: importReader(files),
-    })).toBe("Shared\n\nShared")
-  })
-
-  it("preserves relative import cycle and depth errors", async () => {
-    await expect(resolveInstructionImports("@./nested.md", {
-      file: "/agent/instructions.md",
-      read: importReader(new Map([
-        ["/agent/nested.md", "@./instructions.md"],
-        ["/agent/instructions.md", "Root"],
-      ])),
-    })).rejects.toThrow("Circular instruction import: ./instructions.md")
-
-    await expect(resolveInstructionImports("@./nested.md", {
-      file: "/agent/instructions.md",
-      maxDepth: 0,
-      read: importReader(new Map([["/agent/nested.md", "Nested"]])),
-    })).rejects.toThrow("Instruction import depth exceeded 0")
-  })
-
-  it("preserves imported markdown structure on Comark 0.5", async () => {
-    const files = new Map([["/agent/policy.md", [
-      "## Policy",
-      "<policy>Use {{ context.name }}.</policy>",
-    ].join("\n")]])
-
-    expect(await resolveInstructionImports("@./policy.md", {
-      file: "/agent/instructions.md",
-      read: importReader(files),
-    })).toBe([
-      "## Policy",
-      "",
-      "<policy>Use {{ context.name }}.</policy>",
-    ].join("\n"))
+  it("keeps former file and Workspace imports literal", async () => {
+    const document = "@./missing.md @../policy.md @workspace.policy"
+    await expect(composeInstructionDocument(document, {
+      workspace: { policy: "Must not expand" },
+    })).resolves.toBe(document)
   })
 
   it("keeps template syntax literal in indented code blocks", async () => {
@@ -99,10 +19,6 @@ describe("instruction composition", () => {
       "    @workspace.policy",
       "    {{{ context.policy }}}",
     ].join("\n")
-    const imported = await resolveInstructionImports(input, {
-      file: "/agent/instructions.md",
-      read: importReader(new Map()),
-    })
     const expected = [
       "```",
       "@./ignored.md",
@@ -111,46 +27,30 @@ describe("instruction composition", () => {
       "```",
     ].join("\n")
 
-    expect(imported).toBe(expected)
-    expect(await composeInstructionDocument(imported, {
+    expect(await composeInstructionDocument(input, {
       context: { policy: "must not render" },
       workspace: { policy: "must not import" },
     })).toBe(expected)
   })
 
   it("keeps template syntax literal in multiline code spans", async () => {
-    const files = new Map([["/agent/used.md", "Used"]])
-    const imported = await resolveInstructionImports([
+    const input = [
       "Before ``code",
       "@./ignored.md",
       "@workspace.policy",
       "{{{ context.policy }}}",
       "code``",
       "@./used.md",
-    ].join("\n"), {
-      file: "/agent/instructions.md",
-      read: importReader(files),
-    })
+    ].join("\n")
     const expected = [
       "Before `code @./ignored.md @workspace.policy {{{ context.policy }}} code`",
-      "Used",
+      "@./used.md",
     ].join("\n")
 
-    expect(imported).toBe(expected)
-    expect(await composeInstructionDocument(imported, {
+    expect(await composeInstructionDocument(input, {
       context: { policy: "must not render" },
       workspace: { policy: "must not import" },
     })).toBe(expected)
-  })
-
-  it("normalizes shorthand conditions from imported documents", async () => {
-    const files = new Map([["/agent/policy.md", "::if{context.enabled}\nEnabled\n::"]])
-    const imported = await resolveInstructionImports("@./policy.md", {
-      file: "/agent/instructions.md",
-      read: importReader(files),
-    })
-
-    expect(await composeInstructionDocument(imported, { context: { enabled: true } })).toBe("Enabled")
   })
 
   it("renders condition chains and context bindings without executing JavaScript", async () => {
@@ -322,55 +222,14 @@ describe("instruction composition", () => {
       .rejects.toThrow("Instruction markdown binding \"{{{ context.policy }}}\" is not defined")
   })
 
-  it("imports workspace markdown bindings through composition", async () => {
-    expect(await composeInstructionDocument([
-      "# Support",
-      "@workspace.policy",
-    ].join("\n"), {
-      context: {
-        customerName: "Acme",
-        technical: true,
-      },
-      workspace: {
-        policy: [
-          "## Policy",
-          "::if{context.technical}",
-          "Use technical detail for {{ context.customerName }}.",
-          "::else",
-          "Use support detail.",
-          "::",
-        ].join("\n"),
-      },
-    })).toBe([
-      "# Support",
-      "## Policy",
-      "Use technical detail for Acme.",
-    ].join("\n\n"))
-  })
-
-  it("preserves workspace import cycle and depth errors", async () => {
-    await expect(composeInstructionDocument("@workspace.policy", {
-      workspace: { policy: "@workspace.policy" },
-    })).rejects.toThrow("Circular instruction workspace import: @workspace.policy")
-
-    await expect(composeInstructionDocument("@workspace.one", {
-      workspace: {
-        five: "Done",
-        four: "@workspace.five",
-        one: "@workspace.two",
-        three: "@workspace.four",
-        two: "@workspace.three",
-      },
-    })).rejects.toThrow("Instruction workspace import depth exceeded 4")
-  })
-
-  it("requires workspace Markdown to use recursive imports", async () => {
-    await expect(composeInstructionDocument("{{{ workspace.policy }}}", {
-      workspace: { policy: "Use {{ context.name }}." },
-    })).rejects.toThrow("must use a context.* path. Import Workspace Markdown with @workspace.policy")
-    await expect(composeInstructionDocument("<policy value=\"{{{ workspace.policy }}}\">Use it.</policy>", {
-      workspace: { policy: "Policy" },
-    })).rejects.toThrow("must use a context.* path. Import Workspace Markdown with @workspace.policy")
+  it("inserts Workspace Markdown without recursively evaluating its syntax", async () => {
+    const policy = "## Policy\n\n{{ context.name }}\n\n@workspace.policy"
+    await expect(composeInstructionDocument("# Support\n\n{{{ workspace.policy }}}", {
+      context: { name: "Acme" },
+      workspace: { policy },
+    })).resolves.toBe(`# Support\n\n${policy}`)
+    await expect(composeInstructionDocument("{{{ workspace.missing }}}"))
+      .rejects.toThrow("is not defined")
   })
 
   it("does not render bindings or directives inside code spans and fences", async () => {
@@ -474,7 +333,7 @@ describe("instruction composition", () => {
     expect([...coverage.skills]).toEqual(["skills/review-browser-evidence"])
   })
 
-  it("records coverage only from selected authored and workspace-imported branches", async () => {
+  it("records coverage only from selected authored branches", async () => {
     const coverage = createInstructionCoverage()
     const document = [
       "::if{context.enabled}",
@@ -486,25 +345,20 @@ describe("instruction composition", () => {
       "Do not validate or cover this branch.",
       "::",
       "::",
-      "@workspace.policy",
+      "::if{context.enabled}",
+      "::skill{path=\"skills/selected\"}",
+      "Use the selected Skill.",
+      "::",
+      "::else",
+      "::source{key=\"unselected-source\"}",
+      "Do not use this Source.",
+      "::",
+      "::",
     ].join("\n")
 
     expect(await composeInstructionDocument(document, {
       context: { enabled: true },
       coverage,
-      workspace: {
-        policy: [
-          "::if{context.enabled}",
-          "::skill{path=\"skills/selected\"}",
-          "Use the selected Skill.",
-          "::",
-          "::else",
-          "::source{key=\"unselected-source\"}",
-          "Do not use this Source.",
-          "::",
-          "::",
-        ].join("\n"),
-      },
     })).toBe([
       "Use the selected Source.",
       "",
@@ -552,15 +406,5 @@ describe("instruction composition", () => {
       .rejects.toThrow("missing a closing")
     await expect(composeInstructionDocument("::if{context.enabled}\nEnabled\n::else\nFallback\n::else-if{context.admin}\nAdmin\n::"))
       .rejects.toThrow("else-if block cannot follow else")
-    await expect(resolveInstructionImports("@https://example.com/policy.md", {
-      file: "/agent/instructions.md",
-      read: importReader(new Map()),
-    })).rejects.toThrow("must be a relative file path")
-    await expect(resolveInstructionImports("@./*.md", {
-      file: "/agent/instructions.md",
-      read: importReader(new Map()),
-    })).rejects.toThrow("cannot use globs")
-    await expect(composeInstructionDocument("@workspace.policy"))
-      .rejects.toThrow("workspace import \"@workspace.policy\" is not defined")
   })
 })

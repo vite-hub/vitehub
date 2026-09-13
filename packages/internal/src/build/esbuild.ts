@@ -32,9 +32,14 @@ export interface ViteAlias {
 }
 
 const viteRawNamespace = "vitehub-vite-raw"
+const viteMarkdownTemplateNamespace = "vitehub-markdown-template"
+const markdownTemplateFileSuffix = ".template.md"
+const markdownTemplateModuleQuery = "markdown-template"
+const skipMarkdownTemplateResolve = "vitehubSkipMarkdownTemplateResolve"
 const skipResolvedAlias = "vitehubSkipResolvedAlias"
 const encodedAliasPrefixMarker = "\0vitehub-prefix:"
 const encodedAliasExactMarker = "\0vitehub-exact:"
+const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 interface StringAlias {
   find: string | RegExp
@@ -358,6 +363,26 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
   }
 }
 
+function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
+  const queryIndex = id.indexOf("?")
+  const path = id.split(/[?#]/, 1)[0]!
+  if (queryIndex === -1) return path.endsWith(markdownTemplateFileSuffix) ? { path } : undefined
+  const query = id.slice(queryIndex + 1).split("#", 1)[0]!
+  if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
+  return { path }
+}
+
+function renderMarkdownTemplateModule(template: string): string {
+  return [
+    `import { renderMarkdownTemplate as vitehubRenderMarkdownTemplate } from ${JSON.stringify(markdownTemplateRuntimeSpecifier)}`,
+    `const vitehubMarkdownTemplate = ${JSON.stringify(template)}`,
+    "export default function render(data = {}) {",
+    "  return vitehubRenderMarkdownTemplate(vitehubMarkdownTemplate, { data })",
+    "}",
+    "",
+  ].join("\n")
+}
+
 function hasViteRawQuery(path: string): boolean {
   const queryIndex = path.indexOf("?")
   return queryIndex !== -1 && /(?:^|&)raw(?:&|$)/.test(path.slice(queryIndex + 1))
@@ -379,19 +404,37 @@ async function resolveViteRawSpecifier(path: string, rootDir: string | undefined
   }
 }
 
-function createViteRawPlugin(rootDir: string | undefined): Plugin {
+function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: boolean): Plugin {
   return {
     name: "vitehub-vite-raw",
     setup(build) {
-      build.onResolve({ filter: /\?/ }, async (args) => {
-        if (!hasViteRawQuery(args.path)) return
-        const path = args.path.slice(0, args.path.indexOf("?"))
+      build.onResolve({ filter: /^@vite-hub\/markdown-template$/, namespace: viteMarkdownTemplateNamespace }, async (args) => {
+        if (!frameworkRuntime) return { path: fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier)) }
+        return build.resolve("vite-hub/_internal/markdown-template", {
+          importer: args.importer,
+          kind: args.kind,
+          resolveDir: args.resolveDir,
+        })
+      })
+      build.onResolve({ filter: /\?|\.template\.md$/ }, async (args) => {
+        if (args.pluginData?.[skipMarkdownTemplateResolve]) return
+        const markdownTemplate = parseMarkdownTemplateRequest(args.path)
+        const raw = hasViteRawQuery(args.path)
+        if (!markdownTemplate && !raw) return
+        const path = markdownTemplate?.path ?? args.path.slice(0, args.path.indexOf("?"))
         const specifier = await resolveViteRawSpecifier(path, rootDir)
+        let pluginData = args.pluginData
+        if (markdownTemplate) {
+          pluginData = {
+            ...args.pluginData,
+            [skipMarkdownTemplateResolve]: true,
+          }
+        }
         const resolved = await build.resolve(specifier, {
           importer: args.importer,
           kind: args.kind,
           namespace: args.namespace,
-          pluginData: args.pluginData,
+          pluginData,
           resolveDir: args.resolveDir,
           with: args.with,
         })
@@ -409,12 +452,14 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
         }
         if (resolved.namespace !== "file") {
           return {
-            errors: [{ text: `[vitehub] Vite raw fallback cannot load ${JSON.stringify(args.path)} from the ${JSON.stringify(resolved.namespace)} namespace. Handle this raw import in a caller plugin.` }],
+            errors: [{ text: markdownTemplate
+              ? `[vitehub] Markdown template fallback cannot load ${JSON.stringify(args.path)} from the ${JSON.stringify(resolved.namespace)} namespace. Handle this template import in a caller plugin.`
+              : `[vitehub] Vite raw fallback cannot load ${JSON.stringify(args.path)} from the ${JSON.stringify(resolved.namespace)} namespace. Handle this raw import in a caller plugin.` }],
             warnings: resolved.warnings,
           }
         }
         return {
-          namespace: viteRawNamespace,
+          namespace: markdownTemplate ? viteMarkdownTemplateNamespace : viteRawNamespace,
           path: resolved.path,
           pluginData: resolved.pluginData,
           sideEffects: resolved.sideEffects,
@@ -425,6 +470,11 @@ function createViteRawPlugin(rootDir: string | undefined): Plugin {
       build.onLoad({ filter: /.*/, namespace: viteRawNamespace }, async args => ({
         contents: await readFile(args.path),
         loader: "text",
+      }))
+      build.onLoad({ filter: /.*/, namespace: viteMarkdownTemplateNamespace }, async args => ({
+        contents: renderMarkdownTemplateModule(await readFile(args.path, "utf8")),
+        loader: "js",
+        resolveDir: dirname(args.path),
       }))
     },
   }
@@ -448,6 +498,11 @@ export async function bundleEsmEntry(
   const format = options.format || "esm"
   const platform = options.platform || "neutral"
   const viteAliasPlugin = createViteAliasPlugin(options.alias)
+  const aliasSpecifiers = Array.isArray(options.alias)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- ViteAlias.find is an untagged string-or-RegExp union at this adapter boundary.
+    ? options.alias.flatMap(alias => typeof alias.find === "string" ? [alias.find] : [])
+    : Object.keys(options.alias || {})
+  const frameworkRuntime = aliasSpecifiers.some(specifier => specifier === "vite-hub" || specifier.startsWith("vite-hub/"))
   const plugins: Plugin[] = []
   const resolvedAliasPlugin = createResolvedAliasPlugin(
     Array.isArray(options.alias) ? undefined : options.alias,
@@ -456,7 +511,7 @@ export async function bundleEsmEntry(
   if (resolvedAliasPlugin) plugins.push(resolvedAliasPlugin)
   plugins.push(...(options.plugins ?? []), createFileUrlPlugin())
   if (viteAliasPlugin) plugins.push(viteAliasPlugin)
-  plugins.push(createViteRawPlugin(options.rootDir))
+  plugins.push(createViteRawPlugin(options.rootDir, frameworkRuntime))
 
   const result = await bundle({
     absWorkingDir: options.workingDir,

@@ -752,14 +752,14 @@ describe("sources, loaders, and publishers", () => {
     }])
   })
 
-  it("renders Markdown file URLs in Workspace Definitions", async () => {
+  it("renders Markdown templates with literal references in Workspace Definitions", async () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, "prompt.md"), "Workspace {{ context.name }}\n")
+    await writeFile(join(directory, "prompt.template.md"), "Workspace {{ context.name }}\n@./missing.md\n@workspace.policy\n")
     await writeFile(join(directory, "config.ts"), [
-      `import { renderMarkdownFile } from ${JSON.stringify(import.meta.resolve("@vite-hub/markdown-template/file"))}`,
-      `export default { rootDir: await renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data: { context: { name: "review" } } }) }`,
+      `import prompt from "./prompt.template.md"`,
+      `export default { rootDir: await prompt({ context: { name: "review" } }) }`,
       ``,
     ].join("\n"))
 
@@ -773,7 +773,7 @@ describe("sources, loaders, and publishers", () => {
     const loader = createWorkspaceDefinitionLoader(root)
 
     await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
-      rootDir: "Workspace review",
+      rootDir: "Workspace review\n@./missing.md\n@workspace.policy",
     })
   })
 

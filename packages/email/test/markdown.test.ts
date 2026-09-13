@@ -21,10 +21,9 @@ describe("renderEmailMarkdown", () => {
     })
   })
 
-  it("forwards template import resolution", async () => {
-    await expect(renderEmailMarkdown("Hello\n\n@./footer.md", {
-      resolveImport: async () => ({ id: "/footer.md", template: "Regards, **ViteHub**" }),
-      sourceId: "/welcome.md",
+  it("renders explicitly supplied Markdown fragments", async () => {
+    await expect(renderEmailMarkdown("Hello\n\n{{{ footer }}}", {
+      data: { footer: "Regards, **ViteHub**" },
     })).resolves.toEqual({
       html: "<p>Hello</p>\n<p>Regards, <strong>ViteHub</strong></p>",
       text: "Hello\n\nRegards, **ViteHub**",

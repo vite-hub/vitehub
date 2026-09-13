@@ -53,17 +53,22 @@ export default defineAgent({
 
 ## Split reusable guidance
 
-Use static `@./path.md` imports when one document becomes difficult to scan.
+Compose reusable guidance in TypeScript and pass the combined document through `driver.instructions`. Import authored Markdown with `?raw` when using Vite:
 
-```md [server/agents/support/instructions.md]
-# Support
+```ts [server/agents/support/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+import sharedStyle from './shared-style.md?raw'
+import escalationPolicy from './escalation-policy.md?raw'
 
-@./shared-style.md
-
-@./escalation-policy.md
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: [sharedStyle, escalationPolicy],
+  },
+})
 ```
 
-Imports are relative, recursive up to four levels, and processed like the parent document. Remote URLs, absolute paths, and globs fail instead of widening instruction reachability.
+Text such as `@./path.md` stays literal in instruction documents.
 
 ## Insert trusted invocation values
 
@@ -101,7 +106,7 @@ export default defineAgent({
     model: 'openai/gpt-5.1-mini',
     instructions: [
       'Use {{ workspace.tone }} tone.',
-      '@workspace.policy',
+      '{{{ workspace.policy }}}',
     ],
   },
   workspace: {
@@ -113,7 +118,7 @@ export default defineAgent({
 })
 ```
 
-`@workspace.policy` inserts the declared Markdown and composes it again. ViteHub does not scan or auto-load every Markdown file in the Workspace.
+`{{{ workspace.policy }}}` inserts the declared Markdown without evaluating bindings, conditions, or coverage directives inside it. Render any dynamic content before passing it as a fragment. ViteHub does not scan or auto-load every Markdown file in the Workspace.
 
 ## Cover configured primitives
 

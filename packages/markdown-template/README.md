@@ -1,8 +1,8 @@
 # @vite-hub/markdown-template
 
-`@vite-hub/markdown-template` turns a Markdown template string and explicit data into Markdown. It supports escaped scalar values, trusted Markdown fragments, bounded conditions, and caller-resolved imports. The direct renderer does not evaluate JavaScript or read files and URLs on its own.
+`@vite-hub/markdown-template` turns a Markdown template string and explicit data into Markdown. It supports escaped scalar values, trusted Markdown fragments and bounded conditions. The direct renderer does not evaluate JavaScript or read files and URLs on its own.
 
-Use `renderMarkdownFile()` for a local Markdown path. Use `renderMarkdownTemplate()` when your application already has the template string.
+Use the direct renderer when your application already has the template string. Add the Vite integration when you want to import a `*.template.md` file as an asynchronous render function.
 
 ## Install
 
@@ -10,7 +10,7 @@ Use `renderMarkdownFile()` for a local Markdown path. Use `renderMarkdownTemplat
 pnpm add @vite-hub/markdown-template
 ```
 
-The package requires Node 24 or newer.
+The package requires Node 24 or newer. Install `vite` too if you use the optional Vite integration.
 
 ## Render a template string
 
@@ -86,7 +86,7 @@ const data = { reviewUrl: `/reviews/${id}` }
 
 Use `{{{ path.to.markdown }}}` only for a string that may add Markdown structure. A block fragment must occupy its own block; the renderer rejects block Markdown placed inside an inline sentence.
 
-The renderer does not evaluate template syntax inside a fragment again. Bindings, conditions, and imports in the fragment remain literal. This stops accidental recursive templating, but it does not make an untrusted fragment safe for an Agent or another model. Validate or construct fragments before passing them to the renderer.
+The renderer does not evaluate template syntax inside a fragment again. Bindings and conditions in the fragment remain literal. This stops accidental recursive templating, but it does not make an untrusted fragment safe for an Agent or another model. Validate or construct fragments before passing them to the renderer.
 
 ### Select a condition
 
@@ -104,75 +104,55 @@ No pull request is available.
 
 Conditions cannot call functions, read globals, or traverse inherited properties. The renderer rejects malformed branches and unsafe expressions.
 
-### Authorize every import
+### Compose reusable sections
 
-An import token such as `@./policy.md` stays literal unless you pass `resolveImport`. The resolver receives the relative specifier and the canonical ID of the importing template. It must return both the imported template and its canonical ID:
+Render a shared template explicitly and pass the result as a Markdown fragment:
 
 ```ts
-const markdown = await renderMarkdownTemplate("# Review\n\n@./policy.md", {
-  sourceId: "/templates/review.md",
-  async resolveImport(specifier, importer) {
-    if (specifier !== "./policy.md" || importer !== "/templates/review.md") {
-      throw new Error("Template import is not allowed")
-    }
-
-    return {
-      id: "/templates/policy.md",
-      template: "Use the repository review policy.",
-    }
-  },
+const policy = await renderMarkdownTemplate("Use {{ tone }} guidance.", {
+  data: { tone: "concise" },
+})
+const markdown = await renderMarkdownTemplate("# Review\n\n{{{ policy }}}", {
+  data: { policy },
 })
 ```
 
-The renderer accepts relative imports only. It rejects absolute paths, URLs, globs, missing resolutions, cycles, and imports deeper than `maxImportDepth`, which defaults to `4`.
+Text such as `@./policy.md` stays literal. Templates do not resolve or recursively expand imports.
 
-Imports resolve before conditions run. Your resolver must authorize an import even when it appears inside a branch that the data will not select. The resolver also owns filesystem or network access, caching, and canonical path handling. The package performs none of that I/O implicitly.
+## Import template files with Vite
 
-## Render a Markdown file
+The direct renderer above has no build-tool requirement. If the template is a source file, register `hubMarkdownTemplate()` and import it directly:
 
-Create `review.md`:
+```ts
+// vite.config.ts
+import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [hubMarkdownTemplate()],
+})
+```
+
+Create `review.template.md`:
 
 ```md
 # Review {{ number }}
 
-@./policy.md
-
 {{{ summary }}}
 ```
 
-Create `policy.md` beside it:
-
-```md
-Check correctness and regression coverage.
-```
-
 ```ts
-import { renderMarkdownFile } from "@vite-hub/markdown-template/file"
+import renderReview from "./review.template.md"
 
-const markdown = await renderMarkdownFile(new URL("./review.md", import.meta.url), {
-  data: { number: 42, summary: "Ready for review." },
+const markdown = await renderReview({
+  number: 42,
+  summary: "Ready for review.",
 })
 ```
 
-Applications can import the same function from `vite-hub/markdown-template/file`.
+Vite bundles each directly imported template before deployment. The generated application does not read those source files at runtime. The plugin also writes the `*.template.md` module declaration under `.vitehub/types`; include `.vitehub/types/**/*.d.ts` in the application TypeScript configuration.
 
-The root export selects the filesystem API only under the `node` export condition. Browser, edge, and neutral consumers receive the portable string renderer without Node built-ins.
-
-Use the `/file` subpath in server projects, including TypeScript projects using Bundler module resolution. It requires a local filesystem; the root string renderer remains portable.
-
-`renderMarkdownFile(path, options?)` accepts a filesystem path string or a `file:` URL and returns `Promise<string>`. Its `RenderMarkdownFileOptions` accepts `data` and `maxImportDepth`, which defaults to `4`. Relative path strings use the process working directory. File URLs constructed with `import.meta.url` use the executing module's directory. HTTP URLs are not supported.
-
-Each call reads the file and its relative fragments. Symlinks resolve to canonical paths; nested fragments resolve beside their canonical importer. Missing files reject with the filesystem error. Conditions, escaping, code literals, and import depth and cycle checks use the same renderer as template strings. Imports resolve before conditions, including imports in unselected branches.
-
-File loading uses the host filesystem permissions. Trusted templates may import parent directories through `../` or symlinks. For a restricted file tree or application storage, use the string renderer with your own `resolveImport`.
-
-### Ship the file tree
-
-Include the Markdown files and fragments in your deployed server files. ViteHub does not automatically bundle or copy paths passed to `renderMarkdownFile()`. After a build, `import.meta.url` refers to the emitted module; place the files beside that module as specified by the URL, or pass a configured absolute path. A host without local files must supply content to the string renderer through application storage, a Workspace, or a Source.
-
-### Breaking migration
-
-Callable `*.template.md` imports, the `?markdown-template` query, and `hubMarkdownTemplate()` are removed. Rename files to `.md`, replace imports with `renderMarkdownFile(path, { data })`, and ship the files and fragments. Remove the template Vite plugin and obsolete `.vitehub/types/markdown-template.d.ts` declarations. File errors now occur when rendering. The string API is unchanged.
+The combined [`vite-hub`](https://www.npmjs.com/package/vite-hub) preset installs this integration already.
 
 ## Know what the renderer does not preserve
 
@@ -184,8 +164,8 @@ The direct renderer has no loops, helpers, macros, compile step, implicit filesy
 
 | Import | Purpose |
 | --- | --- |
-| `@vite-hub/markdown-template` | `renderMarkdownTemplate()` and its public option and import-resolver types. |
-| `@vite-hub/markdown-template/file` | `renderMarkdownFile()` and `RenderMarkdownFileOptions` for local filesystem rendering. |
+| `@vite-hub/markdown-template` | `renderMarkdownTemplate()` and its public option type. |
+| `@vite-hub/markdown-template/vite` | `hubMarkdownTemplate()` and direct `*.template.md` imports. |
 
 ## Learn more
 

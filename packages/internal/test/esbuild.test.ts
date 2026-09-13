@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
-import { build, transform } from "esbuild"
+import { transform } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
 import type { Plugin } from "esbuild"
@@ -931,40 +931,46 @@ describe("bundleEsmEntry", () => {
       .rejects.toThrow('No loader is configured for ".md" files')
   })
 
-  it("renders deployed Markdown files through an ordinary package import", async () => {
+  it("bundles caller-relative Markdown prompt templates without runtime source files", async () => {
     const rootDir = await createTempDir()
-    const entry = join(rootDir, "entry.mjs")
-    const output = join(rootDir, "deployed")
-    const outfile = join(output, "bundle.mjs")
+    const entry = join(rootDir, "babysitter.schedule.mjs")
+    const template = join(rootDir, "prompt.template.md")
+    const partial = join(rootDir, "context.template.md")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(template, "{{{ detail }}}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n        @./missing.md\n\n- Fenced example\n    ```md\n    @./missing.md\n    ```\n\n- Context\n    @./missing.md\n\n{{{ blocker }}}\n", "utf8")
+    await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
     await writeFile(entry, [
-      `import { renderMarkdownFile } from ${JSON.stringify(import.meta.resolve("@vite-hub/markdown-template/file"))}`,
-      `export default () => renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data: { number: 42 } })`,
-    ].join("\n"))
+      `import prompt from "./prompt.template.md"`,
+      `import detail from "./context.template.md"`,
+      `export default async () => prompt({ blocker: "> Waiting", detail: await detail({ context: { number: 42 } }) })`,
+      ``,
+    ].join("\n"), "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
-    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
-    // SAFETY: The built fixture exports a function that returns rendered Markdown.
-    const bundled = await import(pathToFileURL(outfile).href) as { default: () => Promise<string> }
-    await expect(bundled.default()).rejects.toMatchObject({ code: "ENOENT" })
-    await writeFile(join(output, "prompt.md"), "@./policy.md")
-    await writeFile(join(output, "policy.md"), "Review {{ number }}.")
-    await rm(entry)
-    await expect(bundled.default()).resolves.toBe("Review 42.")
-    await writeFile(join(output, "policy.md"), "Updated {{ number }}.")
-    await expect(bundled.default()).resolves.toBe("Updated 42.")
+    await bundleEsmEntry(entry, outfile, {
+      format: "esm",
+      platform: "node",
+      rootDir,
+    })
+    await Promise.all([rm(template), rm(partial)])
+
+    // SAFETY: This bundle's entry module exports an async Markdown template renderer.
+    const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
   })
 
-  it("does not treat the removed template suffix or query as callable modules", async () => {
+  it("keeps missing import text literal in bundled Markdown templates", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(join(rootDir, "prompt.template.md"), "Hello {{ name }}")
+    await writeFile(join(rootDir, "prompt.template.md"), "@./missing.md\n", "utf8")
+    await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default prompt\n', "utf8")
+
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
-    for (const specifier of ["./prompt.template.md", "./prompt.template.md?markdown-template"]) {
-      await writeFile(entry, `import prompt from ${JSON.stringify(specifier)}\nexport default prompt\n`)
-      await expect(bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir }))
-        .rejects.toThrow('No loader is configured for ".md" files')
-    }
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+    // SAFETY: The fixture exports the renderer built above.
+    const bundled = await import(pathToFileURL(outfile).href) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("@./missing.md")
   })
 
   it("resolves root-absolute raw imports from the Vite root", async () => {
@@ -1034,6 +1040,23 @@ describe("bundleEsmEntry", () => {
     // SAFETY: The caller plugin defines this bundle's default export as a string.
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
     expect(loaded.default).toBe("caller handled raw")
+  })
+
+  it("composes separately rendered Markdown template fragments", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const template = join(rootDir, "prompt.template.md")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(entry, 'import render from "./prompt.template.md"\nimport partial from "./partial.template.md"\nexport default async data => render({ partial: await partial(data) })\n', "utf8")
+    await writeFile(template, "Hello {{{ partial }}}", "utf8")
+    await writeFile(join(rootDir, "partial.template.md"), "{{ name }}!", "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+
+    // SAFETY: This bundle's entry module exports a renderer for the template's named input.
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: (data: { name: string }) => Promise<string> }
+    await expect(loaded.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub!")
   })
 
   it("preserves external results from raw fallback resolution", async () => {
@@ -1315,22 +1338,4 @@ describe("bundleEsmEntry", () => {
     const requireLoaded = await import(`${pathToFileURL(requireOutfile).href}?t=${Date.now()}`) as { default: string }
     expect(requireLoaded.default).toBe("require")
   })
-})
-
-it.each(["browser", "neutral"] as const)("bundles the portable Markdown root for %s consumers", async (platform) => {
-  const result = await build({
-    stdin: {
-      contents: 'export { renderMarkdownTemplate } from "@vite-hub/markdown-template"',
-      resolveDir: resolve(import.meta.dirname, "../../.."),
-    },
-    bundle: true,
-    platform,
-    // Neutral hosts must opt into resolution for dependencies without exports maps.
-    mainFields: ["module", "main"],
-    format: "esm",
-    write: false,
-    metafile: true,
-  })
-  expect(Object.keys(result.metafile.inputs).some(path => path.endsWith("markdown-template/dist/file.js"))).toBe(false)
-  expect(result.outputFiles[0]!.text).not.toMatch(/node:(?:fs|path)/)
 })
