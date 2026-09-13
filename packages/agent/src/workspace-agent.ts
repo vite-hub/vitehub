@@ -1327,7 +1327,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
     if (fence) return line
     const indented = /^(?:    |\t)/.test(line)
     if (indented && !paragraph) return line
-    paragraph = line.trim().length > 0 && !indented && !/^ {0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s)/.test(line)
+    paragraph = line.trim().length > 0 && !indented && (!/^ {0,3}(?:#{1,6}\s|>)/.test(line) || /^ {0,3}(?:[-+*]\s|\d+[.)]\s)/.test(line))
     if (inlineFence) {
       const run = inlineFence
       const end = findInlineCodeClose(line, run)
