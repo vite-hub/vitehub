@@ -5408,6 +5408,19 @@ async function finishAgentInvocation<
               ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
             })
           })
+          setChatFinishPrimaryReplyTrace(chatFinish, async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), {
+              kind: "reply",
+              payload: "",
+            }, {
+              "channel.effect.content": capture.content,
+              "channel.effect.primary": true,
+              "channel.effect.supported": true,
+              ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
+              ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
+            })
+          })
         }
         const activeDeliveryProviders = await runFinishActivity(
           deliveryActivity,
