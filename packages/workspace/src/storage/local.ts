@@ -826,11 +826,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
     const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
+    let conditionalCurrent: WorkspaceFile | undefined
     if (options.ifDigest !== undefined) {
       if ((await this.#stat(normalized, false))?.type !== "file") return
-      const current = await this.#readFile(normalized)
-      if (!current || await sha256(current.content) !== options.ifDigest) return
-      if (options.ifSource !== undefined && (current.metadata?.source ?? null) !== options.ifSource) return
+      conditionalCurrent = await this.#readFile(normalized)
+      if (!conditionalCurrent || await sha256(conditionalCurrent.content) !== options.ifDigest) return
+      if (options.ifSource !== undefined && (conditionalCurrent.metadata?.source ?? null) !== options.ifSource) return
     }
     // Retire the checked inode first. This closes the final race with writers
     // that do not participate in the workspace path lock: a replacement at
@@ -848,8 +849,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
         if (code === "ENOENT") return
         throw error
       }
-      const retiredFile = await this.#readFile(retiredRelative).catch(() => undefined)
-      if (!retiredFile || await sha256(retiredFile.content) !== options.ifDigest || (options.ifSource !== undefined && (retiredFile.metadata?.source ?? null) !== options.ifSource)) {
+      const { readFile } = await import("node:fs/promises")
+      const retiredBytes = await readFile(retired).catch(() => undefined)
+      if (!retiredBytes || await sha256(new Uint8Array(retiredBytes)) !== options.ifDigest || (options.ifSource !== undefined && (conditionalCurrent?.metadata?.source ?? null) !== options.ifSource)) {
         await rename(retired, absolute).catch(() => undefined)
         return
       }
