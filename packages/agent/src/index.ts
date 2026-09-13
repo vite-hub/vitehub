@@ -3678,6 +3678,7 @@ async function createAgentInvocationContext<
     const normalizedTools = transformedTools && "tools" in transformedTools && transformedTools.tools
       ? transformedTools.tools
       : transformedTools
+    // SAFETY: normalizedTools is produced from the capability tool set and is normalized to the AgentToolSet shape above.
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(normalizedTools as AgentToolSet) || {})
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(preparedTools, toolStepReporter)
