@@ -112,9 +112,14 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
     const value = child?.[key] === undefined ? parent[key] : child[key]
     result[key] = record(value)
       ? mergePresetOptions(record(parent[key]) ? parent[key] : {}, value)
-      : Array.isArray(value) ? [...value] : value
+      : clonePresetOption(value)
   }
   return result
+}
+
+function clonePresetOption(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(clonePresetOption)
+  return record(value) ? mergePresetOptions({}, value) : value
 }
 
 export function createConfiguredAgentDefinition(input: unknown, create: (options: AgentSettings) => AgentDefinition): AgentDefinition | undefined {

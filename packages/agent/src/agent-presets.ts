@@ -7,7 +7,7 @@ export type AgentPresetOptions<T> = T extends (...args: never[]) => unknown ? T
       : T
 
 /** An ordinary Agent Definition with typed preset configuration. */
-export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = AgentDefinition> = TDefinition & {
+export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = AgentDefinition> = Omit<TDefinition, "options"> & {
   readonly options: Readonly<TOptions>
 }
 

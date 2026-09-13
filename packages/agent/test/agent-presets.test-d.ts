@@ -59,3 +59,14 @@ it("preserves structured output from configure through selection and extension",
   } } })
   expectTypeOf(runAgentInline(extended, {} as AgentRuntimeContext, {})).resolves.toEqualTypeOf<Response | { summary: string }>()
 })
+
+it("exposes only the outer configuration when configure returns a configured Agent", () => {
+  const inner = defineAgent({ options: { inner: true }, configure: () => defineAgent({ driver: "codex", workspace: {} }) })
+  const outer = defineAgent({ options: { outer: true }, configure: () => defineAgent({ extends: inner }) })
+  expectTypeOf(outer.options.outer).toEqualTypeOf<boolean>()
+  expectTypeOf(outer.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  // @ts-expect-error The outer preset replaces the inner option contract.
+  outer.options.inner
+  // @ts-expect-error Inner options cannot be passed to the outer preset.
+  defineAgent({ extends: outer, options: { inner: false } })
+})

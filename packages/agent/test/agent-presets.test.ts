@@ -105,3 +105,16 @@ it("keeps shared definitions separate when configure returns the same parent", (
   expect(second.options.enabled).toBe(false)
   expect(base).not.toHaveProperty("options")
 })
+
+it("isolates plain objects inside option arrays from callback mutations", () => {
+  const defaults = { steps: [{ name: "original", nested: [{ enabled: true }] }] }
+  const preset = defineAgent({ options: defaults, configure: options => {
+    options.steps[0]!.name = "changed"
+    options.steps[0]!.nested[0]!.enabled = false
+    return defineAgent({ driver: "codex" })
+  } })
+  const child = defineAgent({ extends: preset })
+  expect(defaults.steps[0]).toEqual({ name: "original", nested: [{ enabled: true }] })
+  expect(preset.options.steps).toEqual(defaults.steps)
+  expect(child.options.steps).toEqual(defaults.steps)
+})
