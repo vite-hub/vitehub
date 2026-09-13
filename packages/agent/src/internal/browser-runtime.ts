@@ -452,10 +452,16 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
     }
     signal?.addEventListener("abort", onAbort, { once: true })
     generation.promise.then((value) => {
-      if (finish()) {
-        const socketDirectory = value.environment.AGENT_BROWSER_SOCKET_DIR
-        if (socketDirectory) socketDirectoryReferences.set(socketDirectory, (socketDirectoryReferences.get(socketDirectory) ?? 0) + 1)
-        resolve(value)
+      const socketDirectory = value.environment.AGENT_BROWSER_SOCKET_DIR
+      if (socketDirectory) socketDirectoryReferences.set(socketDirectory, (socketDirectoryReferences.get(socketDirectory) ?? 0) + 1)
+      if (finish()) resolve(value)
+      else if (socketDirectory) {
+        const remaining = (socketDirectoryReferences.get(socketDirectory) ?? 1) - 1
+        if (remaining > 0) socketDirectoryReferences.set(socketDirectory, remaining)
+        else {
+          socketDirectoryReferences.delete(socketDirectory)
+          void rm(socketDirectory, { force: true, recursive: true }).catch(() => undefined)
+        }
       }
     }, (error) => {
       if (finish()) reject(error)
