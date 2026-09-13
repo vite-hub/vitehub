@@ -172,10 +172,17 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             close++
           }
           if (bracketDepth === 0 && tokens[close] === ":") {
-            const keyToken = tokens[i + 1]
-            const keyValue = resolveReference(i + 1)
-            const key = propertyName(tokens[keyValue] ?? keyToken)
-            result.set(key, close + 1)
+            const expression = tokens.slice(i + 1, close - 1)
+            let key: string | undefined
+            const literalParts: string[] = []
+            for (let p = 0; p < expression.length; p += 2) {
+              const part = expression[p]
+              if (!part || !/^["'`]/.test(part)) { key = undefined; break }
+              literalParts.push(propertyName(part))
+              if (p + 1 < expression.length && expression[p + 1] !== "+") { key = undefined; break }
+            }
+            if (literalParts.length) key = literalParts.join("")
+            if (key !== undefined) result.set(key, close + 1)
             i = close
             atProperty = false
           }
@@ -195,7 +202,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     while (tokens[index] === "(") index++
     if (seen.has(index)) return false
     seen.add(index)
-    if (tokens[index] !== "defineAgent") return false
+    if (tokens[index] !== "defineAgent") {
+      if (!(tokens[index + 1] === "." && tokens[index + 2] === "defineAgent")) return false
+      index += 2
+    }
     let call = index + 1
     if (tokens[call] === "<") {
       let genericDepth = 0
