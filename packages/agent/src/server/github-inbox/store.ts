@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '../../channels.ts'
 import { matchesGitHubPullRequestFilter } from '../../internal/github-pull-request-filter.ts'
-import { parsePullRequest, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
+import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
 
 export type Snapshot = {
   repository: string; number: number; pr: GitHubPullRequestRecord | null
@@ -27,10 +27,23 @@ export type Claim = { token: string; generation: number; snapshot: Snapshot }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const stamp = (value: GitHubEvidence) => Date.parse(value.updated_at ?? value.updatedAt ?? value.submitted_at ?? value.completed_at ?? value.started_at ?? value.created_at ?? '') || 0
 const parseStoredSnapshot = (raw: unknown): Snapshot => {
-  if (!raw || typeof raw !== 'object') throw new Error('Invalid stored snapshot')
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Invalid stored snapshot')
   const value = raw as Record<string, unknown>
-  if (typeof value.repository !== 'string' || typeof value.number !== 'number' || typeof value.generation !== 'number' || typeof value.status !== 'string') throw new Error('Invalid stored snapshot')
-  // SAFETY: required snapshot discriminators are validated above; remaining fields are persisted by `put`.
+  const requiredStrings = ['repository', 'status']
+  if (requiredStrings.some(key => typeof value[key] !== 'string') || typeof value.number !== 'number' || !Number.isInteger(value.number) || value.number < 1) throw new Error('Invalid stored snapshot')
+  const numeric = ['generation', 'handled', 'dirtyAt', 'nextAt', 'leaseUntil', 'attempts']
+  if (numeric.some(key => typeof value[key] !== 'number')) throw new Error('Invalid stored snapshot')
+  if (!['ready', 'working', 'waiting', 'terminal'].includes(value.status as string) || (value.lease !== null && typeof value.lease !== 'string')) throw new Error('Invalid stored snapshot')
+  const arrays = ['reasons', 'threads']
+  if (!Array.isArray(value.reasons) || !value.reasons.every(item => typeof item === 'string') || !Array.isArray(value.threads)) throw new Error('Invalid stored snapshot')
+  for (const thread of value.threads) parseThread(thread)
+  for (const key of ['comments', 'reviews', 'reviewComments', 'checks', 'statuses']) {
+    const map = value[key]
+    if (!map || typeof map !== 'object' || Array.isArray(map)) throw new Error('Invalid stored snapshot')
+    for (const item of Object.values(map as Record<string, unknown>)) parseEvidence(item)
+  }
+  if (value.pr !== null && value.pr !== undefined) parsePullRequest(value.pr)
+  if (typeof value.hydrated !== 'boolean' || typeof value.refresh !== 'boolean' || typeof value.feedbackRefresh !== 'boolean') throw new Error('Invalid stored snapshot')
   return value as Snapshot
 }
 /** Normalize REST and discovery records once, before they enter the inbox. */
@@ -81,8 +94,7 @@ export class PullRequestInbox {
     // SAFETY: values are written by `put` from validated Snapshot objects.
     if (!row) return undefined
     const value: unknown = JSON.parse(String(row.value))
-    if (!value || typeof value !== 'object') throw new Error('Invalid stored snapshot')
-    return value as Snapshot
+    return parseStoredSnapshot(value)
   }
   all(): Snapshot[] {
     return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => {
