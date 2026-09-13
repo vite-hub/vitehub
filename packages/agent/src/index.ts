@@ -3693,9 +3693,21 @@ async function createAgentInvocationContext<
         throw error
       }
     }
-    const transformed = resolveCapabilityCli
-      ? { tools: capabilities.tools, originalNames: new Map(Object.keys(capabilities.tools || {}).map(name => [name, name])) }
-      : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    let transformed: { tools: typeof capabilities.tools, originalNames: Map<string, string> }
+    try {
+      transformed = resolveCapabilityCli
+        ? { tools: capabilities.tools, originalNames: new Map(Object.keys(capabilities.tools || {}).map(name => [name, name])) }
+        : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    }
+    catch (error) {
+      try {
+        await capabilities.close()
+      }
+      catch (closeError) {
+        throw new AggregateError([error, closeError], "[vitehub] Agent tool transform failed and cleanup also failed.")
+      }
+      throw error
+    }
     const transformedTools = transformed.tools
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
