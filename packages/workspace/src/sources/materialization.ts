@@ -1210,6 +1210,7 @@ function createLazyMaterializedMetadata(
   upstreamMeta: Record<string, unknown> | undefined,
 ): LazyMaterializedMetadata {
   const now = new Date().toISOString()
+  const digest = readStringMeta(upstreamMeta, "digest") ?? readStringMeta(item.metadata, "digest")
   return {
     source: resolution.sourceKey,
     sourcePath: resolution.sourcePath,
@@ -1217,7 +1218,7 @@ function createLazyMaterializedMetadata(
     ...(resolution.validate === "request" ? { validatedAt: now } : {}),
     ...(readStringMeta(upstreamMeta, "etag") !== undefined ? { etag: readStringMeta(upstreamMeta, "etag") } : {}),
     ...(readStringMeta(upstreamMeta, "sha") !== undefined ? { sha: readStringMeta(upstreamMeta, "sha") } : {}),
-    ...((readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest")) ? { digest: readStringMeta(upstreamMeta, "digest") || readStringMeta(item.metadata, "digest") } : {}),
+    ...(digest !== undefined ? { digest } : {}),
     ...(readStringMeta(upstreamMeta, "ref") !== undefined ? { ref: readStringMeta(upstreamMeta, "ref") } : {}),
   }
 }

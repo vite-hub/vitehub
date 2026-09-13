@@ -36,6 +36,26 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["etag", "sha", "digest", "ref"])("reuses lazy content with unchanged empty %s metadata", async (key) => {
+    const getItem = vi.fn(async () => ({ key: "file.md", content: "content", metadata: { digest: "fallback" } }))
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "empty-source-metadata",
+      sources: { docs: custom({
+        materialize: "lazy",
+        validate: "request",
+        getKeys: async () => ["file.md"],
+        getMeta: async () => ({ digest: "fallback", [key]: "" }),
+        getItem,
+      }) },
+    }, store)
+
+    await expect(view.readFile("docs/file.md")).resolves.toBe("content")
+    await expect(view.readFile("docs/file.md")).resolves.toBe("content")
+    expect(getItem).toHaveBeenCalledOnce()
+    await expect(view.stat("docs/file.md")).resolves.toMatchObject({ metadata: { [key]: "" } })
+  })
+
   it.each(["directory", "ancestor file"])("refreshes changed startup sources after replacement by %s", async (replacement) => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)
