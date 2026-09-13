@@ -1,3 +1,4 @@
+import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
@@ -1278,7 +1279,10 @@ function workspaceMetadataInstructions<
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
     ? readColocatedAgentInstructionsRaw(options)
     : undefined
-  const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
+  const instructionObject = configuredInstructions && hasRuntimeType(configuredInstructions, "object") && !Array.isArray(configuredInstructions) && !("mode" in configuredInstructions) && "template" in configuredInstructions
+    ? configuredInstructions
+    : undefined
+  const parts = agentInstructionSources(configuredInstructions)
   const instructions = parts.flatMap((part) => {
     if (hasRuntimeType(part, "string") && part.trim().length > 0) return [part]
     if (hasRuntimeType(part, "function")) {
@@ -1288,9 +1292,21 @@ function workspaceMetadataInstructions<
     }
     return []
   })
-  if (defaultInstructions) instructions.unshift(defaultInstructions)
-  const content = instructions.join("\n\n").trim()
+  const composed = instructionObject
+    && typeof instructionObject.template === "string"
+    && typeof instructionObject.content === "string"
+    ? fillSynchronousInstructionSlot(instructionObject.template, instructionObject.content)
+    : undefined
+  const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()
   return content ? [content] : []
+}
+
+function fillSynchronousInstructionSlot(template: string, content: string): string {
+  let inFence = false
+  return template.split("\n").map((line) => {
+    if (/^\s*```/.test(line)) { inFence = !inFence; return line }
+    return !inFence ? line.replace(/\{\{\{\s*instructions\s*\}\}\}/g, content) : line
+  }).join("\n").trim()
 }
 
 async function staticWorkspaceMetadataInstructions<
@@ -1304,7 +1320,7 @@ async function staticWorkspaceMetadataInstructions<
   const instructions = workspaceMetadataInstructions(options, false)
   const coverage = await collectStaticInstructionCoverage(instructions.join("\n\n"))
   const configuredInstructions = modelDriverInstructions(options)
-  const hasDynamicInstructions = (Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions])
+  const hasDynamicInstructions = agentInstructionSources(configuredInstructions)
     .some(instruction => hasRuntimeType(instruction, "function"))
   const visibleSources = new Set(workspaceMetadataFiles(options, context).map(file => file.source).filter(Boolean))
   const visibleDefinition = definition.sources
@@ -1404,15 +1420,10 @@ async function resolveWorkspaceMetadataInstructions<
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
     ? await resolveWorkspaceAgentDefaultInstructions(options, workspace)
     : undefined
-  const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
-  const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function")
-    // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-    ? part(instructionContext as never)
-    : part))
-  const baseInstructions = instructions
-    .flatMap(part => Array.isArray(part) ? part : [part])
-    .map(part => part?.trim())
-    .filter((part): part is string => Boolean(part))
+  const configured = await resolveAgentInstructions(configuredInstructions,
+    // SAFETY: Instruction inspection supplies the existing metadata context boundary.
+    instructionContext as never)
+  const baseInstructions = configured ? [configured] : []
   if (defaultInstructions) baseInstructions.unshift(defaultInstructions)
   const workspaceBindings = await resolveWorkspaceInstructionBindings(sourceDefinition, workspace)
   const coverage = createInstructionCoverage()

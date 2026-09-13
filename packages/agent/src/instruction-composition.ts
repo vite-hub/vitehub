@@ -94,6 +94,21 @@ export async function composeInstructionDocument(content: string, options: Compo
   }
 }
 
+/** Insert trusted instruction Markdown without consuming other runtime bindings. */
+export async function fillInstructionSlot(template: string, content: string): Promise<string> {
+  const pattern = /\{\{\{\s*instructions\s*\}\}\}/g
+  const prefix = `VITEHUBINSTRUCTIONSLOT${crypto.randomUUID().replaceAll("-", "")}`
+  let index = 0
+  const masked = template.replace(pattern, () => `${prefix}${index++}END`)
+  const { tree } = await parseInstructionTemplate(masked)
+  const code = instructionTokensInCode(tree.nodes, prefix)
+  if (index - code.size !== 1) {
+    throw new TypeError("[vitehub] Instruction templates require exactly one {{{ instructions }}} slot outside code.")
+  }
+  index = 0
+  return template.replace(pattern, match => code.has(index++) ? match : content)
+}
+
 async function validateInstructionMarkdownBindings(content: string): Promise<void> {
   if (!content.includes("{{{")) return
   const { tags, tree } = await parseInstructionTemplate(content)

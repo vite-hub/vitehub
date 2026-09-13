@@ -266,6 +266,7 @@ export type {
   AgentAdapterInstructions,
   AgentAdapterInstructionsPart,
   AgentAdapterInstructionsValue,
+  AgentInstructionsContent,
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentAdapterRunContext,
@@ -2412,22 +2413,31 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {
-  if (!instructions || !hasAgentDefinition(agent)) return agent
+  if (instructions === undefined || !hasAgentDefinition(agent)) return agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
-  if (!settings || settings.workspace) return agent
+  if (!settings) return agent
   const driver = normalizeAgentDriver(settings)
-  if (driver.kind === "run" || driver.instructions !== undefined) return agent
+  if (driver.kind === "run") return agent
+  const configured = driver.instructions
+  const template = configured && hasRuntimeType(configured, "object") && !Array.isArray(configured)
+    && "template" in configured && !("mode" in configured)
+    ? configured
+    : undefined
+  if (template ? template.content !== undefined : configured !== undefined || settings.workspace) return agent
+  const resolvedInstructions = template ? { ...template, content: instructions } : instructions
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = defineAgent({
     extends: agent,
     name: settings.name,
-    driver: { instructions },
+    driver: { instructions: resolvedInstructions },
   } as never) as Agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
   Reflect.deleteProperty(decorations, agentLayerMetadata)
   delete decorations.__vitehubAgentSettings
+  // The rebuilt workspace definition owns the newly filled instruction template.
+  delete decorations.__vitehubWorkspaceAgentOptions
   Reflect.deleteProperty(decorations, baseAgentResolve)
   Reflect.deleteProperty(decorations, baseAgentModel)
   Reflect.deleteProperty(decorations, baseAgentDriverKind)

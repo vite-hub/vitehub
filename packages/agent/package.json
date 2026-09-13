@@ -101,6 +101,14 @@
       "types": "./dist/output.d.ts",
       "import": "./dist/output.js"
     },
+    "./presets/babysitter": {
+      "types": "./dist/presets/babysitter.d.ts",
+      "import": "./dist/presets/babysitter.js"
+    },
+    "./presets/babysitter/server": {
+      "types": "./dist/presets/babysitter/server.d.ts",
+      "import": "./dist/presets/babysitter/server.js"
+    },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"

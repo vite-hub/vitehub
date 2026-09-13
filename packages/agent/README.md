@@ -584,3 +584,80 @@ Capability definitions can declare `inspection: { label, view? }`. Lifecycle hoo
 MCP records server discovery and tool provenance. Title records generation settings, progress, and its result. The Console's Capabilities tab reads these snapshots without invoking either capability. Other capabilities use the default tools/configuration view. Set the Invocation journal's `configuration` to `"content"` to retain inspection state and views independently of other trace content. Metadata-only capture keeps labels. Existing redaction and observation bounds apply.
 
 See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-capabilities#contribute-an-inspection-view) for the catalog and a complete example.
+
+
+### Instruction templates
+
+An Agent can reserve one place for extending instructions. Define a template in
+`driver.instructions` with exactly one `{{{ instructions }}}` marker outside code:
+
+```ts
+const base = defineAgent({
+  driver: {
+    kind: "codex",
+    instructions: {
+      template: "Inspect the request.\n\n{{{ instructions }}}\n\nExplain the result.",
+      content: "Use concise language.",
+    },
+  },
+})
+
+const agent = defineAgent({
+  extends: base,
+  driver: { instructions: "Check migration safety." },
+})
+```
+
+The extension replaces the slot content. It does not append instructions or add
+headings. Omitted content uses the inherited default. Strings, arrays, and async
+instruction resolvers work in both `template` and `content`. Markdown files can
+be loaded through the existing instruction resolver or Markdown import path.
+
+To discard the inherited template, use
+`instructions: { mode: "replace", value: "A complete instruction document." }`.
+A new `{ template, content }` object also replaces the inherited template.
+Without a template, extending instructions replaces the inherited document.
+
+### Babysitter preset
+
+Import `babysitter` from `@vite-hub/agent/presets/babysitter`, or
+`vite-hub/agent/presets/babysitter` in an application. It repairs selected pull
+requests, addresses human and bot review feedback, and parks while checks run.
+Its only workflow options are the GitHub Channel `filter` and `autoMerge`:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import { babysitter } from "@vite-hub/agent/presets/babysitter"
+
+export default defineAgent({
+  preset: "babysitter",
+  presets: { babysitter },
+  options: {
+    filter: { labels: { allow: ["repair"], deny: ["do-not-touch"] } },
+    autoMerge: false,
+  },
+  driver: { model: "your-codex-model" },
+})
+```
+
+Colocated `instructions.md` fills the preset's instruction slot without adding
+headings. Explicit `driver.instructions` replaces that slot. Use
+`{ mode: "replace", value: "..." }` to replace the complete instruction document.
+
+`createBabysitterRuntime` from `@vite-hub/agent/presets/babysitter/server` owns a
+SQLite inbox, bounded GitHub discovery, claims, checkout preparation, repair
+passes and wake handling. Provide a configured Agent, GitHub host, inbox path,
+repositories and concurrency. In a ViteHub application, obtain the Agent through
+`getAgentFromRegistry("babysitter")` so discovery applies its colocated files. The Vite plugin binds `#vitehub/agent/registry` in Vite and Nitro to generated lazy loaders. Build output embeds colocated instructions and skills, so lookup works before any webhook handler loads and does not read Markdown from the deployed filesystem. Outside a ViteHub build, pass an explicit registry to `getAgentFromRegistry(name, registry)`.
+Connect `reconcile` to a Process Agent Host, `inbox.ingest` to the signed GitHub
+webhook receiver, and `workload` to health inspection. Keep credentials, provider
+settings, host capacity, telemetry and deployment resources in the application.
+Configure the GitHub host identity with a login and email for repair commits.
+Only its author and committer identity fields pass to the worker; credentials do not.
+
+Each pass uses a disposable Codex workspace with edit permission. GitHub tokens
+stay on the host. Tools provide PR-bound log reads, repair pushes, comments,
+metadata updates and thread resolution. `autoMerge: false` omits the merge tool
+and the host rejects auto-merge operations. Enabling it requests GitHub native
+auto-merge subject to current PR admission and repository checks and reviews.
+There is no direct merge or branch-deletion fallback.

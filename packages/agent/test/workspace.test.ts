@@ -2711,6 +2711,21 @@ describe("defineAgent workspace option", () => {
     ].join("\n")])
   })
 
+  it("composes object-form instructions in static inspection metadata", async () => {
+    const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: {
+        kind: "codex",
+        instructions: {
+          template: "Before\n{{{ instructions }}}\nAfter",
+          content: "Default",
+        },
+      },
+    })
+
+    expect(createAgentInspectionMetadata(agent).instructions).toEqual(["Before\nDefault\nAfter"])
+  })
+
   it("keeps Channel guidance in materialized Agent inspection metadata", async () => {
     const { telegram } = await import("../src/channels.ts")
     const { defineAgent, materializeAgentInspectionSourceMetadata } = await import("../src/index.ts")
