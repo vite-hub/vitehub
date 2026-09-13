@@ -6042,13 +6042,13 @@ async function handleChatSdkMessages(
         if (requestDelivery && queuedDelivery?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
         const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
         if (!deliveryKind) {
-          const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || (coalesced ? await openAgentChannelDelivery(state.state, {
+          const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || await openAgentChannelDelivery(state.state, {
             agentName: context.agentIdentity?.name || "agent",
             channelId: registration.channelId,
             provider: chatRegistrationOrigin(registration),
             scope: `${state.keyPrefix}${queuedThread.id}`,
             sourceId: queuedMessageId || randomToken(),
-          }) : undefined)
+          }).catch(() => undefined)
           if (delivery) {
             delivery.claimed = true
             await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
