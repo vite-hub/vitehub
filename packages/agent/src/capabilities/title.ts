@@ -1131,11 +1131,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         ))
       }
       invocationStarts.set(context.context, () => {
-        if (supportsTitleDelivery(context)) return startTitle()
         pendingTitleStart = startTitle()
         pendingTitles.set(context.context, pendingTitleStart)
         // Invocation cleanup owns this work; observe rejection while the main answer runs.
         pendingTitleStart.catch(() => undefined)
+        return pendingTitleStart
       })
       context.finish.provide(async (finish: AgentFinishEvent) => {
         await pendingTitleStart
