@@ -56,8 +56,8 @@ export function defineContent<
     ...contentOptions,
     source,
   }))
-  // SAFETY: The hub exposes the same read and handler surface as a content instance.
   const hub: unknown = contentHub(instances, { basePath: "/api/content" })
+  // SAFETY: The hub exposes the same read and handler surface as a content instance.
   return hub as ComarkContent & ContentMethods<TPlugins>
 }
 
