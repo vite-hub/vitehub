@@ -19,6 +19,7 @@ import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { setActiveAgentWorkspaceCommands, setActiveAgentWorkspaceFiles, setAgentWorkspaceDiff } from "./agent-workspace-runtime.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
+import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
@@ -1654,7 +1655,7 @@ async function resolveInstructions<
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
   const metadataContext = providerMetadataContext(context)
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
+  const configured = await Promise.all(parts.map(part => resolveAgentInstructions(part, metadataContext)))
   const content = [
     ...configured.flatMap(value => Array.isArray(value) ? value : [value]),
     context.instructions,
@@ -2743,7 +2744,7 @@ export function createProviderAgentAdapter<
     generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context), context),
     async metadata(context) {
       const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-      const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
+      const instructions = await Promise.all(parts.map(part => resolveAgentInstructions(part, context)))
       return {
         instructions: instructions.flatMap(value => Array.isArray(value) ? value : value ? [value] : []),
       }
