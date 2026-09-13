@@ -74,7 +74,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     }
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
-    const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type)?|sslcert(?:type|passwordprotected)?)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
+    const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand)$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type)?|sslcert(?:type|passwordprotected)?)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
     const sanitize = async (scope: '--local' | '--worktree') => {
       let config = ''
       try {
