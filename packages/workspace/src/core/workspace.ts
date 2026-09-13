@@ -65,6 +65,14 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       if (descendants.length > 0 && descendants.every(child => child.type === "directory"
         ? generatedDirectories.has(child.path)
         : generatedFiles.has(child.path))) continue
+      if (descendants.length === 0) {
+        // Empty mounts have no descendants to establish ownership. Preserve
+        // the addition only when the directory itself carries replacement
+        // metadata; a metadata-free directory is still the startup mount.
+        const current = await store.stat(entry.path)
+        if (current?.metadata?.source && ![...normalizeWorkspaceSources(definition.sources)]
+          .some(source => source.materialize === "startup" && source.key === current.metadata?.source)) continue
+      }
     }
     entries.push(entry)
   }
