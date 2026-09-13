@@ -87,6 +87,17 @@ afterEach(async () => {
 })
 
 describe("local workspace store", () => {
+  it.each([true, false])("completes digest-conditional removal with a matching digest: %s", async (matches) => {
+    const store = await createStore()
+    await store.writeFile("generated.md", { path: "generated.md", content: "generated" })
+    const ifDigest = createHash("sha256").update(matches ? "generated" : "other").digest("hex")
+
+    await store.rm("generated.md", { ifDigest })
+
+    if (matches) await expect(store.stat("generated.md")).resolves.toBeUndefined()
+    else await expect(store.readFile("generated.md")).resolves.toMatchObject({ content: "generated" })
+  }, 2_000)
+
   it.each([false, true])("allows recreating a missing removal target, recursive: %s", async (recursive) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!

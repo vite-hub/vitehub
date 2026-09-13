@@ -959,6 +959,41 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
+  it.each(["directory", "ancestor"] as const)("recovers a cached startup file replaced by a %s when the Source drops it", async (replacement) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    let keys = ["docs/generated.md"]
+    const getKeys = vi.fn(async () => keys)
+    const definition = {
+      name: "startup-replaced-cache-entry",
+      sources: {
+        generated: custom({
+          cache: { maxAge: 60_000 },
+          materialize: "startup" as const,
+          mount: "",
+          getKeys,
+          async getItem(key) { return { key, content: "generated" } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    if (replacement === "directory") {
+      await rm(join(root, "docs/generated.md"))
+      await mkdir(join(root, "docs/generated.md"))
+      await writeFile(join(root, "docs/generated.md/user.md"), "user replacement")
+    }
+    else {
+      await rm(join(root, "docs"), { recursive: true })
+      await writeFile(join(root, "docs"), "user replacement")
+    }
+    keys = []
+    const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+
+    await expect(inspection.list("", { recursive: true })).resolves.toBeDefined()
+    expect(getKeys).toHaveBeenCalledTimes(2)
+    await expect(readFile(join(root, replacement === "directory" ? "docs/generated.md/user.md" : "docs"), "utf8")).resolves.toBe("user replacement")
+  })
+
   it.each([false, true])("reports mount stat errors per Source while materializing other Sources (cached: %s)", async (cached) => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)

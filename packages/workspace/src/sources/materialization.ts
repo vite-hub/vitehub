@@ -742,7 +742,12 @@ async function materializeWorkspaceSourcesInternal(
       // snapshot remains fresh. Recheck its content and attributes before accepting it.
       if (cacheHit) {
         for (const [path, item] of Object.entries(existing?.items || {})) {
-          const file = await store.readFile(path)
+          const file = await store.readFile(path).catch((error: unknown) => {
+            // A replacement directory or ancestor invalidates the cached file.
+            if (error && hasRuntimeType(error, "object") && "code" in error
+              && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) return undefined
+            throw error
+          })
           if (!await materializedFileMatches(file, item)) {
             cacheHit = false
             break
