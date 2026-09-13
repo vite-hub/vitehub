@@ -72,6 +72,8 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     replacingMetadata = true
     await rm(join(destination, '.git'), { recursive: true, force: true })
     await cp(join(source, '.git'), join(destination, '.git'), { recursive: true })
+    // Never retain alternate object stores that point back to host paths.
+    await rm(join(destination, '.git', 'objects', 'info', 'alternates'), { force: true })
     // Host init templates may install executable hooks; never expose or run them
     // in the provider workspace, and ignore any configured hooks directory.
     await rm(join(destination, '.git', 'hooks'), { recursive: true, force: true })
