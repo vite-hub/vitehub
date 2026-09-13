@@ -1294,7 +1294,7 @@ function workspaceMetadataInstructions<
   const slotContent = slotIsDynamic
     ? (resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined)
       ?? "Dynamic system instructions resolver configured."
-    : slotParts.filter((part): part is string => hasRuntimeType(part, "string")).join("\n\n")
+    : slotParts.filter((part): part is string => hasRuntimeType(part, "string") && part.trim().length > 0).map(part => part.trim()).join("\n\n")
   const templateParts = Array.isArray(instructionObject?.template) ? instructionObject.template : [instructionObject?.template]
   const composed = instructionObject
     && !slotIsDynamic
@@ -1327,7 +1327,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
     if (fence) return line
     const indented = /^(?:    |\t)/.test(line)
     if (indented && !paragraph) return line
-    paragraph = line.trim().length > 0 && !indented
+    paragraph = line.trim().length > 0 && !indented && !/^ {0,3}(?:#{1,6}\s|>|[-+*]\s|\d+[.)]\s)/.test(line)
     if (inlineFence) {
       const run = inlineFence
       const end = findInlineCodeClose(line, run)
@@ -1348,7 +1348,9 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
         continue
       }
       // A backslash-escaped backtick is ordinary text, not an inline-code delimiter.
-      if (index > 0 && line[index - 1] === "\\") {
+      let backslashes = 0
+      for (let cursor = index - 1; cursor >= 0 && line[cursor] === "\\"; cursor--) backslashes++
+      if (backslashes % 2 === 1) {
         out += "`"
         index++
         continue
