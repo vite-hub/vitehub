@@ -460,7 +460,12 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
         if (remaining > 0) socketDirectoryReferences.set(socketDirectory, remaining)
         else {
           socketDirectoryReferences.delete(socketDirectory)
-          queueMicrotask(() => { void rm(socketDirectory, { force: true, recursive: true }).catch(() => undefined) })
+          queueMicrotask(() => {
+            // Other fulfillment handlers for the shared promise may still be
+            // queued. Re-check ownership before removing the directory.
+            if ((socketDirectoryReferences.get(socketDirectory) ?? 0) > 0) return
+            void rm(socketDirectory, { force: true, recursive: true }).catch(() => undefined)
+          })
         }
       }
     }, (error) => {
