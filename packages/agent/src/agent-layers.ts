@@ -220,8 +220,10 @@ export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaul
   if (!metadata || !child || !hasRuntimeType(child, "object")) return
   // SAFETY: Discovery supplies typed defaults for settings of a registered definition.
   rememberLayerMetadata(child, {
+    // SAFETY: merge preserves the AgentSettings shape from typed metadata and defaults.
     options: merge(defaults, metadata.options, "") as AgentSettings,
     configured: metadata.configured,
+    // SAFETY: merge preserves the optional partial settings shape.
     defaults: merge(metadata.defaults, defaults, "") as Partial<AgentSettings> | undefined,
   })
 }

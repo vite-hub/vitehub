@@ -33,10 +33,12 @@ export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item && !String(item.body ?? '').startsWith('<!-- vitehub-agent-activity:'))
 
 function parseSnapshot(value: unknown): Snapshot {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- JSON boundary must reject non-objects before field validation.
   if (!value || typeof value !== 'object') throw new TypeError('Invalid inbox snapshot')
   // SAFETY: JSON.parse returns an object here; validation below checks every owned field.
   const input = value as Record<string, unknown>
   const required = ['repository', 'number', 'generation', 'handled', 'dirtyAt', 'nextAt', 'status', 'lease', 'leaseUntil', 'attempts', 'hydrated', 'refresh', 'feedbackRefresh', 'comments', 'reviews', 'reviewComments', 'checks', 'statuses', 'threads', 'reasons']
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted persisted data before parsing its domain fields.
   if (typeof input.repository !== 'string' || !Number.isInteger(input.number) || input.number < 1 ||
     required.some(key => !(key in input)) || !['ready', 'working', 'waiting', 'terminal'].includes(String(input.status)) ||
     (input.lease !== null && typeof input.lease !== 'string') ||
@@ -46,6 +48,7 @@ function parseSnapshot(value: unknown): Snapshot {
     throw new TypeError('Invalid inbox snapshot')
   }
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted map boundary.
     if (!map || typeof map !== 'object' || Array.isArray(map)) throw new TypeError('Invalid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
   }
@@ -94,6 +97,7 @@ export class PullRequestInbox {
   }
   get(repository: string, number: number): Snapshot | undefined {
     const row = this.db.prepare('SELECT value FROM pr_snapshots WHERE repository=? AND number=?').get(repository, number)
+    // SAFETY: SQLite schema guarantees value is stored as TEXT.
     return row ? parseSnapshot(JSON.parse(row.value as string) as unknown) : undefined
   }
   all(): Snapshot[] {
