@@ -155,14 +155,24 @@ const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '
 const group = child.pid
 const descendants = new Set([child.pid])
 const collectDescendants = async () => {
-  const entries = await readdir('/proc')
-  const parents = new Set(descendants)
-  for (const pid of entries) {
-    if (!/^[0-9]+$/.test(pid)) continue
-    const status = await readFile('/proc/' + pid + '/stat', 'utf8').catch(() => '')
-    if (!status) continue
-    const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
-    if (parents.has(Number(fields[1]))) descendants.add(Number(pid))
+  // Walk to a fixed point: Chromium commonly creates grandchildren after
+  // the initial process has started, so one snapshot is insufficient.
+  let changed = true
+  while (changed) {
+    changed = false
+    const entries = await readdir('/proc')
+    const parents = new Set(descendants)
+    for (const pid of entries) {
+      if (!/^[0-9]+$/.test(pid)) continue
+      const status = await readFile('/proc/' + pid + '/stat', 'utf8').catch(() => '')
+      if (!status) continue
+      const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
+      const numericPid = Number(pid)
+      if (parents.has(Number(fields[1])) && !descendants.has(numericPid)) {
+        descendants.add(numericPid)
+        changed = true
+      }
+    }
   }
 }
 try {
@@ -193,6 +203,7 @@ try {
   if (child.pid) {
     const deadline = Date.now() + 1500
     while (true) {
+      await collectDescendants()
       let running = false
       for (const pid of await readdir('/proc')) {
         if (!/^[0-9]+$/.test(pid)) continue
@@ -201,7 +212,7 @@ try {
           throw error
         })
         const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
-        if ((Number(fields[1]) === child.pid || Number(fields[2]) === group) && !['Z', 'X'].includes(fields[0])) {
+        if ((descendants.has(Number(pid)) || Number(fields[1]) === child.pid || Number(fields[2]) === group) && !['Z', 'X'].includes(fields[0])) {
           running = true
           break
         }
