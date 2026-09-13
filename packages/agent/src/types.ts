@@ -2232,10 +2232,22 @@ export interface AgentUsageRecord {
   usage?: AgentUsage
 }
 
+/** Verified mounted Sources available to an invocation's instruction resolver. */
+export interface AgentSourceProvenance {
+  mount: string
+  provider: "github"
+  repository: string
+  revision: { id: string, ref?: string }
+  root: string
+  source: string
+}
+
 export interface AgentAdapterMetadataContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig>, AgentInvocationCallbackContextValues {
+  /** Present after a provider Workspace is prepared; omitted during static inspection. */
+  sourceProvenance?: readonly AgentSourceProvenance[]
   actor: AgentActor
   context: AgentInvocationContextStore
   driver?: {

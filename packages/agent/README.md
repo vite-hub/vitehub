@@ -527,3 +527,21 @@ To discard the inherited template, use
 `instructions: { mode: "replace", value: "A complete instruction document." }`.
 A new `{ template, content }` object also replaces the inherited template.
 Without a template, extending instructions replaces the inherited document.
+
+### Workspace citation preset
+
+Import `@vite-hub/agent/presets/workspace` to opt into GitHub file citations for verified mounted Sources. The preset is an ordinary Agent Definition with a read-only Workspace and the Codex Driver. Its instruction template has one content slot:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import workspace from "@vite-hub/agent/presets/workspace"
+
+export default defineAgent({
+  extends: workspace,
+  driver: { instructions: "Explain migration risks." },
+})
+```
+
+Provider Agents expose verified mounted Source metadata as `sourceProvenance` to instruction resolvers after Workspace preparation. The core does not add citation rules. The preset owns the citation text and the runtime renders it together with the supplied content. Use `driver.instructions: { mode: "replace", value: "..." }` to replace that document. Plain Workspace Agents keep native repository instructions without adding citation policy.
+
+Applications can import the same preset from `vite-hub/agent/presets/workspace`.
