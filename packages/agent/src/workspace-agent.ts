@@ -1359,7 +1359,12 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
       while (line[index] === "`") index++
       const run = line.slice(start, index)
       const end = findInlineCodeClose(line, run, index)
-      if (end < 0) { out += line.slice(start); inlineFence = run; break }
+      if (end < 0) {
+        // An unmatched backtick run is literal text in CommonMark; do not
+        // carry code-span state into subsequent lines.
+        out += line.slice(start).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+        break
+      }
       out += line.slice(start, end + run.length)
       index = end + run.length
     }
