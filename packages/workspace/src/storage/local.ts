@@ -850,14 +850,18 @@ class LocalWorkspaceStore implements WorkspaceStore {
       // restoration can never appear as user workspace content.
       const retiredRelative = `.vitehub/retired/${randomUUID()}`
       const retired = resolveInside(this.root, retiredRelative)
-      const { mkdir: makeDirectory, rename } = await import("node:fs/promises")
-      await makeDirectory(resolveInside(this.root, ".vitehub/retired"), { recursive: true, mode: 0o700 })
+      const { mkdir: makeDirectory, rename, rmdir } = await import("node:fs/promises")
+      const retiredRoot = resolveInside(this.root, ".vitehub/retired")
+      await makeDirectory(retiredRoot, { recursive: true, mode: 0o700 })
       try {
         await rename(absolute, retired)
       }
       catch (error) {
         const code = Reflect.get(Object(error), "code")
-        if (code === "ENOENT") return
+        if (code === "ENOENT") {
+          await rmdir(retiredRoot).catch(() => {})
+          return
+        }
         throw error
       }
       const { readFile } = await import("node:fs/promises")

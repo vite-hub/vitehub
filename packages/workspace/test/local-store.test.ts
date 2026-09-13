@@ -125,8 +125,9 @@ describe("local workspace store", () => {
     await expect(store.rm("generated.md", { ifSource: "docs" })).rejects.toMatchObject({ code: "EEXIST" })
 
     await expect(readFile(target, "utf8")).resolves.toBe("second replacement")
-    const retired = (await readdir(root)).find(path => path.startsWith("generated.md.vitehub-retired-"))!
-    await expect(readFile(`${root}/${retired}`, "utf8")).resolves.toBe("first replacement")
+    const retiredRoot = `${root}/.vitehub/retired`
+    const retired = (await readdir(retiredRoot)).at(0)!
+    await expect(readFile(`${retiredRoot}/${retired}`, "utf8")).resolves.toBe("first replacement")
   })
 
   it.each([true, false])("completes digest-conditional removal with a matching digest: %s", async (matches) => {
