@@ -960,6 +960,10 @@ async function materializeWorkspaceSourcesInternal(
             if (!directoryStat) missingDirectories.push(directory)
           }
         }
+        // Claim directories at the Store mutation boundary, before the write
+        // can create them. A post-write stat races with other writers and can
+        // incorrectly attribute their directories to this source.
+        for (const directory of missingDirectories) ownedDirectories.add(directory)
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
@@ -969,16 +973,7 @@ async function materializeWorkspaceSourcesInternal(
         }, {
           ...control,
           mutate: operation => control.mutate(async () => {
-            try {
-              return await operation()
-            }
-            finally {
-              // Stores can create parents before a write fails. Check only after
-              // an attempted mutation, so a pre-write abort claims nothing.
-              for (const directory of missingDirectories) {
-                if ((await store.stat(directory))?.type === "directory") ownedDirectories.add(directory)
-              }
-            }
+            return await operation()
           }),
         }, previous?.content)
         const tracked = Object.hasOwn(itemMetadata, path)
