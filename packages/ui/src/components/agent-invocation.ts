@@ -1333,7 +1333,9 @@ function renderInvocationActivities(
   toggleExpanded: (id: string) => void,
   inspect: (target: InspectTarget) => void,
 ) {
-  const orderedActivities = orderSessionThread(activities);
+  const orderedActivities = orderSessionThread(activities).filter(activity =>
+    activity.kind !== "message" || Boolean(activity.content?.trim?.() || activity.text?.trim?.()),
+  );
   if (invocation.status === "pending" || invocation.status === "running") {
     return renderActivitySequence(orderedActivities, invocation, expanded, toggleExpanded, inspect);
   }
