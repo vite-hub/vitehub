@@ -1841,6 +1841,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     // cumulative evidence only; keep the legacy cumulative fallback available
     // until an actual partition has been observed.
     if (partitionTotal !== undefined) options.accumulator.observedPartition = true
+    if (partitionTotal !== undefined) options.accumulator.partitionComplete = false
     const snapshot = { ...(options.model ? { model: options.model } : {}), provider: options.provider, raw: usage }
     if (options.accumulator.lastUsageEvent && options.accumulator.lastResponseIdentity === undefined && options.accumulator.previousTotalProcessedTokens === undefined) {
       options.accumulator.calls[options.accumulator.calls.length - 1] = snapshot
