@@ -1640,10 +1640,19 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
     target: root,
   }
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
-  const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
-  // Provider baselines must use SHA-1 so they can be reconciled with GitHub
-  // checkouts (which are SHA-1 repositories), regardless of host defaults.
-  await session.exec("git", ["init", "-q", "--object-format=sha1"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
+  // Ensure session setup itself initializes repositories with SHA-1, before it
+  // materializes and commits the provider baseline. A post-setup reinit can
+  // conflict with an already-created SHA-256 repository.
+  const previousDefaultHash = process.env.GIT_DEFAULT_HASH
+  process.env.GIT_DEFAULT_HASH = "sha1"
+  let session: WorkspaceSession
+  try {
+    session = await workspaceSessionStarter(context.workspace)(sessionOptions)
+  }
+  finally {
+    if (previousDefaultHash === undefined) delete process.env.GIT_DEFAULT_HASH
+    else process.env.GIT_DEFAULT_HASH = previousDefaultHash
+  }
   return { provenance, session }
 }
 
