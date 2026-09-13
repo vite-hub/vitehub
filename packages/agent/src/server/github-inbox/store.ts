@@ -26,6 +26,13 @@ export interface GitHubInboxSummary {
 export type Claim = { token: string; generation: number; snapshot: Snapshot }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const stamp = (value: GitHubEvidence) => Date.parse(value.updated_at ?? value.updatedAt ?? value.submitted_at ?? value.completed_at ?? value.started_at ?? value.created_at ?? '') || 0
+const parseStoredSnapshot = (raw: unknown): Snapshot => {
+  if (!raw || typeof raw !== 'object') throw new Error('Invalid stored snapshot')
+  const value = raw as Record<string, unknown>
+  if (typeof value.repository !== 'string' || typeof value.number !== 'number' || typeof value.generation !== 'number' || typeof value.status !== 'string') throw new Error('Invalid stored snapshot')
+  // SAFETY: required snapshot discriminators are validated above; remaining fields are persisted by `put`.
+  return value as Snapshot
+}
 /** Normalize REST and discovery records once, before they enter the inbox. */
 export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 
@@ -80,7 +87,7 @@ export class PullRequestInbox {
   all(): Snapshot[] {
     return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => {
       // SAFETY: values are written by `put` from validated Snapshot objects.
-      return JSON.parse(String(row.value)) as Snapshot
+      return parseStoredSnapshot(JSON.parse(String(row.value)))
     })
       .filter(s => this.repositories.includes(s.repository))
   }
