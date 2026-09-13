@@ -33,7 +33,13 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   const expected = await git(source, ['rev-parse', 'HEAD'])
   const origin = await git(source, ['remote', 'get-url', 'origin'])
   const push = await git(source, ['remote', 'get-url', '--push', 'origin'])
-  for (const remote of [origin, push]) {
+  const remotes = await git(source, ['remote'])
+  const remoteUrls = new Set<string>([origin, push])
+  for (const name of remotes.split('\n').filter(Boolean)) {
+    remoteUrls.add(await git(source, ['remote', 'get-url', name]))
+    remoteUrls.add(await git(source, ['remote', 'get-url', '--push', name]))
+  }
+  for (const remote of remoteUrls) {
     if (URL.canParse(remote)) {
       const url = new URL(remote)
       if (url.username || url.password) throw new Error('Prepared checkout remotes must not contain credentials.')
