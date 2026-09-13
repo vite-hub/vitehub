@@ -1851,7 +1851,13 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     // cumulative evidence only; keep the legacy cumulative fallback available
     // until an actual partition has been observed.
     if (partitionTotal !== undefined) options.accumulator.observedPartition = true
-    if (partitionTotal !== undefined) {
+    // Same-total itemless snapshots enrich or correct the current measured call;
+    // they do not introduce an uncorrelatable partition.
+    const sameMeasuredCall = partitionTotal !== undefined
+      && cumulative !== undefined
+      && cumulative === options.accumulator.previousTotalProcessedTokens
+      && options.accumulator.calls.at(-1)?.usage !== undefined
+    if (partitionTotal !== undefined && !sameMeasuredCall) {
       options.accumulator.partitionComplete = false
       options.accumulator.identityAmbiguous = true
     }
