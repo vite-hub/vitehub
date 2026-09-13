@@ -7,6 +7,7 @@ export type {
   GitHubHost,
   GitHubHostAccess,
   GitHubHostAccessOptions,
+  GitHubHostCheckout,
   GitHubHostCheckoutOptions,
   GitHubHostCommandOptions,
   GitHubHostCredentialContext,
@@ -24,3 +25,4 @@ export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from 
 
 export { createGitHubPullRequestOperations } from './github-auto-merge.ts'
 export type { GitHubAutoMergeResult, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot } from './github-auto-merge.ts'
+export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"

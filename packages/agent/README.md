@@ -153,7 +153,7 @@ export const agentCapacity = createProcessAgentCapacity({
 
 Import the same `agentCapacity` object into each Agent Definition that should share one process-local budget. Linux hosts use cgroup v2 memory limits, memory events, and pressure stall information when available; other hosts use Node's available-memory signal without CPU-pressure admission. Sampling failures or samples exceeding `sampleTimeoutMs` (one second by default) use `fallbackConcurrency`, which defaults to one. Custom samplers should pass `context.signal` to abortable I/O. Tune `memory.perInvocationBytes`, `memory.reserveBytes`, and the CPU or memory pressure thresholds when workload measurements justify different admission behavior.
 
-Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` clones over HTTPS, checks out the pull request's pushable branch, configures Git to use the base repository token, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
+Long-lived Node process hosts can import `createGitHubHost()` from `@vite-hub/agent/server/github` to resolve GitHub App or fallback credentials, admit GraphQL work against a shared rate-limit reserve, and run against an exact pull-request head in a temporary checkout. The process-specific entry keeps Node Git and filesystem dependencies out of the portable `@vite-hub/agent/server` entry. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout after success, failure, cancellation, or timeout. Checkout and push operations need Git but do not need the GitHub CLI. Generic `command()` operations still use the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
 ```ts
 await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {
@@ -161,6 +161,8 @@ await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, sign
   await push()
 }, { signal: invocation.abortSignal, timeout: 60_000 })
 ```
+
+For a provider that materializes a separate working directory, call `checkout.prepareWorkspace(cwd)` from the provider launch hook, then `checkout.push(cwd)` from the host after reviewing the result. The host imports the exact commit without credentials and pushes it from the original trusted clone, so provider Git configuration cannot control the authenticated push. Preparation copies the independent PR clone's Git history and push destination, removes old target metadata and saved credential/header configuration, and leaves the original clone unchanged. The standalone `prepareGitHubPullRequestWorkspace(checkoutPath, cwd, { signal })` export performs the same preparation. These helpers apply only to prepared GitHub PR checkouts; other workspace types do not receive Git metadata. Keep host credentials out of the provider environment when push authority belongs to the host.
 
 `access()`, `command()`, and `ensureGraphQLBudget()` accept the same `signal` and `timeout` controls. Pass them whenever the operation belongs to an Agent Invocation so credential resolution, token refresh, and GitHub CLI work stop on cancellation. Pass an upper bound for the GraphQL query's point cost as `ensureGraphQLBudget(repository, { cost })`; the host returns a reservation. Call `reservation.submit()` immediately before sending the query, then call `reservation.settle(actualCost)` with the non-negative point cost reported by GitHub after it completes. The actual cost cannot exceed the reserved cost. Call `reservation.release()` if work stops before submission. The host keeps submitted reservations deducted during concurrent budget refreshes until settlement confirms that the query completed. A later refresh reconciles GitHub's reported remaining points. The `credentials` callback receives the target `repository` and scoped `signal`. Select that repository's App installation in the callback and pass the signal to secret-manager or network requests. Installation tokens and GraphQL budgets remain separate across installations, including concurrent checkout work. `host.channel()` also resolves credentials for each activity or delivery target repository. Unscoped `access()` calls omit `repository`, so the callback should supply its default credentials. When GitHub cannot resolve an opaque token through `/user`, return a stable `rateLimitKey` with the token so rotations of the same credential share one budget while different credentials stay isolated. Shared GraphQL admission checks have an independent 60-second command limit. Set `graphQLCheckTimeout` on `createGitHubHost()` when the host needs a different limit.
 
@@ -345,6 +347,59 @@ Child configuration overrides parent defaults. Channels, Sources, Skills, and ho
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions with `@../bot/instructions.md` and share Skills through explicit Sources or a directory link. Relative file paths resolve from each discovered Agent's directory.
 
+### Named presets
+
+Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import { notetaker } from "@example/agents"
+
+export default defineAgent({
+  preset: "notetaker",
+  presets: { notetaker },
+  name: "meeting-notes",
+  driver: { model: "gpt-5.6-sol" },
+})
+```
+
+`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
+
+Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
+
+A preset can expose typed options with the same `defineAgent()` function:
+
+```ts
+export const notetaker = defineAgent({
+  options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
+  configure: ({ format }) => defineAgent({
+    driver: { kind: "codex", instructions: `Write ${format} notes.` },
+  }),
+})
+```
+
+Consumers select the definition and override only the options they need:
+
+```ts
+const notes = defineAgent({
+  preset: "notetaker",
+  presets: { notetaker },
+  options: { format: "detailed", labels: [] },
+  driver: { model: "gpt-5.4" },
+})
+
+notes.options.format // "concise" | "detailed"
+```
+
+`options` uses nested defaults. Child values replace parent values, including `false`, empty arrays, and callbacks. Arrays never concatenate. Omitted or `undefined` values retain their defaults. Annotate optional fields and literal unions in the defaults to describe the accepted configuration. TypeScript checks options against the selected preset. If options come from untyped input, validate them in `configure`.
+
+`configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
+
+Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
+
+Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
+
+
 
 ## evlog integration
 
@@ -396,6 +451,23 @@ For Nitro, add `processAgentHost({ entry: './server/host.ts' })` from
 The plugin starts it and closes it with Nitro, and serves drain status at
 `/api/drain`, configurable with `drainRoute`. SIGUSR2 starts a drain.
 Use the runtime drain CLI before replacing the process.
+
+`@vite-hub/agent/server/github-inbox` provides a SQLite PR inbox for Node hosts.
+Construct `PullRequestInbox({ path, repositories, filter })`, seed discovered PRs,
+and ingest verified webhook deliveries with `ingest(deliveryId, event, payload)`.
+`filter` uses `GitHubPullRequestFilter` from the GitHub Channel. PR properties apply
+to discovery and claims. Actor and action rules gate new webhook admissions only;
+existing PRs still receive lifecycle evidence that can cancel their active work.
+
+`claim(limit)` grants exclusive two-hour leases. `hydrateSnapshot()` fills gaps
+through a caller-supplied paginated REST reader and optional thread reader.
+`finish()` parks completed work or schedules a retry; feedback and terminal CI
+results wake it. Pending CI updates persist without starting another pass.
+`recoverLeases()` releases expired leases only, including after a process restart.
+`createClaimStopCheck()` checks lease, PR state, and head changes, and accepts a
+repair push only when the provider Git HEAD proves the new head. Call `close()`
+when the host stops. `snapshotPrompt()` serializes the retained feedback with
+explicit thread resolution and current-head checks; it does not truncate bodies.
 
 `createGitHubPullRequests(host)` from `@vite-hub/agent/server/github` reads PR
 snapshots with paginated feedback, required checks, and host budget admission.
