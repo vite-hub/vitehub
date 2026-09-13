@@ -175,7 +175,7 @@ function eventAttributes(event: StreamEvent): Record<string, unknown> {
       "usage.inputTokens": event.usageRecord.usage?.inputTokens,
       "usage.model": event.usageRecord.model !== undefined ? redactCredentialText(event.usageRecord.model) : undefined,
       "usage.outputTokens": event.usageRecord.usage?.outputTokens,
-      "usage.provider": event.usageRecord.provider,
+      "usage.provider": event.usageRecord.provider !== undefined ? redactCredentialText(event.usageRecord.provider) : undefined,
       "usage.reasoningTokens": reasoningTokens,
       "usage.totalTokens": event.usageRecord.usage?.totalTokens,
     }
