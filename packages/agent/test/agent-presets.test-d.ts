@@ -66,7 +66,7 @@ it("exposes only the outer configuration when configure returns a configured Age
   expectTypeOf(outer.options.outer).toEqualTypeOf<boolean>()
   expectTypeOf(outer.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   // @ts-expect-error The outer preset replaces the inner option contract.
-  outer.options.inner
+  void outer.options.inner
   // @ts-expect-error Inner options cannot be passed to the outer preset.
   defineAgent({ extends: outer, options: { inner: false } })
 })
