@@ -33,24 +33,20 @@ export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item && !String(item.body ?? '').startsWith('<!-- vitehub-agent-activity:'))
 
 function parseSnapshot(value: unknown): Snapshot {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted persisted JSON before domain parsing.
   if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
   // SAFETY: JSON.parse returns an object here; validation below checks every owned field.
   const input = value as Record<string, unknown>
   const required = ['repository', 'number', 'generation', 'handled', 'dirtyAt', 'nextAt', 'status', 'lease', 'leaseUntil', 'attempts', 'hydrated', 'refresh', 'feedbackRefresh', 'comments', 'reviews', 'reviewComments', 'checks', 'statuses', 'threads', 'reasons']
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted persisted data before parsing its domain fields.
-  if (typeof input.repository !== 'string' || !Number.isInteger(input.number) || input.number < 1 ||
+  if (Object.prototype.toString.call(input.repository) !== '[object String]' || !Number.isInteger(input.number) || input.number < 1 ||
     required.some(key => !(key in input)) || !['ready', 'working', 'waiting', 'terminal'].includes(String(input.status)) ||
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the persisted lease union.
-    (input.lease !== null && typeof input.lease !== 'string') ||
-    ![input.generation, input.handled, input.dirtyAt, input.nextAt, input.leaseUntil, input.attempts].every(n => typeof n === 'number' && Number.isFinite(n)) ||
-    typeof input.hydrated !== 'boolean' || typeof input.refresh !== 'boolean' || typeof input.feedbackRefresh !== 'boolean' ||
-    !Array.isArray(input.threads) || !Array.isArray(input.reasons) || input.reasons.some(reason => typeof reason !== 'string')) {
+    (input.lease !== null && Object.prototype.toString.call(input.lease) !== '[object String]') ||
+    ![input.generation, input.handled, input.dirtyAt, input.nextAt, input.leaseUntil, input.attempts].every(n => Number.isFinite(n)) ||
+    ![input.hydrated, input.refresh, input.feedbackRefresh].every(value => value === true || value === false) ||
+    !Array.isArray(input.threads) || !Array.isArray(input.reasons) || input.reasons.some(reason => Object.prototype.toString.call(reason) !== '[object String]')) {
     throw new TypeError('Invalid inbox snapshot')
   }
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted map boundary.
-    if (!map || typeof map !== 'object' || Array.isArray(map)) throw new TypeError('Invalid inbox snapshot')
+    if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
   }
   // SAFETY: All snapshot fields and nested values are validated immediately above.
