@@ -139,7 +139,8 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
   const skillPath = normalizeSkillPath(options.skillPath || ".agents/skills/agent-browser/SKILL.md")
   const sourceKey = options.sourceKey || "skill.browser"
   const runtimeMode = options.runtime ?? (command === "agent-browser" ? "managed" : "external")
-  let skillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
+  const invocationSkillContentKey = Symbol("vitehub.browser.skill-content")
+  const defaultSkillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
 
   return Object.assign(defineCapability({
     id: "browser",
@@ -168,7 +169,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
         VITEHUB_BROWSER_ACTIVE: "1",
         AGENT_BROWSER_SESSION: `vh-${crypto.randomUUID().slice(0, 12)}`,
       }))
-      if (options.skillContent === undefined) skillContent = managedBrowserSkillContent(runtime.skillContent, skillPath)
+      if (options.skillContent === undefined) context.context.set(invocationSkillContentKey, managedBrowserSkillContent(runtime.skillContent, skillPath))
     },
     async close(context) {
       const environment = browserRuntimeEnvironment(context.context)
@@ -180,7 +181,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
       },
       sources: {
         [sourceKey]: {
-          content: browserSkillContent(skillContent, skillPath, await supportsSkillPersistence(context.workspace)),
+          content: browserSkillContent((context.context.get(invocationSkillContentKey) as string | undefined) ?? defaultSkillContent, skillPath, await supportsSkillPersistence(context.workspace)),
           mediaType: "text/markdown",
           workspacePath: skillPath,
         },
