@@ -47,7 +47,7 @@ describe("instruction composition", () => {
     await expect(composeInstructionDocument("{{{ secret.value }}}"))
       .rejects.toMatchObject({ code: "AGENT_R0445" })
     await expect(composeInstructionDocument(":::if{if=\"secret.enabled\"}\nNope\n:::", { context: {} }))
-      .rejects.toMatchObject({ code: "AGENT_R0446" })
+      .rejects.toMatchObject({ code: "AGENT_R0447" })
   })
 
   it("tracks selected and unselected coverage branches", async () => {
