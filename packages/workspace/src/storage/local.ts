@@ -269,11 +269,17 @@ async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import(
   })
   // Keep the reader marker open for the duration of the read so its own
   // heartbeat remains authoritative while writers inspect the reader set.
+  let lease: import("node:fs/promises").FileHandle | undefined
   try {
-    const lease = await open(reader, "r+")
+    lease = await open(reader, "r+")
     return await withLeaseHeartbeat(lease, operation)
   }
+  catch (error) {
+    if (!lease) await rm(reader, { force: true }).catch(() => {})
+    throw error
+  }
   finally {
+    if (lease) await lease.close().catch(() => {})
     await rm(reader, { force: true })
     // Cleanup must not wait behind a writer or reject an already completed read.
     // Keep registration serialized; a writer also reclaims empty reader directories.
