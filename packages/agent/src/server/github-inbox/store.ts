@@ -176,7 +176,11 @@ export class PullRequestInbox {
       const queued: number[] = []
       const updated: number[] = []
       const finish = (reason?: string): GitHubInboxDeliveryResult => {
-        const result: GitHubInboxDeliveryResult = { accepted: true, queued, updated, ...(reason ? { ignored: true, reason } : {}) }
+        const result: GitHubInboxDeliveryResult = { accepted: true, queued, updated }
+        if (reason) {
+          result.ignored = true
+          result.reason = reason
+        }
         this.db.prepare('INSERT INTO deliveries VALUES (?,?,?,?,?)').run(id, event, this.clock(), JSON.stringify(payload), JSON.stringify(result))
         return result
       }
