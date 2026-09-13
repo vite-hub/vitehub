@@ -30,8 +30,10 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   // Provider workspaces must retain history without depending on the private
   // origin after credentials are removed. Hydrate blobs omitted by the clone
   // filter before copying the object database.
-  await git(source, ['fetch', '--refetch', '--no-tags', 'origin'])
   const expected = await git(source, ['rev-parse', 'HEAD'])
+  // Refetch the checked out commit explicitly: fork and detached-SHA PRs may
+  // not be reachable through the clone's default base-branch refspec.
+  await git(source, ['fetch', '--refetch', '--no-tags', 'origin', expected])
   const origin = await git(source, ['remote', 'get-url', 'origin'])
   const push = await git(source, ['remote', 'get-url', '--push', 'origin'])
   for (const remote of [origin, push]) {
