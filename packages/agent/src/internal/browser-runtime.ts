@@ -524,12 +524,12 @@ export async function closeBrowserRuntimeSession(environment: Readonly<Record<st
   }
   finally {
     const socketDirectory = environment.AGENT_BROWSER_SOCKET_DIR
-    if (closed && socketDirectory) {
+    if (socketDirectory) {
       const remaining = (socketDirectoryReferences.get(socketDirectory) ?? 1) - 1
       if (remaining > 0) socketDirectoryReferences.set(socketDirectory, remaining)
       else {
         socketDirectoryReferences.delete(socketDirectory)
-        await rm(socketDirectory, { force: true, recursive: true })
+        if (closed) await rm(socketDirectory, { force: true, recursive: true })
       }
     }
   }
