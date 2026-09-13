@@ -56,10 +56,13 @@ async function withFilesystemLock<T>(lock: string, description: string, operatio
       else await delay(25)
     }
   }
+  const { utimes } = await import("node:fs/promises")
+  const heartbeat = setInterval(() => { void utimes(lock, new Date(), new Date()).catch(() => {}) }, 60_000)
   try {
     return await operation()
   }
   finally {
+    clearInterval(heartbeat)
     const activeOwner = await readFile(ownerPath, "utf8").catch(() => undefined)
     if (activeOwner === owner) await rm(lock, { force: true, recursive: true })
   }
