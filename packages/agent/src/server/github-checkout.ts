@@ -29,10 +29,9 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   delete env.GIT_COMMON_DIR
   delete env.GIT_OBJECT_DIRECTORY
   delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES
+  for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   env.GIT_CONFIG_GLOBAL = '/dev/null'
   env.GIT_CONFIG_NOSYSTEM = '1'
-  delete env.GIT_CONFIG_SYSTEM
-  for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   const git = async (cwd: string, args: string[]) => (await exec('git', args, { cwd, env, signal: options.signal })).stdout.trim()
   // The host checkout already contains complete history; copying must not
   // require network access or credentials in the provider preparation flow.
