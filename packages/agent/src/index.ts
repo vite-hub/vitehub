@@ -1,5 +1,7 @@
+import type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
+export type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
-import { rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
+import { createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
@@ -2117,7 +2119,42 @@ type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
     : AgentInvokerProfile
   : AgentInvokerProfile
 
+type ConfiguredAgentSettings<TDefinition> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
+  ? AgentSettings<TRuntimeConfig, TCallOptions, TInvoker, TContext, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>
+  : never
+
+type ConfiguredAgentWorkspace<TDefinition, TWorkspace> = TWorkspace extends WorkspaceAgentWorkspaceConfig
+  ? TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
+    ? WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, TCallOptions, TInvoker, TContext, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>
+    : never
+  : TDefinition
+
 export interface DefineAgent {
+  <TOptions extends object, TDefinition extends AgentDefinition>(options: {
+    options: TOptions
+    configure: (options: TOptions) => TDefinition
+  }): ConfiguredAgentDefinition<TOptions, TDefinition>
+
+  <const TPreset extends string, TOptions extends object, TDefinition extends AgentDefinition, const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined>(options:
+    Omit<Partial<ConfiguredAgentSettings<TDefinition>>, "driver" | "workspace"> & {
+      preset: TPreset
+      presets: Record<NoInfer<TPreset>, ConfiguredAgentDefinition<TOptions, TDefinition>> & Record<string, unknown>
+      options?: AgentPresetOptions<NoInfer<TOptions>>
+      extends?: never
+      driver?: Partial<ConfiguredAgentSettings<TDefinition>["driver"]>
+      workspace?: TWorkspace
+    }
+  ): ConfiguredAgentDefinition<TOptions, ConfiguredAgentWorkspace<TDefinition, TWorkspace>>
+
+  <TOptions extends object, TDefinition extends AgentDefinition, const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined>(options:
+    Omit<Partial<ConfiguredAgentSettings<TDefinition>>, "driver" | "workspace"> & {
+      extends: ConfiguredAgentDefinition<TOptions, TDefinition>
+      options?: AgentPresetOptions<NoInfer<TOptions>>
+      driver?: Partial<ConfiguredAgentSettings<TDefinition>["driver"]>
+      workspace?: TWorkspace
+    }
+  ): ConfiguredAgentDefinition<TOptions, ConfiguredAgentWorkspace<TDefinition, TWorkspace>>
+
   <
     const TPreset extends string,
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -2311,6 +2348,8 @@ function createWorkspaceAgentDefinition<
 
 // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
 export const defineAgent: DefineAgent = ((options: unknown) => {
+  const configured = createConfiguredAgentDefinition(options)
+  if (configured) return configured
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const agentOptions = resolveAgentLayerOptions(options) as AgentSettings
   const channels = normalizeAgentChannels(agentOptions.channels)
@@ -2323,7 +2362,7 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
     : { ...agentOptions, channels }
   if (name !== normalizedOptions.name) normalizedOptions = { ...normalizedOptions, name }
   if (isWorkspaceAgentOptions(normalizedOptions)) {
-    return rememberAgentLayerOptions(createWorkspaceAgentDefinition(normalizedOptions), normalizedOptions)
+    return rememberAgentLayerOptions(createWorkspaceAgentDefinition(normalizedOptions), normalizedOptions, agentOptions)
   }
   const definition = agentContributesWorkspace({
     capabilities: normalizedOptions.capabilities,
@@ -2342,7 +2381,7 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
       })
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     : defineBaseAgent(normalizedOptions as never)
-  return rememberAgentLayerOptions(definition, normalizedOptions)
+  return rememberAgentLayerOptions(definition, normalizedOptions, agentOptions)
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {

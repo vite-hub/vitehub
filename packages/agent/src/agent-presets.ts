@@ -1,3 +1,16 @@
+import type { AgentDefinition } from "./types.ts"
+
+/** Partial option overrides. Arrays and callbacks are replaced as whole values. */
+export type AgentPresetOptions<T> = T extends (...args: never[]) => unknown ? T
+  : T extends readonly unknown[] ? T
+    : T extends object ? { [K in keyof T]?: AgentPresetOptions<T[K]> }
+      : T
+
+/** An ordinary Agent Definition with typed preset configuration. */
+export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = AgentDefinition> = TDefinition & {
+  readonly options: Readonly<TOptions>
+}
+
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 
 /** Resolve a local name before the normal Agent layer composition. */
