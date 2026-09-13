@@ -174,6 +174,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         return true
       }
       if (tokens[value] === "defineWorkspace") return true
+      // Imported Workspace configurations cannot be resolved to a local
+      // declaration, but they are valid runtime values and therefore imply
+      // that this Agent owns a Workspace.
       if (imported.has(tokens[value])) return true
       if (/^["'`]/.test(tokens[value] ?? "")) return false
       // An explicit Workspace value (including a string reference or an
