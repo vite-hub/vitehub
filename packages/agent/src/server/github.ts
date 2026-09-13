@@ -24,3 +24,5 @@ export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckS
 export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './github-pull-requests.ts'
 
 export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
+export { createGitHubPullRequestOperations } from './github-auto-merge.ts'
+export type { GitHubAutoMergeResult, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot } from './github-auto-merge.ts'
