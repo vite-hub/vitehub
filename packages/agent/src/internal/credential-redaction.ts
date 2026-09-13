@@ -230,7 +230,10 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       if (!/\s/.test(character)) continue
       delete state.yamlProperty
     }
-    if (!state.started && state.yamlIndent !== undefined && /[\r\n#]/.test(character)) return index
+    // An empty assignment must end at a physical line boundary. This applies
+    // to both YAML `key:` fields and shell/configuration `KEY=` forms; never
+    // consume the following line as the empty credential's value.
+    if (!state.started && /[\r\n#]/.test(character)) return index
     if (!state.started && /\s/.test(character)) continue
     if (!state.started && state.yamlIndent !== undefined && (character === "&" || character === "!")) {
       state.yamlProperty = true
