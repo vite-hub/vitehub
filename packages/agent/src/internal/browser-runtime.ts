@@ -459,14 +459,12 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
         const remaining = (socketDirectoryReferences.get(socketDirectory) ?? 1) - 1
         if (remaining > 0) socketDirectoryReferences.set(socketDirectory, remaining)
         else {
-          socketDirectoryReferences.delete(socketDirectory)
           // Let all promise fulfillment handlers register their ownership
-          // before attempting cleanup. A macrotask also covers handlers
-          // queued after an already-aborted sibling.
+          // before attempting cleanup. Keep the zero reference marker until
+          // the handoff window closes so a queued consumer can claim it.
           setTimeout(() => {
-            // Other fulfillment handlers for the shared promise may still be
-            // queued. Re-check ownership before removing the directory.
             if ((socketDirectoryReferences.get(socketDirectory) ?? 0) > 0) return
+            socketDirectoryReferences.delete(socketDirectory)
             void rm(socketDirectory, { force: true, recursive: true }).catch(() => undefined)
           }, 0)
         }
