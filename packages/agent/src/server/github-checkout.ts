@@ -43,10 +43,17 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   // The baseline index contains generated instructions and selected files; restoring
   // it after copying prevents out-of-scope paths from appearing deleted.
   const baselineTree = await git(destination, ['write-tree']).catch(() => undefined)
+  const baselineObjects = join(destination, '.git', 'objects')
+  const baselineObjectsBackup = join(destination, '.git-baseline-objects')
+  await rm(baselineObjectsBackup, { recursive: true, force: true })
+  await cp(baselineObjects, baselineObjectsBackup, { recursive: true }).catch(() => undefined)
   // Recycled directories must not retain refs or config from an earlier PR.
   await rm(join(destination, '.git'), { recursive: true, force: true })
   try {
     await cp(join(source, '.git'), join(destination, '.git'), { recursive: true })
+    if (await lstat(baselineObjectsBackup).catch(() => undefined)) {
+      await cp(baselineObjectsBackup, join(destination, '.git', 'objects'), { recursive: true })
+    }
     if (baselineTree) await git(destination, ['read-tree', baselineTree])
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
@@ -54,6 +61,7 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     for (const key of new Set(config.split('\n').filter(key => /^credential\.|^http\..*extraheader$|^http\.extraheader$/i.test(key)))) {
       await git(destination, ['config', '--local', '--unset-all', key])
     }
+    await rm(baselineObjectsBackup, { recursive: true, force: true })
     if (await git(destination, ['rev-parse', 'HEAD']) !== expected
       || await git(destination, ['remote', 'get-url', 'origin']) !== origin
       || await git(destination, ['remote', 'get-url', '--push', 'origin']) !== push) {
