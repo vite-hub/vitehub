@@ -45,9 +45,32 @@ const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skil
 
 function merge(parent: unknown, child: unknown, path: string): unknown {
   if (child === undefined) return parent
+  if (path === "driver.instructions") {
+    if (record(child)) return child
+    if (record(parent) && "template" in parent) return { ...parent, content: child }
+    return child
+  }
   if (path === "driver") {
     if (hasRuntimeType(parent, "string")) parent = { kind: parent }
-    if (record(child) && ("run" in child || (record(parent) && "run" in parent && "model" in child))) return child
+    if (hasRuntimeType(child, "string")) child = { kind: child }
+    if (record(child) && record(parent) && !("kind" in parent) && !("kind" in child)
+      && "model" in parent && hasRuntimeType(child.model, "object") && !("run" in child)) {
+      return {
+        ...parent,
+        ...child,
+        instructions: merge(parent.instructions, child.instructions, "driver.instructions"),
+      }
+    }
+    if (record(child) && ("run" in child || (record(parent) && "run" in parent && "model" in child))) {
+      if (record(parent) && ("run" in parent || "model" in parent) && "model" in child && "instructions" in parent && "instructions" in child) {
+        return {
+          ...parent,
+          ...child,
+          instructions: merge(parent.instructions, child.instructions, "driver.instructions"),
+        }
+      }
+      return child
+    }
     if (record(child) && hasRuntimeType(child.model, "object")) return child
   }
   if (path === "workspace" && record(parent) && record(child) && (("name" in parent) !== ("name" in child))) return child
@@ -65,7 +88,13 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (!record(parent) || !record(child)) return child
   if (definitionMaps.has(path)) return { ...parent, ...child }
-  // A different driver, store provider or runtime is a complete replacement.
+  if (path === "driver" && child.kind !== undefined && child.kind !== parent.kind) {
+    return {
+      ...child,
+      instructions: merge(parent.instructions, child.instructions, "driver.instructions"),
+    }
+  }
+  // A different store provider or runtime is a complete replacement.
   for (const discriminator of ["kind", "provider"]) {
     if (child[discriminator] !== undefined && child[discriminator] !== parent[discriminator]) return { ...child }
   }
