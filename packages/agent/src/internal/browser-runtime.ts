@@ -152,6 +152,18 @@ process.on('SIGTERM', () => cancellation.abort(new Error('Chromium smoke check c
 const profile = await mkdtemp(join(tmpdir(), 'vh-chrome-'))
 const child = spawn(process.argv[1], ['--headless', '--disable-dev-shm-usage', '--remote-debugging-port=0', '--user-data-dir=' + profile, ...JSON.parse(process.argv[2]), 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true })
 const group = child.pid
+const descendants = new Set([child.pid])
+const collectDescendants = async () => {
+  const entries = await readdir('/proc')
+  const parents = new Set(descendants)
+  for (const pid of entries) {
+    if (!/^[0-9]+$/.test(pid)) continue
+    const status = await readFile('/proc/' + pid + '/stat', 'utf8').catch(() => '')
+    if (!status) continue
+    const fields = status.slice(status.lastIndexOf(')') + 2).split(' ')
+    if (parents.has(Number(fields[1]))) descendants.add(Number(pid))
+  }
+}
 try {
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Chromium CDP readiness timed out')), 15000)
@@ -167,9 +179,11 @@ try {
     })
   })
 } finally {
+  await collectDescendants()
   if (child.pid) {
     try { process.kill(-child.pid, 'SIGKILL') } catch {}
     try { process.kill(child.pid, 'SIGKILL') } catch {}
+    for (const pid of descendants) if (pid !== process.pid) { try { process.kill(pid, 'SIGKILL') } catch {} }
   }
   await new Promise(resolve => child.exitCode !== null || child.signalCode !== null ? resolve() : child.once('close', resolve))
   // A direct-child close does not join helpers with independent stdio.
