@@ -2,7 +2,7 @@
 
 ViteHub content integration for Comark Content.
 
-Pass Comark `ContentSource` objects directly. A single source becomes a named `default` instance. Named sources are composed with Comark's `contentHub()`.
+Pass ViteHub Source definitions, registered names, readers, reader factories, or native Comark raw Sources. A single source becomes a named `default` instance. Named sources are composed with Comark's `contentHub()`, with ViteHub adapters for named cache operations and positional search arguments.
 
 ```ts
 import { defineContent } from "@vite-hub/content"
@@ -16,4 +16,4 @@ export const content = defineContent({
 })
 ```
 
-Use Comark's source packages for filesystem, GitHub, unstorage, or snapshot content. `defineContentHandler()` adapts the Comark Web handler to H3 events.
+Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.
