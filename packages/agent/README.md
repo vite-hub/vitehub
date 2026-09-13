@@ -617,3 +617,45 @@ To discard the inherited template, use
 `instructions: { mode: "replace", value: "A complete instruction document." }`.
 A new `{ template, content }` object also replaces the inherited template.
 Without a template, extending instructions replaces the inherited document.
+
+### Babysitter preset
+
+Import `babysitter` from `@vite-hub/agent/presets/babysitter`, or
+`vite-hub/agent/presets/babysitter` in an application. It repairs selected pull
+requests, addresses human and bot review feedback, and parks while checks run.
+Its only workflow options are the GitHub Channel `filter` and `autoMerge`:
+
+```ts
+import { defineAgent } from "@vite-hub/agent"
+import { babysitter } from "@vite-hub/agent/presets/babysitter"
+
+export default defineAgent({
+  preset: "babysitter",
+  presets: { babysitter },
+  options: {
+    filter: { labels: { allow: ["repair"], deny: ["do-not-touch"] } },
+    autoMerge: false,
+  },
+  driver: { model: "your-codex-model" },
+})
+```
+
+Colocated `instructions.md` fills the preset's instruction slot without adding
+headings. Explicit `driver.instructions` replaces that slot. Use
+`{ mode: "replace", value: "..." }` to replace the complete instruction document.
+
+`createBabysitterRuntime` from `@vite-hub/agent/presets/babysitter/server` owns a
+SQLite inbox, bounded GitHub discovery, claims, checkout preparation, repair
+passes and wake handling. Provide a configured Agent, GitHub host, inbox path,
+repositories and concurrency. In a ViteHub application, obtain the Agent through
+`getAgentFromRegistry("babysitter")` so discovery applies its colocated files.
+Connect `reconcile` to a Process Agent Host, `inbox.ingest` to the signed GitHub
+webhook receiver, and `workload` to health inspection. Keep credentials, provider
+settings, host capacity, telemetry and deployment resources in the application.
+
+Each pass uses a disposable Codex workspace with edit permission. GitHub tokens
+stay on the host. Tools provide PR-bound log reads, repair pushes, comments,
+metadata updates and thread resolution. `autoMerge: false` omits the merge tool
+and the host rejects auto-merge operations. Enabling it requests GitHub native
+auto-merge subject to current PR admission and repository checks and reviews.
+There is no direct merge or branch-deletion fallback.

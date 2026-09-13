@@ -40,7 +40,9 @@ describe("colocated Agent instructions", () => {
     const instructions = { template: "Before.\n\n{{{ instructions }}}\n\nAfter." }
     const base = kind === "model"
       ? defineAgent({ driver: { model, instructions }, workspace: {}, runtime: false })
-      : defineAgent({ driver: { kind, instructions }, workspace: {}, runtime: false })
+      : kind === "codex"
+        ? defineAgent({ driver: { kind: "codex", instructions }, workspace: {}, runtime: false })
+        : defineAgent({ driver: { kind: "claude-code", instructions }, workspace: {}, runtime: false })
     const child = defineAgent({ extends: base })
     const loaded = agentWithColocatedInstructions(child, "## Additional context\nCheck migrations.")
     const resolved = loaded.__vitehubWorkspaceAgentOptions.driver

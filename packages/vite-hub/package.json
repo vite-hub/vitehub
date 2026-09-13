@@ -68,7 +68,6 @@
     "./_internal/workspace/internal/runtime/state": "./dist/_internal/workspace/internal/runtime/state.js",
     "./_internal/workspace/runtime": "./dist/_internal/workspace/runtime.js",
     "./agent": "./dist/agent.js",
-    "./agent/vite": "./dist/agent/vite.js",
     "./agent/capabilities": "./dist/agent/capabilities.js",
     "./agent/channels": "./dist/agent/channels.js",
     "./agent/cloudflare": "./dist/agent/cloudflare.js",
@@ -78,11 +77,14 @@
     "./agent/invocations/d1": "./dist/agent/invocations/d1.js",
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
     "./agent/mcp": "./dist/agent/mcp.js",
+    "./agent/presets/babysitter": "./dist/agent/presets/babysitter.js",
+    "./agent/presets/babysitter/server": "./dist/agent/presets/babysitter/server.js",
     "./agent/runtime/process": "./dist/agent/runtime/process.js",
     "./agent/server": "./dist/agent/server.js",
     "./agent/server/github": "./dist/agent/server/github.js",
     "./agent/server/github-inbox": "./dist/agent/server/github-inbox.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
+    "./agent/vite": "./dist/agent/vite.js",
     "./agent/vue": "./dist/agent/vue.js",
     "./auth": "./dist/auth.js",
     "./auth/agent": "./dist/auth/agent.js",
@@ -164,9 +166,7 @@
     "./console/kv": "./dist/console/runtime/server/kv.js",
     "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json",
-    "./agent/presets/babysitter": "./dist/agent/presets/babysitter.js",
-    "./agent/presets/babysitter/server": "./dist/agent/presets/babysitter/server.js"
+    "./tsconfig": "./tsconfig.json"
   },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
