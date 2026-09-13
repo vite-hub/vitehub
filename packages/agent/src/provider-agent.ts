@@ -6,7 +6,7 @@ import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { chmod, cp, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { basename, delimiter, dirname, extname, join, relative, resolve } from "node:path"
@@ -195,6 +195,18 @@ async function materializeProviderSkillLink(root: string, source: string, target
     return { directories, existed: false, ownedLink: link, path: target }
   }
   catch (error) {
+    // Windows may deny directory symlinks without Developer Mode or elevation.
+    // Copy the skill tree as a safe, self-contained compatibility bridge.
+    if ((error as NodeJS.ErrnoException).code === "EPERM" || (error as NodeJS.ErrnoException).code === "EACCES") {
+      try {
+        await cp(source, target, { recursive: true })
+        return { directories, existed: false, path: target }
+      }
+      catch (copyError) {
+        for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
+        throw copyError
+      }
+    }
     for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
     throw error
   }
