@@ -32,7 +32,7 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   const requiredStrings = ['repository', 'status']
   if (requiredStrings.some(key => typeof value[key] !== 'string') || typeof value.number !== 'number' || !Number.isInteger(value.number) || value.number < 1) throw new Error('Invalid stored snapshot')
   const numeric = ['generation', 'handled', 'dirtyAt', 'nextAt', 'leaseUntil', 'attempts']
-  if (numeric.some(key => typeof value[key] !== 'number')) throw new Error('Invalid stored snapshot')
+  if (numeric.some(key => typeof value[key] !== 'number' || !Number.isFinite(value[key] as number))) throw new Error('Invalid stored snapshot')
   if (!['ready', 'working', 'waiting', 'terminal'].includes(value.status as string) || (value.lease !== null && typeof value.lease !== 'string')) throw new Error('Invalid stored snapshot')
   const arrays = ['reasons', 'threads']
   if (!Array.isArray(value.reasons) || !value.reasons.every(item => typeof item === 'string') || !Array.isArray(value.threads)) throw new Error('Invalid stored snapshot')
@@ -44,6 +44,9 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   }
   if (value.pr !== null && value.pr !== undefined) parsePullRequest(value.pr)
   if (typeof value.hydrated !== 'boolean' || typeof value.refresh !== 'boolean' || typeof value.feedbackRefresh !== 'boolean') throw new Error('Invalid stored snapshot')
+  if (value.revision !== undefined && (typeof value.revision !== 'number' || !Number.isInteger(value.revision) || value.revision < 0)) throw new Error('Invalid stored snapshot')
+  if (value.threadsHydrated !== undefined && typeof value.threadsHydrated !== 'boolean') throw new Error('Invalid stored snapshot')
+  if (value.lastResult !== undefined && typeof value.lastResult !== 'string') throw new Error('Invalid stored snapshot')
   return value as Snapshot
 }
 /** Normalize REST and discovery records once, before they enter the inbox. */
