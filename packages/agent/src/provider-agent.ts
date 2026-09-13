@@ -2,7 +2,7 @@ import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { getMessageText } from "./messages.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
@@ -100,7 +100,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
-  appendedContent?: string
+  appendedSection?: { start: string, end: string }
   content?: Uint8Array
   directories: string[]
   existed: boolean
@@ -144,17 +144,16 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
-  if (generated.appendedContent !== undefined) {
+  if (generated.appendedSection !== undefined) {
     const entry = await lstat(generated.path).catch(() => undefined)
     if (entry?.isFile()) {
       const content = await readFile(generated.path, "utf8")
-      const expectedOffset = (generated.content?.length ?? 0) + (generated.content?.length ? 2 : 0)
-      let offset = -1
-      for (let candidate = content.indexOf(generated.appendedContent); candidate !== -1; candidate = content.indexOf(generated.appendedContent, candidate + 1)) {
-        if (offset === -1 || Math.abs(candidate - expectedOffset) < Math.abs(offset - expectedOffset)) offset = candidate
-      }
-      if (offset !== -1) {
-        await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
+      const start = content.indexOf(generated.appendedSection.start)
+      const end = content.indexOf(generated.appendedSection.end, start)
+      if (start !== -1 && end !== -1) {
+        const prefix = content.slice(0, start)
+        await writeFile(generated.path, (prefix.endsWith("\n\n") ? prefix.slice(0, -2) : prefix)
+          + content.slice(end + generated.appendedSection.end.length))
       }
     }
     return
@@ -2204,13 +2203,16 @@ async function* runProvider<
     if (instructions && materializeInstructions) {
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
+      generatedProviderFiles.push(generated)
       if (generated.content !== undefined && generated.link === undefined) {
         const original = new TextDecoder().decode(generated.content)
         if (instructions.startsWith(`${original}${original ? "\n\n" : ""}`)) {
-          generated.appendedContent = instructions.slice(original.length)
+          const id = randomUUID()
+          const section = { start: `<!-- vitehub:instructions:${id} -->`, end: `<!-- /vitehub:instructions:${id} -->` }
+          await writeFile(generated.path, `${original}${original ? "\n\n" : ""}${section.start}\n${instructions.slice(original.length).trimStart()}\n${section.end}`)
+          generated.appendedSection = section
         }
       }
-      generatedProviderFiles.push(generated)
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {
