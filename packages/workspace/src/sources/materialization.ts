@@ -531,9 +531,13 @@ async function reconcileRemovedStartupSourcesInternal(
       // deletion: it may have been replaced since its descendants were listed.
       if (!preserveDirectory && descendants.length === 0) {
         try {
-          await control.mutate(() => store.rm(path, { force: true }))
-          // Successful deletion leaves no directory ownership to transfer.
-          continue
+          const removed = await control.mutate(async () => {
+            const current = await store.list(path, { recursive: true })
+            if (current.length !== 0) return false
+            await store.rm(path, { force: true })
+            return true
+          })
+          if (removed) continue
         }
         catch {}
       }
