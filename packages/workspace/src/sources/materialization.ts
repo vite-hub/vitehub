@@ -330,6 +330,8 @@ async function removeStaleMaterializedSourceFiles(
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
   const removedDirectories = new Set<string>()
+  // An unsupported Store must preserve files rather than ignore a removal condition.
+  if (!store.conditionalRemoval) return removedDirectories
   // Build cleanup leaves an empty snapshot object; only that missing index needs recovery.
   // With metadata support, an absent snapshot is a first startup with no owned paths.
   const entries = source.mountPath
@@ -379,7 +381,7 @@ async function removeStaleMaterializedSourceFiles(
         || ((local || currentOwner === undefined) && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
           && await sha256(latest.content) !== previousSnapshot.items[entry.path].materializedContentDigest)) continue
       const removalDigest = await sha256(latest.content)
-      await control.mutate(() => store.rm(entry.path, { force: true, ifDigest: removalDigest }))
+      await control.mutate(() => store.rm(entry.path, { force: true, ifDigest: removalDigest, ifSource: typeof currentOwner === "string" ? currentOwner : null }))
       onRemoved?.(entry.path, contentSize(latest.content))
     }
   }
@@ -432,7 +434,7 @@ async function reconcileRemovedStartupSourcesInternal(
   control: MaterializationControl,
   activeSources: Set<ResolvedWorkspaceSource> = new Set(),
 ) {
-  if (!store.getMeta || !store.setMeta) return
+  if (!store.getMeta || !store.setMeta || !store.conditionalRemoval) return
   const startupSourcesMetaKey = `workspace:${workspaceName}:startup-sources`
   const value = await store.getMeta(startupSourcesMetaKey)
   const local = (await resolveWorkspaceStoreTarget(store))?.provider === "local"
@@ -486,8 +488,8 @@ async function reconcileRemovedStartupSourcesInternal(
         const latestOwner = latest.metadata?.source
         if (latestOwner !== source.key && !(latestOwner === undefined && fileAttributesUnavailable(latest))) return false
         if (local && recordedDigest && await sha256(latest.content) !== recordedDigest) return false
-        await store.rm(path, { force: true })
-        return true
+        await store.rm(path, { force: true, ifDigest: await sha256(latest.content), ifSource: typeof latestOwner === "string" ? latestOwner : null })
+        return !(await store.stat(path))
       })
       if (removed) removedOwnedPaths.push(path)
     }
@@ -815,10 +817,9 @@ async function materializeWorkspaceSourcesInternal(
       // A reused pathname alone cannot establish generated ownership. Local
       // Stores can recover missing metadata only from the recorded content.
       if (!descendants.some(Boolean)) {
-        // Keep ownership of the original generated mount when only its
-        // generated descendants were removed. A later refresh can recreate
-        // those files and cleanup should still remove the empty mount.
-        if (directory !== source.mountPath) ownedDirectories.delete(directory)
+        // Missing generated descendants cannot prove a mount was not replaced.
+        if (directory === source.mountPath && indexedDescendants.length) ownsMount = false
+        else if (directory !== source.mountPath) ownedDirectories.delete(directory)
       }
     }
     let revision = existing?.revision

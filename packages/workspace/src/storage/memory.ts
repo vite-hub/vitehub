@@ -31,6 +31,7 @@ function now() {
 }
 
 class MemoryWorkspaceStore implements WorkspaceStore {
+  readonly conditionalRemoval = true;
   [workspaceStoreTarget]() {
     return { provider: "memory" }
   }
@@ -104,7 +105,10 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
       const node = this.#nodes.get(normalized)
-      if (options.ifDigest && node?.type === "file" && (await this.#entry(normalized, node)).digest !== options.ifDigest) return
+      if (options.ifDigest !== undefined) {
+        if (node?.type !== "file" || (await this.#entry(normalized, node)).digest !== options.ifDigest) return
+        if (options.ifSource !== undefined && (node.metadata?.source ?? null) !== options.ifSource) return
+      }
       if (!node) {
         if (options.force) return
         throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)

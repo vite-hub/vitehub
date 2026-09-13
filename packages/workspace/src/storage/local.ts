@@ -395,6 +395,7 @@ async function fileDigest(path: string): Promise<string> {
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
+  readonly conditionalRemoval = true;
   [workspaceStoreTarget]() {
     return { provider: "local" as const }
   }
@@ -818,9 +819,11 @@ class LocalWorkspaceStore implements WorkspaceStore {
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
     const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
-    if (options.ifDigest) {
+    if (options.ifDigest !== undefined) {
+      if ((await this.#stat(normalized, false))?.type !== "file") return
       const current = await this.#readFile(normalized)
       if (!current || await sha256(current.content) !== options.ifDigest) return
+      if (options.ifSource !== undefined && (current.metadata?.source ?? null) !== options.ifSource) return
     }
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
     const marker = this.#removalMarker(normalized)

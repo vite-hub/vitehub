@@ -5,6 +5,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { decodeFile } from "../src/core/path.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
 const permissionsFixture = vi.hoisted(() => ({ root: "" }))
@@ -95,7 +96,7 @@ describe("local workspace store", () => {
     await store.rm("generated.md", { ifDigest })
 
     if (matches) await expect(store.stat("generated.md")).resolves.toBeUndefined()
-    else await expect(store.readFile("generated.md")).resolves.toMatchObject({ content: "generated" })
+    else expect(decodeFile((await store.readFile("generated.md"))!.content)).toBe("generated")
   }, 2_000)
 
   it.each([false, true])("allows recreating a missing removal target, recursive: %s", async (recursive) => {

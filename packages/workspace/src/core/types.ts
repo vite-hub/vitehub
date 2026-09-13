@@ -60,6 +60,8 @@ export interface RmOptions {
   recursive?: boolean
   force?: boolean
   ifDigest?: string
+  /** With ifDigest, also require this Source owner (null means unowned). */
+  ifSource?: string | null
 }
 
 export type WorkspaceWriteOperation = "writeFile" | "mkdir" | "rm"
@@ -321,6 +323,8 @@ export interface WorkspaceRebaseOptions {
 }
 
 export interface WorkspaceStore {
+  /** rm atomically checks SHA-256 content and Source ownership before removing a file. */
+  readonly conditionalRemoval?: boolean
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>

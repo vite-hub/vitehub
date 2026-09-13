@@ -1220,6 +1220,47 @@ describe("lazy sources", () => {
     await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "User file" })
   })
 
+  it.each([false, true].flatMap(local => [false, true].flatMap(sameContent => [false, true].map(retire => ({ local, sameContent, retire })))))("preserves a write at the removal boundary with local=$local sameContent=$sameContent retire=$retire", async ({ local, sameContent, retire }) => {
+    const root = local ? await createRoot() : undefined
+    const store = root ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const writer = root ? createLocalWorkspaceStore(root) : store
+    const definition = {
+      name: "conditional-retirement",
+      sources: { instructions: { content: "generated", materialize: "startup" as const, mount: "", workspacePath: "AGENTS.md" } },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    const remove = store.rm.bind(store)
+    let replaced = false
+    store.rm = async (path, options) => {
+      if (path === "AGENTS.md" && !replaced) {
+        replaced = true
+        await writer.writeFile(path, { path, content: sameContent ? "generated" : "user" })
+      }
+      await remove(path, options)
+    }
+    await createWorkspaceSourceView({
+      name: definition.name,
+      sources: retire ? {} : { instructions: custom({ materialize: "startup", mount: "", files: [] }) },
+    }, store).materializeSources()
+    expect(replaced).toBe(true)
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: expect.anything(), metadata: undefined })
+    expect(decodeFile((await store.readFile("AGENTS.md"))!.content)).toBe(sameContent ? "generated" : "user")
+  })
+
+  it("preserves retired files when a Store cannot enforce conditional removal", async () => {
+    const store = createMemoryWorkspaceStore()
+    const definition = {
+      name: "unsupported-retirement",
+      sources: { instructions: { content: "generated", materialize: "startup" as const, mount: "", workspacePath: "AGENTS.md" } },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    Object.defineProperty(store, "conditionalRemoval", { value: false })
+    const remove = vi.spyOn(store, "rm")
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, store).materializeSources()
+    expect(remove).not.toHaveBeenCalled()
+    await expect(store.readFile("AGENTS.md")).resolves.toBeDefined()
+  })
+
   it("removes files owned by startup Sources removed from the definition", async () => {
     const store = createMemoryWorkspaceStore()
     const initial = {
