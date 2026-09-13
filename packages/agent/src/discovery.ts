@@ -109,9 +109,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         for (let j = i + 1; j < tokens.length; j++) {
           const token = tokens[j]
           if (token === "from") { sawFrom = true; continue }
-          if (!sawFrom && /^['"`]/.test(token)) break
+          if (!sawFrom && /^['"`]/.test(token)) { i = j; break }
           if (sawFrom) {
-            if (/^["'`]/.test(token)) break
+            if (/^["'`]/.test(token)) { i = j; break }
             continue
           }
           if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token)) imported.add(token)
