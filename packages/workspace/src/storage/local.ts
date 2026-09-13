@@ -25,91 +25,197 @@ import type {
   WorkspaceStore,
 } from "../core/types.ts"
 
-async function withFilesystemLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
-  const { mkdir, open, readFile, rename, rm, stat } = await import("node:fs/promises")
-  const { dirname } = await import("node:path")
+async function applyMetadataPermissions(path: string, mode: number, gid: number) {
+  const { chmod, chown, stat } = await import("node:fs/promises")
+  const info = await stat(path)
+  if (info.gid !== gid) {
+    try { await chown(path, info.uid, gid) }
+    catch (error) {
+      if (!["EPERM", "EACCES"].includes(Reflect.get(Object(error), "code"))) throw error
+      // If the Workspace group cannot be assigned, keep metadata owner-only.
+      mode &= 0o700
+    }
+  }
+  if ((info.mode & 0o777) !== mode) {
+    try { await chmod(path, mode) }
+    catch (error) {
+      if (!["EPERM", "EACCES"].includes(Reflect.get(Object(error), "code"))) throw error
+      // Existing shared sidecars need not be owned by this writer. Keep their
+      // permissions only when they already grant no more access than requested.
+      if ((info.mode & 0o777 & ~mode) !== 0) throw error
+    }
+  }
+}
+
+async function validateLockDirectory(path: string) {
+  const { lstat } = await import("node:fs/promises")
+  const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined
+    throw error
+  })
+  if (info && (!info.isDirectory() || info.isSymbolicLink())) {
+    throw workspaceError(`[vitehub] Untrusted Workspace lock path: ${path}.`)
+  }
+}
+
+async function ensureLockDirectory(path: string) {
+  const { mkdir } = await import("node:fs/promises")
+  await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "EEXIST") throw error
+  })
+  await validateLockDirectory(path)
+}
+
+async function withLeaseHeartbeat<T>(file: import("node:fs/promises").FileHandle, operation: () => Promise<T>): Promise<T> {
+  let renewal = Promise.resolve()
+  let rejectHeartbeat!: (error: unknown) => void
+  const heartbeatFailure = new Promise<never>((_, reject) => { rejectHeartbeat = reject })
+  heartbeatFailure.catch(() => {})
+  const timer = setInterval(() => {
+    renewal = renewal.then(async () => {
+      const now = new Date()
+      await file.utimes(now, now)
+    })
+    renewal.catch(rejectHeartbeat)
+  }, 30_000)
+  timer.unref()
+  const active = Promise.resolve().then(operation)
+  try {
+    return await Promise.race([active, heartbeatFailure])
+  }
+  catch (error) {
+    // A failed heartbeat cannot cancel filesystem I/O. Keep the lease until
+    // the protected operation settles before its caller releases the lock.
+    await active.catch(() => undefined)
+    throw error
+  }
+  finally {
+    clearInterval(timer)
+    try { await renewal }
+    finally { await file.close() }
+  }
+}
+
+async function removeOwnedGate(lock: string) {
+  const { rm } = await import("node:fs/promises")
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rm(lock, { force: true, recursive: true })
+      return
+    }
+    catch (error) {
+      if (attempt >= 2) throw error
+      await delay(25)
+    }
+  }
+}
+
+async function withFilesystemLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>, timeoutMs = 10_000): Promise<T> {
+  const { mkdir, open } = await import("node:fs/promises")
   const owner = randomUUID()
   const ownerPath = `${lock}/owner`
-  await mkdir(dirname(lock), { recursive: true })
-  const deadline = Date.now() + 10_000
+  let lease: import("node:fs/promises").FileHandle | undefined
+  const deadline = Date.now() + timeoutMs
   while (true) {
+    let created = false
     try {
-      await mkdir(lock)
+      await mkdir(lock, { mode: 0o700 })
+      created = true
+      if (process.platform !== "win32") await applyMetadataPermissions(lock, permissions.mode & 0o770, permissions.gid)
       const ownerFile = await open(ownerPath, "wx")
-      await ownerFile.writeFile(owner)
-      await ownerFile.close()
+      try { await ownerFile.writeFile(owner) }
+      catch (error) {
+        await ownerFile.close()
+        throw error
+      }
+      lease = ownerFile
       break
     }
     catch (error) {
-      if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
-      const info = await stat(lock).catch(() => undefined)
-      // ponytail: local locks expire after five minutes; use a provider lease if writes can legitimately run longer.
-      if (info && Date.now() - info.mtimeMs > 300_000) {
-        const stale = `${lock}.stale-${randomUUID()}`
-        const reclaimed = await rename(lock, stale).then(() => true, (renameError: NodeJS.ErrnoException) => {
-          if (renameError.code === "ENOENT") return false
-          throw renameError
-        })
-        if (reclaimed) await rm(stale, { force: true, recursive: true })
+      if (created) {
+        try { await removeOwnedGate(lock) }
+        catch (cleanupError) { throw new AggregateError([error, cleanupError], "Workspace gate acquisition and cleanup failed", { cause: error }) }
+        throw error
       }
-      else if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
+      if (Reflect.get(Object(error), "code") !== "EEXIST") throw error
+      await validateLockDirectory(lock)
+      // Marker age cannot distinguish a crashed owner from active I/O whose
+      // heartbeat failed or was delayed. Only the owner may release its gate.
+      if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
       else await delay(25)
     }
   }
-  const { utimes } = await import("node:fs/promises")
-  const heartbeat = setInterval(() => { void utimes(lock, new Date(), new Date()).catch(() => {}) }, 60_000)
   try {
-    return await operation()
+    return await withLeaseHeartbeat(lease!, operation)
   }
   finally {
-    clearInterval(heartbeat)
-    const activeOwner = await readFile(ownerPath, "utf8").catch(() => undefined)
-    if (activeOwner === owner) await rm(lock, { force: true, recursive: true })
+    // Existing gates are never reclaimed, so this invocation retains ownership
+    // until release. A failed marker reread must not leave its gate behind.
+    await removeOwnedGate(lock)
   }
 }
 
-async function withFilesystemReadLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
-  const { mkdir, open, rm } = await import("node:fs/promises")
+async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
+  const { open, rm, rmdir } = await import("node:fs/promises")
   const reader = `${lock}.readers/${randomUUID()}`
-  await withFilesystemLock(`${lock}.gate`, description, async () => {
-    await mkdir(`${lock}.readers`, { recursive: true })
-    const ownerFile = await open(reader, "wx")
-    await ownerFile.close()
+  const lease = await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
+    await ensureLockDirectory(`${lock}.readers`)
+    if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
+    return await open(reader, "wx")
   })
   try {
-    return await operation()
+    return await withLeaseHeartbeat(lease, operation)
   }
   finally {
     await rm(reader, { force: true })
+    // Cleanup must not wait behind a writer or reject an already completed read.
+    // Keep registration serialized; a writer also reclaims empty reader directories.
+    await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
+      await rmdir(`${lock}.readers`).catch((error: NodeJS.ErrnoException) => {
+        if (!["ENOENT", "ENOTEMPTY", "EEXIST"].includes(error.code ?? "")) throw error
+      })
+    }, 0).catch(() => {})
   }
 }
 
-async function withFilesystemWriteLock<T>(lock: string, description: string, operation: () => Promise<T>): Promise<T> {
-  const { readdir, rm, stat } = await import("node:fs/promises")
-  return await withFilesystemLock(`${lock}.gate`, description, async () => {
+async function withFilesystemWriteLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
+  const { readdir, rmdir } = await import("node:fs/promises")
+  return await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
     const readers = `${lock}.readers`
     const deadline = Date.now() + 10_000
     while (true) {
+      await validateLockDirectory(readers)
       const active = await readdir(readers).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return []
         throw error
       })
-      if (active.length === 0) return await operation()
-      for (const owner of active) {
-        const path = `${readers}/${owner}`
-        const info = await stat(path).catch(() => undefined)
-        if (info && Date.now() - info.mtimeMs > 300_000) await rm(path, { force: true })
+      if (active.length === 0) {
+        await rmdir(readers).catch(() => {})
+        return await operation()
       }
+      // Reader markers also remain authoritative until their owners release
+      // them; a failed heartbeat must never permit a concurrent writer.
       if (Date.now() >= deadline) throw workspaceError(`[vitehub] Timed out waiting to write Workspace ${description}.`)
       await delay(25)
     }
   })
 }
 
-async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>): Promise<T> {
+async function withWorkspacePathLock<T>(root: string, path: string, operation: () => Promise<T>, readOnly = false): Promise<T> {
   const normalized = normalizeWorkspacePath(path)
   const parts = normalized.split("/").filter(Boolean)
   const paths = parts.map((_, index) => parts.slice(0, index + 1).join("/"))
+
+  const { mkdir, stat } = await import("node:fs/promises")
+  if (paths.length === 0) return await operation()
+  await mkdir(root, { recursive: true })
+  const permissions = await stat(root)
+  // Shared service accounts need access to both the persistent lock tree and
+  // transient gates/readers, independently of the creating process's umask.
+  for (const directory of [`${root}/.vitehub`, `${root}/.vitehub/locks`]) {
+    await ensureLockDirectory(directory)
+    if (process.platform !== "win32") await applyMetadataPermissions(directory, permissions.mode & 0o770, permissions.gid)
+  }
 
   const lock = async (index: number): Promise<T> => {
     if (index === paths.length) return await operation()
@@ -117,9 +223,9 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
     const key = createHash("sha256").update(lockedPath).digest("hex")
     const lockPath = `${root}/.vitehub/locks/${key}`
     const next = () => lock(index + 1)
-    return index === paths.length - 1
-      ? await withFilesystemWriteLock(lockPath, `path: ${lockedPath}.`, next)
-      : await withFilesystemReadLock(lockPath, `path: ${lockedPath}.`, next)
+    return !readOnly && index === paths.length - 1
+      ? await withFilesystemWriteLock(lockPath, permissions, `path: ${lockedPath}.`, next)
+      : await withFilesystemReadLock(lockPath, permissions, `path: ${lockedPath}.`, next)
   }
 
   return await lock(0)
@@ -196,7 +302,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
-    return await withWorkspacePathLock(this.root, path, () => this.#readFile(path))
+    return await withWorkspacePathLock(this.root, path, () => this.#readFile(path), true)
   }
 
   async #readFile(path: string): Promise<WorkspaceFile | undefined> {
