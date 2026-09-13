@@ -442,6 +442,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     let recoveryError: unknown
     for (const source of [...items].reverse()) {
       const generation = generationBySource.get(source.key)
+      const pending = pendingBySource.has(source.key)
       try {
         await ensurePrepared(source.key)
         const result = incomplete.has(source.key) || !preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))
@@ -455,7 +456,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         recoveryError = error
       }
       finally {
-        if (generationBySource.get(source.key) !== generation) {
+        if (pending || generationBySource.get(source.key) !== generation) {
           refreshedSources.push(source)
           // Restore persisted content, even after a partial failed refresh, without
           // asking the higher-priority provider for a newer inspection snapshot.

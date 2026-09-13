@@ -36,6 +36,48 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["list", "glob", "search"])("restores precedence when %s joins a running source refresh", async (operation) => {
+    let started!: () => void
+    const entered = new Promise<void>((resolve) => { started = resolve })
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    let refreshing = false
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "joined-startup-precedence",
+      sources: {
+        first: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "first needle" }] }),
+        second: custom({
+          materialize: "startup",
+          mount: "",
+          getKeys: async () => {
+            if (refreshing) {
+              started()
+              await blocked
+            }
+            return ["shared.md"]
+          },
+          getItem: async key => ({ key, content: "second needle" }),
+        }),
+      },
+    }, store)
+    await view.list()
+    refreshing = true
+    const refresh = view.materializeSources({ sources: ["second"] })
+    await entered
+    const inspection = operation === "search"
+      ? view.search({ pattern: "first needle" })
+      : operation === "glob" ? view.glob("**/*.md") : view.list()
+    // Drain preparation microtasks while the provider remains blocked, so the
+    // inspection joins the generation that has already started.
+    await new Promise<void>(resolve => setTimeout(resolve, 0))
+    release()
+    await refresh
+    const result = await inspection
+    expect(result).toEqual(expect.arrayContaining([expect.objectContaining({ path: "shared.md" })]))
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "first needle" })
+  })
+
   it.each(["etag", "sha", "digest", "ref"])("reuses lazy content with unchanged empty %s metadata", async (key) => {
     const getItem = vi.fn(async () => ({ key: "file.md", content: "content", metadata: { digest: "fallback" } }))
     const store = createMemoryWorkspaceStore()
