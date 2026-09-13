@@ -34,13 +34,13 @@ export const AgentMarkdown = defineComponent({
   setup(props, { attrs }) {
     const defaults = useViteHubUI();
     return () => {
-      const { plugins: optionPlugins, ...options } = props.options ?? {};
       return h(Markdown, {
         ...attrs,
         class: [defaults.markdown.class, attrs.class],
         components: { img: ImagePreview, math: AgentMath, ...props.components },
-        plugins: [markdownMath, ...(props.plugins ?? []), ...(optionPlugins ?? [])],
-        options: { ...options, html: false, streaming: props.streaming },
+        plugins: [markdownMath, ...(props.plugins ?? [])],
+        options: { ...props.options, html: false },
+        streaming: props.streaming,
         value: props.value,
       });
     };

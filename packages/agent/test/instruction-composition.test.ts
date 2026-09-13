@@ -1,9 +1,11 @@
+import { resolveAgentInstructions } from "../src/agent-instructions.ts"
 import { dirname, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
 import {
   composeInstructionDocument,
+  fillInstructionSlot,
   createInstructionCoverage,
   resolveInstructionImports,
 } from "../src/instruction-composition.ts"
@@ -563,4 +565,34 @@ describe("instruction composition", () => {
     await expect(composeInstructionDocument("@workspace.policy"))
       .rejects.toThrow("workspace import \"@workspace.policy\" is not defined")
   })
+})
+
+
+describe("instruction template slots", () => {
+  it("fills the designated slot without adding labels or consuming runtime bindings", async () => {
+    const filled = await fillInstructionSlot("Before {{ context.name }}.\n\n{{{ instructions }}}\n\nAfter.", "## Policy\nTake care.")
+    expect(filled).toBe("Before {{ context.name }}.\n\n## Policy\nTake care.\n\nAfter.")
+    expect(await composeInstructionDocument(filled, { context: { name: "Quiver" } })).toBe("Before Quiver.\n\n## Policy\n\nTake care.\n\nAfter.")
+  })
+
+  it("preserves examples in code and does not recursively expand inserted content", async () => {
+    const template = "`{{{ instructions }}}`\n\n```md\n{{{ instructions }}}\n```\n\n{{{ instructions }}}"
+    expect(await fillInstructionSlot(template, "Literal {{{ instructions }}} text")).toBe(template.replace(/\{\{\{ instructions \}\}\}$/, "Literal {{{ instructions }}} text"))
+    expect(await fillInstructionSlot("Before\n{{{ instructions }}}\nAfter", "")).toBe("Before\n\nAfter")
+  })
+
+  it("rejects missing and duplicate composition slots", async () => {
+    await expect(fillInstructionSlot("No slot", "Policy")).rejects.toThrow("exactly one")
+    await expect(fillInstructionSlot("`{{{ instructions }}}`", "Policy")).rejects.toThrow("exactly one")
+    await expect(fillInstructionSlot("{{{ instructions }}}\n{{{ instructions }}}", "Policy")).rejects.toThrow("exactly one")
+  })
+})
+
+
+it("resolves dynamic templates and content consistently for adapter metadata", async () => {
+  expect(await resolveAgentInstructions({
+    template: async () => "Before\n\n{{{ instructions }}}\n\nAfter",
+    content: ["First", async () => ["Second", "Third"]],
+  }, {} as never)).toBe("Before\n\nFirst\n\nSecond\n\nThird\n\nAfter")
+  expect(await resolveAgentInstructions({ mode: "replace", value: async () => "Replacement" }, {} as never)).toBe("Replacement")
 })

@@ -494,3 +494,36 @@ Capability definitions can declare `inspection: { label, view? }`. Lifecycle hoo
 MCP records server discovery and tool provenance. Title records generation settings, progress, and its result. The Console's Capabilities tab reads these snapshots without invoking either capability. Other capabilities use the default tools/configuration view. Set the Invocation journal's `configuration` to `"content"` to retain inspection state and views independently of other trace content. Metadata-only capture keeps labels. Existing redaction and observation bounds apply.
 
 See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-capabilities#contribute-an-inspection-view) for the catalog and a complete example.
+
+
+### Instruction templates
+
+An Agent can reserve one place for extending instructions. Define a template in
+`driver.instructions` with exactly one `{{{ instructions }}}` marker outside code:
+
+```ts
+const base = defineAgent({
+  driver: {
+    kind: "codex",
+    instructions: {
+      template: "Inspect the request.\n\n{{{ instructions }}}\n\nExplain the result.",
+      content: "Use concise language.",
+    },
+  },
+})
+
+const agent = defineAgent({
+  extends: base,
+  driver: { instructions: "Check migration safety." },
+})
+```
+
+The extension replaces the slot content. It does not append instructions or add
+headings. Omitted content uses the inherited default. Strings, arrays, and async
+instruction resolvers work in both `template` and `content`. Markdown files can
+be loaded through the existing instruction resolver or Markdown import path.
+
+To discard the inherited template, use
+`instructions: { mode: "replace", value: "A complete instruction document." }`.
+A new `{ template, content }` object also replaces the inherited template.
+Without a template, extending instructions replaces the inherited document.

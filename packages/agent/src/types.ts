@@ -626,7 +626,14 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   method?: "POST" | (string & {})
   path?: string
   provider: string
-  signature?: "github-sha256" | (string & {})
+  signature?: "github-sha256" | (string & {}) | {
+    verify: (input: {
+      header: string
+      rawBody: Uint8Array
+      request: Request
+      secret: string
+    }) => boolean | Promise<boolean>
+  }
   secretHeader?: string
   secretToken?: AgentWebhookSecretToken<TRuntimeConfig>
   url?: string
@@ -1183,6 +1190,23 @@ export type AgentCapabilitiesInput<
 export type AgentAdapterInstructionsValue = string | string[]
 
 export type AgentAdapterInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | AgentInstructionsContent<TRuntimeConfig, Name>
+  | {
+    /** Markdown with exactly one {{{ instructions }}} slot outside code. */
+    template: AgentInstructionsContent<TRuntimeConfig, Name>
+    /** Default slot content. Extending instructions replaces this content. */
+    content?: AgentInstructionsContent<TRuntimeConfig, Name>
+  }
+  | {
+    /** Discard an inherited template and use this document. */
+    mode: "replace"
+    value: AgentInstructionsContent<TRuntimeConfig, Name>
+  }
+
+export type AgentInstructionsContent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > =

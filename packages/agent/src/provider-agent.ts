@@ -1,4 +1,5 @@
 import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
+import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { getMessageText } from "./messages.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
@@ -1746,10 +1747,9 @@ async function resolveInstructions<
   CALL_OPTIONS,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
   const metadataContext = providerMetadataContext(context)
-  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
+  const configured = await resolveAgentInstructions(options.instructions, metadataContext)
   const content = [
-    ...configured.flatMap(value => Array.isArray(value) ? value : [value]),
+    configured,
     context.instructions,
     resolveMessageChannelInstructions(context.context, context),
     agentOutputInstructions(context.output),
@@ -2896,10 +2896,9 @@ export function createProviderAgentAdapter<
   return {
     generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context), context),
     async metadata(context) {
-      const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-      const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
+      const instructions = await resolveAgentInstructions(options.instructions, context)
       return {
-        instructions: instructions.flatMap(value => Array.isArray(value) ? value : value ? [value] : []),
+        instructions: instructions ? [instructions] : [],
       }
     },
     name: options.provider,

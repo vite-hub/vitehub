@@ -12591,7 +12591,10 @@ describe("server helpers", () => {
     }
   })
 
-  it("keeps queue concurrency coalesced", async () => {
+  it.each(["none", "filter", "access"] as const)("keeps queue concurrency coalesced with rejected earlier message=%s", async (rejection) => {
+    const rejectEarlier = rejection !== "none"
+    const { access } = await import("../src/capabilities/access.ts")
+    const { readAgentChannelDeliveries, resumeAgentChannelDeliveryMessage } = await import("../src/internal/channel-delivery.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -12599,6 +12602,7 @@ describe("server helpers", () => {
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-queue-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const adapter = createTestChatAdapter()
+    const filter = vi.fn(({ message }: { message: import("../src/messages.ts").Message }) => rejection !== "filter" || !message.parts.some(part => part.type === "text" && part.text === "B"))
     const order: string[] = []
     let firstStarted!: () => void
     let releaseFirst!: () => void
@@ -12621,11 +12625,12 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       defineAgent({
+        capabilities: [access({ chat: { resolve: ({ input }) => rejection !== "access" || !isRuntimeObject(input) || !("message" in input) || !isRuntimeObject(input.message) || !("text" in input.message) || input.message.text !== "B" } })],
         channels: {
           telegram: testTelegram(telegram, {
             // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
             adapter: () => adapter as never,
-            messages: { concurrency: "queue", state, stream: false, triggerHistory: "none" },
+            messages: { concurrency: "queue", state, stream: false, triggerHistory: "none", filter },
           }),
         },
         driver: { run },
@@ -12645,6 +12650,13 @@ describe("server helpers", () => {
       await expect(firstResponse).resolves.toMatchObject({ status: 200 })
       await vi.waitFor(() => expect(order).toEqual(["A", "C"]))
       expect(run).toHaveBeenCalledTimes(2)
+      expect(filter.mock.calls.map(([input]) => input.message.parts.find(part => part.type === "text")?.text)).toEqual(rejection === "access" ? ["A", "C"] : ["A", "B", "C"])
+      const deliveries = await readAgentChannelDeliveries(state)
+      const queuedDelivery = await resumeAgentChannelDeliveryMessage(state, "telegram", "telegram:456", "91021")
+      expect(deliveries.find(delivery => delivery.id === queuedDelivery?.delivery.id)?.status).toBe(rejectEarlier ? "rejected" : "completed")
+      expect(run.mock.calls[1]?.[0].messages).toEqual((rejectEarlier ? ["C"] : ["B", "C"]).map(text => expect.objectContaining({
+        parts: expect.arrayContaining([expect.objectContaining({ type: "text", text })]),
+      })))
     } finally {
       releaseFirst()
       await state.disconnect()
@@ -12700,6 +12712,57 @@ describe("server helpers", () => {
       for (const messageId of ["91040", "91041"]) {
         const delivery = await resumeAgentChannelDeliveryMessage(state, "telegram", "telegram:456", messageId)
         expect(deliveries.find(item => item.id === delivery?.delivery.id)?.status).toBe(failInvocation ? "failed" : "completed")
+      }
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("settles earlier accepted queue deliveries when later admission throws", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { readAgentChannelDeliveries, resumeAgentChannelDeliveryMessage } = await import("../src/internal/channel-delivery.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-queue-receipts-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "ok")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      defineAgent({
+        channels: {
+          telegram: testTelegram(telegram, {
+            // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+            adapter: () => adapter as never,
+            messages: { concurrency: "queue", lockScope: "thread", state, stream: false, triggerHistory: "none", filter: ({ message }) => {
+              if (message.parts.some(part => part.type === "text" && part.text === "B")) throw new Error("queue admission failed")
+              return true
+            } },
+          }),
+        },
+        driver: { run },
+      }) as never,
+    )
+    try {
+      await state.connect()
+      const lock = await state.acquireLock("telegram:456", 60_000)
+      if (!lock) throw new Error("Expected the test lock to be acquired.")
+      for (const [id, text] of [[91_040, "A"], [91_041, "B"]] as const) {
+        await expect(handler(chatWebhookRequest(id, 456, text), "telegram", { agentName: "support" })).resolves.toMatchObject({ status: 200 })
+      }
+      expect(run).not.toHaveBeenCalled()
+      await state.releaseLock(lock)
+      const drained = handler(chatWebhookRequest(91_042, 456, "C"), "telegram", { agentName: "support" })
+      await expect(drained).rejects.toThrow("queue admission failed")
+      expect(run).toHaveBeenCalledTimes(1)
+      const deliveries = await readAgentChannelDeliveries(state)
+      for (const messageId of ["91040", "91041"]) {
+        const delivery = await resumeAgentChannelDeliveryMessage(state, "telegram", "telegram:456", messageId)
+        const settled = deliveries.find(item => item.id === delivery?.delivery.id)
+        expect(settled?.status).toBe("failed")
+        expect(settled?.events.filter(event => ["completed", "failed", "rejected"].includes(event.type)).map(event => event.type)).toEqual(["failed"])
       }
     } finally {
       await state.disconnect()
@@ -12777,10 +12840,10 @@ describe("server helpers", () => {
       if (failInvocation) await expect(drained).rejects.toThrow("coalesced invocation failed")
       else await expect(drained).resolves.toMatchObject({ status: 200 })
 
-      expect(routed).toEqual(concurrency === "serial" ? [
+      expect(routed).toEqual([
         { deliveryKind: "mention", text: "mention" },
         { deliveryKind: "mention", text: "second mention" },
-      ] : [{ deliveryKind: "mention", text: "second mention" }])
+      ])
       expect(run).toHaveBeenCalledTimes(concurrency === "serial" ? 2 : 1)
       if (concurrency === "queue") {
         expect(run).toHaveBeenCalledWith(expect.objectContaining({
