@@ -74,10 +74,19 @@ function stripComments(source: string) {
 
 function isWorkspaceAgentDefinition(source: string): boolean {
   const stripped = stripComments(source)
-  // Workspace ownership may come from an inline override or from a named preset
-  // declared in the same module. Require an explicit workspace property somewhere
-  // in the module so ordinary preset selections remain ordinary Agents.
-  return /\bworkspace\s*(?::|[,}])/.test(stripped)
+  const call = stripped.match(/\bdefineAgent\s*\(\s*\{/)
+  if (!call || call.index === undefined) return false
+  let depth = 1
+  for (let i = call.index + call[0].length; i < stripped.length; i++) {
+    const char = stripped[i]
+    if (char === "{") depth++
+    else if (char === "}") {
+      depth--
+      if (depth === 0) break
+    }
+    if (depth === 1 && /\bworkspace\s*:/.test(stripped.slice(i))) return true
+  }
+  return false
 }
 
 function isAgentDefinitionSource(source: string): boolean {
