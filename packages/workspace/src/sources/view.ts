@@ -640,7 +640,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function previousStat(path: string) {
-    return await store.stat(path).catch(() => undefined)
+    try {
+      return await store.stat(path)
+    } catch (error) {
+      if (error && hasRuntimeType(error, "object") && "code" in error
+        && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) return undefined
+      throw error
+    }
   }
 
   async function materializeRootStartupSources() {

@@ -45,7 +45,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       }
       catch (error) {
         // A replaced ancestor makes the indexed file unavailable, not generated.
-        if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) continue
+        if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) continue
         throw error
       }
     }
