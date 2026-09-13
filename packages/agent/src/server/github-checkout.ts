@@ -81,6 +81,11 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
         config = await git(destination, ['config', scope, '--name-only', '--list'])
       } catch (error) {
         if (scope === '--local') throw error
+        const message = error instanceof Error ? error.message : String(error)
+        // Git reports this specific condition when worktree-scoped config is disabled;
+        // there is no separate worktree file to inspect in that case. Any other
+        // inspection failure must fail closed so credentials cannot leak.
+        if (!/worktree.*config.*(?:not enabled|disabled)|extensions\.worktreeconfig/i.test(message)) throw error
       }
       for (const key of new Set(config.split('\n').filter(Boolean))) {
         let remove = sensitive(key)
