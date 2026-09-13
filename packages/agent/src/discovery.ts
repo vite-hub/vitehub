@@ -160,6 +160,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           for (const [key, value] of spread) result.set(key, value)
           i += 2
           atProperty = false
+        } else if (token === "[" && tokens[i + 2] === "]" && tokens[i + 3] === ":") {
+          const key = propertyName(tokens[i + 1])
+          result.set(key, i + 4)
+          i += 3
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
         else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
         atProperty = false
