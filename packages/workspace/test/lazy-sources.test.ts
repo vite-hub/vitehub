@@ -141,6 +141,21 @@ describe("lazy sources", () => {
     expect(await readFile(join(root, "docs"), "utf8")).toBe("user replacement")
   })
 
+  it("attempts snapshot recovery when a Local Store mount ancestor is replaced", async () => {
+    const root = await createRoot()
+    const definition = {
+      name: "startup-mount-ancestor-inspection",
+      sources: { skills: custom({ materialize: "startup", mount: "docs/skills", files: [{ path: "SKILL.md", content: "generated" }] }) },
+    }
+    await createWorkspaceSourceView(definition, createLocalWorkspaceStore(root)).materializeSources()
+    await rm(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs"), "user replacement")
+    const view = createWorkspaceSourceView(definition, createLocalWorkspaceStore(root), { reuseStartupSnapshots: true })
+
+    await expect(view.list("", { recursive: true })).rejects.toThrow("Workspace Source recovery failed: skills")
+    expect(await readFile(join(root, "docs"), "utf8")).toBe("user replacement")
+  })
+
   it.each([false, true])("preserves a replaced startup ancestor during point reads with snapshot reuse=%s", async (reuseStartupSnapshots) => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)

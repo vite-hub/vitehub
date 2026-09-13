@@ -412,9 +412,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       for (const source of items) {
         const snapshot = await readCurrentSourceSnapshot(store, source)
         if (snapshot?.status !== "ready") continue
-        if (source.mountPath && (await store.stat(source.mountPath))?.type !== "directory") {
-          incomplete.add(source.key)
-          continue
+        if (source.mountPath) {
+          let mount
+          try { mount = await store.stat(source.mountPath) }
+          catch (error) {
+            const code = error instanceof Error ? Reflect.get(error, "code") : undefined
+            if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "EISDIR") throw error
+          }
+          if (mount?.type !== "directory") {
+            incomplete.add(source.key)
+            continue
+          }
         }
         const files: WorkspaceFile[] = []
         for (const [path, item] of Object.entries(snapshot.items || {})) {
