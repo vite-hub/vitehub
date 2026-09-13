@@ -1274,6 +1274,9 @@ function workspaceMetadataInstructions<
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
     ? readColocatedAgentInstructionsRaw(options)
     : undefined
+  const instructionObject = configuredInstructions && hasRuntimeType(configuredInstructions, "object") && !Array.isArray(configuredInstructions) && !("mode" in configuredInstructions) && "template" in configuredInstructions
+    ? configuredInstructions
+    : undefined
   const parts = agentInstructionSources(configuredInstructions)
   const instructions = parts.flatMap((part) => {
     if (hasRuntimeType(part, "string") && part.trim().length > 0) return [part]
@@ -1284,9 +1287,21 @@ function workspaceMetadataInstructions<
     }
     return []
   })
-  if (defaultInstructions) instructions.unshift(defaultInstructions)
-  const content = instructions.join("\n\n").trim()
+  const composed = instructionObject
+    && typeof instructionObject.template === "string"
+    && typeof instructionObject.content === "string"
+    ? fillSynchronousInstructionSlot(instructionObject.template, instructionObject.content)
+    : undefined
+  const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()
   return content ? [content] : []
+}
+
+function fillSynchronousInstructionSlot(template: string, content: string): string {
+  let inFence = false
+  return template.split("\n").map((line) => {
+    if (/^\s*```/.test(line)) { inFence = !inFence; return line }
+    return !inFence ? line.replace(/\{\{\{\s*instructions\s*\}\}\}/g, content) : line
+  }).join("\n").trim()
 }
 
 async function staticWorkspaceMetadataInstructions<

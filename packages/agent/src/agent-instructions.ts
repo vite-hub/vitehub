@@ -1,5 +1,6 @@
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { fillInstructionSlot } from "./instruction-composition.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import type { AgentAdapterInstructions, AgentAdapterMetadataContext, AgentInstructionsContent, AgentRuntimeConfig } from "./types.ts"
 
 async function resolveContent<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
@@ -7,7 +8,7 @@ async function resolveContent<TRuntimeConfig extends AgentRuntimeConfig, Name ex
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
 ): Promise<string> {
   const parts = Array.isArray(input) ? input : [input]
-  const resolved = await Promise.all(parts.map(part => typeof part === "function" ? part(context) : part))
+  const resolved = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
   return resolved.flatMap(part => Array.isArray(part) ? part : [part]).map(part => part?.trim()).filter(Boolean).join("\n\n")
 }
 
@@ -16,7 +17,7 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
 ): Promise<string> {
-  if (input && typeof input === "object" && !Array.isArray(input)) {
+  if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     if ("mode" in input) return await resolveContent(input.value, context)
     const template = await resolveContent(input.template, context)
     const content = await resolveContent(input.content, context)
@@ -29,7 +30,7 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
 export function agentInstructionSources<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
 ) {
-  if (input && typeof input === "object" && !Array.isArray(input)) {
+  if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     return ("mode" in input ? [input.value] : [input.template, input.content]).flat(2)
   }
   return [input].flat(2)
