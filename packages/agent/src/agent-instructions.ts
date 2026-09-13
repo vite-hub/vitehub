@@ -18,9 +18,13 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
 ): Promise<string> {
   if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
-    if ("mode" in input) return await resolveContent(input.value, context)
-    const template = await resolveContent(input.template, context)
-    const content = await resolveContent(input.content, context)
+    if ("mode" in input) {
+      const replacement = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { mode: "replace" }>
+      return await resolveContent(replacement.value, context)
+    }
+    const composed = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { template: unknown }>
+    const template = await resolveContent(composed.template, context)
+    const content = await resolveContent(composed.content, context)
     return await fillInstructionSlot(template, content)
   }
   return await resolveContent(input, context)
@@ -31,7 +35,12 @@ export function agentInstructionSources<TRuntimeConfig extends AgentRuntimeConfi
   input: AgentAdapterInstructions<TRuntimeConfig, Name> | undefined,
 ) {
   if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
-    return ("mode" in input ? [input.value] : [input.template, input.content]).flat(2)
+    if ("mode" in input) {
+      const replacement = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { mode: "replace" }>
+      return [replacement.value].flat(2)
+    }
+    const composed = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { template: unknown }>
+    return [composed.template, composed.content].flat(2)
   }
   return [input].flat(2)
 }
