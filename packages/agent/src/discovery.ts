@@ -117,13 +117,15 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             // Record namespace bindings only for the Agent package import.
             // Local objects may expose a similarly named method.
             let moduleToken: string | undefined
+            // Resolve the source only within this import declaration.
             for (let k = j + 2; k < tokens.length; k++) {
-              if (tokens[k] === "from") {
-                const candidate = tokens[k + 1]
-                if (candidate && /^['"`]/.test(candidate)) moduleToken = candidate
+              const candidate = tokens[k]
+              if (candidate === ";" || candidate === "import" || candidate === "export") break
+              if (candidate === "from") {
+                const source = tokens[k + 1]
+                if (source && /^['"`]/.test(source)) moduleToken = source
                 break
               }
-              if (tokens[k] === ";" || tokens[k] === "import" || tokens[k] === "export") break
             }
             const moduleName = moduleToken?.slice(1, -1)
             if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") importedNamespaces.add(tokens[j + 1])
