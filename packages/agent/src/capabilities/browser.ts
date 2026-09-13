@@ -139,7 +139,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
   const skillPath = normalizeSkillPath(options.skillPath || ".agents/skills/agent-browser/SKILL.md")
   const sourceKey = options.sourceKey || "skill.browser"
   const runtimeMode = options.runtime ?? (command === "agent-browser" ? "managed" : "external")
-  const invocationSkillContentKey = Symbol("vitehub.browser.skill-content")
+  const invocationSkillContentKey = "vitehub.browser.skill-content"
   const defaultSkillContent = options.skillContent || defaultBrowserSkillContent.replaceAll("agent-browser", command)
 
   return Object.assign(defineCapability({
