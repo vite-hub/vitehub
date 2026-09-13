@@ -352,7 +352,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       workerDriver.env === undefined
                         ? undefined
                         : await resolveRuntimeValue(workerDriver.env, context);
-                    return repairEnvironment(environment, join(checkout, ".vitehub-github-auth"));
+                    return repairEnvironment(environment, join(checkout, ".vitehub-github-auth"), prepared.env);
                   },
                   launch: async (context) => {
                     if (context.purpose !== "inspection") {

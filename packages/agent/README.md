@@ -652,6 +652,8 @@ repositories and concurrency. In a ViteHub application, obtain the Agent through
 Connect `reconcile` to a Process Agent Host, `inbox.ingest` to the signed GitHub
 webhook receiver, and `workload` to health inspection. Keep credentials, provider
 settings, host capacity, telemetry and deployment resources in the application.
+Configure the GitHub host identity with a login and email for repair commits.
+Only its author and committer identity fields pass to the worker; credentials do not.
 
 Each pass uses a disposable Codex workspace with edit permission. GitHub tokens
 stay on the host. Tools provide PR-bound log reads, repair pushes, comments,

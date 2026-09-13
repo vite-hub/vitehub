@@ -1,4 +1,6 @@
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -160,7 +162,7 @@ async function fixture(autoMerge = false) {
         prepareWorkspace: prepare,
         push,
         signal: checkoutController.signal,
-        env: {},
+        env: { GIT_AUTHOR_NAME: "Repair bot", GIT_AUTHOR_EMAIL: "repair@example.test", GIT_COMMITTER_NAME: "Repair bot", GIT_COMMITTER_EMAIL: "repair@example.test", GH_TOKEN: "host-secret" },
         token: "host-secret",
       } as Parameters<Parameters<GitHubHost["withPullRequestCheckout"]>[1]>[0]),
   };
@@ -282,6 +284,16 @@ describe("Babysitter preset runtime", () => {
     const environment = createProviderRuntime.mock.calls[0]?.[0].environment;
     expect(environment).not.toHaveProperty("GH_TOKEN");
     expect(environment).toHaveProperty("OPENAI_API_KEY", "provider-only");
+    const commitRoot = await mkdtemp(join(tmpdir(), "vitehub-babysitter-commit-"));
+    roots.push(commitRoot);
+    const git = promisify(execFile);
+    const execution = { cwd: commitRoot, env: environment };
+    await git("git", ["init", "--quiet"], execution);
+    await writeFile(join(commitRoot, "repair.txt"), "verified repair");
+    await git("git", ["add", "repair.txt"], execution);
+    await git("git", ["commit", "--quiet", "-m", "Repair"], execution);
+    const author = await git("git", ["log", "-1", "--format=%an <%ae>"], execution);
+    expect(author.stdout.trim()).toBe("Repair bot <repair@example.test>");
     const requests = f.command.mock.calls.length;
     await f.reconcile();
     expect(f.passes).toHaveLength(1);

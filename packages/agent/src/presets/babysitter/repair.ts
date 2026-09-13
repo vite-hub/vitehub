@@ -110,10 +110,15 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
 export function repairEnvironment(
   environment: Record<string, string | undefined> = {},
   githubConfigDirectory: string,
+  identity: Record<string, string | undefined> = {},
 ): Record<string, string | undefined> {
   const result = Object.fromEntries(
     Object.entries(environment).filter(([key]) => !/^(?:GH_|GITHUB_|GIT_)/i.test(key)),
   );
+  for (const key of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"]) {
+    const value = identity[key] ?? environment[key];
+    if (value !== undefined) result[key] = value;
+  }
   return {
     ...result,
     GH_CONFIG_DIR: githubConfigDirectory,
