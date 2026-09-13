@@ -2563,12 +2563,19 @@ async function* runProvider<
               ? input.prompt
               : hasRuntimeType(input.message, "string")
                 ? input.message
-                : messages.map(message => {
-                    if (hasRuntimeType((message as { content?: unknown }).content, "string")) return (message as { content: string }).content
-                    return getMessageText(message)
-                  }).join("\n\n")
+                : messages.map(getMessageText).join("\n\n")
             if (!activeTurnId || !text?.trim()) return "unsupported"
-            try { await activeRuntime.sendTurn({ threadId, input: text }); return "accepted" } catch { return "unavailable" }
+            try {
+              const steered = await activeRuntime.sendTurn({ threadId, input: text })
+              if (steered.turnId !== activeTurnId) {
+                await activeRuntime.interruptTurn(threadId, steered.turnId).catch(() => undefined)
+                return "unsupported"
+              }
+              const id = crypto.randomUUID()
+              emitToolEvent({ type: "data-agent-event", id, data: { kind: "input.message", value: { message: text, mode: "steer" } } })
+              emitToolEvent({ type: "data-agent-event", id, data: { kind: "input.steered", value: { mode: "steer" } } })
+              return "accepted"
+            } catch { return "unavailable" }
           }
           if (inputOptions.mode !== "respond") return "unsupported"
           try {
@@ -2631,6 +2638,10 @@ async function* runProvider<
       const current = raced.provider
       if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
       if (current.value.threadId && current.value.threadId !== threadId) {
+        nextEvent = events.next()
+        continue
+      }
+      if (current.value.turnId && current.value.turnId !== turn.turnId) {
         nextEvent = events.next()
         continue
       }

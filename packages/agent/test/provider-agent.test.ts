@@ -2017,6 +2017,8 @@ cli_auth_credentials_store = "keyring"
     const threadId = "thread-events"
     const provider = runtime(threadId, [
       event("session.started", threadId, { provider: "codex" }),
+      event("content.delta", threadId, { delta: "old answer", streamKind: "assistant_text" }, { turnId: "old-turn" }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 90, outputTokens: 10 } }, { turnId: "old-turn" }),
       event("content.delta", threadId, { delta: "thinking", streamKind: "reasoning_text" }, { turnId: "turn-1" }),
       event("item.started", threadId, { data: { command: "pwd" }, itemType: "command_execution", title: "shell" }, { itemId: "tool-1", turnId: "turn-1" }),
       event("item.completed", threadId, { data: { stdout: "/tmp" }, itemType: "command_execution", status: "completed", title: "shell" }, { itemId: "tool-1", turnId: "turn-1" }),
@@ -3218,6 +3220,9 @@ cli_auth_credentials_store = "keyring"
     const calls = provider.sendTurn.mock.calls.length
     await expect(sendAgentInvocationInput(invocationId, { messages: [{ ...message, parts: [...message.parts, { type: "data", data: "private" }] }] }, { mode: "steer" })).resolves.toBe("unsupported")
     expect(provider.sendTurn).toHaveBeenCalledTimes(calls)
+    provider.sendTurn.mockResolvedValueOnce({ resumeCursor: undefined, threadId, turnId: "successor" })
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "rejected successor" }, { mode: "steer" })).resolves.toBe("unsupported")
+    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "successor")
     await expect(sendAgentInvocationInput(invocationId, {
       messages: [{
         id: "response-1",
@@ -3230,7 +3235,10 @@ cli_auth_credentials_store = "keyring"
     }, { mode: "respond" })).resolves.toBe("accepted")
     await expect(result).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ data: { questions: [{ id: "scope" }], requestId: "input-1", status: "requested" }, type: "data-agent-input" }),
+      expect.objectContaining({ data: { kind: "input.message", value: { message: "change course", mode: "steer" } }, type: "data-agent-event" }),
+      expect.objectContaining({ data: { kind: "input.steered", value: { mode: "steer" } }, type: "data-agent-event" }),
     ]))
+    expect(JSON.stringify(await result)).not.toContain("rejected successor")
     expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "accept")
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
   })
