@@ -51,10 +51,10 @@ catalogs:
   h3-v1-compat:
     h3: ^1.15.11
   markdown:
-    "@comark/html": 0.6.2
+    "@comark/html": 0.7.0
     "@types/mdast": ^4.0.4
-    comark: 0.6.2
-    comark-content: 0.3.0
+    comark: 0.7.0
+    comark-content: 0.4.0
   nuxt:
     "@takumi-rs/core": 2.10.0
     "@nuxt/content": ^3.16.0

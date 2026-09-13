@@ -73,6 +73,38 @@ describe("contentSource", () => {
     await expect(content.cache.keys("docs")).resolves.toEqual(["docs:guide/index.md"])
   })
 
+  it("routes named-source cache and plugin operations across multiple instances", async () => {
+    function source(title: string) {
+      return {
+        keys: () => ["index.md"],
+        getItem: () => `# ${title}`,
+        getItemRaw: () => title,
+      }
+    }
+    const content = defineContent({
+      plugins: [
+        media(),
+        { name: "custom", setup: () => ({ greeting: () => "hello" }) },
+      ],
+      sources: {
+        first: contentSource(source("First"), { prefix: "/first" }),
+        second: contentSource(source("Second"), { prefix: "/second" }),
+      },
+    })
+    await content.init()
+    expect(content.greeting()).toBe("hello")
+    expect(content.media.get).toBeTypeOf("function")
+    expect(content.getSource("second")?.prefix).toBe("/second")
+    expect(await content.list("second")).toEqual([expect.objectContaining({ path: "/second" })])
+    await content.cache.refresh("second")
+    expect(await content.cache.keys()).toEqual(["first:index.md", "second:index.md"])
+    expect(await content.cache.get("second:index.md")).toMatchObject({ path: "/second" })
+    await content.cache.invalidate("second:index.md")
+    expect(await content.cache.get("second:index.md")).toBeNull()
+    expect(await content.get("/second")).toMatchObject({ path: "/second" })
+    await content.dispose()
+  })
+
   it.each(["definition", "name", "factory"] as const)("uses a fresh reader on refresh with a %s", async (input) => {
     let revision = 1
     const prepared: string[] = []
@@ -426,7 +458,7 @@ describe("contentSource", () => {
         },
       },
     })
-    const content = comarkContent({
+    const content = comarkContent("direct", {
       plugins: [testPlugin("direct-refresh", (content) => {
         content.addParser([".md"], async ({ partial, read }) => {
           const texts = await Promise.all([read(), read()])
@@ -434,12 +466,12 @@ describe("contentSource", () => {
           return { data: { text: texts[0] }, kind: "document", partial }
         })
       })],
-      sources: { direct: contentSource("direct" as SourceName) },
+      source: contentSource("direct" as SourceName),
     })
 
     await content.init()
-    await content.cache.refresh("direct")
-    await content.cache.refresh("direct")
+    await content.refresh()
+    await content.refresh()
 
     expect(revision).toBe(3)
     expect(parsed).toEqual([

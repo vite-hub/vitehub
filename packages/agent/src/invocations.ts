@@ -22,7 +22,7 @@ const MAX_ANNOTATION_STRING_LENGTH = 512
 const MAX_CAPABILITY_IDS = 256
 const MAX_METADATA_STRING_LENGTH = 512
 const MAX_OBSERVATION_CONTENT_STRING_LENGTH = 64 * 1024
-const MAX_OBSERVATIONS = 256
+const MAX_OBSERVATIONS = 32 * 1024
 const DEFAULT_OBSERVATION_BYTES = 16 * 1024 * 1024
 const MAX_OBSERVATION_ATTRIBUTES = 32
 const MAX_OBSERVATION_COLLECTION_ITEMS = 32
@@ -141,7 +141,7 @@ export interface AgentInvocationStore {
 }
 
 export interface AgentInvocationObservationOptions {
-  /** Retained observations, including lifecycle outcomes. Default 256; maximum 8192. */
+  /** Retained observations, including lifecycle outcomes. Default 32768; maximum 32768. */
   maxCount?: number
   /** Maximum content string length in UTF-16 code units. Default 65536; maximum 1048576. */
   maxStringLength?: number
@@ -160,7 +160,7 @@ const defaultObservationLimits = {
 
 export function observationLimits(options: AgentInvocationObservationOptions = {}): Required<AgentInvocationObservationOptions> {
   const limits = { ...defaultObservationLimits }
-  const maximum = { maxCount: 8192, maxStringLength: 1024 * 1024, maxBytes: 64 * 1024 * 1024, flushTimeoutMs: 60_000 }
+  const maximum = { maxCount: 32 * 1024, maxStringLength: 1024 * 1024, maxBytes: 64 * 1024 * 1024, flushTimeoutMs: 60_000 }
   for (const key of ["maxCount", "maxStringLength", "maxBytes", "flushTimeoutMs"] as const) {
     const value = options[key]
     if (value === undefined) continue

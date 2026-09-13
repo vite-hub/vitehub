@@ -77,6 +77,7 @@
     "./agent/evlog/posthog": "./dist/agent/evlog/posthog.js",
     "./agent/invocations/d1": "./dist/agent/invocations/d1.js",
     "./agent/invocations/sqlite": "./dist/agent/invocations/sqlite.js",
+    "./agent/presets/workspace": "./dist/agent/presets/workspace.js",
     "./agent/mcp": "./dist/agent/mcp.js",
     "./agent/runtime/process": "./dist/agent/runtime/process.js",
     "./agent/server": "./dist/agent/server.js",
