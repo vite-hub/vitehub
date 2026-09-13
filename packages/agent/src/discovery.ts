@@ -81,10 +81,16 @@ function tokenizeAgentSource(source: string): string[] {
 function isWorkspaceAgentDefinition(source: string): boolean {
   const tokens = tokenizeAgentSource(source)
   const declarations = new Map<string, number>()
+  const imported = new Set<string>()
   let exported: number | undefined
   let depth = 0
   for (let i = 0; i < tokens.length; i++) {
     if (depth === 0) {
+      if (tokens[i] === "import") {
+        for (let j = i + 1; j < tokens.length && tokens[j] !== ";"; j++) {
+          if (/^[A-Za-z_$]/.test(tokens[j]) && !["from", "as", "type"].includes(tokens[j])) imported.add(tokens[j])
+        }
+      }
       if (["const", "let", "var"].includes(tokens[i])) {
         const name = tokens[i + 1]
         let equals = i + 2
@@ -168,6 +174,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         return true
       }
       if (tokens[value] === "defineWorkspace") return true
+      if (imported.has(tokens[value])) return true
       if (/^["'`]/.test(tokens[value] ?? "")) return false
     }
     const preset = options.get("preset")
