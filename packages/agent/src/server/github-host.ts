@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { execFile } from "node:child_process"
 import type { ExecFileOptionsWithStringEncoding } from "node:child_process"
 import { createHash, createSign } from "node:crypto"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -12,6 +12,7 @@ import { Diagnostic } from "nostics"
 
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
 
 const exec = promisify(execFile)
 const GITHUB_RATE_LIMIT_FALLBACK_MS = 5 * 60_000
@@ -57,6 +58,13 @@ export interface GitHubHostPullRequest {
   repository: string
 }
 
+export interface GitHubHostCheckout extends GitHubHostAccess {
+  path: string
+  prepareWorkspace(target: string): Promise<void>
+  push(target?: string): Promise<string>
+  signal: AbortSignal
+}
+
 export interface GitHubHostCheckoutOptions {
   signal?: AbortSignal
   timeout?: number
@@ -99,7 +107,7 @@ export interface GitHubHost {
   command(args: string[], input?: GitHubHostCommandOptions): Promise<{ stderr: string, stdout: string }>
   ensureGraphQLBudget(repository: string, options: GitHubGraphQLBudgetOptions): Promise<GitHubGraphQLReservation>
   isRateLimitError(error: unknown): boolean
-  withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostAccess & { path: string, push: () => Promise<void>, signal: AbortSignal }) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
+  withPullRequestCheckout<T>(pullRequest: GitHubHostPullRequest, run: (checkout: GitHubHostCheckout) => Promise<T>, options?: GitHubHostCheckoutOptions): Promise<T>
 }
 
 class GitHubRateLimitError extends Diagnostic {
@@ -396,7 +404,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       GIT_CONFIG_KEY_1: "credential.https://github.com.helper",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_CONFIG_VALUE_0: "",
-      GIT_CONFIG_VALUE_1: "!gh auth git-credential",
+      GIT_CONFIG_VALUE_1: '!f() { if [ "$1" = get ]; then printf "username=x-access-token\\npassword=%s\\n" "$GH_TOKEN"; fi; }; f',
       GIT_TERMINAL_PROMPT: "0",
     }
     if (identity.login) {
@@ -630,9 +638,18 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   async function withPullRequestCheckout<T>(
     pullRequest: GitHubHostPullRequest,
-    run: (checkout: GitHubHostAccess & { path: string, push: () => Promise<void>, signal: AbortSignal }) => Promise<T>,
+    run: (checkout: GitHubHostCheckout) => Promise<T>,
     options: GitHubHostCheckoutOptions = {},
   ): Promise<T> {
+    if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headSha must be a full Git commit SHA." })
+    for (const repository of [pullRequest.repository, pullRequest.headRepository]) {
+      if (repository !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repository)) {
+        throw agentDiagnostics.AGENT_R0766({ message: "Expected a GitHub repository in owner/name form." })
+      }
+    }
+    if (pullRequest.headRepository && !pullRequest.headRef) {
+      throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef is required when headRepository is supplied." })
+    }
     const checkout = await mkdtemp(join(tmpdir(), `vitehub-${pullRequest.repository.replace("/", "-")}-pr-${pullRequest.number}-`))
     const operation = controlledOperation(options)
     try {
@@ -643,8 +660,22 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       })
       const env = { ...process.env, ...baseAuth.env, GH_HOST: "github.com" }
       const commandOptions = { env, maxBuffer, signal: operation.signal }
-      await exec("gh", ["repo", "clone", `https://github.com/${pullRequest.repository}.git`, checkout, "--", "--filter=blob:none", "--no-checkout"], commandOptions)
-      await exec("gh", ["pr", "checkout", String(pullRequest.number), "--repo", pullRequest.repository], { ...commandOptions, cwd: checkout })
+      if (pullRequest.headRef) {
+        await exec("git", ["check-ref-format", `refs/heads/${pullRequest.headRef}`], commandOptions)
+        if (pullRequest.headRef.startsWith("-")) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef cannot start with a dash." })
+      }
+      await exec("git", ["clone", "--filter=blob:none", "--no-checkout", "--", `https://github.com/${pullRequest.repository}.git`, checkout], commandOptions)
+      if (pullRequest.headRef) {
+        // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
+        const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
+        const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
+        await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
+        await exec("git", ["-C", checkout, "checkout", "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
+      }
+      else {
+        await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
+        await exec("git", ["-C", checkout, "checkout", "--detach", "FETCH_HEAD"], commandOptions)
+      }
       await exec("git", ["-C", checkout, "remote", "set-url", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
       const pushUrl = pullRequest.headRepository
         ? `https://github.com/${pullRequest.headRepository}.git`
@@ -657,19 +688,45 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
       if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` })
       operation.signal.throwIfAborted()
-      const push = async () => {
+      const prepareWorkspace = async (target: string) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal })
+      let pushHead = pullRequest.headSha
+      const push = async (target: string = checkout) => {
+        const expectedHead = pushHead
+        if (!pullRequest.headRepository || !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "Pull request source repository and branch are required to push." })
+        const readEnv = { ...process.env }
+        delete readEnv.GH_TOKEN
+        delete readEnv.GITHUB_TOKEN
+        delete readEnv.GIT_DIR
+        delete readEnv.GIT_WORK_TREE
+        delete readEnv.GIT_INDEX_FILE
+        delete readEnv.GIT_COMMON_DIR
+        for (const key of Object.keys(readEnv)) if (key.startsWith("GIT_CONFIG_")) delete readEnv[key]
+        readEnv.GIT_CONFIG_NOSYSTEM = "1"
+        readEnv.GIT_CONFIG_GLOBAL = "/dev/null"
+        const readOptions = { env: readEnv, maxBuffer, signal: operation.signal }
+        const root = (await exec("git", ["-C", target, "rev-parse", "--show-toplevel"], readOptions)).stdout.trim()
+        if (await realpath(root) !== await realpath(target)) throw agentDiagnostics.AGENT_R0766({ message: "Push target must be the root of its prepared Git checkout." })
+        const head = (await exec("git", ["-C", target, "rev-parse", "HEAD"], readOptions)).stdout.trim()
+        if (!/^[a-f0-9]{40}$/i.test(head)) throw agentDiagnostics.AGENT_R0766({ message: "Push target did not return a full Git commit SHA." })
+        if (await realpath(target) !== await realpath(checkout)) {
+          // Import without host credentials. Authenticated Git only reads our trusted clone's config.
+          await exec("git", ["-C", checkout, "-c", "protocol.file.allow=always", "-c", "uploadpack.packObjectsHook=", "fetch", "--no-tags", "--", await realpath(target), head], readOptions)
+        }
+        await exec("git", ["-C", checkout, "merge-base", "--is-ancestor", expectedHead, head], commandOptions)
         const refreshed = await access({
           refresh: true,
-          repository: pullRequest.headRepository || pullRequest.repository,
+          repository: pullRequest.headRepository,
           signal: operation.signal,
         })
-        await exec("git", ["-C", checkout, "push", "origin"], {
+        await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "push", "--no-verify", `--force-with-lease=refs/heads/${pullRequest.headRef}:${expectedHead}`, "--", pushUrl, `${head}:refs/heads/${pullRequest.headRef}`], {
           env: { ...process.env, ...refreshed.env },
           maxBuffer,
           signal: operation.signal,
         })
+        pushHead = head
+        return head
       }
-      return await checkoutScope.run({ ...baseAuth, path: checkout }, () => run({ ...baseAuth, path: checkout, push, signal: operation.signal }))
+      return await checkoutScope.run({ ...baseAuth, path: checkout }, () => run({ ...baseAuth, path: checkout, prepareWorkspace, push, signal: operation.signal }))
     }
     finally {
       operation.close()
