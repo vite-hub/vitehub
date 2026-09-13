@@ -946,7 +946,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       entries[entry.path] = {
         type: entry.type,
         digest: entry.digest,
-        metadata: entry.metadata,
+        metadata: copyJsonFileMetadata(entry.path, entry.metadata),
         size: entry.size,
       }
     }
