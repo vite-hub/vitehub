@@ -98,7 +98,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9])((?:--)?["']?_*((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*(?::?=|\?=|\+=|:=|:)[\t ]*|\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?_*((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*(?::?=|\?=|\+=|:=|:)[\t ]*|\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 

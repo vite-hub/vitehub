@@ -1929,7 +1929,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const accumulatedPartition = options.provider === "codex" && options.accumulator.observedPartition && options.accumulator.partitionComplete && !options.accumulator.identityAmbiguous
   const totalTokens = accumulatedPartition
     ? options.accumulator.inputTokens + options.accumulator.outputTokens
-    : options.provider === "codex" && (options.accumulator.observedPartition || !options.accumulator.partitionComplete)
+    : options.provider === "codex" && options.accumulator.observedPartition
       ? undefined
       : partitionTotal ?? usedTokens ?? (options.resumed ? undefined : cumulative)
   // Codex reports thread-wide totalProcessedTokens alongside latest-response partitions.
