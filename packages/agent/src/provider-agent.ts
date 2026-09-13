@@ -1623,6 +1623,8 @@ function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvena
   return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding. For example, root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor. Never cite /workspace paths, other local filesystem paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
 }
 
+let workspaceSetupLock: Promise<void> = Promise.resolve()
+
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
   if (!context.workspace) return
   if (process.platform === "win32") {
@@ -1643,15 +1645,18 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   // Ensure session setup itself initializes repositories with SHA-1, before it
   // materializes and commits the provider baseline. A post-setup reinit can
   // conflict with an already-created SHA-256 repository.
+  const release = workspaceSetupLock
+  let unlock!: () => void
+  workspaceSetupLock = new Promise(resolve => { unlock = resolve })
+  await release
   const previousDefaultHash = process.env.GIT_DEFAULT_HASH
   process.env.GIT_DEFAULT_HASH = "sha1"
   let session: WorkspaceSession
-  try {
-    session = await workspaceSessionStarter(context.workspace)(sessionOptions)
-  }
+  try { session = await workspaceSessionStarter(context.workspace)(sessionOptions) }
   finally {
     if (previousDefaultHash === undefined) delete process.env.GIT_DEFAULT_HASH
     else process.env.GIT_DEFAULT_HASH = previousDefaultHash
+    unlock()
   }
   return { provenance, session }
 }
