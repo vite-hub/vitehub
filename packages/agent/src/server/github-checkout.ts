@@ -29,9 +29,9 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   delete env.GIT_COMMON_DIR
   delete env.GIT_OBJECT_DIRECTORY
   delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES
-  delete env.GIT_CONFIG_GLOBAL
+  env.GIT_CONFIG_GLOBAL = '/dev/null'
+  env.GIT_CONFIG_NOSYSTEM = '1'
   delete env.GIT_CONFIG_SYSTEM
-  delete env.GIT_CONFIG_NOSYSTEM
   for (const key of Object.keys(env)) if (key.startsWith('GIT_CONFIG_')) delete env[key]
   const git = async (cwd: string, args: string[]) => (await exec('git', args, { cwd, env, signal: options.signal })).stdout.trim()
   // The host checkout already contains complete history; copying must not
@@ -114,12 +114,10 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     await sanitize('--worktree')
     if (materializedPaths) {
       const trackedPaths = new Set((await git(destination, ['ls-files', '-z'])).split('\0').filter(Boolean))
-      for (const path of trackedPaths) {
-        if (!materializedPaths.has(path) || /(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(path)) await git(destination, ['update-index', '--skip-worktree', '--', path])
-        // Start selected tracked files at the PR version so pre-existing
-        // materialization differences cannot enter the provider's repair.
-        else await git(destination, ['checkout-index', '--force', '--', path])
-      }
+      const omitted = [...trackedPaths].filter(path => !materializedPaths.has(path) || /(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(path))
+      if (omitted.length) await git(destination, ['update-index', '--skip-worktree', '--', ...omitted])
+      const selected = [...trackedPaths].filter(path => materializedPaths.has(path) && !/(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(path))
+      if (selected.length) await git(destination, ['checkout-index', '--force', '--', ...selected])
       // Keep generated-only baseline files out of a provider's ordinary git add -A.
       const generated = [...materializedPaths].filter(path => !trackedPaths.has(path))
       if (generated.length) {
