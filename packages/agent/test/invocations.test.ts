@@ -3565,6 +3565,35 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}apiToken=[REDACTED];status=ok`)
   })
 
+  it.each(["characters", "events"])("redacts a passphrase key split at a %s journal flush", async (boundary) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = boundary === "characters" ? ".".repeat(512) : ""
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${prefix}sshPassp`, "hrase=sensitive-value;status=ok"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+          if (boundary === "events") await context.traceLog?.append({ name: "agent.tool.start", type: "run", attributes: { "tool.name": "inspect" } })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-passphrase-credential"), {})
+    const observations = (await invocations.getByRunId("split-passphrase-credential"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${prefix}sshPassphrase=[REDACTED];status=ok`)
+  })
+
   it("does not detach a closed marker-like credential from its assignment", async () => {
     const invocations = defineAgentInvocations({
       content: "content",

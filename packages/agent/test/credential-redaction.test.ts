@@ -82,7 +82,7 @@ describe("credential key boundaries", () => {
   })
 })
 
-it.each(["apiToken", "apiTOKEN", "clientSecret", "dbPassword", "accessKey", "oauth2Token"])("retains split credential suffixes in %s", (key) => {
+it.each(["apiToken", "apiTOKEN", "clientSecret", "dbPassword", "accessKey", "oauth2Token", "sshPassphrase", "sshPASSPHRASE"])("retains split credential suffixes in %s", (key) => {
   const markerStart = key.search(/[A-Z]/)
   for (let split = markerStart + 1; split <= key.length; split++) {
     const prefix = key.slice(0, split)
