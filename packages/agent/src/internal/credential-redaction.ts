@@ -13,6 +13,25 @@ function isCredentialKey(key: string): boolean {
     || /[a-z0-9](?:Key|Secret|Token|Password|Passphrase|Auth|KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|AUTH)$/.test(key)
 }
 
+function yamlBlockContext(value: string): { header: string, indent: number } | undefined {
+  let block: { header: string, indent: number } | undefined
+  const lines = value.split(/\r\n|[\r\n]/)
+  for (const [index, line] of lines.entries()) {
+    if (!line.trim()) continue
+    const spaces = /^ */.exec(line)![0].length
+    if (block && spaces >= block.indent) continue
+    block = undefined
+    const header = /^( *)(?:- +)?(?:[\w-]+|"[^"\r\n]+"|'[^'\r\n]+'):[\t ]+(?:(?:&\S+|!\S+)[\t ]+)*[|>]([1-9+-]*)[\t ]*(?:#.*)?$/.exec(line)
+    if (!header) continue
+    const parent = /^ *- +/.exec(line)?.[0].length ?? header[1]!.length
+    const explicit = /[1-9]/.exec(header[2]!)?.[0]
+    const indent = parent + (explicit ? Number(explicit) : 1)
+    // Retain only syntax, never the scalar's text or the original field name.
+    block = { header: `${" ".repeat(parent)}x: |${explicit ?? ""}${index === lines.length - 1 ? "" : "\n"}`, indent }
+  }
+  return block
+}
+
 function isCredentialAssignment(key: string, prefix: string, precedingText: string): boolean {
   const cli = prefix.startsWith("--")
   if (!isCredentialKey(key)) return false
@@ -21,6 +40,9 @@ function isCredentialAssignment(key: string, prefix: string, precedingText: stri
     return cli || /^password$/i.test(key) && /(?:^|\s)(?:machine\s+\S+|default)(?:\s+login\s+\S+)?\s+$/i.test(precedingText)
   }
   if (!prefix.trimEnd().endsWith(":")) return true
+  const block = yamlBlockContext(precedingText)
+  const line = precedingText.split(/\r\n|[\r\n]/).at(-1) ?? ""
+  if (block && /^ */.exec(line)![0].length >= block.indent) return false
   // Authorization headers have already been redacted with their scheme preserved.
   if (/^(?:proxy-)?authorization$/i.test(key)) return false
   // Generic token/key fields also describe parser tokens and object identifiers.
@@ -401,6 +423,9 @@ export function pendingCredentialQuote(value: string, precedingText = ""): strin
 // Preserve assignment context between bounded journal chunks without retaining values.
 export function credentialTextLineContext(value: string): string {
   const lastLine = value.split(/[\r\n]/).at(-1) ?? ""
+  const block = yamlBlockContext(value)
+  if (block && !block.header.endsWith("\n")) return block.header
+  if (block) return block.header + (/^ *$/.test(lastLine) ? lastLine : `${/^ */.exec(lastLine)![0]}x `)
   const authorizationHeader = /\b(?:proxy-)?authorization["']?\s*:\s*["']?\s*$/i.test(lastLine)
   if (/[{,[]\s*$/.test(lastLine)) return lastLine.trimEnd().slice(-1) + " "
   return authorizationHeader ? "Authorization: " : /^(?:[\t "']*| *- +)$/.test(lastLine) ? lastLine : "x "

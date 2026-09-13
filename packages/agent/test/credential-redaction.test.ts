@@ -472,6 +472,27 @@ it.each(["password", "secret"])("redacts bare YAML %s fields with retained line 
   expect(credentialTextMayContinue(`${key}: ordinary`, "Field label. ")).toBe(false)
 })
 
+it.each(["\n", "\r", "\r\n"])("preserves field-like YAML block prose with %j line endings", (newline) => {
+  for (const indicator of ["|", ">-", "|2", "|-2", "&message !!str >+"]) {
+    const header = `message: ${indicator}${newline}`
+    const prose = '  password: "ordinary words"'
+    const value = `${header}${prose}${newline}api_key: sensitive${newline}status: ok`
+    expect(redactCredentialText(value)).toBe(`${header}${prose}${newline}api_key: [REDACTED]${newline}status: ok`)
+    for (let split = header.length; split <= header.length + prose.length; split++) {
+      const context = credentialTextLineContext(value.slice(0, split))
+      expect(context).not.toContain("ordinary")
+      expect(redactCredentialText(value.slice(split), context)).toBe(redactCredentialText(value).slice(split))
+    }
+    const context = credentialTextLineContext(header + "  ")
+    const headerContext = credentialTextLineContext(header.slice(0, -newline.length))
+    expect(redactCredentialText(newline + prose, headerContext)).toBe(newline + prose)
+    expect(pendingCredentialQuote('password: "ordinary', context)).toBeUndefined()
+    expect(pendingCredentialAssignmentState('password: "ordinary', context)).toBeUndefined()
+    const continued = credentialTextLineContext(context + prose.trimStart() + newline + "  ")
+    expect(redactCredentialText('secret: "more prose"', continued)).toBe('secret: "more prose"')
+  }
+})
+
 describe("credential line context across journal chunks", () => {
   it.each(["- ", "  - ", "  -   "])("preserves YAML list prefix %j", (prefix) => {
     const context = credentialTextLineContext(`config:\n${prefix}`)
