@@ -1876,9 +1876,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     }
     if (completesRawOnly) {
       options.accumulator.calls[options.accumulator.calls.length - 1] = call
-      // The previously raw-only snapshot is now proven to be this measured
-      // partition; it no longer makes the aggregate identity ambiguous.
-      options.accumulator.identityAmbiguous = false
+      // Clear ambiguity only when every retained call now has measured usage.
+      // Earlier unresolved raw-only partitions must keep aggregate evidence unknown.
+      options.accumulator.identityAmbiguous = options.accumulator.calls.some(call => call.usage === undefined)
     } else options.accumulator.calls.push(call)
     options.accumulator.observedPartition = true
   }
