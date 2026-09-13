@@ -73,7 +73,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
         try {
           const directory = await store.stat(entry.path)
           const owner = directory?.metadata?.source
-          if (directory?.type === "directory" && typeof owner === "string"
+          if (directory?.type === "directory" && hasRuntimeType(owner, "string")
             && generatedDirectoryOwners.get(entry.path)?.has(owner)) continue
         }
         catch (error) {
