@@ -301,7 +301,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // owned Workspace definition. Runtime applies the same distinction.
         const workspaceProperties = properties(value)
         const name = workspaceProperties.get("name")
-        if (name !== undefined && /^(["\'`])/.test(tokens[resolveReference(name)] ?? "")) return false
+        if (name !== undefined) {
+          const nameValue = resolveReference(name)
+          if (/^(["\'`])/.test(tokens[nameValue] ?? "")) return false
+        }
         return true
       }
       if (tokens[value] === "defineWorkspace") return true
