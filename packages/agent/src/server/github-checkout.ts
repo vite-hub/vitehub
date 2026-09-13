@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { cp, lstat, realpath, rm } from 'node:fs/promises'
+import { appendFile, cp, lstat, realpath, rm } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -74,6 +74,8 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       if (file === 'AGENTS.md' || file === 'CLAUDE.md') continue
       await cp(join(source, file), join(destination, file), { recursive: true })
     }
+    // Keep provider-generated instruction files outside ordinary repair staging.
+    await appendFile(join(destination, '.git', 'info', 'exclude'), '\nAGENTS.md\nCLAUDE.md\n')
   }
   catch (error) {
     await rm(join(destination, '.git'), { recursive: true, force: true })
