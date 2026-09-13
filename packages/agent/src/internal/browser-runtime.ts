@@ -160,7 +160,10 @@ const collectDescendants = async () => {
   let changed = true
   while (changed) {
     changed = false
-    const entries = await readdir('/proc')
+    const entries = await readdir('/proc').catch(error => {
+      if (error.code === 'ENOENT' || error.code === 'EACCES' || error.code === 'EPERM') return []
+      throw error
+    })
     const parents = new Set(descendants)
     for (const pid of entries) {
       if (!/^[0-9]+$/.test(pid)) continue

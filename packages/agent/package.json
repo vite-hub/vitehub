@@ -151,7 +151,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/agent#build && vp test"
+    "test": "vp run -t @vite-hub/agent#build && vp test && node --test test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/gateway": "catalog:ai",
