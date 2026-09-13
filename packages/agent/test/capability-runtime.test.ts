@@ -1152,6 +1152,7 @@ describe("agent capability runtime", () => {
     const { browser } = await import("../src/capabilities.ts")
     const browserRuntime = await import("../src/internal/browser-runtime.ts")
     const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockResolvedValue({
+      command: "agent-browser",
       environment: {},
       skillContent: "---\nname: agent-browser\ndescription: Official guidance\n---\nRun agent-browser.",
     })
