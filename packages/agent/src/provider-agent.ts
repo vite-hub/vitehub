@@ -1832,7 +1832,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   if (identityFree) {
     // Without a response boundary, snapshots cannot establish invocation totals.
     // Keep the latest measured evidence raw so it cannot be priced as a call.
-    options.accumulator.identityAmbiguous = true
+    // A cumulative-only snapshot still supports the legacy invocation total;
+    // ambiguity begins once an actual response partition is observed.
+    if (partitionTotal !== undefined) options.accumulator.identityAmbiguous = true
     // An identity-free snapshot without measurable input/output tokens is
     // cumulative evidence only; keep the legacy cumulative fallback available
     // until an actual partition has been observed.
