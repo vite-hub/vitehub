@@ -1,4 +1,4 @@
-import { defineAgent } from "../index.ts"
+import { defineAgent, type WorkspaceAgentDefinition } from "../index.ts"
 import type { AgentSourceProvenance } from "../types.ts"
 
 function sourceProvenanceInstructions(provenance: readonly AgentSourceProvenance[]): string | undefined {
@@ -7,10 +7,14 @@ function sourceProvenanceInstructions(provenance: readonly AgentSourceProvenance
 }
 
 /** Read mounted Sources and cite files at their verified GitHub revision. */
-export default defineAgent({
+const workspace: WorkspaceAgentDefinition = defineAgent({
   driver: {
     kind: "codex",
-    instructions: ({ sourceProvenance }) => sourceProvenanceInstructions(sourceProvenance || []),
+    instructions: {
+      template: ({ sourceProvenance }) => [sourceProvenanceInstructions(sourceProvenance || []), "{{{ instructions }}}"].filter(Boolean).join("\n\n"),
+    },
   },
   workspace: { mode: "read" },
 })
+
+export default workspace

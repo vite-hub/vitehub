@@ -3933,7 +3933,7 @@ cli_auth_credentials_store = "keyring"
       })),
       startSession: vi.fn(async (options: { target: string }) => { root = options.target; return session }),
     }
-    const settings = resolveAgentLayerOptions({ extends: workspacePreset }) as { driver: { instructions: import("../src/types.ts").AgentAdapterInstructions } }
+    const settings = resolveAgentLayerOptions({ extends: workspacePreset, driver: { instructions: "Explain migration risks." } }) as { driver: { instructions: import("../src/types.ts").AgentAdapterInstructions } }
     await createProviderAgentAdapter({ instructions: settings.driver.instructions, provider }).generate(context(threadId, {
       workspace,
       workspaceDefinition: { name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: "docs#v1" }) } },
@@ -3942,6 +3942,8 @@ cli_auth_credentials_store = "keyring"
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
     expect(instructions).toContain(`"id": "${"a".repeat(40)}"`)
     expect(instructions).toContain('"root": "docs#v1"')
+    expect(instructions).toContain("Explain migration risks.")
+    expect(instructions).not.toContain("{{{ instructions }}}")
     expect(instructions).toContain("Percent-encode each path segment")
     expect(instructions).toContain("Never cite /workspace paths")
     expect(instructions).toContain("If the mounted path cannot be mapped exactly to one provenance entry, cite no link.")
