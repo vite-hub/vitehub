@@ -1294,10 +1294,10 @@ function workspaceMetadataInstructions<
   const slotContent = slotIsDynamic
     ? (resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined)
       ?? "Dynamic system instructions resolver configured."
-    : slotParts.filter((part): part is string => typeof part === "string").join("\n\n")
+    : slotParts.filter((part): part is string => hasRuntimeType(part, "string")).join("\n\n")
   const composed = instructionObject
     && !slotIsDynamic
-    && typeof instructionObject.template === "string"
+    && hasRuntimeType(instructionObject.template, "string")
     ? fillSynchronousInstructionSlot(instructionObject.template, slotContent)
     : undefined
   const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()

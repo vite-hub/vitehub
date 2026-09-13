@@ -19,9 +19,11 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
 ): Promise<string> {
   if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     if ("mode" in input) {
+      // SAFETY: mode discriminant identifies replacement instructions.
       const replacement = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { mode: "replace" }>
       return await resolveContent(replacement.value, context)
     }
+    // SAFETY: template discriminant identifies composed instructions.
     const composed = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { template: unknown }>
     const template = await resolveContent(composed.template, context)
     const content = await resolveContent(composed.content, context)
