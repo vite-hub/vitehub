@@ -2123,6 +2123,7 @@ export interface DefineAgent {
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
     TContextValues extends object = AgentInvocationContextValues,
+    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
     TOutput = unknown,
   >(
     options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>>, "driver" | "workspace"> & {
@@ -2164,9 +2165,11 @@ export interface DefineAgent {
       presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>> & Record<string, unknown>
       extends?: never
       driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>["driver"]>
-      workspace?: WorkspaceAgentWorkspaceConfig
+      workspace?: TWorkspace
     },
-  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
+  ): TWorkspace extends WorkspaceAgentWorkspaceConfig
+    ? WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>
+    : AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
 
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
