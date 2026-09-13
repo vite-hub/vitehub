@@ -1362,12 +1362,20 @@ function renderInvocationActivities(
     && (activity.kind === "message" || isExternalActivity(activity))
     && (lastAssistant < 0 || firstUser + 1 + offset < lastAssistant),
   );
-  const visibleAfterFinal = tail.filter((activity, offset) =>
-    activity.name !== "vitehub.observation.truncated"
-    && (activity.kind === "message" || isExternalActivity(activity))
-    && lastAssistant >= 0
-    && firstUser + 1 + offset > lastAssistant,
-  );
+  const finalBody = lastAssistant >= 0 ? orderedActivities[lastAssistant]!.body?.trim() : undefined;
+  const visibleAfterFinal = tail
+    .filter((activity, offset) =>
+      activity.name !== "vitehub.observation.truncated"
+      && (activity.kind === "message" || isExternalActivity(activity))
+      && lastAssistant >= 0
+      && firstUser + 1 + offset > lastAssistant,
+    )
+    .map((activity) => {
+      if (activity.kind !== "delivery" || finalBody === undefined) return activity;
+      const content = stringAttribute(activity.attributes, "channel.effect.content");
+      if (activity.status !== "completed" || content !== finalBody) return activity;
+      return { ...activity, attributes: Object.fromEntries(Object.entries(activity.attributes).filter(([key]) => key !== "channel.effect.content")) };
+    });
   const work = tail.filter((activity, offset) => {
     const index = firstUser + 1 + offset;
     return activity.kind !== "message" && index !== lastAssistant && !isExternalActivity(activity);
