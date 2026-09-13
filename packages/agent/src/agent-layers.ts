@@ -15,6 +15,11 @@ const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skil
 
 function merge(parent: unknown, child: unknown, path: string): unknown {
   if (child === undefined) return parent
+  if (path === "driver.instructions") {
+    if (record(child)) return child
+    if (record(parent) && "template" in parent) return { ...parent, content: child }
+    return child
+  }
   if (path === "driver") {
     if (hasRuntimeType(parent, "string")) parent = { kind: parent }
     if (record(child) && ("run" in child || (record(parent) && "run" in parent && "model" in child))) return child
