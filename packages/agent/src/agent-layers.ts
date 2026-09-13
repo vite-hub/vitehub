@@ -22,7 +22,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   if (path === "driver") {
     if (hasRuntimeType(parent, "string")) parent = { kind: parent }
     if (record(child) && ("run" in child || (record(parent) && "run" in parent && "model" in child))) {
-      if (record(parent) && "run" in parent && "model" in child && "instructions" in parent && "instructions" in child) {
+      if (record(parent) && ("run" in parent || "model" in parent) && "model" in child && "instructions" in parent && "instructions" in child) {
         return {
           ...parent,
           ...child,

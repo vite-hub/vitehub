@@ -1307,10 +1307,10 @@ function workspaceMetadataInstructions<
 function fillSynchronousInstructionSlot(template: string, content: string): string {
   let fence: string | undefined
   return template.split("\n").map((line) => {
-    const marker = line.match(/^\s*(`{3,}|~{3,})(.*)$/)
+    const marker = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/)
     if (marker) {
-      const delimiter = marker[1]
-      const trailing = marker[2]
+      const delimiter = marker[2]
+      const trailing = marker[3]
       const isClosing = Boolean(fence && delimiter[0] === fence[0] && delimiter.length >= fence.length && /^\s*$/.test(trailing))
       if (fence) { if (isClosing) fence = undefined; return line }
       if (!/^\s*$/.test(trailing)) { fence = delimiter; return line }
@@ -1338,7 +1338,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
       index = end + run.length
     }
     return out
-  }).join("\n").trim()
+  }).join("\n")
 }
 
 async function staticWorkspaceMetadataInstructions<
