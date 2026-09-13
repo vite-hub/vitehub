@@ -150,7 +150,9 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
 
 export function rememberAgentLayerOptions<T extends AgentDefinition>(definition: T, options: AgentSettings, source: AgentSettings = options): T {
   const inherited = layerMetadata(source)
-  rememberLayerMetadata(definition as unknown as Record<string, unknown>, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
+  // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
+  const metadataTarget: Record<string, unknown> = definition
+  rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
   if (inherited?.parent) inheritColocatedSkills(inherited.parent, definition)
   if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured)
   return definition
@@ -168,16 +170,17 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
   for (const key of new Set([...Object.keys(parent), ...Object.keys(child ?? {})])) {
     if (key === "__proto__" || key === "constructor" || key === "prototype") continue
     const value = child?.[key] === undefined ? parent[key] : child[key]
-    result[key] = record(value)
-      ? mergePresetOptions(record(parent[key]) ? parent[key] as Record<string, unknown> : {}, value as Record<string, unknown>)
-      : clonePresetOption(value)
+    if (record(value)) {
+      const parentValue = record(parent[key]) ? parent[key] : {}
+      result[key] = mergePresetOptions(parentValue, value)
+    } else result[key] = clonePresetOption(value)
   }
   return result
 }
 
 function clonePresetOption(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(clonePresetOption)
-  return record(value) ? mergePresetOptions({}, value as Record<string, unknown>) : value
+  return record(value) ? mergePresetOptions({}, value) : value
 }
 
 export function createConfiguredAgentDefinition(input: unknown, create: (options: AgentSettings) => AgentDefinition): AgentDefinition | undefined {
@@ -200,7 +203,9 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
 }
 
 function rememberConfiguredLayer(definition: AgentDefinition, configured: ConfiguredLayer): void {
-  rememberLayerMetadata(definition as unknown as Record<string, unknown>, { ...layerMetadata(definition)!, configured })
+  // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
+  const metadataTarget: Record<string, unknown> = definition
+  rememberLayerMetadata(metadataTarget, { ...layerMetadata(definition)!, configured })
   Object.defineProperty(definition, "options", {
     value: Object.freeze(mergePresetOptions({}, configured.options)),
     enumerable: true,
