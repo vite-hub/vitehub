@@ -92,6 +92,14 @@ describe("Agent definition layers", () => {
 
 
 describe("Agent instruction layers", () => {
+  it("preserves model preset templates with object-model overrides", () => {
+    const base = defineAgent({ workspace: {}, driver: { model: {} as never, instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } } })
+    const model = {} as never
+    const child = defineAgent({ extends: base, driver: { model, instructions: "Child" } })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ model, instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Child" } })
+    expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { content: "Default" } })
+  })
+
   it("fills an inherited instruction template across generations without mutating its defaults", () => {
     const base = defineAgent({ workspace: {}, driver: { kind: "codex", instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } } })
     const child = defineAgent({ extends: base, driver: { instructions: "Child" } })

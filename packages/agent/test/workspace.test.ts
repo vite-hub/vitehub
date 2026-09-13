@@ -2711,13 +2711,16 @@ describe("defineAgent workspace option", () => {
     ].join("\n")])
   })
 
-  it("composes object-form instructions in static inspection metadata", async () => {
+  it.each([
+    "Before\n{{{ instructions }}}\nAfter",
+    ["Before", "{{{ instructions }}}", "After"],
+  ])("composes object-form instructions in static inspection metadata: %j", async (template) => {
     const { createAgentInspectionMetadata, defineAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       workspace: {},
       driver: {
         instructions: {
-          template: "Before\n{{{ instructions }}}\nAfter",
+          template,
           content: "Default",
         },
         model: {
@@ -2725,7 +2728,7 @@ describe("defineAgent workspace option", () => {
       },
     })
 
-    expect(createAgentInspectionMetadata(agent).instructions).toEqual(["Before\nDefault\nAfter"])
+    expect(createAgentInspectionMetadata(agent).instructions).toEqual([Array.isArray(template) ? "Before\n\nDefault\n\nAfter" : "Before\nDefault\nAfter"])
   })
 
   it("keeps Channel guidance in materialized Agent inspection metadata", async () => {

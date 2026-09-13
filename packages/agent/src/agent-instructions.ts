@@ -40,9 +40,11 @@ export function agentInstructionSources<TRuntimeConfig extends AgentRuntimeConfi
 ) {
   if (input && hasRuntimeType(input, "object") && !Array.isArray(input) && ("mode" in input || "template" in input)) {
     if ("mode" in input) {
+      // SAFETY: the mode discriminant identifies the replacement instruction form.
       const replacement = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { mode: "replace" }>
       return [replacement.value].flat(2)
     }
+    // SAFETY: the remaining template discriminant identifies composed instructions.
     const composed = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { template: unknown }>
     return [composed.template, composed.content].flat(2)
   }
