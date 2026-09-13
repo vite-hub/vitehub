@@ -326,13 +326,6 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
             yaml.whitespace += " ".repeat(indent)
             return index
           }
-          // A block scalar's indented prose may itself look like a mapping
-          // field. Preserve that documentation verbatim instead of treating
-          // it as part of the credential value.
-          if (/^(?:[A-Za-z_][\w-]*|['\"][^'\"]+['\"]):(?:\s|$)/.test(value.slice(index))) {
-            yaml.whitespace += " ".repeat(indent)
-            return index
-          }
           yaml.indent ??= indent
           yaml.line = false
           yaml.whitespace = ""
