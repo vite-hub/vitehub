@@ -2558,12 +2558,15 @@ async function* runProvider<
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
             const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message && !hasRuntimeType(input.message, "string") ? [input.message] : [])
-            if (messages.some(message => message.parts.some(part => part.type !== "text"))) return "unsupported"
+            if (messages.some(message => !Array.isArray(message.parts) || message.parts.some(part => part.type !== "text"))) return "unsupported"
             const text = hasRuntimeType(input.prompt, "string")
               ? input.prompt
               : hasRuntimeType(input.message, "string")
                 ? input.message
-                : messages.map(getMessageText).join("\n\n")
+                : messages.map(message => {
+                    if (hasRuntimeType((message as { content?: unknown }).content, "string")) return (message as { content: string }).content
+                    return getMessageText(message)
+                  }).join("\n\n")
             if (!activeTurnId || !text?.trim()) return "unsupported"
             try { await activeRuntime.sendTurn({ threadId, input: text }); return "accepted" } catch { return "unavailable" }
           }
