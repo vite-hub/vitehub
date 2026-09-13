@@ -32,7 +32,6 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
   if (!diff.entries.length) return diff
   const generatedFiles = new Set<string>()
   const generatedDirectories = new Set<string>()
-  const generatedDirectoryOwners = new Map<string, Set<string>>()
   for (const source of normalizeWorkspaceSources(definition.sources)) {
     if (source.materialize !== "startup") continue
     const snapshot = await readCurrentSourceSnapshot(store, source)
@@ -52,9 +51,6 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     }
     for (const path of [...(snapshot.ownedDirectories || []), ...(snapshot.ownedAncestors || []), ...(snapshot.ownsMount ? [source.mountPath] : [])]) {
       generatedDirectories.add(path)
-      let owners = generatedDirectoryOwners.get(path)
-      if (!owners) generatedDirectoryOwners.set(path, owners = new Set())
-      owners.add(source.key)
     }
   }
   const entries: WorkspaceDiff["entries"] = []
@@ -69,7 +65,6 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       if (descendants.length > 0 && descendants.every(child => child.type === "directory"
         ? generatedDirectories.has(child.path)
         : generatedFiles.has(child.path))) continue
-      if (descendants.length === 0 && generatedDirectoryOwners.has(entry.path)) continue
     }
     entries.push(entry)
   }
