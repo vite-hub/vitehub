@@ -67,7 +67,7 @@ describe("configured Agent presets", () => {
     expect(third.options.autoMerge).toBe(false)
     expect(defaults.filter.author.allow).toEqual(["original"])
     const result = await runAgent(third, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "repair" })
-    expect(result.text).toContain('"autoMerge":false')
+    expect(result).toMatchObject({ text: expect.stringContaining('"autoMerge":false') })
     expect(third.resolve).not.toBe(second.resolve)
   })
 
