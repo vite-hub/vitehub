@@ -34,6 +34,7 @@ export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean
 
 function parseSnapshot(value: unknown): Snapshot {
   if (!value || typeof value !== 'object') throw new TypeError('Invalid inbox snapshot')
+  // SAFETY: JSON.parse returns an object here; validation below checks every owned field.
   const input = value as Record<string, unknown>
   const required = ['repository', 'number', 'generation', 'handled', 'dirtyAt', 'nextAt', 'status', 'lease', 'leaseUntil', 'attempts', 'hydrated', 'refresh', 'feedbackRefresh', 'comments', 'reviews', 'reviewComments', 'checks', 'statuses', 'threads', 'reasons']
   if (typeof input.repository !== 'string' || !Number.isInteger(input.number) || input.number < 1 ||
@@ -48,6 +49,7 @@ function parseSnapshot(value: unknown): Snapshot {
     if (!map || typeof map !== 'object' || Array.isArray(map)) throw new TypeError('Invalid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
   }
+  // SAFETY: All snapshot fields and nested values are validated immediately above.
   return { ...input, pr: input.pr === null ? null : parsePullRequest(input.pr), comments: parseMap(input.comments), reviews: parseMap(input.reviews),
     reviewComments: parseMap(input.reviewComments), checks: parseMap(input.checks), statuses: parseMap(input.statuses),
     threads: input.threads.map(parseThread) } as Snapshot

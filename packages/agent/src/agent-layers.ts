@@ -24,11 +24,11 @@ function layerMetadata(value: unknown): AgentLayerMetadata | undefined {
   return (value as { [agentLayerMetadata]?: AgentLayerMetadata })[agentLayerMetadata]
 }
 
-function rememberLayerMetadata(value: object, metadata: AgentLayerMetadata): void {
+function rememberLayerMetadata(value: Record<string, unknown>, metadata: AgentLayerMetadata): void {
   Object.defineProperty(value, agentLayerMetadata, { configurable: true, value: metadata })
 }
 
-function inheritColocatedSkills(parent: object, child: object): void {
+function inheritColocatedSkills(parent: Record<string, unknown>, child: Record<string, unknown>): void {
   const skills = Object.getOwnPropertyDescriptor(parent, colocatedSkills)
   if (skills) Object.defineProperty(child, colocatedSkills, skills)
 }
