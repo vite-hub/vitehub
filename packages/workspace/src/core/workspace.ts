@@ -32,6 +32,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
   if (!diff.entries.length) return diff
   const generatedFiles = new Set<string>()
   const generatedDirectories = new Set<string>()
+  const generatedDirectoryOwners = new Map<string, Set<string>>()
   for (const source of normalizeWorkspaceSources(definition.sources)) {
     if (source.materialize !== "startup") continue
     const snapshot = await readCurrentSourceSnapshot(store, source)
@@ -51,6 +52,9 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     }
     for (const path of [...(snapshot.ownedDirectories || []), ...(snapshot.ownedAncestors || []), ...(snapshot.ownsMount ? [source.mountPath] : [])]) {
       generatedDirectories.add(path)
+      let owners = generatedDirectoryOwners.get(path)
+      if (!owners) generatedDirectoryOwners.set(path, owners = new Set())
+      owners.add(source.key)
     }
   }
   const entries: WorkspaceDiff["entries"] = []
@@ -68,7 +72,9 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       if (descendants.length === 0) {
         try {
           const directory = await store.stat(entry.path)
-          if (directory?.type === "directory" && directory.metadata?.source === source.key) continue
+          const owner = directory?.metadata?.source
+          if (directory?.type === "directory" && typeof owner === "string"
+            && generatedDirectoryOwners.get(entry.path)?.has(owner)) continue
         }
         catch (error) {
           if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) continue
