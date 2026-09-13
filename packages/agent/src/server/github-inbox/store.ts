@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '../../channels.ts'
 import { matchesGitHubPullRequestFilter } from '../../internal/github-pull-request-filter.ts'
-import { parsePullRequest, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
+import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
 
 export type Snapshot = {
   repository: string; number: number; pr: GitHubPullRequestRecord | null
@@ -33,10 +33,24 @@ export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item && !String(item.body ?? '').startsWith('<!-- vitehub-agent-activity:'))
 
 function parseSnapshot(value: unknown): Snapshot {
-  if (!value || typeof value !== 'object' || !('repository' in value) || !('number' in value) || !('status' in value)) {
+  if (!value || typeof value !== 'object') throw new TypeError('Invalid inbox snapshot')
+  const input = value as Record<string, unknown>
+  const required = ['repository', 'number', 'generation', 'handled', 'dirtyAt', 'nextAt', 'status', 'lease', 'leaseUntil', 'attempts', 'hydrated', 'refresh', 'feedbackRefresh', 'comments', 'reviews', 'reviewComments', 'checks', 'statuses', 'threads', 'reasons']
+  if (typeof input.repository !== 'string' || !Number.isInteger(input.number) || input.number < 1 ||
+    required.some(key => !(key in input)) || !['ready', 'working', 'waiting', 'terminal'].includes(String(input.status)) ||
+    (input.lease !== null && typeof input.lease !== 'string') ||
+    ![input.generation, input.handled, input.dirtyAt, input.nextAt, input.leaseUntil, input.attempts].every(n => typeof n === 'number' && Number.isFinite(n)) ||
+    typeof input.hydrated !== 'boolean' || typeof input.refresh !== 'boolean' || typeof input.feedbackRefresh !== 'boolean' ||
+    !Array.isArray(input.threads) || !Array.isArray(input.reasons) || input.reasons.some(reason => typeof reason !== 'string')) {
     throw new TypeError('Invalid inbox snapshot')
   }
-  return value as Snapshot
+  const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
+    if (!map || typeof map !== 'object' || Array.isArray(map)) throw new TypeError('Invalid inbox snapshot')
+    return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
+  }
+  return { ...input, pr: input.pr === null ? null : parsePullRequest(input.pr), comments: parseMap(input.comments), reviews: parseMap(input.reviews),
+    reviewComments: parseMap(input.reviewComments), checks: parseMap(input.checks), statuses: parseMap(input.statuses),
+    threads: input.threads.map(parseThread) } as Snapshot
 }
 
 export interface PullRequestInboxOptions {
