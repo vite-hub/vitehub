@@ -1846,6 +1846,11 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     else options.accumulator.calls.push(snapshot)
     options.accumulator.lastCallIdentity = undefined
   }
+  // An itemless measured snapshot cannot be correlated with an existing identified
+  // call; retain aggregate ambiguity rather than pricing unmatched evidence.
+  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined && options.accumulator.calls.some(call => call.usage === undefined)) {
+    options.accumulator.identityAmbiguous = true
+  }
   const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
   if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
