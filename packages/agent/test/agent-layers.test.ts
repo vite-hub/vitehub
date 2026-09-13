@@ -89,3 +89,17 @@ describe("Agent definition layers", () => {
     expect(() => defineAgent({ extends: {} as never })).toThrow("requires an Agent Definition")
   })
 })
+
+
+describe("Agent instruction layers", () => {
+  it("fills an inherited instruction template across generations without mutating its defaults", () => {
+    const base = defineAgent({ workspace: {}, driver: { kind: "codex", instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } } })
+    const child = defineAgent({ extends: base, driver: { instructions: "Child" } })
+    const grandchild = defineAgent({ extends: child, driver: { instructions: "Grandchild" } })
+    expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { content: "Default" } })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Child" } })
+    expect(grandchild.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Grandchild" } })
+    const replacement = defineAgent({ extends: child, driver: { instructions: { mode: "replace", value: "Replacement" } } })
+    expect(replacement.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { mode: "replace", value: "Replacement" } })
+  })
+})
