@@ -93,6 +93,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         for (let j = i + 1; j < tokens.length; j++) {
           const token = tokens[j]
           if (token === "from") { sawFrom = true; continue }
+          if (!sawFrom && /^['"`]/.test(token)) break
           if (sawFrom) {
             if (/^["'`]/.test(token)) break
             continue
@@ -191,8 +192,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // An explicit Workspace value (including a string reference or an
       // unresolved imported binding) overrides any preset Workspace. Do not
       // fall through to preset lookup when the child supplied `workspace`.
-      return false
+      return true
     }
+    const inherited = options.get("extends")
+    if (inherited !== undefined && ownsWorkspace(inherited, seen)) return true
     const preset = options.get("preset")
     const registry = options.get("presets")
     if (preset === undefined || registry === undefined) return false
