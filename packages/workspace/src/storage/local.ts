@@ -824,7 +824,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
+    const { lstat, mkdir, open, rm, rm: removeMetadata, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     let conditionalCurrent: WorkspaceFile | undefined
     if (options.ifDigest !== undefined || options.ifSource !== undefined) {
@@ -902,7 +902,6 @@ class LocalWorkspaceStore implements WorkspaceStore {
       if (createdMarker && !options.recursive) await rm(marker, { force: true })
       throw error
     })
-    const { rm: removeMetadata } = await import("node:fs/promises")
     if (metadata.root) await removeMetadata(resolveInside(this.#fileMetadataRoot, normalized), { force: true, recursive: true })
     await rm(marker, { force: true })
     if (missingTargetError) throw missingTargetError
