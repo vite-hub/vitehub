@@ -1314,6 +1314,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
   let inlineFence: string | undefined
   let paragraph = false
   let listContinuationIndent = 4
+  let listActive = false
   return template.split("\n").map((line) => {
     // Fenced blocks may occur inside block quotes; include the container
     // prefix when classifying delimiters so static inspection matches Markdown.
@@ -1330,9 +1331,14 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
     if (fence) return line
     const indented = /^(?:    |\t)/.test(line)
     const indentation = line.match(/^ */)?.[0].length ?? 0
-    if (indented && (!paragraph || indentation > listContinuationIndent)) return line
+    if (indented && (!paragraph || (listActive && indentation > listContinuationIndent))) return line
     const list = line.match(/^( {0,3})(?:[-+*]|\d+[.)])([ \t]+)/)
-    if (list) listContinuationIndent = (list[1]?.length ?? 0) + (list[0]?.length ?? 0) + 3
+    if (list) {
+      listContinuationIndent = (list[1]?.length ?? 0) + (list[0]?.length ?? 0) + 3
+      listActive = true
+    } else if (!indented && line.trim().length > 0) {
+      listActive = false
+    }
     paragraph = line.trim().length > 0 && !indented && (!/^ {0,3}(?:#{1,6}\s|>)/.test(line) || Boolean(list))
     if (inlineFence) {
       const run = inlineFence
