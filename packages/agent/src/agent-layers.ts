@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { resolveNamedAgentPresetOptions } from "./agent-presets.ts"
 import type { AgentDefinition, AgentSettings } from "./types.ts"
 
 const layerOptions = new WeakMap<object, Record<string, unknown>>()
@@ -48,6 +49,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
 
 /** Rebuild a definition from configuration. Never copy a parent's bound runtime or invocation state. */
 export function resolveAgentLayerOptions(input: unknown): unknown {
+  input = resolveNamedAgentPresetOptions(input)
   if (!record(input) || !("extends" in input)) return input
   const { extends: parent, ...overrides } = input
   if (!parent || !hasRuntimeType(parent, "object") || !layerOptions.has(parent)) {

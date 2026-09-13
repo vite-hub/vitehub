@@ -72,10 +72,209 @@ function stripComments(source: string) {
     .replace(/(^|[^:])\/\/.*$/gm, "$1")
 }
 
-function isWorkspaceAgentDefinition(source: string): boolean {
-  return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
+// Keep literals as single tokens so their punctuation cannot change object depth.
+function tokenizeAgentSource(source: string): string[] {
+  return source.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|[A-Za-z_$][\w$]*|[^\s]/g)
+    ?.filter(token => !token.startsWith("//") && !token.startsWith("/*")) ?? []
 }
 
+function isWorkspaceAgentDefinition(source: string): boolean {
+  const tokens = tokenizeAgentSource(source)
+  const declarations = new Map<string, number>()
+  const imported = new Set<string>()
+  const importedNamespaces = new Set<string>()
+  let exported: number | undefined
+  let depth = 0
+  for (let i = 0; i < tokens.length; i++) {
+    if (depth === 0) {
+      if (tokens[i] === "import") {
+        // Dynamic imports are expressions, not static declarations. Ignore
+        // them entirely so identifiers in the surrounding module cannot be
+        // mistaken for imported Workspace bindings.
+        if (tokens[i + 1] === "(") {
+          // Skip the complete dynamic import expression; its argument may
+          // contain identifiers that must not be treated as static imports.
+          let dynamicDepth = 0
+          for (let j = i + 1; j < tokens.length; j++) {
+            if (tokens[j] === "(") dynamicDepth++
+            else if (tokens[j] === ")" && --dynamicDepth === 0) {
+              i = j
+              break
+            }
+          }
+          continue
+        }
+        // Imports are often semicolonless; stop at the module specifier rather
+        // than consuming identifiers from following declarations.
+        let sawFrom = false
+        let sawStar = false
+        for (let j = i + 1; j < tokens.length; j++) {
+          const token = tokens[j]
+          if (token === "from") { sawFrom = true; continue }
+          if (!sawFrom && token === "*") { sawStar = true; continue }
+          if (!sawFrom && sawStar && token === "as" && tokens[j + 1]) {
+            // Record namespace bindings only for the Agent package import.
+            // Local objects may expose a similarly named method.
+            const moduleIndex = tokens.indexOf("from", j + 2)
+            const moduleToken = moduleIndex >= 0
+              ? tokens[moduleIndex + 1]
+              : tokens.slice(j + 2).find(candidate => /^['"`]/.test(candidate))
+            const moduleName = moduleToken?.slice(1, -1)
+            if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") {
+              importedNamespaces.add(tokens[j + 1])
+            }
+            continue
+          }
+          if (!sawFrom && /^['"`]/.test(token)) { i = j; break }
+          if (sawFrom) {
+            if (/^["'`]/.test(token)) { i = j; break }
+            continue
+          }
+          if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token)) imported.add(token)
+        }
+      }
+      if (["const", "let", "var"].includes(tokens[i])) {
+        const name = tokens[i + 1]
+        let equals = i + 2
+        while (equals < tokens.length && tokens[equals] !== "=" && tokens[equals] !== ";" && tokens[equals] !== ",") equals++
+        if (name && tokens[equals] === "=") declarations.set(name, equals + 1)
+      }
+      if (tokens[i] === "export" && tokens[i + 1] === "default") exported = i + 2
+      if (tokens[i] === "export" && tokens[i + 1] === "{" ) {
+        const local = tokens[i + 2]
+        if (local && tokens[i + 3] === "as" && tokens[i + 4] === "default") exported = declarations.get(local) ?? i + 2
+      }
+    }
+    if (["{", "(", "["].includes(tokens[i])) depth++
+    if (["}", ")", "]"].includes(tokens[i])) depth--
+  }
+
+  function resolveReference(index: number, seen = new Set<number>()): number {
+    while (tokens[index] === "(") index++
+    if (seen.has(index)) return index
+    seen.add(index)
+    const reference = declarations.get(tokens[index])
+    return reference === undefined ? index : resolveReference(reference, seen)
+  }
+
+  function propertyName(token: string): string {
+    return /^["'`]/.test(token) ? token.slice(1, -1) : token
+  }
+
+  function properties(index: number): Map<string, number> {
+    const result = new Map<string, number>()
+    index = resolveReference(index)
+    if (tokens[index] !== "{") return result
+    let depth = 0
+    let atProperty = true
+    for (let i = index + 1; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (depth === 0 && token === "}") break
+      if (depth === 0 && atProperty) {
+        if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
+          const spread = properties(i + 3)
+          for (const [key, value] of spread) result.set(key, value)
+          i += 2
+          atProperty = false
+        } else if (token === "[") {
+          // Computed keys may reference a statically-resolvable identifier.
+          // Locate the matching bracket rather than assuming a fixed token
+          // layout (parentheses and other expressions are valid here).
+          let close = i + 1
+          let bracketDepth = 1
+          while (close < tokens.length && bracketDepth > 0) {
+            if (tokens[close] === "[") bracketDepth++
+            else if (tokens[close] === "]") bracketDepth--
+            close++
+          }
+          if (bracketDepth === 0 && tokens[close] === ":") {
+            const expression = tokens.slice(i + 1, close - 1).filter(token => token !== "(" && token !== ")")
+            let key: string | undefined
+            const literalParts: string[] = []
+            let valid = true
+            for (let p = 0; p < expression.length; p += 2) {
+              const part = expression[p]
+              if (!part) { valid = false; break }
+              const partIndex = tokens.indexOf(part, i + 1)
+              const resolved = partIndex >= 0 ? resolveReference(partIndex) : partIndex
+              const value = resolved >= 0 ? tokens[resolved] : part
+              if (!value || !/^["'`]/.test(value)) { valid = false; break }
+              literalParts.push(propertyName(value))
+              if (p + 1 < expression.length && expression[p + 1] !== "+") { valid = false; break }
+            }
+            if (valid && literalParts.length) key = literalParts.join("")
+            if (key !== undefined) result.set(key, close + 1)
+            i = close
+            atProperty = false
+          }
+        } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
+        else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
+        atProperty = false
+      }
+      if (depth === 0 && token === ",") atProperty = true
+      if (["{", "(", "["].includes(token)) depth++
+      if (["}", ")", "]"].includes(token)) depth--
+    }
+    return result
+  }
+
+  function ownsWorkspace(index: number, seen = new Set<number>()): boolean {
+    index = resolveReference(index)
+    while (tokens[index] === "(") index++
+    if (seen.has(index)) return false
+    seen.add(index)
+    if (tokens[index] !== "defineAgent") {
+      if (!(tokens[index + 1] === "." && tokens[index + 2] === "defineAgent" && importedNamespaces.has(tokens[index]))) return false
+      index += 2
+    }
+    let call = index + 1
+    if (tokens[call] === "<") {
+      let genericDepth = 0
+      do {
+        if (tokens[call] === "<") genericDepth++
+        if (tokens[call] === ">") genericDepth--
+        call++
+      } while (call < tokens.length && genericDepth > 0)
+    }
+    if (tokens[call] !== "(") return false
+    const options = properties(call + 1)
+    const workspace = options.get("workspace")
+    if (workspace !== undefined) {
+      const value = resolveReference(workspace)
+      if (tokens[value] === "{") {
+        // A `{ name: "shared" }` value is a Workspace reference, not an
+        // owned Workspace definition. Runtime applies the same distinction.
+        const workspaceProperties = properties(value)
+        const name = workspaceProperties.get("name")
+        if (name !== undefined && /^(["\'`])/.test(tokens[resolveReference(name)] ?? "")) return false
+        return true
+      }
+      if (tokens[value] === "defineWorkspace") return true
+      // Imported Workspace configurations cannot be resolved to a local
+      // declaration, but they are valid runtime values and therefore imply
+      // that this Agent owns a Workspace.
+      if (imported.has(tokens[value])) return true
+      if (/^["'`]/.test(tokens[value] ?? "")) return false
+      // An explicit Workspace value (including a string reference or an
+      // unresolved imported binding) overrides any preset Workspace. Do not
+      // fall through to preset lookup when the child supplied `workspace`.
+      return true
+    }
+    const inherited = options.get("extends")
+    if (inherited !== undefined && ownsWorkspace(inherited, seen)) return true
+    const preset = options.get("preset")
+    const registry = options.get("presets")
+    if (preset === undefined || registry === undefined) return false
+    const selection = tokens[resolveReference(preset)]
+    if (!/^["'`]/.test(selection)) return false
+    const entry = properties(registry).get(propertyName(selection))
+    return entry !== undefined && ownsWorkspace(entry, seen)
+  }
+
+  // The default export owns the folder; helper definitions and unselected presets do not.
+  if (exported !== undefined) return ownsWorkspace(exported)
+  return tokens.some((token, index) => token === "defineAgent" && ownsWorkspace(index))
+}
 function isAgentDefinitionSource(source: string): boolean {
   const stripped = stripComments(source)
   return /\bdefineAgent\s*\(/.test(stripped)
