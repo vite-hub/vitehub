@@ -94,3 +94,14 @@ describe("configured Agent presets", () => {
     expect(() => defineAgent({ extends: preset, options: false } as never)).toThrow("options must be an object")
   })
 })
+
+it("keeps shared definitions separate when configure returns the same parent", () => {
+  const base = defineAgent({ driver: "codex" })
+  const first = defineAgent({ options: { enabled: true }, configure: () => base })
+  const second = defineAgent({ options: { enabled: false }, configure: () => base })
+  expect(first).not.toBe(base)
+  expect(second).not.toBe(first)
+  expect(first.options.enabled).toBe(true)
+  expect(second.options.enabled).toBe(false)
+  expect(base).not.toHaveProperty("options")
+})
