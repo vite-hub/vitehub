@@ -102,6 +102,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   }
 
   function resolveReference(index: number, seen = new Set<number>()): number {
+    while (tokens[index] === "(") index++
     if (seen.has(index)) return index
     seen.add(index)
     const reference = declarations.get(tokens[index])
@@ -122,7 +123,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       const token = tokens[i]
       if (depth === 0 && token === "}") break
       if (depth === 0 && atProperty) {
-        if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
+        if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
+          const spread = properties(i + 3)
+          for (const [key, value] of spread) result.set(key, value)
+          i += 2
+          atProperty = false
+        } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
         else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
         atProperty = false
       }
