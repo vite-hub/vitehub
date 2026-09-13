@@ -606,7 +606,7 @@ async function fragmentNodes(
 
   const tree = await parseTemplateMarkdown(
     protectLiteralDirectives(value, state.directiveTokens),
-    true,
+    false,
     state.plugins,
   )
   if (inline) {
