@@ -20,7 +20,7 @@ const pullRequestSchema = v.looseObject({
   headRefOid: v.optional(v.string()), headRefName: v.optional(v.string()),
   baseRefOid: v.optional(v.string()), baseRefName: v.optional(v.string()),
   headRepository: v.nullish(v.object({ nameWithOwner: v.string() })),
-  author_association: v.optional(v.string()),
+  author_association: v.optional(v.string()), authorAssociation: v.optional(v.string()),
   labels: v.optional(v.array(v.union([v.string(), v.object({ name: v.string() })]))),
   mergeable: v.nullish(v.boolean()), mergeable_state: v.optional(v.string()),
   reviewDecision: v.nullish(v.string()),
@@ -36,7 +36,7 @@ export interface GitHubPullRequestRecord extends GitHubTimestamps {
   number: number; user?: GitHubActor | null; author?: GitHubActor | null
   state?: string; draft?: boolean; isDraft?: boolean; title?: string; body?: string | null; html_url?: string; url?: string
   head?: GitHubRef; base?: GitHubRef; headRefOid?: string; headRefName?: string; baseRefOid?: string; baseRefName?: string
-  headRepository?: { nameWithOwner: string } | null; author_association?: string
+  headRepository?: { nameWithOwner: string } | null; author_association?: string; authorAssociation?: string
   labels?: (string | { name: string })[]; mergeable?: boolean | null; mergeable_state?: string; reviewDecision?: string | null
 }
 export function parsePullRequest(value: unknown): GitHubPullRequestRecord {
@@ -45,6 +45,7 @@ export function parsePullRequest(value: unknown): GitHubPullRequestRecord {
     ...pr,
     state: String(pr.state ?? 'open').toLowerCase() === 'merged' ? 'closed' : String(pr.state ?? 'open').toLowerCase(),
     user: pr.user ?? pr.author,
+    author_association: pr.author_association ?? pr.authorAssociation,
     head: pr.head ?? { sha: pr.headRefOid, ref: pr.headRefName, repo: pr.headRepository ? { full_name: pr.headRepository.nameWithOwner } : undefined },
     base: pr.base ?? { sha: pr.baseRefOid, ref: pr.baseRefName },
     draft: pr.draft ?? pr.isDraft,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PullRequestInbox } from '../src/server/github-inbox.ts'
+import { PullRequestInbox, normalizePullRequest } from '../src/server/github-inbox.ts'
 const repository = 'vite-hub/vitehub'
 const repo = { full_name: repository }
 const pr = (patch = {}) => ({ number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { sha: 'base', ref: 'main' }, updated_at: '2026-09-13T10:00:00Z', ...patch })
@@ -228,4 +228,61 @@ test('unknown bots and former hardcoded own bot names remain feedback without th
     post(inbox, String(id), 'issue_comment', {action: 'created', issue: {number: 7, pull_request: {}}, comment: {id, user: {login, type: 'Bot'}, body: 'Please fix'}})
   }
   assert.equal(Object.keys(inbox.get(repository, 7)!.comments).length, 3)
+})
+
+
+test('operation snapshots preserve author association and all durable filter fields', t => {
+  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], filter: {
+    repository: {allow: [repository]}, author: {allow: ['alice']}, authorAssociation: {allow: ['MEMBER']},
+    labels: {allow: ['repair']}, draft: {allow: ['false']}, fork: {allow: ['true']},
+    base: {allow: ['main']}, head: {allow: ['fix']}, title: {allow: ['Fix bug']},
+  }})
+  t.onTestFinished(() => inbox.close())
+  const value = normalizePullRequest({number: 7, state: 'OPEN', author: {login: 'alice', __typename: 'User'}, authorAssociation: 'MEMBER', labels: ['repair'], isDraft: false, headRefOid: 'a', headRefName: 'fix', baseRefName: 'main', headRepository: {nameWithOwner: 'alice/fork'}, title: 'Fix bug'})
+  assert.equal(value.author_association, 'MEMBER')
+  assert.equal(inbox.eligible(repository, value), true)
+  inbox.seed(repository, value)
+  assert.equal(inbox.claim(1).length, 1)
+})
+
+
+test('review deliveries advance PR metadata when the synchronize delivery was missed', t => {
+  const inbox = memory(t)
+  inbox.seed(repository, pr())
+  const claim = inbox.claim(1)[0]!
+  inbox.hydrate(claim, {hydrated: true, refresh: false, checks: {old: {id: 1, head_sha: 'a'}}})
+  inbox.finish(claim, {text: 'waiting'})
+  post(inbox, 'new-head-review', 'pull_request_review', { action: 'submitted', pull_request: pr({head: {sha: 'b', ref: 'fix'}, updated_at: '2026-09-13T11:00:00Z'}), review: {id: 4, body: 'Fix on the new head', commit_id: 'b'} })
+  const next = inbox.claim(1)[0]!
+  assert.equal(next.snapshot.pr?.head?.sha, 'b')
+  assert.equal(next.snapshot.hydrated, false)
+  assert.deepEqual(next.snapshot.checks, {})
+  post(inbox, 'late-old-review', 'pull_request_review', {action: 'submitted', pull_request: pr(), review: {id: 5, body: 'Historical', commit_id: 'a'}})
+  assert.equal(inbox.get(repository, 7)?.pr?.head?.sha, 'b')
+})
+
+
+test('timestamp-only PR evidence prevents stale hydration and late head regression without waking', t => {
+  const inbox = memory(t)
+  inbox.seed(repository, pr())
+  const claim = inbox.claim(1)[0]!
+  post(inbox, 'fresh-time', 'pull_request', {action: 'edited', pull_request: pr({updated_at: '2026-09-13T12:00:00Z'})})
+  assert.equal(inbox.get(repository, 7)?.generation, claim.generation)
+  assert.equal(inbox.hydrate(claim, {pr: pr()}), false)
+  post(inbox, 'late-head', 'pull_request', {action: 'synchronize', pull_request: pr({head: {sha: 'old', ref: 'fix'}, updated_at: '2026-09-13T11:00:00Z'})})
+  assert.equal(inbox.get(repository, 7)?.pr?.head?.sha, 'a')
+  inbox.release(claim)
+  const fresh = inbox.claim(1)[0]!
+  assert.equal(inbox.hydrate(fresh, {pr: pr()}), false)
+})
+
+test('timestamp-only comment evidence also invalidates hydration without another repair generation', t => {
+  const inbox = memory(t)
+  inbox.seed(repository, pr())
+  const payload = {action: 'edited', issue: {number: 7, pull_request: {}}, comment: {...comment(), updated_at: '2026-09-13T10:00:00Z'}}
+  post(inbox, 'original-comment', 'issue_comment', payload)
+  const claim = inbox.claim(1)[0]!
+  post(inbox, 'fresh-comment', 'issue_comment', {...payload, comment: {...payload.comment, updated_at: '2026-09-13T11:00:00Z'}})
+  assert.equal(inbox.get(repository, 7)?.generation, claim.generation)
+  assert.equal(inbox.hydrate(claim, {comments: {'1': payload.comment}}), false)
 })
