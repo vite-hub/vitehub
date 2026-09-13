@@ -491,6 +491,7 @@ describe("generated Agent deployment catalog", () => {
 
   it.each(["nitro", "deno", "netlify"] as const)("preserves explicit Skill sources in %s deployment fallback metadata", async (adapter) => {
     await runtime!.close()
+    if (adapter === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
     runtime = await createDeploymentRuntimeFixture(adapter, "support", true, undefined, undefined, false, false, true)
     const workspace = await runtime.workspace("support")
     expect(workspace.sources).toMatchObject({
