@@ -544,4 +544,6 @@ export default defineAgent({
 
 Provider Agents expose verified mounted Source metadata as `sourceProvenance` to instruction resolvers after Workspace preparation. The core does not add citation rules. The preset owns the citation text and the runtime renders it together with the supplied content. Use `driver.instructions: { mode: "replace", value: "..." }` to replace that document. Plain Workspace Agents keep native repository instructions without adding citation policy.
 
+Configured instructions appended to native provider instruction files are transient. If a provider removes or rewrites their delimiters in a nonempty file, cleanup fails and Workspace write-back is skipped because native edits cannot be separated from configured policy. Clearing or deleting the file remains supported.
+
 Applications can import the same preset from `vite-hub/agent/presets/workspace`.

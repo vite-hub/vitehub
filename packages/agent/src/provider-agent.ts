@@ -150,6 +150,11 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
       const content = await readFile(generated.path, "utf8")
       const start = content.indexOf(generated.appendedSection.start)
       const end = content.indexOf(generated.appendedSection.end, start)
+      // Without both delimiters, native edits cannot be separated from transient policy.
+      // Fail cleanup so closeWorkspace skips diff and write-back.
+      if (content && (start === -1 || end === -1)) {
+        throw agentDiagnostics.AGENT_R0924({ message: `[vitehub] Cannot restore provider instructions with missing delimiters: ${generated.path}` })
+      }
       if (start !== -1 && end !== -1) {
         const prefix = content.slice(0, start)
         await writeFile(generated.path, (prefix.endsWith("\n\n") ? prefix.slice(0, -2) : prefix)

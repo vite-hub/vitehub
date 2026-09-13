@@ -3767,7 +3767,7 @@ cli_auth_credentials_store = "keyring"
     { provider: "codex" as const, file: "AGENTS.md" },
     { provider: "claude-code" as const, file: "CLAUDE.md" },
   ])("preserves native $file edits while removing modified configured instructions", async ({ provider, file }) => {
-    for (const change of ["unchanged", "edit", "replace", "delete", "empty", "clear", "policy-edit"]) {
+    for (const change of ["unchanged", "edit", "replace", "delete", "empty", "clear", "policy-edit", "strip-start", "strip-end", "strip-both", "rewrite-markers"]) {
       const threadId = `thread-native-${provider}-${change}`
       let root = ""
       let committed: string | undefined
@@ -3778,6 +3778,14 @@ cli_auth_credentials_store = "keyring"
           const content = await readFile(path, "utf8")
           expect(content).toContain("Transient configured policy")
           if (change === "policy-edit") await writeFile(path, content.replace("Transient configured policy", "Modified transient policy").replace(original, "edited instructions") + "\nprovider addition")
+          if (change.startsWith("strip-")) {
+            const stripped = content.replace(/<!-- (\/?)vitehub:instructions:[^>]+ -->/g, (marker, closing) => {
+              return change === "strip-both" || (closing ? change === "strip-end" : change === "strip-start") ? "" : marker
+            })
+            expect(stripped).toContain("Transient configured policy")
+            await writeFile(path, stripped)
+          }
+          if (change === "rewrite-markers") await writeFile(path, content.replaceAll("vitehub:instructions:", "rewritten:instructions:"))
           if (change === "clear") await writeFile(path, "")
           if (change === "edit") await writeFile(path, content.replace(original, "edited instructions") + "\nprovider addition")
           if (change === "replace") await writeFile(path, "replacement instructions")
@@ -3809,16 +3817,26 @@ cli_auth_credentials_store = "keyring"
         tools: {},
       }
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-      await createProviderAgentAdapter({ provider, instructions: "Transient configured policy" }).generate(context(threadId, {
+      const generation = createProviderAgentAdapter({ provider, instructions: "Transient configured policy" }).generate(context(threadId, {
         workspace,
         workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
         workspaceMode: "write",
       }) as never)
+      if (change === "replace" || change.startsWith("strip-") || change === "rewrite-markers") {
+        await expect(generation).rejects.toMatchObject({
+          errors: [expect.objectContaining({ message: expect.stringContaining("Cannot restore provider instructions with missing delimiters") })],
+        })
+        expect(session.diff).not.toHaveBeenCalled()
+        expect(session.commit).not.toHaveBeenCalled()
+        expect(session.close).toHaveBeenCalled()
+        continue
+      }
+      await generation
       expect(session.diff).toHaveBeenCalled()
       expect(committed).toBe(change === "delete" ? undefined
         : change === "clear" ? ""
           : change === "edit" || change === "policy-edit" ? "edited instructions\nprovider addition"
-          : change === "replace" ? "replacement instructions" : original)
+            : original)
     }
   })
 
