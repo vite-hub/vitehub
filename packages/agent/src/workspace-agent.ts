@@ -1326,7 +1326,10 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
     }
     if (fence) return line
     const indented = /^(?:    |\t)/.test(line)
-    if (indented && !paragraph) return line
+    // A deeply indented continuation under a list item is an indented code
+    // block; only the standard four-space paragraph continuation is prose.
+    const indentation = line.match(/^ */)?.[0].length ?? 0
+    if (indented && (!paragraph || indentation > 4)) return line
     paragraph = line.trim().length > 0 && !indented && (!/^ {0,3}(?:#{1,6}\s|>)/.test(line) || /^ {0,3}(?:[-+*]\s|\d+[.)]\s)/.test(line))
     if (inlineFence) {
       const run = inlineFence
