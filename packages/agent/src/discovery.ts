@@ -171,7 +171,15 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   }
 
   function propertyName(token: string): string {
-    return /^["'`]/.test(token) ? token.slice(1, -1) : token
+    if (!/^["'`]/.test(token)) return token
+    if (token[0] === '`') return token.slice(1, -1)
+    try {
+      return token[0] === '"'
+        ? JSON.parse(token) as string
+        : JSON.parse(`"${token.slice(1, -1).replace(/\\"/g, '\\\\"')}"`) as string
+    } catch {
+      return token.slice(1, -1)
+    }
   }
 
   function properties(index: number): Map<string, number> {
