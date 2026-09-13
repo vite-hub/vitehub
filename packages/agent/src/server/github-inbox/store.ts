@@ -41,6 +41,7 @@ function parseSnapshot(value: unknown): Snapshot {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untrusted persisted data before parsing its domain fields.
   if (typeof input.repository !== 'string' || !Number.isInteger(input.number) || input.number < 1 ||
     required.some(key => !(key in input)) || !['ready', 'working', 'waiting', 'terminal'].includes(String(input.status)) ||
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the persisted lease union.
     (input.lease !== null && typeof input.lease !== 'string') ||
     ![input.generation, input.handled, input.dirtyAt, input.nextAt, input.leaseUntil, input.attempts].every(n => typeof n === 'number' && Number.isFinite(n)) ||
     typeof input.hydrated !== 'boolean' || typeof input.refresh !== 'boolean' || typeof input.feedbackRefresh !== 'boolean' ||
@@ -100,10 +101,14 @@ export class PullRequestInbox {
     if (!row) return undefined
     // SAFETY: SQLite schema guarantees value is stored as TEXT.
     const raw = row.value as string
-    return parseSnapshot(JSON.parse(raw) as unknown)
+    // SAFETY: raw is read from the TEXT SQLite value and JSON.parse returns unknown for boundary validation.
+    return parseSnapshot(JSON.parse(raw))
   }
   all(): Snapshot[] {
-    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => parseSnapshot(JSON.parse(row.value as string) as unknown))
+    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => {
+      // SAFETY: SQLite schema guarantees value is stored as TEXT; parseSnapshot validates the decoded boundary.
+      return parseSnapshot(JSON.parse(row.value as string))
+    })
       .filter(s => this.repositories.includes(s.repository))
   }
   private put(s: Snapshot) {
@@ -116,7 +121,8 @@ export class PullRequestInbox {
   }
   meta(key: string): unknown {
     const row = this.db.prepare('SELECT value FROM inbox_meta WHERE key=?').get(key)
-    return row ? JSON.parse(row.value as string) as unknown : undefined
+    // SAFETY: SQLite schema guarantees value is stored as TEXT; metadata remains intentionally untyped JSON.
+    return row ? JSON.parse(row.value as string) : undefined
   }
   setMeta(key: string, value: unknown): void { this.db.prepare('INSERT OR REPLACE INTO inbox_meta VALUES (?,?)').run(key, JSON.stringify(value)) }
   private dirty(s: Snapshot, reason: string) {
