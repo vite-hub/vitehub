@@ -786,7 +786,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { lstat, mkdir, open, rm } = await import("node:fs/promises")
+    const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
     const marker = this.#removalMarker(normalized)
@@ -813,6 +813,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
+    }).catch(async (error: NodeJS.ErrnoException) => {
+      // Preserve non-recursive empty-directory removal before sidecar cleanup.
+      if (error.code === "ERR_FS_EISDIR" && !options.recursive) {
+        await rmdir(resolveInside(this.root, path))
+        return
+      }
+      throw error
     }).catch(async (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
         if (!options.force) missingTargetError = error

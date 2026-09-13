@@ -2,10 +2,9 @@ import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
 import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
-import { consumeAuthorization, consumeCredentialAssignment, credentialTextLineContext, credentialTextMayContinue, pendingAuthorizationState, pendingCredentialAssignmentState, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
+import { credentialTextMayContinue, pendingCredentialAssignment, pendingCredentialQuote, pendingCredentialScheme, pendingCredentialTextSuffix, redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 
-import type { AuthorizationState, CredentialAssignmentState } from "./internal/credential-redaction.ts"
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
 import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
@@ -1278,7 +1277,6 @@ function journalTraceLog(
   metadataContent: ReadonlySet<string>,
   maxMessageDeltaCharacters: number,
   maxMessageDeltaKeys: number,
-  maxSeparatorCharacters: number,
 ): TraceEventLog {
   const journalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
   const messageDeltaChunkCharacters = maxMessageDeltaCharacters
@@ -1286,10 +1284,8 @@ function journalTraceLog(
   const maxPendingCredentialCharacters = Math.max(messageDeltaChunkCharacters, 512)
   const admittedMessageDeltaKeys = new Set<string>()
   let messageDeltaKeysTruncated = false
-  let activeMessageDeltaKey: string | undefined
-  const precedingMessageText = new Map<string, string>()
-  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number, emittedCharacters?: number }>()
-  const redactingCredentialDeltas = new Map<string, { kind: "authorization", state: AuthorizationState } | { kind: "shell", state: CredentialAssignmentState } | { kind: "unquoted" | "scheme", escaped?: boolean } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
+  const pendingMessageDeltas = new Map<string, { entry: TraceEventLogEntry, events: number }>()
+  const redactingCredentialDeltas = new Map<string, { kind: "unquoted" | "scheme" | "assignment" } | { kind: "quoted", quote: string, escaped: boolean, omitClosingQuote?: boolean }>()
   const emit = (entry: TraceEventLogEntry) => {
     const sequence = nextSequence()
     const identity = outcomeObservationPriority(entry) !== undefined
@@ -1307,58 +1303,36 @@ function journalTraceLog(
     entry.attributes?.["message.role"],
     entry.attributes?.["vitehub.auxiliary.kind"],
   ])
-  const flushMessageDelta = (key: string, final = true, interveningEvent = false) => {
+  const flushMessageDelta = (key: string, final = true) => {
     const pending = pendingMessageDeltas.get(key)
     if (!pending) return
     const rawContent = pending.entry.attributes?.["message.content"]
     let retainedContent: string | undefined
-    let emittedCharacters = 0
     if (hasRuntimeType(rawContent, "string")) {
       let content = rawContent
-      const precedingText = precedingMessageText.get(key) ?? ""
-      if (!final && credentialTextMayContinue(content, precedingText)) {
-        if (!interveningEvent && content.length < maxPendingCredentialCharacters) return
-        const quote = pendingCredentialQuote(content, precedingText)
-        const scheme = pendingCredentialScheme(content, precedingText)
-        const assignment = pendingCredentialAssignmentState(content, precedingText, maxSeparatorCharacters)
-        const authorization = pendingAuthorizationState(content)
-        if (authorization) {
-          redactingCredentialDeltas.set(key, { kind: "authorization", state: authorization })
-        }
-        else if (assignment) {
-          redactingCredentialDeltas.set(key, { kind: "shell", state: assignment })
-          // Complete only the persisted placeholder; the scanner retains the raw state.
-          if (!assignment.started && !assignment.yamlFlow && assignment.yamlIndent === undefined) content += "[REDACTED]"
-          else if (assignment.quote) content += `${assignment.escaped ? "\\" : ""}${assignment.quote}`
-        }
-        else if (quote) {
+      if (!final && credentialTextMayContinue(content)) {
+        if (content.length < maxPendingCredentialCharacters) return
+        const quote = pendingCredentialQuote(content)
+        const scheme = pendingCredentialScheme(content)
+        const assignment = pendingCredentialAssignment(content)
+        if (quote) {
           redactingCredentialDeltas.set(key, { kind: "quoted", quote, escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1 })
         }
-        else if (scheme) {
+        else if (scheme || assignment) {
           redactingCredentialDeltas.set(key, {
-            kind: scheme,
-            escaped: (content.match(/\\+$/)?.[0].length ?? 0) % 2 === 1,
+            kind: scheme ?? assignment!,
           })
-          if (scheme === "scheme") {
+          if (scheme === "scheme" || assignment === "assignment") {
             content += "[REDACTED]"
           }
         }
         else {
           // A possible marker is still ordinary text until its separator arrives.
           retainedContent = pendingCredentialTextSuffix(content)
-          if (retainedContent) {
-            emittedCharacters = Math.max(0, (pending.emittedCharacters ?? 0) - (content.length - retainedContent.length))
-            // Emit ordinary marker text in place, but keep it as scanner context.
-            // An authorization header may already contain an unknown credential.
-            if (interveningEvent && !retainedContent.includes(":")) emittedCharacters = retainedContent.length
-            else content = content.slice(0, -retainedContent.length)
-          }
+          if (retainedContent) content = content.slice(0, -retainedContent.length)
         }
       }
-      const redacted = redactCredentialText(content, precedingText).slice(pending.emittedCharacters ?? 0)
-      // Retain only line and authorization-header context, never credential text.
-      const emittedRaw = rawContent.slice(0, rawContent.length - (retainedContent?.length ?? 0))
-      precedingMessageText.set(key, credentialTextLineContext(precedingText + emittedRaw))
+      const redacted = redactCredentialText(content)
       for (let offset = 0; offset < redacted.length; offset += messageDeltaChunkCharacters) {
         emit({
           ...pending.entry,
@@ -1376,21 +1350,16 @@ function journalTraceLog(
       pendingMessageDeltas.set(key, {
         entry: { ...pending.entry, attributes: { ...pending.entry.attributes, "message.content": retainedContent } },
         events: 0,
-        emittedCharacters,
       })
     }
   }
   const flushMessageDeltas = (final = true) => {
     // Flushing may reinsert a retained suffix; visit each original key only once.
     // oxlint-disable-next-line unicorn/no-useless-spread
-    for (const key of [...pendingMessageDeltas.keys()]) flushMessageDelta(key, final, true)
+    for (const key of [...pendingMessageDeltas.keys()]) flushMessageDelta(key, final)
   }
   const queueMessageDelta = (entry: TraceEventLogEntry) => {
     const key = messageDeltaKey(entry)
-    if (activeMessageDeltaKey !== undefined && activeMessageDeltaKey !== key) {
-      flushMessageDelta(activeMessageDeltaKey, false, true)
-    }
-    activeMessageDeltaKey = key
     if (!admittedMessageDeltaKeys.has(key)) {
       if (admittedMessageDeltaKeys.size >= maxMessageDeltaKeys) {
         if (!messageDeltaKeysTruncated) {
@@ -1416,73 +1385,44 @@ function journalTraceLog(
     let content = Object.prototype.toString.call(rawContent) === "[object String]" ? String(rawContent) : undefined
     if (content !== undefined && redactingCredentialDeltas.has(key)) {
       let redaction = redactingCredentialDeltas.get(key)!
-      if (redaction.kind === "shell" || redaction.kind === "authorization") {
-        // YAML mappings can flush before their value starts. Persist separators
-        // immediately and emit the placeholder only when scalar content arrives.
-        const yamlPrefix = redaction.kind === "shell" && (redaction.state.yamlFlow || redaction.state.yamlIndent !== undefined) && !redaction.state.started
-          ? redaction.state.yamlProperty ? "" : content.match(redaction.state.yamlFlow ? /^\s*/ : /^[\t ]*/)?.[0] ?? ""
-          : undefined
-        const yamlQuote = yamlPrefix !== undefined && redaction.kind === "shell" && redaction.state.yamlIndent !== undefined
-          ? /^["']/.exec(content.slice(yamlPrefix.length))?.[0] ?? ""
-          : ""
-        const boundary = redaction.kind === "authorization"
-          ? consumeAuthorization(content, redaction.state)
-          : consumeCredentialAssignment(content, redaction.state)
-        if (yamlPrefix !== undefined) {
-          const prefix = yamlPrefix + (redaction.kind === "shell" && redaction.state.started ? `${yamlQuote}[REDACTED]${yamlQuote}` : "")
-          if (prefix) emit({ ...entry, attributes: { ...entry.attributes, "message.content": prefix } })
+      if (redaction.kind === "assignment") {
+        content = content.trimStart()
+        if (!content) return
+      }
+      if (redaction.kind === "assignment" && (content[0] === '"' || content[0] === "'")) {
+        redaction = { kind: "quoted", quote: content[0], escaped: false, omitClosingQuote: true }
+        redactingCredentialDeltas.set(key, redaction)
+        content = content.slice(1)
+      }
+      else if (redaction.kind === "assignment" && content) {
+        redaction = { kind: "unquoted" }
+        redactingCredentialDeltas.set(key, redaction)
+      }
+      let boundary: number
+      if (redaction.kind === "quoted") {
+        boundary = -1
+        for (let index = 0; index < content.length; index++) {
+          const character = content[index]
+          if (redaction.escaped) redaction.escaped = false
+          else if (character === "\\") redaction.escaped = true
+          else if (character === redaction.quote) {
+            boundary = index + (redaction.omitClosingQuote ? 1 : 0)
+            break
+          }
         }
-        if (boundary === content.length) return
-        redactingCredentialDeltas.delete(key)
-        content = (redaction.kind === "shell" ? redaction.state.yaml?.whitespace ?? redaction.state.shellProcess ?? "" : "") + content.slice(boundary)
-        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content, ...(redaction.kind === "shell" && redaction.state.yaml?.truncated ? { "content.truncated": true } : {}) } }
       }
       else {
         if (redaction.kind === "scheme") {
           content = content.trimStart()
           if (!content) return
+          redactingCredentialDeltas.set(key, { kind: "unquoted" })
         }
-        if (redaction.kind === "scheme" && (content[0] === '"' || content[0] === "'")) {
-          redaction = { kind: "quoted", quote: content[0], escaped: false, omitClosingQuote: true }
-          redactingCredentialDeltas.set(key, redaction)
-          content = content.slice(1)
-        }
-        let boundary: number
-        if (redaction.kind === "quoted") {
-          boundary = -1
-          for (let index = 0; index < content.length; index++) {
-            const character = content[index]
-            if (redaction.escaped) redaction.escaped = false
-            else if (character === "\\") redaction.escaped = true
-            else if (character === redaction.quote) {
-              boundary = index + (redaction.omitClosingQuote ? 1 : 0)
-              break
-            }
-          }
-        }
-        else {
-          if (redaction.kind === "scheme") {
-            content = content.trimStart()
-            if (!content) return
-            redaction = { kind: "unquoted" }
-            redactingCredentialDeltas.set(key, redaction)
-          }
-          boundary = -1
-          for (let index = 0; index < content.length; index++) {
-            const character = content[index]!
-            if (redaction.escaped) redaction.escaped = false
-            else if (character === "\\") redaction.escaped = true
-            else if (/[\s"',;&{}<>]/.test(character)) {
-              boundary = index
-              break
-            }
-          }
-        }
-        if (boundary < 0) return
-        redactingCredentialDeltas.delete(key)
-        content = content.slice(boundary)
-        entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
+        boundary = content.search(/[\s"',;&{}<>]/)
       }
+      if (boundary < 0) return
+      redactingCredentialDeltas.delete(key)
+      content = content.slice(boundary)
+      entry = { ...entry, attributes: { ...entry.attributes, "message.content": content } }
     }
     const pending = pendingMessageDeltas.get(key)
     const rawPreviousContent = pending?.entry.attributes?.["message.content"]
@@ -1536,13 +1476,9 @@ function journalTraceLog(
           queueMessageDelta(safeEntry)
         }
         else {
-          const terminal = safeEntry.name === "agent.invocation.finish"
+          flushMessageDeltas(safeEntry.name === "agent.invocation.finish"
             || safeEntry.name === "agent.invocation.error"
-            || safeEntry.name === "agent.invocation.cancelled"
-          flushMessageDeltas(terminal)
-          if (terminal && messageDeltaKeysTruncated) {
-            safeEntry.attributes = { ...safeEntry.attributes, "content.truncated": true }
-          }
+            || safeEntry.name === "agent.invocation.cancelled")
           emit(safeEntry)
         }
       }
@@ -1872,7 +1808,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...context,
           run: { ...context.run, runId },
           trace: context.trace || { id: runId },
-          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount, limits.maxBytes),
+          traceLog: journalTraceLog(baseTraceLog, observe, () => ++observationSequence, content, metadataContent, limits.maxStringLength, limits.maxCount),
         },
         async finish(status, error) {
           if (finished || finishing) return

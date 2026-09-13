@@ -152,7 +152,7 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
-  it.each([undefined, 30_000])("forwards parent Workspace metadata without mounting it (timeout: %s)", async (timeout) => {
+  it("forwards parent Workspace metadata to auxiliary resolvers without mounting it", async () => {
     const threadId = "title-parent-metadata"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const workspace = { fs: {}, startSession: vi.fn(), tools: {} }
@@ -162,9 +162,7 @@ describe("Provider Agent Driver", () => {
       return { TITLE_METADATA: "available" }
     })
     const adapter = createProviderAgentAdapter({ provider: "codex", env })
-    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId, {
-      input: { prompt: "hello", timeout, abortSignal: new AbortController().signal },
-    }))
+    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId))
     // SAFETY: The fixture provides the Workspace metadata used by the resolver.
     withProviderCallbackMetadata(auxiliary, { workspace, fs: workspace.fs } as never)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -2104,9 +2102,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it.each([
-    { inputTokens: 7, outputTokens: 5, usedTokens: 12 },
     { inputTokens: 7, outputTokens: 5 },
-    { lastInputTokens: 7, lastOutputTokens: 5, usedTokens: 12 },
     { lastInputTokens: 7, lastOutputTokens: 5 },
   ])("preserves latest-response partitions independently of the cumulative total: %j", async (partition) => {
     const threadId = "thread-cumulative-usage"
@@ -2117,6 +2113,7 @@ cli_auth_credentials_store = "keyring"
         reasoningOutputTokens: 3,
         toolUses: 1,
         totalProcessedTokens: 100,
+        usedTokens: 12,
       } }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
@@ -2125,7 +2122,7 @@ cli_auth_credentials_store = "keyring"
     expect(events.find(item => item.type === "usage")).toEqual({
       type: "usage",
       usageRecord: {
-        raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100 },
+        raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
         usage: {
           details: { cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1 },
           inputTokens: 7,
@@ -2462,10 +2459,10 @@ cli_auth_credentials_store = "keyring"
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
   })
 
-  it.each([undefined, 30_000])("does not replace primary telemetry configuration during an auxiliary provider run (timeout: %s)", async (timeout) => {
+  it("does not replace primary telemetry configuration during an auxiliary provider run", async () => {
     const threadId = "thread-auxiliary-configuration"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const runContext = context(threadId, { input: { prompt: "hello", timeout } })
+    const runContext = context(threadId)
     await setAgentTelemetryConfiguration(runContext.context, {
       capabilities: [{ id: "support" }],
       driver: { kind: "provider", model: { id: "gpt-5.6-sol", provider: "codex" }, provider: "codex" },
@@ -2964,7 +2961,7 @@ cli_auth_credentials_store = "keyring"
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
   })
 
-  it.each(["text", "messages", "message", "multiple"] as const)("steers a running provider turn with a %s prompt and emits input plus method evidence", async (promptKind) => {
+  it("steers a running provider turn and emits input plus method evidence", async () => {
     const threadId = "thread-live-steer"
     let releaseTurn!: () => void
     const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
@@ -2979,16 +2976,10 @@ cli_auth_credentials_store = "keyring"
     const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
-    await expect(sendAgentInvocationInput(invocationId, promptKind === "message"
-        ? { message: { id: "steering-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "private follow-up" }] } }
-        : { prompt: promptKind === "text" ? "private follow-up" : [
-            { id: "steering-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "private follow-up" }] },
-            ...(promptKind === "multiple" ? [{ id: "second-prompt", role: "user" as const, parts: [{ type: "text" as const, text: "second follow-up" }] }] : []),
-          ] }, { mode: "steer" })).resolves.toBe("accepted")
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "private follow-up" }, { mode: "steer" })).resolves.toBe("accepted")
     releaseTurn()
 
     await expect(result).resolves.toEqual(expect.arrayContaining([{
-      ...(promptKind === "text" ? {} : { id: "steering-prompt" }),
       data: {
         kind: "input.message",
         value: {
@@ -3001,96 +2992,10 @@ cli_auth_credentials_store = "keyring"
       data: { kind: "input.steered", value: { mode: "steer" } },
       type: "data-agent-event",
     }]))
-    if (promptKind === "multiple") {
-      expect(await result).toContainEqual({
-        type: "data-agent-event",
-        id: "second-prompt",
-        data: { kind: "input.message", value: { message: "second follow-up", mode: "steer" } },
-      })
-    }
-    expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: promptKind === "multiple" ? "private follow-up\nsecond follow-up" : "private follow-up", threadId })
+    expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: "private follow-up", threadId })
   })
 
-  it("drains late accepted steering evidence before the provider stream finishes", async () => {
-    const threadId = "thread-late-steering-evidence"
-    let releaseTerminal!: () => void
-    let releaseSteering!: () => void
-    const terminal = new Promise<void>(resolve => { releaseTerminal = resolve })
-    const steering = new Promise<void>(resolve => { releaseSteering = resolve })
-    const provider = runtime(threadId, [
-      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
-    ], { beforeEvent: () => terminal })
-    const invocationId = `run-${threadId}`
-    const liveContext = context(threadId)
-    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
-    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
-    provider.sendTurn.mockImplementationOnce(async () => {
-      await steering
-      return { resumeCursor: undefined, threadId, turnId: "turn-1" }
-    })
-    const submitted = sendAgentInvocationInput(invocationId, { prompt: "late follow-up" }, { mode: "steer" })
-    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledTimes(2))
-    releaseTerminal()
-    try {
-      await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).not.toBe(true))
-      expect(provider.close).not.toHaveBeenCalled()
-    } finally {
-      releaseSteering()
-      await result
-    }
-    await expect(submitted).resolves.toBe("accepted")
-    const output = await result
-    const kinds = output.flatMap(item => isRuntimeRecord(item) && item.type === "data-agent-event" && isRuntimeRecord(item.data) ? [item.data.kind] : [])
-    expect(kinds).toEqual(expect.arrayContaining(["input.message", "input.steered"]))
-    expect(kinds.filter(kind => kind === "input.message")).toHaveLength(1)
-    expect(kinds.filter(kind => kind === "input.steered")).toHaveLength(1)
-  })
-
-  it("fails without a finish event when steering outlives the terminal drain", async () => {
-    const threadId = "thread-steering-drain-timeout"
-    let releaseTerminal!: () => void
-    let releaseSteering!: () => void
-    const terminal = new Promise<void>(resolve => { releaseTerminal = resolve })
-    const steering = new Promise<void>(resolve => { releaseSteering = resolve })
-    const provider = runtime(threadId, [
-      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
-    ], { beforeEvent: () => terminal })
-    const invocationId = `run-${threadId}`
-    const liveContext = context(threadId)
-    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
-    const output: StreamEvent[] = []
-    const result = (async () => {
-      const stream = await createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never)
-      // SAFETY: The provider adapter returns its normalized StreamEvent iterator.
-      for await (const item of stream as AsyncIterable<StreamEvent>) output.push(item)
-    })()
-    const failed = expect(result).rejects.toThrow("steering submission cleanup timed out")
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
-    provider.sendTurn.mockImplementationOnce(async () => {
-      await steering
-      return { resumeCursor: undefined, threadId, turnId: "turn-1" }
-    })
-    const submitted = sendAgentInvocationInput(invocationId, { prompt: "late follow-up" }, { mode: "steer" })
-    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledTimes(2))
-    vi.useFakeTimers()
-    try {
-      releaseTerminal()
-      await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).not.toBe(true))
-      await vi.advanceTimersByTimeAsync(10_000)
-      await failed
-      releaseSteering()
-      await expect(submitted).resolves.toBe("invalid-state")
-      expect(output.some(item => item.type === "finish")).toBe(false)
-      expect(JSON.stringify(output)).not.toContain("input.steered")
-      expect(provider.close).toHaveBeenCalledOnce()
-    } finally {
-      releaseSteering()
-      vi.useRealTimers()
-    }
-  })
-
-  it.each(["messages", "prompt", "message"] as const)("falls back before submitting live steering with non-text parts in %s", async (inputField) => {
+  it("falls back before submitting live steering with attachments", async () => {
     const threadId = "thread-steer-attachment"
     let releaseTurn!: () => void
     const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
@@ -3105,18 +3010,12 @@ cli_auth_credentials_store = "keyring"
 
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
     try {
-      for (const part of [
-        { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
-        { type: "data-selection", data: { value: "selected" } },
-        { type: "source", title: "Notes", url: "https://example.com/notes" },
-      ]) {
-        const message = { id: "message-steer-non-text", role: "user", parts: [
-          { type: "text", text: "inspect this input" }, part,
-        ] }
-        await expect(sendAgentInvocationInput(invocationId, {
-          [inputField]: inputField === "message" ? message : [message],
-        }, { mode: "steer" })).resolves.toBe("unsupported")
-      }
+      await expect(sendAgentInvocationInput(invocationId, {
+        messages: [{ id: "message-steer-attachment", role: "user", parts: [
+          { type: "text", text: "inspect this image" },
+          { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
+        ] }],
+      }, { mode: "steer" })).resolves.toBe("unsupported")
       expect(provider.sendTurn).toHaveBeenCalledTimes(1)
       expect(fetchData).not.toHaveBeenCalled()
     } finally {
@@ -3658,7 +3557,7 @@ cli_auth_credentials_store = "keyring"
     }) as never)).rejects.toThrow()
   })
 
-  it.each(["", "docs#v1", "docs?draft", "docs 100%/nested"])("reports native Claude Workspace instructions with source root %j to invocation inspection", async (sourceRoot) => {
+  it("reports native Claude Workspace instructions to invocation inspection", async () => {
     const threadId = "thread-native-claude-instructions"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     let root = ""
@@ -3689,7 +3588,7 @@ cli_auth_credentials_store = "keyring"
     }
     const runContext = context(threadId, {
       workspace,
-      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: sourceRoot }) } },
+      workspaceDefinition: { mode: "write", name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub" }) } },
       workspaceMode: "write",
     })
     await setAgentTelemetryConfiguration(runContext.context, {
@@ -3703,12 +3602,6 @@ cli_auth_credentials_store = "keyring"
     const [instructions] = getAgentTelemetryConfiguration(runContext.context)?.value.instructions || []
     expect(instructions).toMatch(/^native workspace instructions\n\nMounted source provenance/)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
-    expect(instructions).toContain("<repository>/blob/<revision.id>/<root>/<relative-path>#L<line>")
-    expect(instructions).toContain(`"root": ${JSON.stringify(sourceRoot)}`)
-    expect(instructions).toContain("Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding.")
-    expect(instructions).toContain("root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor.")
-    expect(instructions).toContain("Never cite /workspace paths")
-    expect(instructions).toContain("If the mounted path cannot be mapped exactly to one provenance entry, cite no link.")
   })
 
   it.each([
@@ -3987,8 +3880,6 @@ cli_auth_credentials_store = "keyring"
 
   it.each([
     { sourceRoot: undefined, expectedRoot: "", conflicting: false },
-    { sourceRoot: "", expectedRoot: "", conflicting: false, nativeInstructions: "large instructions\n".repeat(10_000) },
-    { sourceRoot: "", expectedRoot: "", conflicting: false, launchArgs: '-c developer_instructions="caller"' },
     { sourceRoot: "/docs", expectedRoot: "docs", conflicting: false },
     { sourceRoot: "./docs", expectedRoot: "docs", conflicting: false },
     { sourceRoot: "\\docs\\.\\guide\\", expectedRoot: "docs/guide", conflicting: false },
@@ -4002,7 +3893,7 @@ cli_auth_credentials_store = "keyring"
     { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs/a" },
     { sourceRoot: "docs", expectedRoot: undefined, conflicting: false, overlappingMount: "" },
     { sourceRoot: "docs", expectedRoot: "docs", conflicting: false, overlappingMount: "docs-other" },
-  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount, selectedPaths = ["docs/a.md", "docs/b.md"], nativeInstructions = "native Codex workspace instructions", launchArgs }) => {
+  ])("preserves native instructions with source root $sourceRoot, conflicting revisions $conflicting and other mount $overlappingMount", async ({ sourceRoot, expectedRoot, conflicting, overlappingMount, selectedPaths = ["docs/a.md", "docs/b.md"] }) => {
     const threadId = "thread-native-codex-provenance"
     let root = ""
     let instructions = ""
@@ -4025,7 +3916,7 @@ cli_auth_credentials_store = "keyring"
       startSession: vi.fn(async (options: { target: string }) => {
         root = options.target
         await mkdir(root, { recursive: true })
-        await writeFile(`${root}/AGENTS.md`, nativeInstructions)
+        await writeFile(`${root}/AGENTS.md`, "native Codex workspace instructions")
         return session
       }),
       tools: {},
@@ -4047,18 +3938,17 @@ cli_auth_credentials_store = "keyring"
     // SAFETY: This fixture supplies the trusted access context expected by the helper.
     markTrustedWorkspaceAccessScope(runContext.context as never)
     // SAFETY: This fixture supplies the complete provider generation context.
-    await createProviderAgentAdapter({ provider: "codex", providerSettings: { launchArgs } }).generate(runContext as never)
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
 
     expect(workspace.materializeSources).toHaveBeenCalledTimes(selectedPaths.length)
     if (expectedRoot === undefined) {
-      expect(instructions).toBe(nativeInstructions)
+      expect(instructions).toBe("native Codex workspace instructions")
       return
     }
     expect(instructions).toContain(`"root": "${expectedRoot}"`)
     expect(instructions.match(/"repository":/g)).toHaveLength(1)
-    expect(instructions.startsWith(`${nativeInstructions}\n\nMounted source provenance`)).toBe(true)
+    expect(instructions).toMatch(/^native Codex workspace instructions\n\nMounted source provenance/)
     expect(instructions).toContain("https://github.com/vite-hub/vitehub")
-    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toBe(launchArgs)
   })
 
   it("waits for active selected-path materialization after a queued sibling is canceled", async () => {

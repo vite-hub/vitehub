@@ -1,3 +1,5 @@
+import { providerCallbackMetadata } from "./internal/provider-callback-metadata.ts"
+import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { getMessageText } from "./messages.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { spawn } from "node:child_process"
@@ -21,13 +23,12 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
-import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
-import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
+import { isAuxiliaryAgentAdapterContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
 import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
@@ -74,6 +75,7 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
+import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
@@ -542,9 +544,7 @@ function redactProviderDiagnostic(
     .filter((item): item is string => hasRuntimeType(item, "string") && item.length > 0))]
     .sort((left, right) => right.length - left.length)
   for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
-  return redacted
-    .replace(/\b(Bearer|Basic)\s+[^\s]+/gi, "$1 [REDACTED]")
-    .replace(/\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\s]+)/g, "$1=[REDACTED]")
+  return redactCredentialText(redacted)
 }
 
 async function providerLaunchFailure(
@@ -917,16 +917,16 @@ function providerMetadataContext<
   CALL_OPTIONS,
 >(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  const inherited = providerCallbackMetadata(context)
   // SAFETY: The invocation context and normalized provider runtime establish every metadata field below.
   return {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
     actor: context.actor,
     context: context.context,
-    fs: context.workspace?.fs,
+    fs: context.workspace ? context.workspace.fs : inherited?.fs,
     invoker: context.invoker,
-    workspace: context.workspace,
-    ...providerCallbackMetadata(context),
+    workspace: context.workspace ?? inherited?.workspace,
   } as AgentAdapterMetadataContext<TRuntimeConfig>
 }
 
@@ -1079,19 +1079,6 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     try { await home?.release() }
     finally { if (root) await rm(root, { recursive: true, force: true }) }
   }
-}
-
-function codexLaunchArgs(options: ProviderAgentAdapterOptions): string | undefined {
-  const values = [
-    options.reasoningEffort && ["model_reasoning_effort", options.reasoningEffort],
-    options.reasoningSummary && ["model_reasoning_summary", options.reasoningSummary],
-  ].filter((value): value is [string, string] => Boolean(value))
-  return values.length
-    ? values.map(([key, value]) => {
-        const config = `${key}=${JSON.stringify(value)}`
-        return `-c "${config.replace(/["\\$`]/g, "\\$&")}"`
-      }).join(" ")
-    : undefined
 }
 
 async function waitForProviderOperation<T>(
@@ -1620,7 +1607,7 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
 
 function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvenance[]): string | undefined {
   if (!provenance.length) return
-  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding. For example, root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor. Never cite /workspace paths, other local filesystem paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
+  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nUse the repository URL and immutable revision for source citations. Read files from the matching mounted path.`
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
@@ -1798,29 +1785,27 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
 
 function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
   const usage = event.payload.usage
-  const rawInputTokens = usage.inputTokens ?? usage.lastInputTokens
-  const rawOutputTokens = usage.outputTokens ?? usage.lastOutputTokens
-  // Cumulative thread totals and latest-turn partitions have different scopes.
-  const hasMatchingPartition = (usage.totalProcessedTokens === undefined && usage.usedTokens === undefined)
-    || (rawInputTokens !== undefined && rawOutputTokens !== undefined
-      && (usage.usedTokens === undefined || rawInputTokens + rawOutputTokens === usage.usedTokens))
-  const inputTokens = hasMatchingPartition ? rawInputTokens : undefined
-  const outputTokens = hasMatchingPartition ? rawOutputTokens : undefined
-  const details = hasMatchingPartition ? {
-    ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-    ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-    ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
-  } : {}
+  const usedTokens = usage.usedTokens ?? usage.lastUsedTokens
+  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
+  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
+  const totalTokens = usage.totalProcessedTokens ?? usedTokens ?? partitionTotal
+  // Codex reports thread-wide totalProcessedTokens alongside latest-response partitions.
+  const includePartition = usage.totalProcessedTokens === undefined || partitionTotal !== undefined
   return {
     type: "usage",
     usageRecord: {
       ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
       raw: usage,
       usage: {
-        details,
-        inputTokens,
-        outputTokens,
-        totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
+        details: {
+          ...(!includePartition || usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(!includePartition || usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+          ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+        },
+        inputTokens: includePartition ? inputTokens : undefined,
+        outputTokens: includePartition ? outputTokens : undefined,
+        totalTokens,
       },
     },
   }
@@ -2004,13 +1989,7 @@ async function* runProvider<
   const effectiveSignal = context.input.abortSignal && timeoutSignal
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
     : context.input.abortSignal || timeoutSignal
-  if (effectiveSignal !== context.input.abortSignal) {
-    const originalContext = context
-    context = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
-    if (isAuxiliaryAgentAdapterContext(originalContext)) markAuxiliaryMessageChannelInstructionContext(context)
-    const metadata = providerCallbackMetadata(originalContext)
-    if (metadata) withProviderCallbackMetadata(context, metadata)
-  }
+  context = effectiveSignal === context.input.abortSignal ? context : { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
   effectiveSignal?.throwIfAborted()
   if (options.provider === "codex") {
     await waitForProviderOperation(runCodexCredentialHomeScavenger(), effectiveSignal)
@@ -2058,8 +2037,6 @@ async function* runProvider<
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
-  const pendingSteering = new Set<Promise<void>>()
-  let steeringEvidenceClosed = false
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
   const capabilityApprovalIds = new Set<string>()
   let notifyToolEvent: (() => void) | undefined
@@ -2204,8 +2181,8 @@ async function* runProvider<
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
     }
-    if (!auxiliary) {
-      const inspectedTools = inspectAgentTools(context.tools)
+    const inspectedTools = inspectAgentTools(context.tools)
+    if (!isAuxiliaryAgentAdapterContext(context)) {
       await updateAgentTelemetryConfiguration(context.context, {
         driver: {
           ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
@@ -2337,21 +2314,19 @@ async function* runProvider<
       providerLauncher = materializedLauncher.path
       providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
     }
-    // Deliver instructions through AGENTS.md, keeping documents out of argv and
-    // preserving explicit caller developer_instructions configuration.
-    const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
-    const auxiliaryLaunchArgs = auxiliary && options.provider === "codex"
+    const auxiliaryEnvironmentLaunchArgs = options.provider === "codex" && isAuxiliaryAgentAdapterContext(context)
       ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
       : undefined
+    const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
-      auxiliaryLaunchArgs,
+      auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
-    // The runtime prefers environment arguments over settings, so auxiliary
-    // overrides must carry the inherited settings and managed credential flags.
-    if (auxiliaryLaunchArgs !== undefined && launchArgs !== undefined) {
+    // The runtime chooses environment arguments over settings. Give auxiliary
+    // overrides the complete argument list, including managed credential storage.
+    if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
       providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
     }
     const settings = Object.fromEntries(Object.entries({
@@ -2431,34 +2406,21 @@ async function* runProvider<
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
-            if (messages.some(message => message.parts.some(part => part.type !== "text"))) return "unsupported"
+            const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : [])
+            if (messages.some(message => message.parts.some(isAttachmentPart))) return "unsupported"
             const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
             if (!text.trim()) return "unsupported"
-            let resolveSteering!: () => void
-            const settled = new Promise<void>(resolve => { resolveSteering = resolve })
-            pendingSteering.add(settled)
             try {
               const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
               if (steeredTurn.turnId !== turn.turnId) {
                 await activeRuntime.interruptTurn(threadId, steeredTurn.turnId)
                 return "unsupported"
               }
-              if (steeringEvidenceClosed) return "invalid-state"
-              if (hasRuntimeType(input.prompt, "string") || hasRuntimeType(input.message, "string")) {
-                emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
-              } else {
-                for (const message of messages) {
-                  emitToolEvent({ type: "data-agent-event", id: message.id, data: { kind: "input.message", value: { message: getMessageText(message), mode: "steer" } } })
-                }
-              }
+              emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
               emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
               return "accepted"
             } catch {
               return "invalid-state"
-            } finally {
-              pendingSteering.delete(settled)
-              resolveSteering()
             }
           }
           if (inputOptions.mode !== "respond") return "unsupported"
@@ -2534,34 +2496,15 @@ async function* runProvider<
           : agentDiagnostics.AGENT_R0722({ message: `[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
         if (effectiveSignal?.aborted) throw caught
       }
-      if (isTerminalEvent(current.value, turn.turnId)) {
-        unregister?.()
-        unregister = undefined
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        const steeringDrain = Promise.all(pendingSteering)
-        const drainTimeout = new Promise<"timeout">(resolve => {
-          timeout = setTimeout(() => resolve("timeout"), providerCleanupTimeoutMs)
-        })
-        const drained = await Promise.race([steeringDrain.then(() => "drained" as const), drainTimeout, aborted])
-        if (timeout) clearTimeout(timeout)
-        steeringEvidenceClosed = true
-        if (drained === "timeout") {
-          caught = agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver steering submission cleanup timed out." })
-        }
-        if (!caught) completed = true
-      }
+      if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
-      for (const event of normalized) {
-        if (caught && event.type === "finish") continue
-        yield event
-      }
+      for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
       nextEvent = events.next()
     }
   }
   catch (error) {
-    steeringEvidenceClosed = true
     const launchFailure = await providerLaunchFailure(
       providerLaunchDiagnosticPath,
       providerRuntimeEnvironment,
@@ -2572,7 +2515,6 @@ async function* runProvider<
     throw caught
   }
   finally {
-    steeringEvidenceClosed = true
     unregister?.()
     clearActiveWorkspaceCommands?.()
     clearActiveWorkspaceFiles?.()

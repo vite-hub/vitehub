@@ -25,9 +25,9 @@ function getStore(definition: WorkspaceDefinition) {
   return getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
 }
 
-export function createWorkspace(definition: WorkspaceDefinition): Workspace {
+export function createWorkspace(definition: WorkspaceDefinition, options: { reuseStartupSnapshots?: boolean } = {}): Workspace {
   const store = getStore(definition)
-  const files = createWorkspaceSourceView(definition, store)
+  const files = createWorkspaceSourceView(definition, store, options)
 
   const workspace: Workspace & { [workspaceMetadataTarget]: () => WorkspaceStore } = {
     [workspaceMetadataTarget]: () => store,

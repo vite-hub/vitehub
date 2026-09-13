@@ -255,7 +255,7 @@ describe("title journal ownership", () => {
       ],
       prompt: "Follow up",
     })
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ text: "Original topic" }))
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ text: "Later topic" }))
   })
 
   it("releases pending title work on invocation abort", async () => {

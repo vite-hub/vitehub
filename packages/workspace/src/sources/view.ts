@@ -128,6 +128,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
   if (!materializationByDefinition.has(definition)) materializationByDefinition.set(definition, materializationState)
   const { completedSources, generationBySource, materializedSources, pendingBySource } = materializationState
+  const reusedStartupSources = new Set<string>()
   const uncachedMaterializedSources = new Set<string>()
   const persistsSourceSnapshots = Boolean(store.getMeta && store.setMeta)
 
@@ -217,7 +218,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       completedSources.delete(sourceKey)
     }
     if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, source)) {
-      completedSources.add(sourceKey)
+      reusedStartupSources.add(sourceKey)
       return
     }
     let pending = prepareBySource.get(sourceKey)
@@ -236,7 +237,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const requestedPath = normalizeWorkspacePath(options.path || "")
     const selectedSources = allSources
       .filter(source => source.materialize === "lazy" || source.materialize === "startup" || source.materialize === "build" && Boolean(requestedPath))
-      .filter(source => (!options.sources?.length || options.sources.includes(source.key)) && sourceMountIntersectsPath(source, requestedPath))
+      .filter(source => (options.sources === undefined || options.sources.includes(source.key)) && sourceMountIntersectsPath(source, requestedPath))
     const predecessors = selectedSources.flatMap((source) => {
       const pending = pendingBySource.get(source.key)
       return pending ? [pending.tail] : []
@@ -265,7 +266,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       for (const source of selectedSources) {
         if (!materializesCompleteSource(source, options)) continue
         materializedSources.delete(source.key)
-        if (source.materialize === "startup") completedSources.delete(source.key)
+        if (source.materialize === "startup") {
+          completedSources.delete(source.key)
+          reusedStartupSources.delete(source.key)
+        }
       }
       let result: WorkspaceMaterializeSourcesResult
       try {
@@ -332,19 +336,22 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         // A lazy consumer owns its fallback independently from a preparation
         // lifecycle that it happened to join.
       }
-      if (materializedSources.has(sourceKey) || completedSources.has(sourceKey)) {
+      if (materializedSources.has(sourceKey) || completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
         if (isUncachedLazySource) uncachedMaterializedSources.add(sourceKey)
         return
       }
     }
     if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
       const maxAge = source.cache && source.cache.maxAge
-      if (source.materialize !== "lazy" || !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
+      if (source.materialize === "startup"
+        ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)
+        : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
       materializedSources.delete(sourceKey)
     }
-    if (completedSources.has(sourceKey)) {
+    if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
       if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
       completedSources.delete(sourceKey)
+      reusedStartupSources.delete(sourceKey)
     }
     await materializeSerialized({ sources: [sourceKey] })
   }
@@ -355,6 +362,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const normalized = normalizeWorkspacePath(path)
+    if (!isDescriptorPath(normalized)) {
+      for (const source of getLazySourcesForPath(normalized)) {
+        if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
+        await ensurePrepared(source.key)
+        if (!usesLiveProvider(source)) await ensureMaterialized(source.key)
+      }
+    }
     const storeEntries = isDescriptorPath(normalized) ? [] : await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
     for (const entry of descriptorPathEntries(path, options)) {
@@ -371,7 +385,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await pruneLiveSourceStoreEntries(result, source)
         continue
       }
-      if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
+      if (!normalized && options.recursive && source.materialize !== "startup" && !await hasCurrentSourceSnapshot(store, source)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
           const allowed = await currentSourceTreePaths(source, getSourceContext(source))
           for (const key of result.keys()) {
@@ -386,11 +400,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
         continue
       }
-      if (sourceMountContainsPath(source, path) || !source.mountPath && path) {
+      if (source.materialize === "startup") {
+        continue
+      }
+      else if (sourceMountContainsPath(source, path) || !source.mountPath && normalized) {
         await ensureMaterialized(source.key)
         for (const entry of await store.list(path, options)) result.set(entry.path, entry)
       }
-      else if (!path && !result.has(source.mountPath)) {
+      else if (!normalized && !result.has(source.mountPath)) {
         result.set(source.mountPath, { path: source.mountPath, type: "directory" })
       }
     }
@@ -416,6 +433,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const list = sourcePaths.get(resolution.sourceKey) || []
       list.push(resolution.workspacePath)
       sourcePaths.set(resolution.sourceKey, list)
+    }
+
+    for (const source of sources) {
+      if (source.materialize !== "startup" || !requestedPaths.some(path => sourceMountIntersectsPath(source, normalizeWorkspacePath(path)))) continue
+      await ensurePrepared(source.key)
+      await ensureMaterialized(source.key)
     }
 
     const results: WorkspaceSearchHit[] = await searchMaterializedStore(store, {
@@ -477,6 +500,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function previousStat(path: string) {
     return await store.stat(path)
+  }
+
+  async function materializeRootStartupSources() {
+    for (const source of sources.filter(source => !source.mountPath && source.materialize === "startup")) {
+      await ensurePrepared(source.key)
+      await ensureMaterialized(source.key)
+    }
   }
 
   async function materializeRootSourceForPath(path: string) {
@@ -552,7 +582,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
           return decodeFile(await sourceItemContent(item), options)
         }
-        if (resolution.source.materialize === "startup" && !completedSources.has(resolution.sourceKey) && !materializedSources.has(resolution.sourceKey)) {
+        if (resolution.source.materialize === "startup") {
           await ensureMaterialized(resolution.sourceKey)
         }
         const cacheMaxAge = resolution.source.cache && resolution.source.cache.maxAge
@@ -647,7 +677,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
         const stored = await store.stat(resolution.workspacePath)
         if (stored) return stored
-        if (resolution.source.materialize === "startup" && completedSources.has(resolution.sourceKey)) {
+        if (resolution.source.materialize === "startup" && (completedSources.has(resolution.sourceKey) || reusedStartupSources.has(resolution.sourceKey))) {
           throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         }
         await ensureMaterialized(resolution.sourceKey)
@@ -655,6 +685,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
       }
+      await materializeRootStartupSources()
       let result = await store.stat(resolution.workspacePath)
       if (!result) {
         if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) {
@@ -680,10 +711,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         if (resolution.source.materialize === "startup") await ensureMaterialized(resolution.sourceKey)
         if (await store.stat(resolution.workspacePath)) return true
-        if (resolution.source.materialize === "startup" && completedSources.has(resolution.sourceKey)) return false
+        if (resolution.source.materialize === "startup" && (completedSources.has(resolution.sourceKey) || reusedStartupSources.has(resolution.sourceKey))) return false
         await ensureMaterialized(resolution.sourceKey)
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
       }
+      await materializeRootStartupSources()
       if (await store.stat(resolution.workspacePath)) return true
       if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) return true
       await materializeRootSourceForPath(resolution.workspacePath)
