@@ -164,14 +164,14 @@ export class PullRequestInbox {
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return finish('irrelevant PR action')
       if (event === 'pull_request_review_thread' && (!['resolved', 'unresolved'].includes(payload.action ?? '') || !payload.thread?.node_id)) return finish('irrelevant review thread action')
       const check = payload.check_run ?? payload.check_suite ?? payload.workflow_run
-      const sha = check?.head_sha ?? payload.sha
+      const sha = check?.head_sha ?? payload.sha ?? payload.after
       const numbers = new Set<number>()
       const direct = payload.pull_request?.number ?? (payload.issue?.pull_request ? payload.issue.number : undefined)
       if (direct) numbers.add(direct)
       for (const pr of check?.pull_requests ?? []) if (pr.number) numbers.add(pr.number)
       for (const s of this.all()) if (s.repository === repository && s.pr?.state === 'open') {
         if (sha && s.pr.head?.sha === sha) numbers.add(s.number)
-        if (event === 'push' && payload.ref === `refs/heads/${s.pr.base?.ref}`) numbers.add(s.number)
+        if (event === 'push' && payload.ref === `refs/heads/${s.pr.head?.ref}`) numbers.add(s.number)
       }
       for (const number of numbers) {
         const existing = this.get(repository, number)

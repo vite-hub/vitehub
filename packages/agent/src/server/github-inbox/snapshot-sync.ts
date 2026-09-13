@@ -4,6 +4,14 @@ import { createHash } from 'node:crypto'
 import { isFeedback, type Claim, type PullRequestInbox } from './store.ts'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
+async function readAll(read: ReadGitHubSnapshot, path: string, projection?: string): Promise<unknown[]> {
+  const all: unknown[] = []
+  for (let page = 1; ; page++) {
+    const items = await read(`${path}${path.includes('?') ? '&' : '?'}page=${page}`, projection)
+    all.push(...items)
+    if (items.length < 100) return all
+  }
+}
 export type ReadThreads = (repository: string, number: number) => Promise<GitHubReviewThread[]>
 export type ReadGraphql = (query: string, variables: Record<string, string | number | null>) => Promise<unknown>
 const index = (items: GitHubEvidence[]) => Object.fromEntries(items.map(item => [String(item.id), item]))
@@ -70,11 +78,11 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   if (!pr.head?.sha) throw new Error('GitHub returned no pull request head.')
   if (pr.state !== 'open') return { pr }
   const [comments, reviews, reviewComments, checks, statuses, threads] = await Promise.all([
-    read(`${prefix}/issues/${number}/comments?per_page=100`),
-    read(`${prefix}/pulls/${number}/reviews?per_page=100`),
-    read(`${prefix}/pulls/${number}/comments?per_page=100`),
-    read(`${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`, '.check_runs[]'),
-    read(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
+    readAll(read, `${prefix}/issues/${number}/comments?per_page=100`),
+    readAll(read, `${prefix}/pulls/${number}/reviews?per_page=100`),
+    readAll(read, `${prefix}/pulls/${number}/comments?per_page=100`),
+    readAll(read, `${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`, '.check_runs[]'),
+    readAll(read, `${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
     readThreads?.(repository, number),
   ])
   return { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),

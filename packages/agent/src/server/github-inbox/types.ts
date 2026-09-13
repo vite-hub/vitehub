@@ -106,12 +106,12 @@ const deliverySchema = v.looseObject({
   issue: v.optional(v.object({ number: v.pipe(v.number(), v.integer(), v.minValue(1)), pull_request: v.optional(v.unknown()) })),
   comment: v.optional(evidenceSchema), review: v.optional(evidenceSchema), thread: v.optional(threadSchema),
   check_run: v.optional(evidenceSchema), check_suite: v.optional(evidenceSchema), workflow_run: v.optional(evidenceSchema),
-  sha: v.optional(v.string()), ref: v.optional(v.string()), state: v.optional(v.string()),
+  sha: v.optional(v.string()), after: v.optional(v.string()), ref: v.optional(v.string()), state: v.optional(v.string()),
 })
 export interface GitHubDelivery extends GitHubEvidence {
   repository?: { full_name: string }; action?: string; sender?: GitHubActor | null
   pull_request?: GitHubPullRequestRecord; issue?: { number: number; pull_request?: unknown }
   comment?: GitHubEvidence; review?: GitHubEvidence; thread?: GitHubReviewThread
-  check_run?: GitHubEvidence; check_suite?: GitHubEvidence; workflow_run?: GitHubEvidence; ref?: string
+  check_run?: GitHubEvidence; check_suite?: GitHubEvidence; workflow_run?: GitHubEvidence; ref?: string; after?: string
 }
 export const parseDelivery = (value: unknown): GitHubDelivery => v.parse(deliverySchema, value)
