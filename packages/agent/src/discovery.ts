@@ -75,8 +75,10 @@ function stripComments(source: string) {
 function isWorkspaceAgentDefinition(source: string): boolean {
   const stripped = stripComments(source)
   // Named presets may contribute an inline workspace only after runtime resolution.
-  // Treat preset based definitions as workspace candidates so hosted setup inspects them.
-  return /\bdefineAgent\s*\(\s*\{[\s\S]*?(?:\bworkspace\s*:|\bpreset\s*:)/.test(stripped)
+  // Treat definitions that select a preset as workspace candidates so hosted setup
+  // inspects the resolved definition. Support both object properties and shorthand
+  // variables (`const preset = "name"; defineAgent({ preset, ... })`).
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*?(?:\bworkspace\s*:|\bpreset\s*(?::|[,}]))/.test(stripped)
 }
 
 function isAgentDefinitionSource(source: string): boolean {
