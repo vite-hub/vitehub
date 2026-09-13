@@ -458,6 +458,7 @@ export type {
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
   AgentSettings,
+  AgentSourceProvenance,
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolStandardSchema,

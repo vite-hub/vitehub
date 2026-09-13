@@ -22,6 +22,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (path === "driver") {
     if (hasRuntimeType(parent, "string")) parent = { kind: parent }
+    if (hasRuntimeType(child, "string")) child = { kind: child }
     if (record(child) && record(parent) && !("kind" in parent) && !("kind" in child)
       && "model" in parent && hasRuntimeType(child.model, "object") && !("run" in child)) {
       return {
@@ -57,7 +58,13 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (!record(parent) || !record(child)) return child
   if (definitionMaps.has(path)) return { ...parent, ...child }
-  // A different driver, store provider or runtime is a complete replacement.
+  if (path === "driver" && child.kind !== undefined && child.kind !== parent.kind) {
+    return {
+      ...child,
+      instructions: merge(parent.instructions, child.instructions, "driver.instructions"),
+    }
+  }
+  // A different store provider or runtime is a complete replacement.
   for (const discriminator of ["kind", "provider"]) {
     if (child[discriminator] !== undefined && child[discriminator] !== parent[discriminator]) return { ...child }
   }
