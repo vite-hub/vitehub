@@ -414,7 +414,7 @@ export async function traceAgentInvocationStart<TRuntimeConfig extends AgentRunt
 }
 
 function safeUsageMetadata(value: Record<string, unknown>): Record<string, unknown> {
-  const safe = {
+  const safe: Record<string, unknown> = {
     ...value,
     ...(hasRuntimeType(value.model, "string") ? { model: redactCredentialText(value.model) } : {}),
     ...(hasRuntimeType(value.provider, "string") ? { provider: redactCredentialText(value.provider) } : {}),
@@ -437,7 +437,7 @@ export async function traceAgentInvocationFinish<TRuntimeConfig extends AgentRun
         ...attributes,
         "usage.record": {
           ...safeUsageMetadata(usage),
-          ...(Array.isArray(usage.calls) ? { calls: usage.calls.map(call => isRuntimeRecord(call) ? safeUsageMetadata(call) : call) } : {}),
+          ...(Array.isArray(usage["calls"]) ? { calls: usage["calls"].map(call => isRuntimeRecord(call) ? safeUsageMetadata(call) : call) } : {}),
         },
       }
     : attributes
