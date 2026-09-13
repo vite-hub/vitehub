@@ -1876,6 +1876,13 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     && options.accumulator.lastResponseIdentity !== undefined) {
     options.accumulator.identityAmbiguous = true
   }
+  // An itemless measured snapshot cannot complete an earlier raw-only call
+  // unless the narrowly proven sole-call completion path applies. Keep the
+  // aggregate unknown whenever an unresolved call would otherwise be hidden.
+  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+    && options.accumulator.calls.some(call => call.usage === undefined) && !completesRawOnly) {
+    options.accumulator.identityAmbiguous = true
+  }
   const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
   if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
