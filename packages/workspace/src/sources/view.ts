@@ -460,9 +460,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           refreshedSources.push(source)
           // Restore persisted content, even after a partial failed refresh, without
           // asking the higher-priority provider for a newer inspection snapshot.
+          const refreshedSnapshot = await readCurrentSourceSnapshot(store, source)
           for (const owner of items.slice(0, items.indexOf(source)).reverse()) {
             for (const file of preserved.get(owner.key) || []) {
               if (source.mountPath && !sourceMountContainsPath(source, file.path)) continue
+              const item = refreshedSnapshot?.items?.[file.path]
+              if (!item) continue
+              const current = await store.readFile(file.path)
+              if (current?.metadata?.source !== source.key || !await materializedFileMatches(current, item)) continue
               await store.writeFile(file.path, file)
             }
           }

@@ -471,6 +471,34 @@ describe("lazy sources", () => {
     await expect(view.search({ pattern: "second needle|root needle", regex: true, paths })).resolves.toEqual([])
   })
 
+  it.each([false, true].flatMap(local => [false, true].map(overwritten => ({ local, overwritten }))))("preserves concurrent inspection edits with local=$local and overwritten=$overwritten", async ({ local, overwritten }) => {
+    const root = await createRoot()
+    const store = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const first = custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "persisted" }] })
+    await createWorkspaceSourceView({ name: "concurrent-inspection", sources: { first } }, store).list()
+    const edit = async () => {
+      if (local) await writeFile(join(root, "shared.md"), "concurrent edit")
+      else await store.writeFile("shared.md", { path: "shared.md", content: "concurrent edit" })
+    }
+    const write = store.writeFile.bind(store)
+    vi.spyOn(store, "writeFile").mockImplementation(async (path, file) => {
+      await write(path, file)
+      if (overwritten && path === "shared.md" && file.metadata?.source === "second") await edit()
+    })
+    const second = custom({
+      materialize: "startup",
+      mount: "",
+      getKeys: async () => {
+        if (!overwritten) await edit()
+        return [overwritten ? "shared.md" : "other.md"]
+      },
+      getItem: async key => ({ key, content: "lower source" }),
+    })
+    const inspection = createWorkspaceSourceView({ name: "concurrent-inspection", sources: { first, second } }, store, { reuseStartupSnapshots: true })
+    await inspection.list()
+    expect(decodeFile((await store.readFile("shared.md"))!.content)).toBe("concurrent edit")
+  })
+
   it.each([false, true].flatMap(local => [false, true].map(sameContent => ({ local, sameContent }))))("revalidates overwritten inspection snapshots with local=$local and same content=$sameContent", async ({ local, sameContent }) => {
     const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
     const definition = {
