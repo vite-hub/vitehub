@@ -1902,6 +1902,13 @@ describe("agent chat capability discovery", () => {
 
 
 it.each([
+  ['export default defineAgent<{ load: () => Promise<void> }>({ workspace: {} })', true],
+  ['export default defineAgent<{ load: () => Promise<void> }>({})', false],
+  ['export default <AgentDefinition>defineAgent({ workspace: {} })', true],
+  ['export default (<AgentDefinition>defineAgent({ workspace: {} }))', true],
+  ['const agent = defineAgent({ workspace: {} }); export default (<AgentDefinition>(agent))', true],
+  ['export default <AgentDefinition<{ load: () => Promise<void> }>>defineAgent({ workspace: {} })', true],
+  ['export default (<AgentDefinition>defineAgent({}))', false],
   ['export default defineAgent({ description: "}", workspace: {} })', true],
   ["export default defineAgent({ description: `}`, workspace: {} })", true],
   ['export default defineAgent({ pattern: /[}]/, workspace: {} })', true],

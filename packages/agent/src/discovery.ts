@@ -165,8 +165,21 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (["}", ")", "]"].includes(tokens[i])) depth--
   }
 
+  function skipTypeArguments(index: number): number {
+    let angleDepth = 0
+    do {
+      if (tokens[index] === "<") angleDepth++
+      // The tokenizer splits a function type's arrow into two tokens.
+      if (tokens[index] === ">" && tokens[index - 1] !== "=") angleDepth--
+      index++
+    } while (index < tokens.length && angleDepth > 0)
+    return index
+  }
+
   function resolveReference(index: number, seen = new Set<number>()): number {
-    while (tokens[index] === "(") index++
+    while (tokens[index] === "(" || tokens[index] === "<") {
+      index = tokens[index] === "<" ? skipTypeArguments(index) : index + 1
+    }
     if (seen.has(index)) return index
     seen.add(index)
     const reference = declarations.get(tokens[index])
@@ -245,7 +258,6 @@ function isWorkspaceAgentDefinition(source: string): boolean {
 
   function ownsWorkspace(index: number, seen = new Set<number>()): boolean {
     index = resolveReference(index)
-    while (tokens[index] === "(") index++
     if (seen.has(index)) return false
     seen.add(index)
     if (tokens[index] !== "defineAgent" && !importedAgentBindings.has(tokens[index])) {
@@ -253,14 +265,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       index += 2
     }
     let call = index + 1
-    if (tokens[call] === "<") {
-      let genericDepth = 0
-      do {
-        if (tokens[call] === "<") genericDepth++
-        if (tokens[call] === ">") genericDepth--
-        call++
-      } while (call < tokens.length && genericDepth > 0)
-    }
+    if (tokens[call] === "<") call = skipTypeArguments(call)
     if (tokens[call] !== "(") return false
     const options = properties(call + 1)
     const workspace = options.get("workspace")
