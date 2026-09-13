@@ -77,11 +77,13 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
     read(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
     readThreads?.(repository, number),
   ])
-  return { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
+  const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
     checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
-    ...(threads ? { threads, threadsHydrated: true, feedbackRefresh: false } : {}) }
+  }
+  if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })
+  return snapshot
 }
 
 export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads): Promise<boolean> {

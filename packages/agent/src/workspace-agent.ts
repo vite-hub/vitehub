@@ -279,6 +279,8 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     },
   }
 
+  const workspace = { sourceRootDir: resolvedSourceRootDir } as { sourceRootDir: string; sources?: typeof sourceDefaults }
+  if (Object.keys(sourceDefaults).length) workspace.sources = sourceDefaults
   const decoratedAgent = {
     ...workspaceAgent,
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
@@ -288,7 +290,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
   const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
   inheritAgentLayerOptions(workspaceAgent, decoratedAgent, {
-    workspace: { sourceRootDir: resolvedSourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) },
+    workspace,
   })
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent
