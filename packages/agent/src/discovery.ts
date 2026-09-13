@@ -87,8 +87,17 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   for (let i = 0; i < tokens.length; i++) {
     if (depth === 0) {
       if (tokens[i] === "import") {
-        for (let j = i + 1; j < tokens.length && tokens[j] !== ";"; j++) {
-          if (/^[A-Za-z_$]/.test(tokens[j]) && !["from", "as", "type"].includes(tokens[j])) imported.add(tokens[j])
+        // Imports are often semicolonless; stop at the module specifier rather
+        // than consuming identifiers from following declarations.
+        let sawFrom = false
+        for (let j = i + 1; j < tokens.length; j++) {
+          const token = tokens[j]
+          if (token === "from") { sawFrom = true; continue }
+          if (sawFrom) {
+            if (/^["'`]/.test(token)) break
+            continue
+          }
+          if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token)) imported.add(token)
         }
       }
       if (["const", "let", "var"].includes(tokens[i])) {
