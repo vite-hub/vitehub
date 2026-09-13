@@ -1289,18 +1289,35 @@ function workspaceMetadataInstructions<
   })
   const composed = instructionObject
     && typeof instructionObject.template === "string"
-    && typeof instructionObject.content === "string"
-    ? fillSynchronousInstructionSlot(instructionObject.template, instructionObject.content)
+    ? fillSynchronousInstructionSlot(
+      instructionObject.template,
+      Array.isArray(instructionObject.content)
+        ? instructionObject.content.filter((part): part is string => typeof part === "string").join("\n\n")
+        : typeof instructionObject.content === "string" ? instructionObject.content : "",
+    )
     : undefined
   const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()
   return content ? [content] : []
 }
 
 function fillSynchronousInstructionSlot(template: string, content: string): string {
-  let inFence = false
+  let fence: string | undefined
   return template.split("\n").map((line) => {
-    if (/^\s*```/.test(line)) { inFence = !inFence; return line }
-    return !inFence ? line.replace(/\{\{\{\s*instructions\s*\}\}\}/g, content) : line
+    const marker = line.match(/^\s*(`{3,}|~{3,})/)
+    if (marker) { fence = fence ? (line.trimStart().startsWith(fence) ? undefined : fence) : marker[1]; return line }
+    if (fence) return line
+    let result = ""
+    let index = 0
+    for (const match of line.matchAll(/`+/g)) {
+      const start = match.index ?? 0
+      result += line.slice(index, start).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+      const ticks = match[0]
+      const end = line.indexOf(ticks, start + ticks.length)
+      if (end < 0) { result += line.slice(start); index = line.length; break }
+      result += line.slice(start, end + ticks.length)
+      index = end + ticks.length
+    }
+    return result + line.slice(index).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
   }).join("\n").trim()
 }
 
