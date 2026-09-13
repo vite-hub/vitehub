@@ -3,6 +3,7 @@ import { redactCredentialText } from "./credential-redaction.ts"
 import { agentInvocationConfigurationUpdatedContextKey } from "../invocation-context.ts"
 import type {
   AgentInspectionValue,
+  AgentCapabilityInspection,
   AgentInvocationContextStore,
   AgentTelemetryConfiguration,
 } from "../types.ts"
@@ -17,6 +18,7 @@ function compareCodeUnits(left: string, right: string): number {
 }
 
 const configurationByContext = new WeakMap<AgentInvocationContextStore, AgentTelemetryConfigurationState>()
+const inspectionsByContext = new WeakMap<AgentInvocationContextStore, Map<string, AgentCapabilityInspection>>()
 const configurationUpdates = new WeakMap<AgentInvocationContextStore, Promise<void>>()
 
 function enqueueConfigurationUpdate(context: AgentInvocationContextStore, update: () => Promise<void>): Promise<void> {
@@ -26,40 +28,39 @@ function enqueueConfigurationUpdate(context: AgentInvocationContextStore, update
   return next
 }
 
-// Capability inspection is optional telemetry; retain the boundary export so
-// runtimes can report inspections without making telemetry configuration a
-// hard dependency during initialization.
 export async function setAgentCapabilityInspection(
   context: AgentInvocationContextStore,
   id: string,
-  inspection: unknown,
+  inspection: AgentCapabilityInspection,
 ): Promise<void> {
+  const budget = { maxDepth: 64, truncated: false }
+  const safe = safeMetadataValue(inspection, "", 0, new WeakSet(), budget)
+  if (!safe || Array.isArray(safe) || !hasRuntimeType(safe, "object")) return
+  // SAFETY: Serialization preserves the inspection fields and only omits unsupported values.
+  const snapshot = { ...safe, ...(budget.truncated ? { truncated: true } : {}) } as AgentCapabilityInspection
   await enqueueConfigurationUpdate(context, async () => {
+    let inspections = inspectionsByContext.get(context)
+    if (!inspections) inspectionsByContext.set(context, inspections = new Map())
+    inspections.set(id, snapshot)
     const current = configurationByContext.get(context)
     if (!current) return
-  const capabilities = [...(current.source.capabilities ?? [])]
-  const index = capabilities.findIndex(capability => capability.id === id)
-  if (index < 0) return
-  const safe = safeMetadataValue(inspection)
-  if (!safe || Array.isArray(safe)) return
-  const truncated = hasInspectionOverflow(inspection)
-  const inspectionValue = truncated ? { ...safe, truncated: true } : safe
-  // SAFETY: capabilities[index] is known to exist because index is non-negative.
-  capabilities[index] = { ...capabilities[index], inspection: inspectionValue } as typeof capabilities[number]
-  const next = { ...current.source, capabilities }
-  const fingerprinted = await withConfigurationFingerprint(next)
-  configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
+    const next = withCapabilityInspections(context, current.source)
+    const fingerprinted = await withConfigurationFingerprint(next)
+    configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: next })
     await context.get(agentInvocationConfigurationUpdatedContextKey)?.()
   })
 }
 
-
-function hasInspectionOverflow(value: unknown, depth = 0, seen = new WeakSet<object>()): boolean {
-  if (!value || typeof value !== "object") return false
-  if (depth >= 15 || seen.has(value)) return true
-  seen.add(value)
-  try { return Array.isArray(value) ? value.some(item => hasInspectionOverflow(item, depth + 1, seen)) : Object.values(value).some(item => hasInspectionOverflow(item, depth + 1, seen)) }
-  finally { seen.delete(value) }
+function withCapabilityInspections(context: AgentInvocationContextStore, configuration: AgentTelemetryConfiguration): AgentTelemetryConfiguration {
+  const inspections = inspectionsByContext.get(context)
+  if (!inspections?.size) return configuration
+  return {
+    ...configuration,
+    capabilities: configuration.capabilities?.map(capability => ({
+      ...capability,
+      ...(inspections.has(capability.id) ? { inspection: inspections.get(capability.id) } : {}),
+    })),
+  }
 }
 
 function secretMetadataKey(key: string): boolean {
@@ -75,31 +76,39 @@ function safeMetadataValue(
   key = "",
   depth = 0,
   seen = new WeakSet<object>(),
+  budget?: { maxDepth: number, truncated: boolean },
 ): AgentInspectionValue | undefined {
   if (secretMetadataKey(key)) return "[redacted]"
   if (hasRuntimeType(value, "string")) return redactCredentialText(value)
   if (value === null || hasRuntimeType(value, "boolean")) return value
-  if (hasRuntimeType(value, "number")) return Number.isFinite(value) ? value : undefined
-  if (!value || !hasRuntimeType(value, "object") || depth >= 16 || seen.has(value)) return
+  if (hasRuntimeType(value, "number") && Number.isFinite(value)) return value
+  if (!value || !hasRuntimeType(value, "object") || depth >= (budget?.maxDepth ?? 16) || seen.has(value)) {
+    if (budget) budget.truncated = true
+    return
+  }
 
   seen.add(value)
   try {
     if (Array.isArray(value)) {
       return value.flatMap((item) => {
-        const child = safeMetadataValue(item, "", depth + 1, seen)
+        const child = safeMetadataValue(item, "", depth + 1, seen, budget)
         return child === undefined ? [] : [child]
       })
     }
     const prototype = Object.getPrototypeOf(value)
-    if (prototype !== Object.prototype && prototype !== null) return
+    if (prototype !== Object.prototype && prototype !== null) {
+      if (budget) budget.truncated = true
+      return
+    }
     return Object.fromEntries(Object.entries(value)
       .sort(([left], [right]) => compareCodeUnits(left, right))
       .flatMap(([childKey, item]) => {
-        const child = safeMetadataValue(item, childKey, depth + 1, seen)
+        const child = safeMetadataValue(item, childKey, depth + 1, seen, budget)
         return child === undefined ? [] : [[childKey, child]]
       }))
   }
   catch {
+    if (budget) budget.truncated = true
     return
   }
   finally {
@@ -180,8 +189,9 @@ export async function setAgentTelemetryConfiguration(
   value: AgentTelemetryConfiguration,
 ): Promise<void> {
   await enqueueConfigurationUpdate(context, async () => {
-    const fingerprinted = await withConfigurationFingerprint(value)
-    configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source: value })
+    const source = withCapabilityInspections(context, value)
+    const fingerprinted = await withConfigurationFingerprint(source)
+    configurationByContext.set(context, { value: redactTelemetryConfiguration(fingerprinted), source })
   })
 }
 

@@ -1,6 +1,7 @@
+import type { AgentInspectionValue } from "../src/types.ts"
 import { expect, it } from "vitest"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
-import { agentTelemetryConfigurationFingerprint, getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
+import { agentTelemetryConfigurationFingerprint, getAgentTelemetryConfiguration, setAgentTelemetryConfiguration, setAgentCapabilityInspection, updateAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 
 it("preserves raw configuration fingerprints and public redaction across updates", async () => {
   const context = createAgentInvocationContextStore()
@@ -88,4 +89,43 @@ it("redacts repository credentials while preserving ordinary workspace repositor
   ])
   await updateAgentTelemetryConfiguration(context, {})
   expect(getAgentTelemetryConfiguration(context)!.value).toEqual(value)
+})
+
+
+it("retains the latest setup inspection through configuration initialization", async () => {
+  const context = createAgentInvocationContextStore()
+  await setAgentCapabilityInspection(context, "custom", { label: "Custom", state: { status: "Preparing" } })
+  await setAgentCapabilityInspection(context, "custom", { label: "Custom", state: { status: "Ready", password: "private-value" } })
+  const configuration = { capabilities: [{ id: "custom" }], driver: { kind: "run" as const }, runtime: { name: "unknown" } }
+  await setAgentTelemetryConfiguration(context, configuration)
+  const initial = getAgentTelemetryConfiguration(context)!.value
+  expect(initial.capabilities?.[0]?.inspection).toEqual({ label: "Custom", state: { status: "Ready", password: "[redacted]" } })
+  await setAgentTelemetryConfiguration(context, configuration)
+  expect(getAgentTelemetryConfiguration(context)!.value).toEqual(initial)
+  await Promise.all([
+    setAgentCapabilityInspection(context, "custom", { label: "Custom", state: { status: "Finished" } }),
+    updateAgentTelemetryConfiguration(context, { tools: [{ name: "lookup" }] }),
+  ])
+  const final = getAgentTelemetryConfiguration(context)!.value
+  expect(final.capabilities?.[0]?.inspection?.state).toEqual({ status: "Finished" })
+  expect(final.tools).toEqual([{ name: "lookup" }])
+})
+
+it("retains deep inspection state and marks each unsupported omission", async () => {
+  const context = createAgentInvocationContextStore()
+  await setAgentTelemetryConfiguration(context, { capabilities: [{ id: "custom" }], driver: { kind: "run" }, runtime: { name: "unknown" } })
+  let nested: Record<string, AgentInspectionValue> = { leaf: "retained" }
+  for (let index = 0; index < 16; index++) nested = { child: nested }
+  await setAgentCapabilityInspection(context, "custom", { label: "Custom", state: { nested } })
+  expect(getAgentTelemetryConfiguration(context)!.value.capabilities?.[0]?.inspection).toEqual({ label: "Custom", state: { nested } })
+  const cycle: Record<string, AgentInspectionValue> = {}
+  cycle.self = cycle
+  for (const omitted of [cycle, new Date(), Infinity, () => undefined]) {
+    // @ts-expect-error Exercise unsupported runtime values at the inspection boundary.
+    await setAgentCapabilityInspection(context, "custom", { label: "Custom", state: { omitted } })
+    expect(getAgentTelemetryConfiguration(context)!.value.capabilities?.[0]?.inspection?.truncated).toBe(true)
+  }
+  for (let index = 0; index < 64; index++) nested = { child: nested }
+  await setAgentCapabilityInspection(context, "custom", { label: "Custom", state: { nested } })
+  expect(getAgentTelemetryConfiguration(context)!.value.capabilities?.[0]?.inspection?.truncated).toBe(true)
 })
