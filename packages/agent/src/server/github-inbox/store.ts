@@ -106,7 +106,12 @@ export class PullRequestInbox {
       || pr.head?.sha !== previous.head?.sha || pr.base?.sha !== previous.base?.sha || pr.base?.ref !== previous.base?.ref
     // Retain freshness even when only timestamps changed, so a delayed
     // delivery cannot subsequently regress the current head or closed state.
-    if (!changed) { s.pr = { ...previous, ...pr }; return false }
+    if (!changed) {
+      const next = { ...previous, ...pr }
+      if (digest(previous) !== digest(next)) s.revision = (s.revision ?? 0) + 1
+      s.pr = next
+      return false
+    }
     const newHead = previous?.head?.sha !== pr.head?.sha
     s.pr = { ...previous, ...pr }
     if (newHead) {
@@ -176,8 +181,7 @@ export class PullRequestInbox {
         if (!existing && !matchesGitHubPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
         if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha) continue // old-head CI cannot wake current head
         let changed = false
-        if (event === 'pull_request' && payload.pull_request) changed = this.updatePr(s, payload.pull_request)
-        if (!s.pr && payload.pull_request) changed = this.updatePr(s, payload.pull_request) || changed
+        if (payload.pull_request) changed = this.updatePr(s, payload.pull_request)
         const upsert = (map: Record<string, GitHubEvidence>, value: GitHubEvidence | undefined, itemKey?: string) => {
           if (!value) return
           const key = itemKey ?? String(value.id)
@@ -186,7 +190,11 @@ export class PullRequestInbox {
           // Timestamp-only activity does not become another repair task.
           const semantic = (v: GitHubEvidence) => Object.fromEntries(Object.entries(v).filter(([k]) => !['updated_at','url','html_url'].includes(k)))
           const next = payload.action === 'deleted' ? { id: value.id, deleted: true, updated_at: value.updated_at } : value
-          if (old && digest(semantic(old)) === digest(semantic(next))) { map[key] = next; return }
+          if (old && digest(semantic(old)) === digest(semantic(next))) {
+            if (digest(old) !== digest(next)) s.revision = (s.revision ?? 0) + 1
+            map[key] = next
+            return
+          }
           map[key] = next
           changed = true
         }
@@ -261,7 +269,11 @@ export class PullRequestInbox {
     return this.transaction(() => {
       const s = this.get(claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) return false
-      if (patch.pr) patch = { ...patch, pr: normalizePullRequest(patch.pr) }
+      if (patch.pr) {
+        const pr = normalizePullRequest(patch.pr)
+        if (s.pr && stamp(pr) < stamp(s.pr)) return false
+        patch = { ...patch, pr }
+      }
       Object.assign(s, patch)
       if (s.pr && !this.eligible(s.repository, s.pr)) s.status = 'terminal'
       this.put(s); Object.assign(claim.snapshot, patch, { status: s.status }); return true
