@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { cp, lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { appendFile, cp, lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -67,6 +67,14 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   const baselineObjectsBackup = join(baselineBackup, 'objects')
   let replacingMetadata = false
   try {
+    let materializedPaths: Set<string> | undefined
+    if (!destinationGit) {
+      const metadata = join(baselineBackup, 'plain.git')
+      await git(destination, ['init', '--bare', '--template=', '--object-format=sha1', metadata])
+      const baseline = ['--git-dir', metadata, '--work-tree', destination]
+      await git(destination, [...baseline, 'add', '--force', '--all', '--', '.'])
+      materializedPaths = new Set((await git(destination, [...baseline, 'ls-files', '-z'])).split('\0').filter(Boolean))
+    }
     if (baselineTree) {
       await cp(join(destination, '.git', 'objects'), baselineObjectsBackup, { recursive: true })
     }
@@ -117,6 +125,18 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     await sanitize('--local')
     // Authentication can also live in config.worktree when extensions.worktreeConfig is enabled.
     await sanitize('--worktree')
+    if (materializedPaths) {
+      const trackedPaths = new Set((await git(destination, ['ls-files', '-z'])).split('\0').filter(Boolean))
+      for (const path of trackedPaths) {
+        if (!materializedPaths.has(path)) await git(destination, ['update-index', '--skip-worktree', '--', path])
+      }
+      // Keep generated-only baseline files out of a provider's ordinary git add -A.
+      const generated = [...materializedPaths].filter(path => !trackedPaths.has(path))
+      if (generated.length) {
+        const patterns = generated.map(path => `/${path.replace(/[\\*?[\] #!]/g, '\\$&')}`)
+        await appendFile(join(destination, '.git', 'info', 'exclude'), `\n${patterns.join('\n')}\n`)
+      }
+    }
     if (await git(destination, ['rev-parse', 'HEAD']) !== expected
       || await git(destination, ['remote', 'get-url', '--all', 'origin']) !== origin
       || await git(destination, ['remote', 'get-url', '--all', '--push', 'origin']) !== push) {
