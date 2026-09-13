@@ -72,7 +72,10 @@ export class PullRequestInbox {
   get(repository: string, number: number): Snapshot | undefined {
     const row = this.db.prepare('SELECT value FROM pr_snapshots WHERE repository=? AND number=?').get(repository, number)
     // SAFETY: values are written by `put` from validated Snapshot objects.
-    return row ? JSON.parse(String(row.value)) as Snapshot : undefined
+    if (!row) return undefined
+    const value: unknown = JSON.parse(String(row.value))
+    if (!value || typeof value !== 'object') throw new Error('Invalid stored snapshot')
+    return value as Snapshot
   }
   all(): Snapshot[] {
     return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => {
