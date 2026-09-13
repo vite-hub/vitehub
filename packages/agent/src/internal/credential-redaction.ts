@@ -2,20 +2,22 @@
 const uppercaseCredentialKeys = [
   "APIKEY", "ACCESSKEY", "PRIVATEKEY", "SECRETKEY", "PUBLICKEY",
   "ACCESSTOKEN", "AUTHTOKEN", "REFRESHTOKEN", "CLIENTSECRET", "SESSIONTOKEN",
-  "X-API-KEY", "X-ACCESS-TOKEN", "CREDENTIAL", "CREDENTIALS", "AUTHORIZATION",
+  "X-API-KEY", "X-ACCESS-TOKEN", "CREDENTIAL", "CREDENTIALS", "AUTHORIZATION", "AUTH", "PASSPHRASE",
 ]
 
 function isCredentialKey(key: string): boolean {
   return uppercaseCredentialKeys.includes(key.toUpperCase())
-    || /(?:^|[_-])(?:key|secret|token|password)$/i.test(key)
-    || /[a-z0-9](?:Key|Secret|Token|Password|KEY|SECRET|TOKEN|PASSWORD)$/.test(key)
+    || /(?:^|[_-])(?:key|secret|token|password|passphrase|auth)$/i.test(key)
+    || /[a-z0-9](?:Key|Secret|Token|Password|Passphrase|Auth|KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|AUTH)$/.test(key)
 }
 
 function isCredentialAssignment(key: string, prefix: string, precedingText: string): boolean {
   if (!isCredentialKey(key)) return false
   const cli = prefix.startsWith("--")
   if (cli && /^key$/i.test(key)) return false
-  if (!/[:=]\s*$/.test(prefix)) return cli
+  if (!/[:=]\s*$/.test(prefix)) {
+    return cli || /^password$/i.test(key) && /(?:^|\s)(?:machine\s+\S+|default)(?:\s+login\s+\S+)?\s+$/i.test(precedingText)
+  }
   if (!prefix.trimEnd().endsWith(":")) return true
   // Authorization headers have already been redacted with their scheme preserved.
   if (/^(?:proxy-)?authorization$/i.test(key)) return false
@@ -64,7 +66,7 @@ export function pendingCredentialTextSuffix(value: string): string | undefined {
     ?? /(?:--)?["']?\b[A-Za-z][A-Za-z0-9_-]*["']?\s*$/.exec(tail)?.[0]
 }
 
-const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*[:=]\s*|(?<=--["']?[A-Z][A-Z0-9_-]*["']?)\s+))`
+const credentialAssignmentPrefix = String.raw`(?<![A-Za-z0-9_-])((?:--)?["']?((?:[A-Z][A-Z0-9_-]*)?(?:KEY|SECRET|TOKEN|PASSWORD|PASSPHRASE|CREDENTIALS?|AUTHORIZATION|AUTH))(?:\\*["'])?(?:\s*(?:[?+]?=|:)\s*|\s+))`
 
 const unquotedCredentialValue = String.raw`(?:\\(?:[\s\S]|$)|[^\s"',;&{}<>\\])`
 
@@ -153,6 +155,7 @@ export interface CredentialAssignmentState {
   escaped: boolean
   started: boolean
   quote?: string
+  nesting?: number
   serialized?: boolean
   serializedQuote?: { delimiter: string, slashes: number }
   yamlFlow?: boolean
@@ -320,7 +323,9 @@ export function consumeCredentialAssignment(value: string, state: CredentialAssi
       if (character === state.quote) delete state.quote
     }
     else if (character === '"' || character === "'") state.quote = character
-    else if (/[\s,;&{}<>]/.test(character)) return index
+    else if (character === "(" || character === "{" || character === "[") state.nesting = (state.nesting ?? 0) + 1
+    else if (state.nesting && (character === ")" || character === "}" || character === "]")) state.nesting--
+    else if (!state.nesting && /[\s,;&{}<>]/.test(character)) return index
   }
   return value.length
 }
