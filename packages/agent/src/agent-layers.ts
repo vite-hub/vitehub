@@ -8,9 +8,30 @@ interface ConfiguredLayer {
   overrides: Record<string, unknown>
 }
 
-const configuredLayers = new WeakMap<object, ConfiguredLayer>()
-const pendingConfiguredLayers = new WeakMap<object, ConfiguredLayer>()
-const layerOptions = new WeakMap<object, AgentSettings>()
+interface AgentLayerMetadata {
+  options: AgentSettings
+  configured?: ConfiguredLayer
+  parent?: object
+}
+
+export const agentLayerMetadata: unique symbol = Symbol("vitehub.agent.layer")
+const colocatedSkills = Symbol.for("vitehub.agent.colocatedSkills")
+
+function layerMetadata(value: unknown): AgentLayerMetadata | undefined {
+  if (!value || !hasRuntimeType(value, "object")) return
+  // SAFETY: This private symbol is attached only by this module.
+  return (value as { [agentLayerMetadata]?: AgentLayerMetadata })[agentLayerMetadata]
+}
+
+function rememberLayerMetadata(value: object, metadata: AgentLayerMetadata): void {
+  Object.defineProperty(value, agentLayerMetadata, { configurable: true, value: metadata })
+}
+
+function inheritColocatedSkills(parent: object, child: object): void {
+  const skills = Object.getOwnPropertyDescriptor(parent, colocatedSkills)
+  if (skills) Object.defineProperty(child, colocatedSkills, skills)
+}
+
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && hasRuntimeType(value, "object")
@@ -64,10 +85,10 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     return input
   }
   const { extends: parent, options: presetOptions, ...overrides } = input
-  if (!parent || !hasRuntimeType(parent, "object") || !layerOptions.has(parent)) {
+  if (!parent || !hasRuntimeType(parent, "object") || !layerMetadata(parent)) {
     throw new TypeError("[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().")
   }
-  const configured = configuredLayers.get(parent)
+  const configured = layerMetadata(parent)?.configured
   if (!configured && "options" in input) {
     throw new TypeError("[vitehub] Agent options require a preset with options and configure.")
   }
@@ -81,25 +102,31 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     const { name: _inheritedName, ...parentOverrides } = configured.overrides
     const inheritedOverrides = merge(parentOverrides, overrides, "")
     if (!record(inheritedOverrides)) throw new TypeError("[vitehub] Invalid Agent layer overrides.")
-    const { name: _parentName, ...defaults } = layerOptions.get(definition)!
+    const { name: _parentName, ...defaults } = layerMetadata(definition)!.options
     const resolved = merge(defaults, inheritedOverrides, "")
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
-    pendingConfiguredLayers.set(resolved, { ...configured, options, overrides: inheritedOverrides })
+    // SAFETY: Resolved settings merge a registered definition with its overrides.
+    rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, parent })
     return resolved
   }
-  const { name: _parentName, ...defaults } = layerOptions.get(parent)!
-  return merge(defaults, overrides, "")
+  const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
+  const resolved = merge(defaults, overrides, "")
+  if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+  // SAFETY: Resolved settings merge a registered definition with its overrides.
+  rememberLayerMetadata(resolved, { options: resolved as AgentSettings, parent })
+  return resolved
 }
 
 export function rememberAgentLayerOptions<T extends AgentDefinition>(definition: T, options: AgentSettings, source: AgentSettings = options): T {
-  layerOptions.set(definition, { ...options })
-  const configured = pendingConfiguredLayers.get(source)
-  if (configured) rememberConfiguredLayer(definition, configured)
+  const inherited = layerMetadata(source)
+  rememberLayerMetadata(definition, { options: { ...options }, configured: inherited?.configured })
+  if (inherited?.parent) inheritColocatedSkills(inherited.parent, definition)
+  if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured)
   return definition
 }
 
 function assertLayerDefinition(value: unknown): asserts value is AgentDefinition {
-  if (!value || !hasRuntimeType(value, "object") || !layerOptions.has(value)) {
+  if (!value || !hasRuntimeType(value, "object") || !layerMetadata(value)) {
     throw new TypeError("[vitehub] Agent configure must return an Agent Definition created by defineAgent().")
   }
 }
@@ -134,13 +161,14 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   const definition = configure(mergePresetOptions({}, options))
   assertLayerDefinition(definition)
   // A callback may return a shared definition. Keep its configuration and runtime private.
-  const configured = create(layerOptions.get(definition)!)
+  const configured = create(layerMetadata(definition)!.options)
+  inheritColocatedSkills(definition, configured)
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })
   return configured
 }
 
 function rememberConfiguredLayer(definition: AgentDefinition, configured: ConfiguredLayer): void {
-  configuredLayers.set(definition, configured)
+  rememberLayerMetadata(definition, { options: layerMetadata(definition)!.options, configured })
   Object.defineProperty(definition, "options", {
     value: Object.freeze(mergePresetOptions({}, configured.options)),
     enumerable: true,
@@ -150,6 +178,21 @@ function rememberConfiguredLayer(definition: AgentDefinition, configured: Config
 
 /** Read resolved settings for package-owned workflows without depending on runtime markers. */
 export function getAgentLayerOptions(definition: AgentDefinition): AgentSettings | undefined {
-  const options = layerOptions.get(definition)
+  const options = layerMetadata(definition)?.options
   return options ? { ...options } : undefined
+}
+
+/** Keep composition available after package-owned Workspace decoration. */
+export function inheritAgentLayerOptions(parent: unknown, child: unknown, overrides?: Partial<AgentSettings>): void {
+  const metadata = layerMetadata(parent)
+  if (!metadata || !child || !hasRuntimeType(child, "object")) return
+  const options = merge(metadata.options, overrides, "")
+  const configuredOverrides = metadata.configured ? merge(metadata.configured.overrides, overrides, "") : undefined
+  // SAFETY: These overrides only update settings of a registered Agent Definition.
+  rememberLayerMetadata(child, {
+    options: options as AgentSettings,
+    ...(metadata.configured && record(configuredOverrides)
+      ? { configured: { ...metadata.configured, overrides: configuredOverrides } }
+      : {}),
+  })
 }

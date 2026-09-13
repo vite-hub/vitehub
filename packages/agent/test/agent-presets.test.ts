@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { agentWithColocatedInstructions, defineAgent, runAgent } from "../src/index.ts"
+import { getAgentLayerOptions } from "../src/agent-layers.ts"
+import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
+import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
 describe("named Agent presets", () => {
   it("runs a selected published definition with local overrides", async () => {
@@ -117,4 +120,40 @@ it("isolates plain objects inside option arrays from callback mutations", () => 
   expect(defaults.steps[0]).toEqual({ name: "original", nested: [{ enabled: true }] })
   expect(preset.options.steps).toEqual(defaults.steps)
   expect(child.options.steps).toEqual(defaults.steps)
+})
+
+it("keeps configured presets extendable after colocated Skills and Workspace discovery", () => {
+  const preset = defineAgent({ options: { autoMerge: false }, configure: options => defineAgent({
+    driver: "codex", workspace: {}, description: String(options.autoMerge),
+  }) })
+  const skills = { review: { content: "Review the change.", mount: "review", workspacePath: "SKILL.md" } }
+  const discovered = workspaceAgentWithSourceRoot(withColocatedAgentSkills(preset, skills), "/app/agents/repair/workspace")
+  expect(getAgentLayerOptions(discovered)?.workspace).toHaveProperty("sourceRootDir", "/app/agents/repair/workspace")
+  const child = defineAgent({ extends: discovered, options: { autoMerge: true } })
+  expect(child.description).toBe("true")
+  expect(child.options.autoMerge).toBe(true)
+  expect(getAgentLayerOptions(child)?.workspace).toHaveProperty("sourceRootDir", "/app/agents/repair/workspace")
+  expect(Object.getOwnPropertyDescriptor(child, colocatedAgentSkillsSymbol)?.value).toBe(skills)
+  expect(preset.options.autoMerge).toBe(false)
+  expect(getAgentLayerOptions(preset)?.workspace).not.toHaveProperty("sourceRootDir")
+})
+
+it("keeps plain Agents extendable after colocated Skills discovery", () => {
+  const base = defineAgent({ driver: "codex" })
+  const skills = { review: { content: "Review." } }
+  const discovered = withColocatedAgentSkills(base, skills)
+  expect(getAgentLayerOptions(discovered)?.driver).toBe("codex")
+  const child = defineAgent({ extends: discovered, description: "Child" })
+  expect(child.description).toBe("Child")
+  expect(Object.getOwnPropertyDescriptor(child, colocatedAgentSkillsSymbol)?.value).toBe(skills)
+  expect(Object.getOwnPropertyDescriptor(base, colocatedAgentSkillsSymbol)).toBeUndefined()
+})
+
+it("keeps configured options and discovered instructions through further extension", () => {
+  const preset = defineAgent({ options: { enabled: false }, configure: options => defineAgent({ driver: "codex", description: String(options.enabled) }) })
+  const discovered = agentWithColocatedInstructions(preset, "Check migration safety.")
+  const child = defineAgent({ extends: discovered, options: { enabled: true } })
+  expect(child.description).toBe("true")
+  expect(getAgentLayerOptions(child)?.driver).toHaveProperty("instructions", "Check migration safety.")
+  expect(preset.options.enabled).toBe(false)
 })

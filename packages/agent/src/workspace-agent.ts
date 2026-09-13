@@ -1,3 +1,4 @@
+import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
@@ -285,6 +286,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
+  inheritAgentLayerOptions(workspaceAgent, decoratedAgent, { workspace: workspaceOptions.workspace })
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent
 }

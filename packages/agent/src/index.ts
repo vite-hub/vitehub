@@ -1,7 +1,7 @@
 import type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
-import { createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
+import { agentLayerMetadata, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
@@ -2420,7 +2420,8 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   if (driver.kind === "run" || driver.instructions !== undefined) return agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = defineAgent({
-    ...settings,
+    extends: agent,
+    name: settings.name,
     driver: driver.kind === "model"
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? { ...(settings.driver as AgentModelDriver), instructions }
@@ -2444,6 +2445,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   } as never) as Agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
+  Reflect.deleteProperty(decorations, agentLayerMetadata)
   delete decorations.__vitehubAgentSettings
   Reflect.deleteProperty(decorations, baseAgentResolve)
   Reflect.deleteProperty(decorations, baseAgentModel)
