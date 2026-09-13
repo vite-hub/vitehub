@@ -550,7 +550,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       path: normalized,
       content: new Uint8Array(bytes),
       mediaType: metadata?.mediaType,
-      metadata: metadata?.metadata,
+      metadata: copyJsonFileMetadata(normalized, metadata?.metadata),
     }
   }
 
@@ -766,7 +766,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
       mediaType: metadata?.mediaType,
-      metadata: metadata?.metadata,
+      metadata: copyJsonFileMetadata(normalized, metadata?.metadata),
     }
     if (includeDigest && info.isFile()) entry.digest = await fileDigest(absolute)
     return entry
