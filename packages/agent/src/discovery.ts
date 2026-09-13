@@ -82,6 +82,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   const tokens = tokenizeAgentSource(source)
   const declarations = new Map<string, number>()
   const imported = new Set<string>()
+  const importedNamespaces = new Set<string>()
   let exported: number | undefined
   let depth = 0
   for (let i = 0; i < tokens.length; i++) {
@@ -106,9 +107,14 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // Imports are often semicolonless; stop at the module specifier rather
         // than consuming identifiers from following declarations.
         let sawFrom = false
+        let sawStar = false
         for (let j = i + 1; j < tokens.length; j++) {
           const token = tokens[j]
           if (token === "from") { sawFrom = true; continue }
+          if (!sawFrom && token === "*") { sawStar = true; continue }
+          if (!sawFrom && sawStar && token === "as" && tokens[j + 1]) {
+            importedNamespaces.add(tokens[j + 1]); continue
+          }
           if (!sawFrom && /^['"`]/.test(token)) { i = j; break }
           if (sawFrom) {
             if (/^["'`]/.test(token)) { i = j; break }
@@ -208,7 +214,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (seen.has(index)) return false
     seen.add(index)
     if (tokens[index] !== "defineAgent") {
-      if (!(tokens[index + 1] === "." && tokens[index + 2] === "defineAgent")) return false
+      if (!(tokens[index + 1] === "." && tokens[index + 2] === "defineAgent" && importedNamespaces.has(tokens[index]))) return false
       index += 2
     }
     let call = index + 1
