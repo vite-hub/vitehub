@@ -16,7 +16,7 @@ import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 /** Resolve a local name before the normal Agent layer composition. */
 export function resolveNamedAgentPresetOptions(input: unknown): unknown {
   if (!isRuntimeRecord(input)) return input
-  if (!("presets" in input) && !hasRuntimeType(input.preset, "string")) return input
+  if (!("presets" in input) && !("preset" in input)) return input
   const { preset, presets, ...options } = input
   if ("extends" in options) {
     throw new TypeError("[vitehub] Select one Agent parent with preset or extends, not both.")

@@ -1,7 +1,7 @@
 import type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
-import { createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
+import { agentLayerMetadata, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
@@ -2140,6 +2140,7 @@ export interface DefineAgent {
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
     TContextValues extends object = AgentInvocationContextValues,
+    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
     TOutput = unknown,
   >(
     options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>>, "driver" | "workspace"> & {
@@ -2452,6 +2453,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   } as never) as Agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
+  Reflect.deleteProperty(decorations, agentLayerMetadata)
   delete decorations.__vitehubAgentSettings
   // The rebuilt workspace definition owns the newly filled instruction template.
   delete decorations.__vitehubWorkspaceAgentOptions
