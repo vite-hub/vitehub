@@ -7,7 +7,7 @@ import { normalizeDeliveryArtifactPath } from "../delivery-artifacts.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { cloneWithPropertyDescriptors } from "../internal/stream-result.ts"
 import { browserRuntimeEnvironment, closeBrowserRuntimeSession, prepareBrowserRuntime, provideBrowserRuntimeEnvironment } from "../internal/browser-runtime.ts"
-import { browserSkillContent } from "../internal/browser-skill.ts"
+import { browserSkillContent, managedBrowserSkillContent } from "../internal/browser-skill.ts"
 
 import type { AgentCapabilityDefinition, AgentDeliveryArtifact } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -165,7 +165,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
         VITEHUB_BROWSER_ACTIVE: "1",
         AGENT_BROWSER_SESSION: `vh-${crypto.randomUUID().slice(0, 12)}`,
       }))
-      if (options.skillContent === undefined) skillContent = runtime.skillContent
+      if (options.skillContent === undefined) skillContent = managedBrowserSkillContent(runtime.skillContent, skillPath)
     },
     async close(context) {
       const environment = browserRuntimeEnvironment(context.context)

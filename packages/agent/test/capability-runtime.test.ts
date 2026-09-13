@@ -1147,6 +1147,33 @@ describe("agent capability runtime", () => {
     expect(source.content).toContain("`custom-browser --help`")
   })
 
+  it.each([undefined, "---\nname: caller-browser\ndescription: Caller guidance\n---\nCustom instructions."])("preserves custom Skill identity during managed preparation: %s", async (skillContent) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const browserRuntime = await import("../src/internal/browser-runtime.ts")
+    const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockResolvedValue({
+      environment: {},
+      skillContent: "---\nname: agent-browser\ndescription: Official guidance\n---\nRun agent-browser.",
+    })
+    try {
+      const resolved = await resolveAgentCapabilities({
+        capabilities: [browser({ skillPath: ".codex/skills/custom-browser/SKILL.md", skillContent })],
+      }, runtime(), {}, emptyWorkspace() as never, "write", {
+        driverKind: "provider",
+        workspaceDefinition: { name: "review", sources: {} },
+      })
+      expect(prepare).toHaveBeenCalledOnce()
+      expect(resolved.workspaceDefinition?.sources?.["skill.browser"]).toMatchObject({
+        workspacePath: ".codex/skills/custom-browser/SKILL.md",
+        content: expect.stringContaining(skillContent ? "name: caller-browser" : 'name: "custom-browser"'),
+      })
+      await resolved.close()
+    }
+    finally {
+      prepare.mockRestore()
+    }
+  })
+
   it.each([undefined, "custom-browser"])("activates retained custom browser guidance only with the capability: %s", async (command) => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { browser } = await import("../src/capabilities.ts")

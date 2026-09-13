@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest"
-import { browserSkillContent } from "../src/internal/browser-skill.ts"
+import { browserSkillContent, managedBrowserSkillContent } from "../src/internal/browser-skill.ts"
 
 describe("retained browser skill availability", () => {
+  it.each(["\n", "\r\n"])("aligns installed official metadata with a custom discovery path (%j)", (newline) => {
+    const content = ["---", "name: agent-browser", "description: Official browser instructions", "---", "Run agent-browser.", ""].join(newline)
+    const path = ".codex/skills/custom-browser/SKILL.md"
+    const adapted = managedBrowserSkillContent(content, path)
+    expect(adapted).toBe(content.replace("name: agent-browser", 'name: "custom-browser"'))
+    const retained = browserSkillContent(adapted, path)
+    expect(retained).toContain('name: "custom-browser"')
+    expect(retained).toContain("Run agent-browser.")
+    expect(retained).toContain("VITEHUB_BROWSER_ACTIVE")
+  })
+
   it("adds discovery metadata to body-only custom instructions", () => {
     const retained = browserSkillContent("# My browser\nRun custom-browser.\n")
     expect(retained).toMatch(/^---\nname: "agent-browser"\ndescription: .+\n---\n/)

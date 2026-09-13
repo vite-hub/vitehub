@@ -1,5 +1,12 @@
 import { skillPersistenceGuidance } from "./skill-persistence.ts"
 
+/** Adapt the installed official Skill to its configured discovery directory. */
+export function managedBrowserSkillContent(content: string, skillPath: string): string {
+  const name = skillPath.split("/").at(-2) || "agent-browser"
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, frontmatter =>
+    frontmatter.replace(/^name:[^\r\n]*/m, `name: ${JSON.stringify(name)}`))
+}
+
 /** Retained browser instructions apply only while the capability is enabled. */
 export function browserSkillContent(content: string, skillPath = ".agents/skills/agent-browser/SKILL.md", persistent = true): string {
   const guidance = "## Browser availability\n\n" + skillPersistenceGuidance(persistent) + " Before following any instructions below, check that `VITEHUB_BROWSER_ACTIVE` is `1`. Otherwise browser() is inactive for this invocation: do not run browser commands or installation steps from this Skill. Ask the caller to enable browser() for this Agent.\n\n"
