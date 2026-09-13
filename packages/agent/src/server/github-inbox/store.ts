@@ -97,8 +97,10 @@ export class PullRequestInbox {
   }
   get(repository: string, number: number): Snapshot | undefined {
     const row = this.db.prepare('SELECT value FROM pr_snapshots WHERE repository=? AND number=?').get(repository, number)
+    if (!row) return undefined
     // SAFETY: SQLite schema guarantees value is stored as TEXT.
-    return row ? parseSnapshot(JSON.parse(row.value as string) as unknown) : undefined
+    const raw = row.value as string
+    return parseSnapshot(JSON.parse(raw) as unknown)
   }
   all(): Snapshot[] {
     return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => parseSnapshot(JSON.parse(row.value as string) as unknown))
