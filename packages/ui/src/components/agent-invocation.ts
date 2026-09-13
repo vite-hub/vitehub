@@ -762,7 +762,7 @@ function renderChevronDown(className: string) {
 function renderPreparationGroup(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
-  inspect: (target: InspectTarget) => void,
+  inspect: (target: InspectTarget, path?: string) => void,
 ) {
   const url = agentInvocationExternalUrl(invocation);
   const failedActivity = activities.find(activity => activity.status === "failed");
@@ -1489,9 +1489,9 @@ export const AgentInvocation = defineComponent({
               workOpen.value,
               open => workOpen.value = open,
               toggleExpanded,
-              target => emit("inspect", target),
+              (target, path) => emit("inspect", target, path),
             ))]),
-            activities.value.length
+            activities.value.filter(activity => activity.kind !== "message" || Boolean(activity.body?.trim())).length
               ? null
               : h("div", { class: "vh-invocation-empty", role: "status" }, [h("span", { "aria-hidden": "true" }, "○"), h("p", "Waiting for the first update…")]),
             slots.footer?.({ invocation: props.invocation }),
