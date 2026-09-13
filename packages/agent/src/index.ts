@@ -2422,26 +2422,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   const definition = defineAgent({
     extends: agent,
     name: settings.name,
-    driver: driver.kind === "model"
-      // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-      ? { ...(settings.driver as AgentModelDriver), instructions }
-      : {
-          capacity: driver.capacity,
-          credentialProfile: driver.credentialProfile,
-          credentials: driver.credentials,
-          env: driver.env,
-          execution: driver.execution,
-          instructions,
-          kind: driver.provider,
-          launch: driver.launch,
-          model: driver.model,
-          output: driver.output,
-          permissions: driver.permissions,
-          providerSettings: driver.providerSettings,
-          reasoningEffort: driver.reasoningEffort,
-          reasoningSummary: driver.reasoningSummary,
-          sessionStorePath: driver.sessionStorePath,
-        },
+    driver: { instructions },
   } as never) as Agent
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const decorations = Object.getOwnPropertyDescriptors(agent as object)
