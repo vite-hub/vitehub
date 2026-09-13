@@ -50,6 +50,7 @@ export async function readPullRequestThreads(graphql: ReadGraphql, repository: s
     const connection = data.repository.pullRequest.reviewThreads
     after = nextCursor(connection, pages)
     for (const thread of connection.nodes) {
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped GitHub response data.
       if (!thread.id || typeof thread.isResolved !== 'boolean') throw new Error('Incomplete review thread metadata')
       const firstComments = v.parse(commentConnection, thread.comments)
       const comments = [...firstComments.nodes]

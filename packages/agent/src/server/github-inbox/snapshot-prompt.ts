@@ -90,6 +90,7 @@ const collectionItems: Record<string, string> = { checks: 'check', statuses: 'st
 function xmlElement(name: string, value: unknown): string {
   if (value === undefined || value === null) return `<${name} unknown="true"/>`
   if (Array.isArray(value)) return `<${name}>${value.map(item => xmlElement(collectionItems[name] ?? 'item', item)).join('')}</${name}>`
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped XML values before encoding.
   if (typeof value === 'object') return `<${name}>${Object.entries(value).map(([key, item]) => xmlElement(key, item)).join('')}</${name}>`
   // XML 1.0 cannot contain control codes or lone surrogates. Preserve them
   // reversibly as a JSON string instead of stripping repository text.
