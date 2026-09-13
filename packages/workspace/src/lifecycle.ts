@@ -210,8 +210,10 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
       if (!current) break
       const items = { ...current.items }
       for (const [itemPath, recordedItem] of Object.entries(items)) {
+        const itemBaselineKey = `${source.key}\0${itemPath}`
+        if (!baseline.has(itemBaselineKey) && [...baseline.keys()].some(key => key.endsWith(`\0${itemPath}`))) continue
         const item = await readStartupSnapshotFile(store, itemPath)
-        if (!isDeepStrictEqual(baseline.get(`${source.key}\0${itemPath}`), await startupFileEvidence(store, itemPath))
+        if (!isDeepStrictEqual(baseline.get(itemBaselineKey), await startupFileEvidence(store, itemPath))
           && !await materializedFileMatches(item, recordedItem)) delete items[itemPath]
       }
       // Keep cleanup evidence for paths that build synchronization did not replace.

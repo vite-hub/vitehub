@@ -4712,6 +4712,38 @@ describe("lazy sources", () => {
     expect(decodeFile((await store.readFile("edited.md"))?.content ?? "", { encoding: "utf8" })).toBe("user edit")
   })
 
+  it.each(["memory", "local"] as const)("retains shadowed startup evidence when a loader replaces a unique file in a %s Store", async (provider) => {
+    const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
+    const definition = {
+      name: "startup-shadowed-loader",
+      sources: {
+        first: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "first" }] }),
+        second: custom({ materialize: "startup", mount: "", files: [
+          { path: "shared.md", content: "second" },
+          { path: "unique.md", content: "startup" },
+        ] }),
+      },
+      loaders: [{
+        name: "replace-unique",
+        async load({ store }) {
+          await store.writeFile("unique.md", { path: "unique.md", content: "loader" })
+        },
+      }],
+    } satisfies WorkspaceDefinition
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    const source = normalizeWorkspaceSource("second", definition.sources.second)
+    const before = await readCurrentSourceSnapshot(store, source)
+    expect(before?.items).toHaveProperty("shared.md")
+
+    await syncWorkspaceDefinition(definition, store)
+
+    const snapshot = await readCurrentSourceSnapshot(store, source)
+    expect(snapshot?.status).toBe("updating")
+    expect(snapshot?.items?.["shared.md"]).toEqual(before?.items?.["shared.md"])
+    expect(snapshot?.items).not.toHaveProperty("unique.md")
+    expect(decodeFile((await store.readFile("shared.md"))?.content ?? "", { encoding: "utf8" })).toBe("first")
+  })
+
   it.each(["memory", "local"] as const)("restores unattributed loader writes through an existing %s Workspace view", async (provider) => {
     const store = provider === "memory" ? createMemoryWorkspaceStore() : createLocalWorkspaceStore(await createRoot())
     const definition = {
