@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
@@ -13,7 +13,7 @@ vi.mock("../src/internal/provider-runtime-packages.ts", () => ({
   resolveInstalledProviderExecutable: () => "/bin/true",
 }));
 
-import { defineAgent } from "../src/index.ts";
+import { agentWithColocatedInstructions, defineAgent } from "../src/index.ts";
 import { babysitter } from "../src/presets/babysitter.ts";
 import { createBabysitterRuntime } from "../src/presets/babysitter/server.ts";
 import type { GitHubHost } from "../src/server/github.ts";
@@ -131,7 +131,8 @@ async function fixture(autoMerge = false) {
             : [];
     return { stdout: data.map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
   });
-  const prepare = vi.fn(async () => {});
+  let workerDirectory: string | undefined;
+  const prepare = vi.fn(async (directory: string) => { workerDirectory = directory });
   const push = vi.fn(async () => {
     pushed = true;
     head = "b".repeat(40);
@@ -167,12 +168,12 @@ async function fixture(autoMerge = false) {
       } as Parameters<Parameters<GitHubHost["withPullRequestCheckout"]>[1]>[0]),
   };
   const errors = vi.fn();
-  const agent = defineAgent({
+  const agent = agentWithColocatedInstructions(defineAgent({
     preset: "babysitter",
     presets: { babysitter },
     options: { filter: { labels: { allow: ["repair"] } }, autoMerge },
     driver: { env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only" } },
-  });
+  }), "Preserve the documented API contract.");
   const runtime = createBabysitterRuntime({
     agent,
     github,
@@ -181,7 +182,7 @@ async function fixture(autoMerge = false) {
     concurrency: 1,
     error: errors,
   });
-  const passes: Array<{ tools: string[]; prompt: string; session: string }> = [];
+  const passes: Array<{ tools: string[]; prompt: string; session: string; instructions: string }> = [];
   let operation: "pushRepair" | "requestAutoMerge" | undefined;
   createProviderRuntime.mockImplementation(async () => {
     let threadId = `pass-${passes.length}`;
@@ -211,6 +212,7 @@ async function fixture(autoMerge = false) {
             tools: (await client.listTools()).tools.map((tool) => tool.name),
             prompt: input.input,
             session: threadId,
+            instructions: await readFile(join(workerDirectory!, "AGENTS.md"), "utf8"),
           });
           if (operation) {
             const result = await client.callTool({ name: operation, arguments: {} });
@@ -281,6 +283,8 @@ describe("Babysitter preset runtime", () => {
     expect(f.prepare).toHaveBeenCalledOnce();
     expect(f.passes[0]?.tools).not.toContain("requestAutoMerge");
     expect(f.passes[0]?.prompt).toContain("new-review-bot[bot]");
+    expect(f.passes[0]?.instructions).toContain("Preserve the documented API contract.");
+    expect(f.passes[0]?.instructions).not.toContain("{{{ instructions }}}");
     const environment = createProviderRuntime.mock.calls[0]?.[0].environment;
     expect(environment).not.toHaveProperty("GH_TOKEN");
     expect(environment).toHaveProperty("OPENAI_API_KEY", "provider-only");

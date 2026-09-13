@@ -140,7 +140,7 @@ it("keeps configured presets extendable after colocated Skills and Workspace dis
 
 it("keeps plain Agents extendable after colocated Skills discovery", () => {
   const base = defineAgent({ driver: "codex" })
-  const skills = { review: { content: "Review." } }
+  const skills = { review: { content: "Review.", workspacePath: "SKILL.md" } }
   const discovered = withColocatedAgentSkills(base, skills)
   expect(getAgentLayerOptions(discovered)?.driver).toBe("codex")
   const child = defineAgent({ extends: discovered, description: "Child" })
@@ -156,4 +156,21 @@ it("keeps configured options and discovered instructions through further extensi
   expect(child.description).toBe("true")
   expect(getAgentLayerOptions(child)?.driver).toHaveProperty("instructions", "Check migration safety.")
   expect(preset.options.enabled).toBe(false)
+})
+
+it("reconfigures driver options after discovering instructions", () => {
+  const preset = defineAgent({ options: { model: "first" }, configure: options => defineAgent({ driver: { kind: "codex", model: options.model } }) })
+  const discovered = agentWithColocatedInstructions(preset, "Check the repository.")
+  const child = defineAgent({ extends: discovered, options: { model: "second" } })
+  expect(getAgentLayerOptions(child)?.driver).toMatchObject({ model: "second", instructions: "Check the repository." })
+})
+
+it("keeps discovery defaults below reconfigured workspace values", () => {
+  const preset = defineAgent({ options: { mode: "read" as "read" | "write", sourceRootDir: undefined as string | undefined }, configure: options => defineAgent({
+    driver: "codex", workspace: { mode: options.mode, ...(options.sourceRootDir ? { sourceRootDir: options.sourceRootDir } : {}) },
+  }) })
+  const discovered = workspaceAgentWithSourceRoot(preset, "/discovered", "Repository context.")
+  const child = defineAgent({ extends: discovered, options: { mode: "write", sourceRootDir: "/configured" } })
+  expect(getAgentLayerOptions(child)?.workspace).toMatchObject({ mode: "write", sourceRootDir: "/configured", sources: { __vitehubAgentInstructions: { content: "Repository context." } } })
+  expect(getAgentLayerOptions(discovered)?.workspace).toMatchObject({ mode: "read", sourceRootDir: "/discovered" })
 })

@@ -890,7 +890,8 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  for (const key of Reflect.ownKeys(resolvedAgent)) {",
     `    if (!Object.prototype.propertyIsEnumerable.call(resolvedAgent, key)) Object.defineProperty(decoratedAgent, key, Object.getOwnPropertyDescriptor(resolvedAgent, key)${typescript ? "!" : ""})`,
     "  }",
-    "  inheritAgentLayerOptions(resolvedAgent, decoratedAgent, { workspace: workspaceOptions.workspace })",
+    "  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== workspace.sources?.[key]))",
+    "  inheritAgentLayerOptions(resolvedAgent, decoratedAgent, { workspace: { sourceRootDir: resolvedSourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) } })",
     `  return decoratedAgent${typescript ? " as unknown as Agent" : ""}`,
     "}",
   ]
@@ -3059,7 +3060,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ? resolve(config.root, ".vitehub/agent-generations", randomUUID())
           : undefined
         const contributionArtifactDir = artifactDir
-        const providerImportAliases = getProviderImportAliases(agent, frameworkOptions) ?? {}
+        const providerImportAliases = {
+          ...getProviderImportAliases(agent, frameworkOptions),
+          ...(normalized ? { [agentRegistryId]: join(resolveViteHubGeneratedRoot(config), generatedAgentRegistry) } : {}),
+        }
         const definitionSources = await Promise.all(definitions.map(async (definition) => {
           const instructionDependencies = new Set<string>()
           const instructions = await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
