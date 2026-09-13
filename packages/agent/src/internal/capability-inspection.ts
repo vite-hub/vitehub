@@ -1,9 +1,13 @@
-const inspectionContexts = new WeakSet<object>()
+import type { AgentCapabilityRuntimeContext } from "../types.ts"
 
-export function markCapabilityInspection(context: object): void {
+type InspectionContext = Pick<AgentCapabilityRuntimeContext, "invocation">
+
+const inspectionContexts = new WeakSet<InspectionContext>()
+
+export function markCapabilityInspection(context: InspectionContext): void {
   inspectionContexts.add(context)
 }
 
-export function isCapabilityInspection(context: object): boolean {
+export function isCapabilityInspection(context: InspectionContext): boolean {
   return inspectionContexts.has(context)
 }
