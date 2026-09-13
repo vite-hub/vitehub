@@ -1307,6 +1307,8 @@ function workspaceMetadataInstructions<
 
 function fillSynchronousInstructionSlot(template: string, content: string): string {
   let fence: string | undefined
+  let inlineFence: string | undefined
+  let paragraph = false
   return template.split("\n").map((line) => {
     const marker = line.match(/^( {0,3})(`{3,}|~{3,})(.*)$/)
     if (marker) {
@@ -1318,7 +1320,18 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
       fence = delimiter
       return line
     }
-    if (fence || /^(?:    |\t)/.test(line)) return line
+    if (fence) return line
+    const indented = /^(?:    |\t)/.test(line)
+    if (indented && !paragraph) return line
+    paragraph = line.trim().length > 0 && !indented
+    if (inlineFence) {
+      const run = inlineFence
+      const end = line.indexOf(run)
+      if (end < 0) return line
+      inlineFence = undefined
+      const closeEnd = end + run.length
+      return line.slice(0, closeEnd) + line.slice(closeEnd).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+    }
     let out = ""
     let index = 0
     while (index < line.length) {
@@ -1334,7 +1347,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
       while (line[index] === "`") index++
       const run = line.slice(start, index)
       const end = line.indexOf(run, index)
-      if (end < 0) { out += line.slice(start); break }
+      if (end < 0) { out += line.slice(start); inlineFence = run; break }
       out += line.slice(start, end + run.length)
       index = end + run.length
     }
