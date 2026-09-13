@@ -32,6 +32,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
   if (!diff.entries.length) return diff
   const generatedFiles = new Set<string>()
   const generatedDirectories = new Set<string>()
+  const generatedDirectorySources = new Map<string, Set<string>>()
   for (const source of normalizeWorkspaceSources(definition.sources)) {
     if (source.materialize !== "startup") continue
     const snapshot = await readCurrentSourceSnapshot(store, source)
@@ -51,6 +52,9 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     }
     for (const path of [...(snapshot.ownedDirectories || []), ...(snapshot.ownedAncestors || []), ...(snapshot.ownsMount ? [source.mountPath] : [])]) {
       generatedDirectories.add(path)
+      let owners = generatedDirectorySources.get(path)
+      if (!owners) generatedDirectorySources.set(path, owners = new Set())
+      owners.add(source.key)
     }
   }
   const entries: WorkspaceDiff["entries"] = []
@@ -70,8 +74,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
         // the addition only when the directory itself carries replacement
         // metadata; a metadata-free directory is still the startup mount.
         const current = await store.stat(entry.path)
-        if (current?.metadata?.source && ![...normalizeWorkspaceSources(definition.sources)]
-          .some(source => source.materialize === "startup" && source.key === current.metadata?.source)) continue
+        if (current?.metadata?.source && generatedDirectorySources.get(entry.path)?.has(current.metadata.source)) continue
       }
     }
     entries.push(entry)
