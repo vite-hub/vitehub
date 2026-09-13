@@ -362,6 +362,7 @@ export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefi
   }
   const skillPath = ".agents/skills/gmail/SKILL.md"
   const sourceKey = "skill.gmail"
+  const legacySkillPath = "skills/gmail/SKILL.md"
 
   return Object.assign(defineCapability({
     id: "gmail",
@@ -401,10 +402,16 @@ export function gmail(options: GmailCapabilityOptions = {}): AgentCapabilityDefi
           mediaType: "text/markdown",
           workspacePath: skillPath,
         },
+        // Keep the pre-managed path available so upgrades retain existing Gmail Skills.
+        [`${sourceKey}.legacy`]: {
+          content: gmailSkillContent(mode, await supportsSkillPersistence(context.workspace)),
+          mediaType: "text/markdown",
+          workspacePath: legacySkillPath,
+        },
       },
     }),
   }), {
-    [workspaceMaterializationPathsSymbol]: [skillPath],
-    [workspacePersistencePathsSymbol]: [skillPath],
+    [workspaceMaterializationPathsSymbol]: [skillPath, legacySkillPath],
+    [workspacePersistencePathsSymbol]: [skillPath, legacySkillPath],
   })
 }
