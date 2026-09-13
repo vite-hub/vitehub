@@ -173,7 +173,9 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
     },
     async rm(path, options) {
       if (options?.ifDigest !== undefined || options?.ifSource !== undefined) {
-        const current = await readBaseFile(path) || await memory.readFile(path)
+        // Validate the effective overlay entry first; the base layer may be
+        // shadowed by a replacement in memory.
+        const current = await memory.readFile(path) || await readBaseFile(path)
         if (!current) return
         if (options.ifSource !== undefined && (current.metadata?.source ?? null) !== options.ifSource) return
         if (options.ifDigest !== undefined) {
