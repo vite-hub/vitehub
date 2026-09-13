@@ -1114,6 +1114,14 @@ describe("agent Vite plugin", () => {
       expect(generated).not.toContain(publishedAgentRoot)
       expect(wrapper).not.toContain("agent-generations")
       expect(generated).not.toContain("agent-generations")
+      const retainedCatalog = await readFile(join(root, ".vitehub", "agent", "sources", "0", ".vitehub", "agent", "registry-agents.mjs"), "utf8")
+      expect(retainedCatalog).toContain("/sources/0/server/agents/support/workspace")
+      expect(retainedCatalog).not.toContain(agentRoot)
+      await rm(join(root, "server"), { recursive: true })
+      const retainedSourceRoot = retainedCatalog.match(/withWorkspaceSourceRoot\(agentWithColocatedInstructions\(resolveAgentModule\(agent0\), undefined\), "([^"]+)"/)?.[1]
+      expect(retainedSourceRoot).toBeDefined()
+      const deployedSourceRoot = retainedSourceRoot!.replace(/.*\/sources\//, join(root, ".netlify", "v1", "agent", "sources") + "/")
+      await expect(readFile(join(deployedSourceRoot, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
     }
     finally {
       if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting

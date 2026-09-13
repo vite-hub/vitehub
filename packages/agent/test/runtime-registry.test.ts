@@ -78,12 +78,54 @@ it('loads discovered instructions through the Vite server registry', async () =>
   await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
   await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
   await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
+  await mkdir(join(root, 'workspace-store'), { recursive: true })
+  await writeFile(join(root, 'workspace-store/context.txt'), 'Owned workspace context.')
   const entry = join(root, 'entry.ts')
-  await writeFile(entry, `import { getAgentFromRegistry } from '@vite-hub/agent'
-export async function inspect() { return (await getAgentFromRegistry('review')).__vitehubWorkspaceAgentOptions.driver.instructions }`)
+  await writeFile(entry, `import { defineAgent, getAgentFromRegistry, runAgent } from '@vite-hub/agent'
+import { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition } from '@vite-hub/workspace/runtime'
+export async function inspect() {
+  setWorkspaceRuntimeRegistry({ standalone: async () => ({ default: { sources: { context: { content: 'Standalone context.' } } } }) })
+  const agent = await getAgentFromRegistry('review')
+  const runnable = defineAgent({ extends: agent, name: 'registry-review', workspace: { store: { provider: 'local', root: ${JSON.stringify(join(root, 'workspace-store'))} } }, driver: { run: async ({ workspace }) => await workspace.fs.readFile('context.txt') } })
+  const result = await runAgent(runnable, { runtime: 'unknown', memo: (_key, create) => create(), waitUntil: () => {} }, {})
+  const standalone = await resolveRegisteredWorkspaceDefinition('standalone')
+  return { result, instructions: agent.__vitehubWorkspaceAgentOptions.driver.instructions, standalone: standalone.sources.context.content }
+}`)
   const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
   try {
     const module = await server.ssrLoadModule(entry)
-    expect(await module.inspect()).toEqual({ template: 'Before.\n{{{ instructions }}}\nAfter.', content: 'Check migrations.' })
+    expect(await module.inspect()).toEqual({ result: 'Owned workspace context.', instructions: { template: 'Before.\n{{{ instructions }}}\nAfter.', content: 'Check migrations.' }, standalone: 'Standalone context.' })
+  } finally { await server.close() }
+}, 30_000)
+
+
+it('refreshes discovered agents and their first instructions when files are added or removed', async () => {
+  const { root } = await fixture(false)
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+  await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
+  await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
+  const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
+  const registryPath = join(root, '.vitehub/agent/registry.mjs')
+  const catalogPath = join(root, '.vitehub/agent/registry-agents.mjs')
+  try {
+    expect((await server.ssrLoadModule(registryPath)).default).toEqual({})
+    const folder = join(root, 'server/agents/new-agent')
+    await mkdir(folder, { recursive: true })
+    const definition = join(folder, 'agent.ts')
+    await writeFile(definition, "import { defineAgent } from '@vite-hub/agent'; export default defineAgent({ driver: { kind: 'codex' }, runtime: false })")
+    server.watcher.emit('add', definition)
+    await expect.poll(async () => Object.keys((await server.ssrLoadModule(registryPath)).default)).toEqual(['new-agent'])
+    const instructions = join(folder, 'instructions.md')
+    await writeFile(instructions, 'Added after server startup.')
+    server.watcher.emit('add', instructions)
+    await expect.poll(async () => (await readFile(catalogPath, 'utf8')).includes('Added after server startup.')).toBe(true)
+    await expect.poll(async () => (await (await server.ssrLoadModule(registryPath)).default['new-agent']()).__vitehubAgentSettings.driver.instructions).toBe('Added after server startup.')
+    await rm(instructions)
+    server.watcher.emit('unlink', instructions)
+    await expect.poll(async () => (await readFile(catalogPath, 'utf8')).includes('Added after server startup.')).toBe(false)
+    await rm(definition)
+    server.watcher.emit('unlink', definition)
+    await expect.poll(async () => Object.keys((await server.ssrLoadModule(registryPath)).default)).toEqual([])
   } finally { await server.close() }
 }, 30_000)

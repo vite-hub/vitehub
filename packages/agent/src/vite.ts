@@ -1642,7 +1642,7 @@ async function writeAgentRuntimeRegistry(
   const catalog = await generateAgentDeploymentCatalog(definitions, catalogPath, {
     ...options,
     channelHandlers: false,
-    workspaceRuntimeImport: subpath(options.workspaceImportBase, "runtime"),
+    workspaceRegistry: false,
   })
   await mkdir(dirname(registryPath), { recursive: true })
   await writeFile(catalogPath, [...catalog.imports, "", ...catalog.setup, "", "export { agents }", ""].join("\n"), "utf8")
@@ -1686,6 +1686,7 @@ async function generateAgentDeploymentCatalog(
     typescript?: boolean
     workspaceImportBase: string
     workspaceRuntimeImport?: string
+    workspaceRegistry?: false
   },
 ): Promise<GeneratedAgentDeploymentCatalog> {
   const channelHandlers = options.channelHandlers !== false
@@ -1702,7 +1703,7 @@ async function generateAgentDeploymentCatalog(
     return {
       agentEntry: `${JSON.stringify(definition.name)}: ${agentExpression}`,
       import: `import * as ${moduleName} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`,
-      workspaceEntry: definition.workspace
+      workspaceEntry: options.workspaceRegistry !== false && definition.workspace
         ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
         : undefined,
     }
@@ -1713,7 +1714,7 @@ async function generateAgentDeploymentCatalog(
     throw agentDiagnostics.AGENT_B0017({ message: "[vitehub] Agent deployment catalog requires a Workspace runtime import for Workspace Agents." })
   }
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
-  const registeredAgentWorkspaceEntries = definitions.flatMap(definition => definition.workspace
+  const registeredAgentWorkspaceEntries = definitions.flatMap(definition => options.workspaceRegistry !== false && definition.workspace
     ? [`markDiscoveredWorkspaceAgentDefinitionRegistered(agents[${JSON.stringify(definition.name)}], ${JSON.stringify({ name: definition.name, workspace: definition.workspace })})`]
     : [])
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
@@ -2592,6 +2593,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   let resolved: ResolvedConfig | undefined
+  let closeDiscoveryWatcher: (() => Promise<void>) | undefined
   let serverDirs: string[] | undefined
 
   function clearEveExtensionOwnership(owner: string): void {
@@ -2699,6 +2701,50 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const clearUnlinkedEveExtensionOwnership = (file: string) => clearEveExtensionOwnership(file.replace(/\\/g, "/"))
       server.watcher?.on("add", clearUnlinkedEveExtensionOwnership)
       server.watcher?.on("unlink", clearUnlinkedEveExtensionOwnership)
+      let discoveryRefresh: Promise<void> | undefined
+      let discoveryClosed = false
+      const pendingDiscovery = new Map<string, boolean>()
+      const refreshDiscovery = (file: string) => {
+        if (!resolved || agent === false || discoveryClosed) return
+        const normalizedFile = file.replace(/\\/g, "/")
+        const roots = serverDirs ?? [join(resolved.root, "server")]
+        const relativeAgentPath = roots.map(root => `${resolve(root).replace(/\\/g, "/")}/agents/`)
+          .filter(root => normalizedFile.startsWith(root))
+          .map(root => normalizedFile.slice(root.length))[0]
+        if (relativeAgentPath && /(?:^|\/)(?:workspace|home)\//.test(relativeAgentPath)) return
+        const definitionChange = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedFile)
+          || relativeAgentPath && !/(?:^|\/)skills\//.test(relativeAgentPath) && /\.(?:c|m)?[jt]s$/i.test(relativeAgentPath)
+        const resourceChange = relativeAgentPath && (/\/instructions\.md$/i.test(relativeAgentPath) || /\/skills\//.test(relativeAgentPath))
+        if (!definitionChange && !resourceChange && !/\.md$/i.test(normalizedFile)) return
+        pendingDiscovery.set(file, Boolean(definitionChange || resourceChange))
+        discoveryRefresh ??= (async () => {
+          // Coalesce directory copies before writing the complete catalog.
+          await new Promise(resolve => setTimeout(resolve, 0))
+          while (pendingDiscovery.size && !discoveryClosed && resolved) {
+            const files = [...pendingDiscovery]
+            pendingDiscovery.clear()
+            const changes = await Promise.all(files.map(async ([file, known]) => known || await isColocatedAgentInstructionDependency(resolved!.root, file, serverDirs)))
+            if (!changes.some(Boolean)) continue
+            await writeGeneratedAgentOutputs(resolved)
+            const root = resolveViteHubGeneratedRoot(resolved)
+            for (const output of [generatedAgentRegistry, generatedAgentRegistryCatalog]) {
+              const module = server.moduleGraph.getModuleById(join(root, output))
+              if (module) server.moduleGraph.invalidateModule(module)
+            }
+          }
+        })().catch(error => server.config.logger.error(`[vitehub] Failed to refresh Agent discovery: ${String(error)}`)).finally(() => { discoveryRefresh = undefined })
+      }
+      closeDiscoveryWatcher = async () => {
+        discoveryClosed = true
+        pendingDiscovery.clear()
+        server.watcher?.off("add", refreshDiscovery)
+        server.watcher?.off("unlink", refreshDiscovery)
+        server.watcher?.off("add", clearUnlinkedEveExtensionOwnership)
+        server.watcher?.off("unlink", clearUnlinkedEveExtensionOwnership)
+        await discoveryRefresh
+      }
+      server.watcher?.on("add", refreshDiscovery)
+      server.watcher?.on("unlink", refreshDiscovery)
       if (agent !== false) {
         await registerAgentInvocationStreamEndpoint(server, {
           runtimeCapabilities,
@@ -3013,10 +3059,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ? resolve(config.root, ".vitehub/agent-generations", randomUUID())
           : undefined
         const contributionArtifactDir = artifactDir
-        const providerImportAliases = {
-          ...getProviderImportAliases(agent, frameworkOptions),
-          ...(normalized ? { [agentRegistryId]: join(resolveViteHubGeneratedRoot(config), generatedAgentRegistry) } : {}),
-        }
+        const providerImportAliases = getProviderImportAliases(agent, frameworkOptions) ?? {}
         const definitionSources = await Promise.all(definitions.map(async (definition) => {
           const instructionDependencies = new Set<string>()
           const instructions = await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
@@ -3050,9 +3093,19 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           [retainedColocatedInstructions]: source.instructions,
           handler: retainedSources?.resolve(source.definition.handler) ?? source.definition.handler,
         }))
-        const retainedProviderImportAliases = retainedSources
-          ? retainProviderOutputAliases(providerImportAliases, retainedSources)
-          : providerImportAliases
+        if (retainedSources && normalized) {
+          const retainedGeneratedRoot = join(retainedSources.resolve(config.root), ".vitehub")
+          await writeAgentRuntimeRegistry(retainedGeneratedRoot, retainedDefinitions, {
+            agentImportBase: getAgentImportBase(agent, frameworkOptions),
+            workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
+          })
+        }
+        const retainedProviderImportAliases = {
+          ...(retainedSources ? retainProviderOutputAliases(providerImportAliases, retainedSources) : providerImportAliases),
+          ...(normalized ? { [agentRegistryId]: retainedSources
+            ? join(retainedSources.resolve(config.root), ".vitehub", generatedAgentRegistry)
+            : join(resolveViteHubGeneratedRoot(config), generatedAgentRegistry) } : {}),
+        }
         contributeProviderDeploymentOutput(providerOutput, {
           discard: contributionArtifactDir ? async () => await removeProviderOutputArtifactDir(contributionArtifactDir) : undefined,
           owner: "agent",
@@ -3102,6 +3155,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       order: "post",
       sequential: true,
       async handler() {
+        await closeDiscoveryWatcher?.()
         if (!resolved || resolved.command !== "build") return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
