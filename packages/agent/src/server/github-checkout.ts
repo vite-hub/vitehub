@@ -75,7 +75,12 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       await cp(join(source, file), join(destination, file), { recursive: true })
     }
     // Keep provider-generated instruction files outside ordinary repair staging.
-    await appendFile(join(destination, '.git', 'info', 'exclude'), '\nAGENTS.md\nCLAUDE.md\n')
+    await appendFile(join(destination, '.git', 'info', 'exclude'), '\nAGENTS.md\nCLAUDE.md\ngenerated*\n')
+    // Generated instruction files may also be tracked by the source checkout;
+    // mark their working-tree copies as provider-owned so repair staging ignores them.
+    for (const file of ['AGENTS.md', 'CLAUDE.md']) {
+      if (tracked.includes(file)) await git(destination, ['update-index', '--skip-worktree', '--', file])
+    }
   }
   catch (error) {
     await rm(join(destination, '.git'), { recursive: true, force: true })
