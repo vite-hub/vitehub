@@ -943,6 +943,30 @@ describe("local workspace store", () => {
     expect(await restarted.readFile(path)).toMatchObject({ content: new TextEncoder().encode("after") })
   })
 
+  it.each(["EIO", "EMFILE"])("removes reader markers when reopening the lease fails with %s", async (code) => {
+    const store = await createStore()
+    const root = tempDirs.at(-1)!
+    const path = "file.txt"
+    await store.writeFile(path, { path, content: "before" })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(open).mockImplementation(async (...args) => {
+      if (String(args[0]).includes(".readers/") && args[1] === "r+") {
+        throw Object.assign(new Error("reader reopen failed"), { code })
+      }
+      return actual.open(...args)
+    })
+    try {
+      await expect(store.readFile(path)).rejects.toThrow("reader reopen failed")
+      expect((await readdir(join(root, ".vitehub/locks"))).filter(entry => entry.endsWith(".readers"))).toEqual([])
+    }
+    finally {
+      vi.mocked(open).mockImplementation(actual.open)
+    }
+    const restarted = createLocalWorkspaceStore(root)
+    await restarted.writeFile(path, { path, content: "after" })
+    await expect(restarted.readFile(path)).resolves.toMatchObject({ content: new TextEncoder().encode("after") })
+  })
+
   it.each(["EIO", "EMFILE"])("releases owned gates without rereading owner markers on %s", async (code) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!

@@ -253,8 +253,8 @@ async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import(
   })
   // Keep the reader marker open for the duration of the read so its own
   // heartbeat remains authoritative while writers inspect the reader set.
-  const lease = await open(reader, "r+")
   try {
+    const lease = await open(reader, "r+")
     return await withLeaseHeartbeat(lease, operation)
   }
   finally {
