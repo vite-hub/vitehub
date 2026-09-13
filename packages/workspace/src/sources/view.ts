@@ -1,5 +1,5 @@
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { workspaceError } from "../core/errors.ts"
+import { isWorkspaceConflict, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
@@ -473,10 +473,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
             for (const file of preserved.get(owner.key) || []) {
               if (source.mountPath && !sourceMountContainsPath(source, file.path)) continue
               const item = refreshedSnapshot?.items?.[file.path]
-              if (!item) continue
+              if (!item?.materializedContentDigest) continue
               const current = await store.readFile(file.path)
               if (current?.metadata?.source !== source.key || !await materializedFileMatches(current, item)) continue
-              await store.writeFile(file.path, file)
+              try {
+                if (store.writeFileConditional) await store.writeFileConditional(file.path, file, item.materializedContentDigest)
+                else recoveryError = workspaceError("[vitehub] Restoring a Workspace Source snapshot requires conditional writes.")
+              }
+              catch (error) {
+                // A writer replaced the validated content. Keep its newer file.
+                if (!isWorkspaceConflict(error)) recoveryError = error
+              }
             }
           }
         }

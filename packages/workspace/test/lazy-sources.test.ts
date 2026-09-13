@@ -514,6 +514,24 @@ describe("lazy sources", () => {
     expect(decodeFile((await store.readFile("shared.md"))!.content)).toBe("concurrent edit")
   })
 
+  it.each(["memory", "local"])("preserves an edit between inspection validation and restoration on %s", async (provider) => {
+    const root = await createRoot()
+    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const writer = provider === "local" ? createLocalWorkspaceStore(root) : store
+    const first = custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "persisted" }] })
+    await createWorkspaceSourceView({ name: "conditional-restoration", sources: { first } }, store).list()
+    const conditionalWrite = store.writeFileConditional!.bind(store)
+    const restore = vi.spyOn(store, "writeFileConditional").mockImplementation(async (path, file, digest) => {
+      await writer.writeFile(path, { path, content: "concurrent edit" })
+      await conditionalWrite(path, file, digest)
+    })
+    const second = custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "lower source" }] })
+    const inspection = createWorkspaceSourceView({ name: "conditional-restoration", sources: { first, second } }, store, { reuseStartupSnapshots: true })
+    await inspection.list()
+    expect(restore).toHaveBeenCalled()
+    expect(decodeFile((await store.readFile("shared.md"))!.content)).toBe("concurrent edit")
+  })
+
   it.each([false, true].flatMap(local => [false, true].map(sameContent => ({ local, sameContent }))))("revalidates overwritten inspection snapshots with local=$local and same content=$sameContent", async ({ local, sameContent }) => {
     const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
     const definition = {
