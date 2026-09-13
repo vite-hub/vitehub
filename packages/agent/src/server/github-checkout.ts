@@ -42,6 +42,10 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   // Preserve the materialized workspace baseline while replacing its Git history.
   // The baseline index contains generated instructions and selected files; restoring
   // it after copying prevents out-of-scope paths from appearing deleted.
+  const destinationGit = await lstat(join(destination, '.git')).catch(() => undefined)
+  if (!destinationGit?.isDirectory()) {
+    throw new Error('Provider workspace must use an independent Git directory.')
+  }
   const baselineTree = await git(destination, ['write-tree']).catch(() => undefined)
   const baselineObjects = join(destination, '.git', 'objects')
   const baselineObjectsBackup = join(destination, '.git-baseline-objects')
@@ -61,7 +65,6 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     for (const key of new Set(config.split('\n').filter(key => /^credential\.|^http\..*extraheader$|^http\.extraheader$/i.test(key)))) {
       await git(destination, ['config', '--local', '--unset-all', key])
     }
-    await rm(baselineObjectsBackup, { recursive: true, force: true })
     if (await git(destination, ['rev-parse', 'HEAD']) !== expected
       || await git(destination, ['remote', 'get-url', 'origin']) !== origin
       || await git(destination, ['remote', 'get-url', '--push', 'origin']) !== push) {
@@ -71,5 +74,8 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   catch (error) {
     await rm(join(destination, '.git'), { recursive: true, force: true })
     throw error
+  }
+  finally {
+    await rm(baselineObjectsBackup, { recursive: true, force: true })
   }
 }
