@@ -2710,11 +2710,14 @@ async function* runProvider<
         drainingSteering = true
         let timeout: ReturnType<typeof setTimeout> | undefined
         try {
-          await Promise.race([
-            Promise.all(pendingSteering),
-            new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
+          const drainResult = await Promise.race([
+            Promise.all(pendingSteering).then(() => "drained" as const),
+            new Promise<"timeout">(resolve => timeout = setTimeout(() => resolve("timeout"), providerCleanupTimeoutMs)),
             aborted,
           ])
+          if (drainResult === "timeout") {
+            caught = agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent steering did not settle before cleanup timed out." })
+          }
         }
         finally {
           acceptingSteering = false
