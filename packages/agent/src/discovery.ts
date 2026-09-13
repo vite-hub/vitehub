@@ -307,7 +307,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   }
 
   // The default export owns the folder; helper definitions and unselected presets do not.
-  if (exported !== undefined && ownsWorkspace(exported)) return true
+  if (exported !== undefined) return ownsWorkspace(exported)
   return tokens.some((token, index) => token === "defineAgent" && ownsWorkspace(index))
 }
 function isAgentDefinitionSource(source: string): boolean {
