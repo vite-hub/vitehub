@@ -819,7 +819,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     if (options.ifDigest) {
-      const current = await this.readFile(normalized)
+      const current = await this.#readFile(normalized)
       if (!current || await sha256(current.content) !== options.ifDigest) return
     }
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
