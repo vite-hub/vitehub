@@ -1896,6 +1896,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     options.accumulator.outputTokens += outputTokens!
     options.accumulator.observedPartition = true
     options.accumulator.partitionComplete = options.accumulator.calls.every(call => call.usage !== undefined)
+    options.accumulator.identityAmbiguous = options.accumulator.calls.some(call => call.usage === undefined)
   }
   if (options.provider === "codex" && !changed && (sameResponse || (responseIdentity === undefined && options.accumulator.lastCallIdentity === undefined && cumulative !== undefined)) && previousCall?.usage) {
     const cachedInputTokens = usage.cachedInputTokens ?? (hasRuntimeType(previousCall.usage.details?.cachedInputTokens, "number") ? previousCall.usage.details.cachedInputTokens : undefined)
