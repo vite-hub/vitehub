@@ -2903,13 +2903,14 @@ function agentTelemetryConfigurationForContent(
   const { instructions, tools, ...metadata } = configuration
   return {
     ...metadata,
-    capabilities: configuration.capabilities?.map(capability => capability.metadata
-      ? {
-          ...capability,
+    capabilities: configuration.capabilities?.map(({ inspection, ...capability }) => ({
+      ...capability,
+      ...(inspection ? { inspection: policy.instructions === true && policy.inputs === true && policy.outputs === true ? inspection : { label: inspection.label } } : {}),
+      ...(capability.metadata ? {
           // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
           metadata: agentTelemetryMetadataForContent(capability.metadata, policy) as Record<string, AgentInspectionValue>,
-        }
-      : capability),
+        } : {}),
+    })),
     ...(policy.instructions === true && instructions ? { instructions } : {}),
     ...(tools ? { tools: policy.instructions === true ? tools : tools.map(({ name, capabilityId }) => ({ name, ...(capabilityId ? { capabilityId } : {}) })) } : {}),
   }
@@ -2935,6 +2936,10 @@ function withAgentTelemetryContentAttributes(
 ): Record<string, unknown> {
   const { "content.omitted": _omitted, ...safeAttributes } = safe || {}
   const allowedEntries = Object.entries(full || {}).flatMap(([key, value]) => {
+    if (key === "message.content" && full?.["message.role"] !== undefined) {
+      const contentClass = agentTelemetryMessageContentClass({ role: full?.["message.role"] })
+      return contentClass !== undefined && policy[contentClass] === true ? [[key, value] as const] : []
+    }
     const selected = agentTelemetryAttributeForContent(key, value, policy)
     return selected ? [[key, selected.value] as const] : []
   })

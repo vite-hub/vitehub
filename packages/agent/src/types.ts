@@ -329,8 +329,38 @@ export interface AgentCapabilityTelemetryContext {
   metadata: (metadata: Record<string, unknown>) => void
 }
 
+export type AgentCapabilityInspectionBinding = { $state: string } | { $item: string }
+
+export type AgentCapabilityInspectionElement = {
+  children?: string[]
+  repeat?: { statePath: string, key?: string }
+} & (
+  | { type: "Stack", props: Record<string, never> }
+  | { type: "Section", props: { title: string | AgentCapabilityInspectionBinding } }
+  | { type: "Text", props: { text: string | AgentCapabilityInspectionBinding } }
+  | { type: "KeyValue", props: { label: string | AgentCapabilityInspectionBinding, value: AgentInspectionValue } }
+  | { type: "Tools", props: { names?: string[] | AgentCapabilityInspectionBinding, mcpServer?: string | AgentCapabilityInspectionBinding } }
+)
+
+/** Read-only JSON Render spec. The inspector owns the component catalog. */
+export interface AgentCapabilityInspectionView {
+  root: string
+  elements: Record<string, AgentCapabilityInspectionElement>
+}
+
+export interface AgentCapabilityInspectionDefinition {
+  label: string
+  view?: AgentCapabilityInspectionView
+}
+
+export interface AgentCapabilityInspection extends AgentCapabilityInspectionDefinition {
+  truncated?: boolean
+  state?: Record<string, AgentInspectionValue>
+}
+
 export interface AgentTelemetryCapabilityMetadata {
   id: string
+  inspection?: AgentCapabilityInspection
   metadata?: Record<string, AgentInspectionValue>
 }
 

@@ -706,9 +706,11 @@ describe("Agent telemetry", () => {
   it.each([false, true])("classifies steered message telemetry by role (live: %s)", async (live) => {
     const inputs = vi.fn()
     const outputs = vi.fn()
+    const instructions = vi.fn()
     const tasks: Promise<unknown>[] = []
     const agent = defineAgent({
       capabilities: [
+        defineCapability({ id: "instructions", telemetry: { content: { instructions: true }, exporter: instructions, live } }),
         defineCapability({ id: "inputs", telemetry: { content: { inputs: true }, exporter: inputs, live } }),
         defineCapability({ id: "outputs", telemetry: { content: { outputs: true }, exporter: outputs, live } }),
       ],
@@ -729,6 +731,11 @@ describe("Agent telemetry", () => {
             name: "application.output",
             type: "run",
           })
+          await context.traceLog?.append({
+            attributes: { "message.content": "private system instruction", "message.role": "system" },
+            name: "agent.input.message",
+            type: "run",
+          })
           return "ok"
         },
       },
@@ -741,6 +748,11 @@ describe("Agent telemetry", () => {
     }, {})
     await Promise.all(tasks)
 
+    expect(JSON.stringify(instructions.mock.calls)).toContain("private system instruction")
+    expect(JSON.stringify(instructions.mock.calls)).not.toContain("private steering input")
+    expect(JSON.stringify(instructions.mock.calls)).not.toContain("public assistant response")
+    expect(JSON.stringify(inputs.mock.calls)).not.toContain("private system instruction")
+    expect(JSON.stringify(outputs.mock.calls)).not.toContain("private system instruction")
     expect(JSON.stringify(inputs.mock.calls)).toContain("private steering input")
     expect(JSON.stringify(inputs.mock.calls)).not.toContain("public assistant response")
     expect(JSON.stringify(inputs.mock.calls)).not.toContain("application output without a role")
