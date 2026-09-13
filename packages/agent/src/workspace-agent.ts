@@ -1305,6 +1305,10 @@ function workspaceMetadataInstructions<
   return content ? [content] : []
 }
 
+function replaceInstructionSlots(value: string, content: string): string {
+  return value.replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+}
+
 function fillSynchronousInstructionSlot(template: string, content: string): string {
   let fence: string | undefined
   let inlineFence: string | undefined
@@ -1330,7 +1334,7 @@ function fillSynchronousInstructionSlot(template: string, content: string): stri
       if (end < 0) return line
       inlineFence = undefined
       const closeEnd = end + run.length
-      return line.slice(0, closeEnd) + line.slice(closeEnd).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+      return line.slice(0, closeEnd) + replaceInstructionSlots(line.slice(closeEnd), content)
     }
     let out = ""
     let index = 0
