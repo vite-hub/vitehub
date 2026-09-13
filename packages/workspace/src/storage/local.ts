@@ -249,7 +249,12 @@ async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import(
   await withFilesystemLock(`${lock}.gate`, permissions, description, async () => {
     await ensureLockDirectory(`${lock}.readers`)
     if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
-    await open(reader, "wx").then(file => file.close())
+    const marker = await open(reader, "wx")
+    try { await marker.close() }
+    catch (error) {
+      await rm(reader, { force: true }).catch(() => {})
+      throw error
+    }
   })
   // Keep the reader marker open for the duration of the read so its own
   // heartbeat remains authoritative while writers inspect the reader set.
@@ -821,7 +826,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
         throw error
       })
       createdMarker = file !== undefined
-      await file?.close()
+      if (file) {
+        try { await file.close() }
+        catch (error) {
+          await rm(marker, { force: true }).catch(() => {})
+          throw error
+        }
+      }
     }
     let missingTargetError: NodeJS.ErrnoException | undefined
     await rm(resolveInside(this.root, path), {
