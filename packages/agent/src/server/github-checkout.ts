@@ -82,8 +82,17 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       } catch (error) {
         if (scope === '--local') throw error
       }
-      for (const key of new Set(config.split('\n').filter(sensitive))) {
-        await git(destination, ['config', scope, '--unset-all', key])
+      for (const key of new Set(config.split('\n').filter(Boolean))) {
+        let remove = sensitive(key)
+        if (!remove && /^url\..+\.(?:insteadOf|pushInsteadOf)$/i.test(key)) {
+          const values = await git(destination, ['config', scope, '--get-all', key]).catch(() => '')
+          remove = values.split('\n').some(value => {
+            if (!URL.canParse(value)) return false
+            const url = new URL(value)
+            return Boolean(url.username || url.password)
+          })
+        }
+        if (remove) await git(destination, ['config', scope, '--unset-all', key])
       }
     }
     await sanitize('--local')
