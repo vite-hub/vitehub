@@ -1,4 +1,5 @@
 import { supportsSkillPersistence } from "./internal/skill-persistence.ts"
+import { markCapabilityInspection } from "./internal/capability-inspection.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { resolveRuntimeValue } from "@vite-hub/runtime"
@@ -1045,6 +1046,8 @@ export async function resolveAgentCapabilities<
   }
   const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
   const driverKind = invocationOptions.driverKind || "model"
+  const inspection = invocationOptions.resolveTools === false
+    || (invocationOptions.phases?.length === 1 && invocationOptions.phases[0] === "prepare")
   const resolveCapabilityCli = invocationOptions.resolveCapabilityCli ?? driverKind !== "provider"
   ensureAgentInvokerContext(invocationContext, invoker)
   // SAFETY: Capability registration and resolution establish the asserted internal Capability contract.
@@ -1171,7 +1174,7 @@ export async function resolveAgentCapabilities<
       // Persistence is a side effect of an actual invocation. Metadata and
       // prepare-only resolutions must remain read-only even when the workspace
       // supports retained skills.
-      workspacePersistencePaths: invocationOptions.resolveTools === false ||
+      workspacePersistencePaths: inspection ||
         (invocationOptions.invocationKind !== "run" && invocationOptions.invocationKind !== "stream")
         ? [] : workspacePersistencePaths,
     }, workspaceMode, workspace || currentWorkspace, invocationOptions.workspaceDefinition)
@@ -1359,6 +1362,9 @@ export async function resolveAgentCapabilities<
         },
         workspace: currentWorkspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+      if (inspection) {
+        markCapabilityInspection(capabilityContext)
+      }
       capabilityContexts.push({ capability, context: capabilityContext })
       if (capability.telemetry) {
         registries.telemetry.push({ capabilityId: capability.id, registration: capability.telemetry })

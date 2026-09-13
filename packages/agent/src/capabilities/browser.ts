@@ -1,4 +1,5 @@
 import { supportsSkillPersistence } from "../internal/skill-persistence.ts"
+import { isCapabilityInspection } from "../internal/capability-inspection.ts"
 import { defineCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "../capability-runtime.ts"
 import { toAgentRunResult } from "../agent-output.ts"
 import { readAgentWorkspaceDiff } from "../agent-workspace-runtime.ts"
@@ -148,9 +149,9 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
     async prepare(context) {
       if (context.driver?.kind !== "provider") throw agentDiagnostics.AGENT_R0026({ message: "[vitehub] browser() requires a Provider Agent Driver." })
-      // Metadata inspection invokes prepare hooks without an invocation; avoid
-      // provisioning the managed browser during that read-only path.
-      if (!context.invocation) return
+      // Inspection also receives a synthetic invocation, so use the resolver's
+      // trusted phase marker before allocating browser resources.
+      if (!context.invocation || isCapabilityInspection(context)) return
       if (runtimeMode !== "managed") {
         provideBrowserRuntimeEnvironment(context.context, Object.freeze({ VITEHUB_BROWSER_ACTIVE: "1" }))
         return

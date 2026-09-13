@@ -922,6 +922,7 @@ describe("agent capability runtime", () => {
       capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUse bash.\n" })],
     }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider",
+      invocationKind: "run",
       workspaceDefinition: {
         name: workspaceName,
         sources: {},
@@ -949,6 +950,7 @@ describe("agent capability runtime", () => {
       capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
     }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider",
+      invocationKind: "run",
       workspaceDefinition: { name: workspaceName, sources: {} },
     })
     await expect(workspace.fs.readFile(skillPath)).resolves.toBe(browserSkillContent("# Browser\nUpdated guidance.\n", skillPath))
@@ -959,6 +961,7 @@ describe("agent capability runtime", () => {
       capabilities: [browser({ skillPath, runtime: "external", skillContent: "# Browser\nUpdated guidance.\n" })],
     }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider",
+      invocationKind: "run",
       workspaceDefinition: { name: workspaceName, sources: {} },
     })).rejects.toThrow("conflicts with an existing Workspace path")
     await expect(workspace.fs.readFile(skillPath)).resolves.toBe("# Custom browser skill\n")
@@ -980,6 +983,7 @@ describe("agent capability runtime", () => {
         capabilities: [browser({ runtime: "external", skillContent }), gmail()],
       }, runtime(), {}, workspace as never, "write", {
         driverKind: "provider",
+        invocationKind: "run",
         workspaceDefinition: { name: workspaceName, sources: {} },
       })
       await expect(resolved.workspace!.fs.readFile(skillPath)).resolves.toBe(browserSkillContent(skillContent, skillPath, false))
@@ -1012,6 +1016,7 @@ describe("agent capability runtime", () => {
         capabilities: [browser({ runtime: "external", skillContent: "# Generated browser skill\n" })],
       }, runtime(), {}, workspace as never, "write", {
         driverKind: "provider",
+        invocationKind: "run",
         workspaceDefinition: { name: workspaceName, sources: {} },
       })).rejects.toThrow("changed before the conditional write")
       await expect(workspace.fs.readFile(".agents/skills/agent-browser/SKILL.md")).resolves.toBe("# Concurrent developer edit\n")
@@ -1019,6 +1024,35 @@ describe("agent capability runtime", () => {
     finally {
       spy.mockRestore()
       await rm(workspaceRoot, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { phases: ["prepare" as const], resolveTools: false },
+    { phases: ["prepare" as const], invocationKind: "run" as const },
+  ])("keeps managed browser inspection read-only: %j", async (inspectionOptions) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { browser } = await import("../src/capabilities.ts")
+    const browserRuntime = await import("../src/internal/browser-runtime.ts")
+    const prepare = vi.spyOn(browserRuntime, "prepareBrowserRuntime").mockRejectedValue(new Error("inspection provisioned a browser"))
+    const workspaceName = `inspection-browser-${crypto.randomUUID()}`
+    registerWorkspace(workspaceName, defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace(workspaceName, { mode: "write" })
+    const write = vi.spyOn(workspace.fs, "writeFile")
+    try {
+      const resolved = await resolveAgentCapabilities({ capabilities: [browser()] }, runtime(), {}, workspace as never, "write", {
+        ...inspectionOptions,
+        driverKind: "provider",
+        workspaceDefinition: { name: workspaceName, sources: {} },
+      })
+      expect(prepare).not.toHaveBeenCalled()
+      expect(write).not.toHaveBeenCalled()
+      await expect(workspace.fs.exists(".agents/skills/agent-browser/SKILL.md")).resolves.toBe(false)
+      await resolved.close()
+    }
+    finally {
+      prepare.mockRestore()
+      write.mockRestore()
     }
   })
 
