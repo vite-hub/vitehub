@@ -452,6 +452,23 @@ The plugin starts it and closes it with Nitro, and serves drain status at
 `/api/drain`, configurable with `drainRoute`. SIGUSR2 starts a drain.
 Use the runtime drain CLI before replacing the process.
 
+`@vite-hub/agent/server/github-inbox` provides a SQLite PR inbox for Node hosts.
+Construct `PullRequestInbox({ path, repositories, filter })`, seed discovered PRs,
+and ingest verified webhook deliveries with `ingest(deliveryId, event, payload)`.
+`filter` uses `GitHubPullRequestFilter` from the GitHub Channel. PR properties apply
+to discovery and claims. Actor and action rules gate new webhook admissions only;
+existing PRs still receive lifecycle evidence that can cancel their active work.
+
+`claim(limit)` grants exclusive two-hour leases. `hydrateSnapshot()` fills gaps
+through a caller-supplied paginated REST reader and optional thread reader.
+`finish()` parks completed work or schedules a retry; feedback and terminal CI
+results wake it. Pending CI updates persist without starting another pass.
+`recoverLeases()` releases expired leases only, including after a process restart.
+`createClaimStopCheck()` checks lease, PR state, and head changes, and accepts a
+repair push only when the provider Git HEAD proves the new head. Call `close()`
+when the host stops. `snapshotPrompt()` serializes the retained feedback with
+explicit thread resolution and current-head checks; it does not truncate bodies.
+
 `createGitHubPullRequests(host)` from `@vite-hub/agent/server/github` reads PR
 snapshots with paginated feedback, required checks, and host budget admission.
 An explicit `activityAuthors` list excludes only those authors' managed activity

@@ -1,3 +1,5 @@
+import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
+export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { defineCapability } from "./capability-runtime.ts"
@@ -2620,14 +2622,6 @@ function githubPullRequestFilterContext(payload: GitHubIssueCommentPayload): Git
   return { repository, actor, author: user && maybeString(user.login), authorAssociation: pr ? maybeString(pr.author_association) : issue && maybeString(issue.author_association), labels, draft: draft === true || draft === false ? draft : undefined, fork, base, head, title: pr ? maybeString(pr.title) : issue && maybeString(issue.title), action: maybeString(payload.action) }
 }
 
-function githubPullRequestFilterRule(value: string | boolean | undefined, rule: GitHubPullRequestFilterRules | undefined): boolean {
-  if (!rule) return true
-  if (value === undefined) return false
-  const text = String(value)
-  if (rule.deny?.some(item => item === text)) return false
-  return !rule.allow || rule.allow.length === 0 || rule.allow.some(item => item === text)
-}
-
 async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntimeConfig>(
   options: GitHubPullRequestCommentEventOptions<TRuntimeConfig>,
   payload: GitHubIssueCommentPayload,
@@ -2637,16 +2631,7 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
   const filter = options.filter
   if (!filter && !options.when) return true
   const value = githubPullRequestFilterContext(payload)
-  const checks: [string | boolean | undefined, GitHubPullRequestFilterRules | undefined][] = [
-    [value.repository, filter?.repository], [value.author, filter?.author], [value.actor, filter?.actor], [value.authorAssociation, filter?.authorAssociation],
-    [value.title, filter?.title], [value.action, filter?.action],
-  ]
-  if (checks.some(([v, rule]) => !githubPullRequestFilterRule(v, rule))) return false
-  if (filter?.labels) {
-    const labels = value.labels || []
-    if (filter.labels.deny?.some(label => labels.includes(label))) return false
-    if (filter.labels.allow && !filter.labels.allow.some(label => labels.includes(label))) return false
-  }
+  if (!matchesGitHubPullRequestFilter(value, { ...filter, base: undefined, head: undefined, draft: undefined, fork: undefined })) return false
   // Comment webhooks only include a PR link. Fetch PR-only fields when needed.
   if (!isRecord(payload.pull_request) && payload.issue?.pull_request
     && (filter?.base || filter?.head || filter?.draft || filter?.fork || options.when)) {
@@ -2675,10 +2660,7 @@ async function githubPullRequestMatchesFilter<TRuntimeConfig extends AgentRuntim
       }
     }
   }
-  if (!githubPullRequestFilterRule(value.base, filter?.base)
-    || !githubPullRequestFilterRule(value.head, filter?.head)
-    || !githubPullRequestFilterRule(value.draft, filter?.draft)
-    || !githubPullRequestFilterRule(value.fork, filter?.fork)) return false
+  if (!matchesGitHubPullRequestFilter(value, filter)) return false
   return options.when ? await options.when(value) : true
 }
 

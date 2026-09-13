@@ -50,6 +50,7 @@ export default defineConfig({
       "src/presets/babysitter.ts",
       "src/presets/babysitter/server.ts",
       "src/server/github.ts",
+      "src/server/github-inbox.ts",
       "src/server/internal.ts",
       "src/server/workspace.ts",
       "src/test.ts",
