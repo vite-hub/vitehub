@@ -101,6 +101,10 @@
       "types": "./dist/output.d.ts",
       "import": "./dist/output.js"
     },
+    "./presets/workspace": {
+      "types": "./dist/presets/workspace.d.ts",
+      "import": "./dist/presets/workspace.js"
+    },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
@@ -144,10 +148,6 @@
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js"
-    },
-    "./presets/workspace": {
-      "types": "./dist/presets/workspace.d.ts",
-      "import": "./dist/presets/workspace.js"
     },
     "./package.json": "./package.json"
   },
