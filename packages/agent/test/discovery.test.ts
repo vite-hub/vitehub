@@ -1902,6 +1902,18 @@ describe("agent chat capability discovery", () => {
 
 
 it.each([
+  ['export default process.env.USE_WORKSPACE ? defineAgent({ workspace: {} }) : defineAgent({})', true],
+  ['export default process.env.USE_WORKSPACE ? defineAgent({}) : defineAgent({ workspace: {} })', true],
+  ['const notes = defineAgent({ workspace: {} }); const plain = defineAgent({}); const agent = enabled ? notes : plain; export default agent', true],
+  ['export default enabled ? (other ? defineAgent({}) : defineAgent({ workspace: {} })) : defineAgent({})', true],
+  ['const helper = defineAgent({ workspace: {} }); export default enabled ? defineAgent({}) : defineAgent({})', false],
+  ['export default enabled ? defineAgent({}) : defineAgent({}); const helper = defineAgent({ workspace: {} })', false],
+  ['export default defineAgent({ driver: enabled ? { workspace: {} } : {} })', false],
+  ['import { defineAgent as makeAgent } from "vite-hub/agent"; export default makeAgent({ workspace: {} })', true],
+  ['import { defineAgent as makeAgent } from "vite-hub/agent"; const notes = makeAgent({ workspace: {} }); export default makeAgent({ preset: "notes", presets: { notes } })', true],
+  ['import { defineAgent as makeAgent } from "vite-hub/agent"; export default makeAgent({})', false],
+  ['const notes = defineAgent({ workspace: {} }); export default defineAgent({ preset: "notes", presets: Object.freeze({ notes }) })', true],
+  ['const notes = defineAgent({}); export default defineAgent({ preset: "notes", presets: Object.freeze({ notes }) })', false],
   ['export default defineAgent<{ load: () => Promise<void> }>({ workspace: {} })', true],
   ['export default defineAgent<{ load: () => Promise<void> }>({})', false],
   ['export default <AgentDefinition>defineAgent({ workspace: {} })', true],

@@ -265,6 +265,26 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     index = resolveReference(index)
     if (seen.has(index)) return false
     seen.add(index)
+    // Either exported branch may be selected at runtime. Inspect only those
+    // values, without including other definitions elsewhere in the module.
+    let expressionDepth = 0
+    let conditionalDepth = 0
+    let consequent: number | undefined
+    for (let i = index; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (expressionDepth === 0) {
+        if ([";", ",", ":", "export", "const", "let", "var", ")", "}", "]"].includes(token) && conditionalDepth === 0) break
+        if (token === "?" && tokens[i + 1] !== "." && tokens[i + 1] !== "?" && tokens[i - 1] !== "?") {
+          if (conditionalDepth === 0) consequent = i + 1
+          conditionalDepth++
+        }
+        if (token === ":" && conditionalDepth > 0 && --conditionalDepth === 0 && consequent !== undefined) {
+          return ownsWorkspace(consequent, new Set(seen)) || ownsWorkspace(i + 1, new Set(seen))
+        }
+      }
+      if (["{", "(", "["].includes(token)) expressionDepth++
+      if (["}", ")", "]"].includes(token)) expressionDepth--
+    }
     if (tokens[index] !== "defineAgent" && !importedAgentBindings.has(tokens[index])) {
       if (!(tokens[index + 1] === "." && tokens[index + 2] === "defineAgent" && importedNamespaces.has(tokens[index]))) return false
       index += 2
