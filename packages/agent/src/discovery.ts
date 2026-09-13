@@ -161,7 +161,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           i += 2
           atProperty = false
         } else if (token === "[" && tokens[i + 2] === "]" && tokens[i + 3] === ":") {
-          const key = propertyName(tokens[i + 1])
+          const keyToken = tokens[i + 1]
+          const keyValue = resolveReference(i + 1)
+          const key = propertyName(tokens[keyValue] ?? keyToken)
           result.set(key, i + 4)
           i += 3
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
