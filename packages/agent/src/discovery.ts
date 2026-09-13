@@ -160,12 +160,25 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           for (const [key, value] of spread) result.set(key, value)
           i += 2
           atProperty = false
-        } else if (token === "[" && tokens[i + 2] === "]" && tokens[i + 3] === ":") {
-          const keyToken = tokens[i + 1]
-          const keyValue = resolveReference(i + 1)
-          const key = propertyName(tokens[keyValue] ?? keyToken)
-          result.set(key, i + 4)
-          i += 3
+        } else if (token === "[") {
+          // Computed keys may reference a statically-resolvable identifier.
+          // Locate the matching bracket rather than assuming a fixed token
+          // layout (parentheses and other expressions are valid here).
+          let close = i + 1
+          let bracketDepth = 1
+          while (close < tokens.length && bracketDepth > 0) {
+            if (tokens[close] === "[") bracketDepth++
+            else if (tokens[close] === "]") bracketDepth--
+            close++
+          }
+          if (bracketDepth === 0 && tokens[close] === ":") {
+            const keyToken = tokens[i + 1]
+            const keyValue = resolveReference(i + 1)
+            const key = propertyName(tokens[keyValue] ?? keyToken)
+            result.set(key, close + 1)
+            i = close
+            atProperty = false
+          }
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
         else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
         atProperty = false
