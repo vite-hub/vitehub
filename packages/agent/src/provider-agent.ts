@@ -1881,12 +1881,13 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       options.accumulator.inputTokens += inputTokens! - previousCall.usage.inputTokens!
       options.accumulator.outputTokens += outputTokens! - previousCall.usage.outputTokens!
     }
+    const partitionUsage = partitionTotal === undefined ? {} : { inputTokens, outputTokens, totalTokens: partitionTotal }
     options.accumulator.calls[options.accumulator.calls.length - 1] = {
       ...previousCall,
       raw: usage,
       usage: {
         ...previousCall.usage,
-        ...(partitionTotal === undefined ? {} : { inputTokens, outputTokens, totalTokens: partitionTotal }),
+        ...partitionUsage,
         details: {
           ...previousCall.usage.details,
           ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
@@ -1920,10 +1921,13 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const cachedInputTokensComplete = options.provider !== "codex" || options.accumulator.cachedInputTokensComplete
   const reasoningOutputTokens = options.provider === "codex" ? options.accumulator.reasoningOutputTokens : usage.reasoningOutputTokens
   const reasoningOutputTokensComplete = options.provider !== "codex" || options.accumulator.reasoningOutputTokensComplete
+  const usageRecordExtras = options.provider === "codex" && options.accumulator.calls.length
+    ? { calls: [...options.accumulator.calls] }
+    : {}
   return {
     type: "usage",
     usageRecord: {
-      ...(options.provider === "codex" && options.accumulator.calls.length ? { calls: [...options.accumulator.calls] } : {}),
+      ...usageRecordExtras,
       ...(options.model ? { model: options.model } : {}),
       provider: options.provider,
       ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
