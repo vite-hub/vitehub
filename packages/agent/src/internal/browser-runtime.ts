@@ -242,7 +242,9 @@ async function smokeChrome(executablePath: string, env: NodeJS.ProcessEnv, prefe
 async function provision(root: string, npmCommand = "npm", platform: NodeJS.Platform = process.platform, signal?: AbortSignal): Promise<PreparedBrowserRuntime> {
   await mkdir(dirname(root), { recursive: true, mode: 0o700 })
   root = join(await realpath(dirname(root)), basename(root))
-  await assertTrustedBrowserCache(root)
+  // Reserve the root before locking, but only traverse mutable contents while
+  // holding the lock so another process can finish publishing its repair.
+  await assertTrustedBrowserCache(root, { contents: false })
   let lockError: Error | undefined
   const assertLock = () => {
     if (lockError) throw lockError

@@ -37,10 +37,23 @@ it.each(["parent", "root", "cli"])("rejects a writable %s before trusting the ca
   await expect(assertTrustedBrowserCache(root)).rejects.toThrow("trusted ownership and permissions")
 })
 
+it("defers mutable content validation until after root reservation", async () => {
+  const { root } = await fixture()
+  // A lock owner can temporarily leave a broken link while replacing files.
+  await symlink("not-yet-published", join(root, "command"))
+  await expect(assertTrustedBrowserCache(root, { contents: false })).resolves.toBeUndefined()
+  await expect(assertTrustedBrowserCache(root)).rejects.toMatchObject({ code: "ENOENT" })
+  await writeFile(join(root, "not-yet-published"), "executable", { mode: 0o700 })
+  await expect(assertTrustedBrowserCache(root)).resolves.toBeUndefined()
+  await chmod(root, 0o777)
+  await expect(assertTrustedBrowserCache(root, { contents: false })).rejects.toThrow("trusted ownership and permissions")
+})
+
 it("rejects cache roots and command links pointing outside the cache", async () => {
   const { parent, root } = await fixture()
   const alias = join(parent, "alias")
   await symlink(root, alias)
+  await expect(assertTrustedBrowserCache(alias, { contents: false })).rejects.toThrow("trusted ownership and permissions")
   await expect(assertTrustedBrowserCache(alias)).rejects.toThrow("trusted ownership and permissions")
   await writeFile(join(parent, "untrusted"), "executable")
   await symlink("../untrusted", join(root, "command"))

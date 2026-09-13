@@ -2,7 +2,7 @@ import { lstat, mkdir, readdir, realpath } from "node:fs/promises"
 import { dirname, isAbsolute, join, relative } from "node:path"
 
 /** Refuse caches another OS user can replace before running their executables. */
-export async function assertTrustedBrowserCache(root: string): Promise<void> {
+export async function assertTrustedBrowserCache(root: string, options: { contents?: boolean } = {}): Promise<void> {
   const uid = process.getuid?.()
   if (uid === undefined) throw new Error("[vitehub] Managed browser cache ownership cannot be verified on this host.")
   const reject = (path: string): never => {
@@ -25,7 +25,7 @@ export async function assertTrustedBrowserCache(root: string): Promise<void> {
       return
     }
     if ((info.mode & 0o022) !== 0 || (!info.isFile() && !info.isDirectory())) reject(path)
-    if (info.isDirectory()) {
+    if (info.isDirectory() && options.contents !== false) {
       for (const entry of await readdir(path)) await visit(join(path, entry))
     }
   }

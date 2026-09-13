@@ -43,6 +43,22 @@ afterEach(async () => {
 })
 
 describe("browser runtime", () => {
+  it("waits for the cache lock before inspecting files being replaced", async () => {
+    const value = await fixture()
+    await mkdir(value.cache, { mode: 0o700 })
+    const pendingLink = join(value.cache, "pending-command")
+    await symlink("not-yet-published", pendingLink)
+    const original = await vi.importActual<typeof import("proper-lockfile")>("proper-lockfile")
+    vi.mocked(lock).mockImplementationOnce(async (path, options) => {
+      // Model the current owner completing publication before handing off.
+      await unlink(pendingLink)
+      return original.lock(path, options)
+    })
+    const prepared = await prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })
+    expect(lock).toHaveBeenCalledTimes(1)
+    await closeBrowserRuntimeSession({ ...prepared.environment, AGENT_BROWSER_SESSION: "lock-handoff" })
+  })
+
   it("does not accept input context as a managed browser environment", () => {
     const context = createAgentInvocationContextStore({
       "vitehub.browser.runtime.environment": { NODE_OPTIONS: "--require=untrusted.cjs", PATH: "/untrusted/bin" },
