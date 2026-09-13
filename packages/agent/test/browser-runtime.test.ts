@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { isAbsolute, join, relative } from "node:path"
 import { execFile } from "node:child_process"
@@ -7,6 +7,11 @@ import { lock } from "proper-lockfile"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { closeBrowserRuntimeSession, browserRuntimeEnvironment, prepareBrowserRuntime, provideBrowserRuntimeEnvironment, resetBrowserRuntimePreparationForTest } from "../src/internal/browser-runtime.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>()
+  return { ...original, realpath: vi.fn(original.realpath) }
+})
 
 vi.mock("proper-lockfile", async (importOriginal) => {
   const original = await importOriginal<typeof import("proper-lockfile")>()
@@ -43,6 +48,26 @@ afterEach(async () => {
 })
 
 describe("browser runtime", () => {
+  it("does not allocate sockets when temporary-parent canonicalization fails", async () => {
+    const value = await fixture()
+    const temp = join(value.root, "temp")
+    await mkdir(temp, { mode: 0o700 })
+    vi.stubEnv("TMPDIR", temp)
+    const original = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    vi.mocked(realpath).mockImplementation(async (path, options) => {
+      if (path === temp) throw new Error("canonicalization failed")
+      return original.realpath(path, options)
+    })
+    try {
+      await expect(prepareBrowserRuntime({ cacheRoot: value.cache, npmCommand: value.npm, platform: "darwin" })).rejects.toThrow("canonicalization failed")
+      expect(await readdir(temp)).toEqual([])
+      await expect(readFile(value.count)).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      vi.mocked(realpath).mockImplementation(original.realpath)
+    }
+  })
+
   it("waits for the cache lock before inspecting files being replaced", async () => {
     const value = await fixture()
     await mkdir(value.cache, { mode: 0o700 })

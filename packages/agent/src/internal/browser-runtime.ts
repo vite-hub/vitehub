@@ -338,32 +338,26 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   const binRoot = join(packageRoot, "node_modules", ".bin")
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
   const browserVersion = platform === "linux" ? chromiumBundleVersion : chromeForTestingVersion
-  const socketRootPath = await mkdtemp(join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}-`), { encoding: "utf8" })
-  const socketAllocation = await lstat(socketRootPath)
-  // Validate the canonical path so symlinked system ancestors (such as
-  // macOS's /var -> /private/var) are inspected as their real directories.
-  let socketRoot = socketRootPath
-  try {
-    // Canonicalization is part of the post-allocation failure boundary; retain
-    // the original mkdtemp path so a realpath failure can still be cleaned up.
-    socketRoot = await realpath(socketRootPath)
-    await chmod(socketRoot, 0o700)
-    // Every ancestor must be owned by the current user and not writable by
-    // group/others; otherwise an attacker could replace the validated socket
-    // directory between this check and use.
-    let ancestor = resolve(socketRoot)
-    while (true) {
-      const ancestorStat = await lstat(ancestor)
-      const mode = ancestorStat.mode & 0o7777
-      const isTrustedSystem = ancestorStat.uid === 0 && (((mode & 0o022) === 0) || (mode & 0o1000) !== 0)
-      const isPrivateUser = ancestorStat.uid === process.getuid?.() && (mode & 0o022) === 0
-      if (!ancestorStat.isDirectory() || (!isTrustedSystem && !isPrivateUser)) {
-        throw new Error("[vitehub] Browser socket directory ancestors must be private directory paths or trusted system directories.")
-      }
-      const parent = dirname(ancestor)
-      if (parent === ancestor) break
-      ancestor = parent
+  // Resolve and validate the parent before allocation. A canonicalization
+  // failure then has no socket directory to reclaim, and cleanup never uses
+  // a lexical path through a mutable symlinked ancestor.
+  const socketParent = await realpath(tmpdir())
+  let ancestor = socketParent
+  while (true) {
+    const ancestorStat = await lstat(ancestor)
+    const mode = ancestorStat.mode & 0o7777
+    const isTrustedSystem = ancestorStat.uid === 0 && (((mode & 0o022) === 0) || (mode & 0o1000) !== 0)
+    const isPrivateUser = ancestorStat.uid === process.getuid?.() && (mode & 0o022) === 0
+    if (!ancestorStat.isDirectory() || (!isTrustedSystem && !isPrivateUser)) {
+      throw new Error("[vitehub] Browser socket directory ancestors must be private directory paths or trusted system directories.")
     }
+    const parent = dirname(ancestor)
+    if (parent === ancestor) break
+    ancestor = parent
+  }
+  const socketRoot = await mkdtemp(join(socketParent, `vh-ab-${process.getuid?.() ?? process.pid}-`), { encoding: "utf8" })
+  try {
+    await chmod(socketRoot, 0o700)
     const socketStat = await lstat(socketRoot)
     if (!socketStat.isDirectory() || socketStat.uid !== process.getuid?.() || (socketStat.mode & 0o077) !== 0) {
       throw new Error("[vitehub] Browser socket directory must be a private directory owned by the current user.")
@@ -470,19 +464,6 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
     }
   }
   catch (error) {
-    // If canonicalization failed, the lexical path may traverse a mutable
-    // symlinked ancestor.  Do not recursively remove it: that could redirect
-    // cleanup to an unrelated directory.  Leave the private allocation for
-    // owner-scoped temporary-directory cleanup instead.
-    if (socketRoot === socketRootPath) {
-      // Only remove the allocation when the leaf still names the inode we
-      // created.  If an ancestor or the leaf was replaced, leave it untouched.
-      const current = await lstat(socketRootPath).catch(() => undefined)
-      if (current && current.dev === socketAllocation.dev && current.ino === socketAllocation.ino && current.uid === socketAllocation.uid && current.isDirectory()) {
-        await rm(socketRootPath, { force: true, recursive: false }).catch(() => undefined)
-      }
-      throw error
-    }
     try {
       await rm(socketRoot, { force: true, recursive: true })
     }
