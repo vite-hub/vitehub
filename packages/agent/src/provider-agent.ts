@@ -1868,7 +1868,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     else options.accumulator.calls.push(snapshot)
     options.accumulator.lastCallIdentity = undefined
   }
-  if (unmatchedIdentityFree) options.accumulator.identityAmbiguous = true
+  if (unmatchedIdentityFree || (options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && options.accumulator.lastResponseIdentity !== undefined)) options.accumulator.identityAmbiguous = true
   // An itemless measured partition cannot be attributed to a prior identified
   // response (even when that response already has a measured call). Keep the
   // aggregate unknown rather than pricing evidence from an unrelated response.
