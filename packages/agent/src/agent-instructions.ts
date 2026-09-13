@@ -8,8 +8,8 @@ async function resolveContent<TRuntimeConfig extends AgentRuntimeConfig, Name ex
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
   preserveWhitespace = false,
 ): Promise<string> {
-  const parts = Array.isArray(input) ? input : [input]
-  const resolved = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
+  const inputParts = Array.isArray(input) ? input : [input]
+  const resolved = await Promise.all(inputParts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
   const parts = resolved.flatMap(part => Array.isArray(part) ? part : [part]).filter((part): part is string => hasRuntimeType(part, "string"))
   return preserveWhitespace ? parts.join("\n\n") : parts.map(part => part.trim()).filter(Boolean).join("\n\n")
 }
