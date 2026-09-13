@@ -111,7 +111,7 @@ async function withWorkspacePathLock<T>(root: string, path: string, operation: (
     if (index === paths.length) return await operation()
     const lockedPath = paths[index]!
     const key = createHash("sha256").update(lockedPath).digest("hex")
-    const lockPath = `${root}.vitehub-locks/${key}`
+    const lockPath = `${root}/.vitehub/locks/${key}`
     const next = () => lock(index + 1)
     return index === paths.length - 1
       ? await withFilesystemWriteLock(lockPath, `path: ${lockedPath}.`, next)
@@ -139,7 +139,8 @@ async function walk(
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
-    if (path === ".vitehub" || path.startsWith(".vitehub/")) continue
+    const first = path.split("/")[0]
+    if (first?.toLowerCase() === ".vitehub") continue
     if (isExcludedWorkspacePath(path, excluded)) continue
     const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -188,6 +189,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
+    return await withWorkspacePathLock(this.root, path, () => this.#readFile(path))
+  }
+
+  async #readFile(path: string): Promise<WorkspaceFile | undefined> {
     const { readFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const bytes = await readFile(absolute).catch((error: NodeJS.ErrnoException) => {
