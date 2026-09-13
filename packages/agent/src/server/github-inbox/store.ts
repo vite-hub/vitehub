@@ -36,8 +36,10 @@ function parseSnapshot(value: unknown): Snapshot {
   if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
   // SAFETY: JSON.parse returns an object here; validation below checks every owned field.
   const input = value as Record<string, unknown>
+  // SAFETY: Number.isInteger above guarantees this unknown value is a finite integer for the range check.
+  const number = input.number as number
   const required = ['repository', 'number', 'generation', 'handled', 'dirtyAt', 'nextAt', 'status', 'lease', 'leaseUntil', 'attempts', 'hydrated', 'refresh', 'feedbackRefresh', 'comments', 'reviews', 'reviewComments', 'checks', 'statuses', 'threads', 'reasons']
-  if (Object.prototype.toString.call(input.repository) !== '[object String]' || !Number.isInteger(input.number) || (input.number as number) < 1 ||
+  if (Object.prototype.toString.call(input.repository) !== '[object String]' || !Number.isInteger(input.number) || number < 1 ||
     required.some(key => !(key in input)) || !['ready', 'working', 'waiting', 'terminal'].includes(String(input.status)) ||
     (input.lease !== null && Object.prototype.toString.call(input.lease) !== '[object String]') ||
     ![input.generation, input.handled, input.dirtyAt, input.nextAt, input.leaseUntil, input.attempts].every(n => Number.isFinite(n)) ||
