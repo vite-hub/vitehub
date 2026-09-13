@@ -68,13 +68,16 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     replacingMetadata = true
     await rm(join(destination, '.git'), { recursive: true, force: true })
     await cp(join(source, '.git'), join(destination, '.git'), { recursive: true })
+    // Host init templates may install executable hooks; never expose or run them
+    // in the provider workspace, and ignore any configured hooks directory.
+    await rm(join(destination, '.git', 'hooks'), { recursive: true, force: true })
     if (baselineTree) {
       await cp(baselineObjectsBackup, join(destination, '.git', 'objects'), { recursive: true })
       await git(destination, ['read-tree', baselineTree])
     }
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
-    const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type)?|sslcert(?:type|passwordprotected)?)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
+    const sensitive = (key: string) => /^credential\.|^include(?:if)?(?:[.:].*)?\.path$|^core\.(?:askpass|sshcommand|hookspath)$|^sendemail\.(?:.*\.)?smtppass$|^imap\.pass$|^http\..*extraheader$|^http\.extraheader$|^http\.(?:.*\.)?(?:proxy|cookiefile|sslkey(?:type|passwordprotected)?|sslcert(?:type|passwordprotected)?|proxysslkey|proxysslcert|proxysslcertpasswordprotected)$/i.test(key) || /^remote\..*\.proxy$/i.test(key)
     const sanitize = async (scope: '--local' | '--worktree') => {
       let config = ''
       try {
