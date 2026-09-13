@@ -41,7 +41,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   if (definitionMaps.has(path)) return { ...parent, ...child }
   // A different driver, store provider or runtime is a complete replacement.
   for (const discriminator of ["kind", "provider"]) {
-    if (child[discriminator] !== undefined && child[discriminator] !== parent[discriminator]) return { ...child }
+    if (child[discriminator] !== undefined && child[discriminator] !== parent[discriminator]) return { ...parent, ...child }
   }
   const merged = { ...parent }
   for (const [key, value] of Object.entries(child)) {

@@ -2157,6 +2157,11 @@ async function* runProvider<
       })
     }
     let instructions = await waitForProviderOperation(resolveInstructions(options, context, sourceProvenance), effectiveSignal)
+    if (instructions && options.provider === "claude-code") {
+      const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
+        ?? await readFile(join(root, "AGENTS.md"), "utf8").catch(() => undefined)
+      if (nativeInstructions) instructions = `${nativeInstructions.trim()}\n\n${instructions}`
+    }
     let materializeInstructions = Boolean(instructions)
     if (!instructions && options.provider === "claude-code") {
       const nativeInstructions = await readFile(join(root, "CLAUDE.md"), "utf8").catch(() => undefined)
