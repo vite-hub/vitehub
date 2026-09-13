@@ -2667,10 +2667,10 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
-  it("completes an itemless raw snapshot at the same cumulative total", async () => {
+  it.each([{}, { totalProcessedTokens: 47 }])("completes an itemless raw snapshot: %j", async (rawUsage) => {
     const threadId = "thread-itemless-raw-completion"
     runtime(threadId, [
-      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 47 } }),
+      event("thread.token-usage.updated", threadId, { usage: rawUsage }),
       event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
@@ -3312,8 +3312,12 @@ cli_auth_credentials_store = "keyring"
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: false }))
     expect(provider.close).not.toHaveBeenCalled()
     if (timesOut) {
-      expect(JSON.stringify(await result)).not.toContain("pending direction")
-      release()
+      try {
+        await expect(result).rejects.toThrow("[vitehub] Provider Agent steering did not settle before cleanup timed out.")
+      }
+      finally {
+        release()
+      }
       await expect(steering).resolves.toBe("unavailable")
     }
     else {

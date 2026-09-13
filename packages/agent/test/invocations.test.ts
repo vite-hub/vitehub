@@ -59,6 +59,23 @@ describe("Agent Invocations", () => {
     expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
   })
 
+  it("retains canonical totals and cost when arbitrary usage details exceed the byte budget", () => {
+    const usage = { inputTokens: 5, outputTokens: 2, totalTokens: 7 }
+    const result = byteBoundedObservations([{
+      name: "agent.invocation.finish", type: "run", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z",
+      attributes: { "usage.record": {
+        usage: { ...usage, details: { text: "x".repeat(10_000) }, inputTokenDetails: { ["x".repeat(1_000)]: 5 } },
+        cost: { usd: "0.01", estimated: true, display: "x".repeat(1_000), source: "custom" },
+        response: { id: "x".repeat(1_000) },
+      } },
+    }], observationLimits({ maxBytes: 512 }))
+    expect(result.truncated).toBe(true)
+    expect(result.observations).toHaveLength(1)
+    expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage, cost: { usd: "0.01", estimated: true } })
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
+  })
+
   it.each(["https://example.com", "postgres://alice:hunter2@db.example"])("retains safe URI evidence across intervening events: %s", async (uri) => {
     const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("uri-event-boundary"))

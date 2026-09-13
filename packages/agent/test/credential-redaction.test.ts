@@ -653,3 +653,7 @@ it.each(['`printf hunter2`', '`printf "hunter2"`', '`printf hunter2`tail', '`pri
     expect(suffix.slice(consumeCredentialAssignment(suffix, state))).toBe(";status=ok")
   }
 })
+
+it("redacts immediate credential assignments", () => {
+  expect(redactCredentialText("PASSWORD := hunter2;status=ok")).toBe("PASSWORD := [REDACTED];status=ok")
+})

@@ -1193,6 +1193,23 @@ export type AgentAdapterInstructions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > =
+  | AgentInstructionsContent<TRuntimeConfig, Name>
+  | {
+    /** Markdown with exactly one {{{ instructions }}} slot outside code. */
+    template: AgentInstructionsContent<TRuntimeConfig, Name>
+    /** Default slot content. Extending instructions replaces this content. */
+    content?: AgentInstructionsContent<TRuntimeConfig, Name>
+  }
+  | {
+    /** Discard an inherited template and use this document. */
+    mode: "replace"
+    value: AgentInstructionsContent<TRuntimeConfig, Name>
+  }
+
+export type AgentInstructionsContent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
   | AgentAdapterInstructionsPart<TRuntimeConfig, Name>
   | Array<AgentAdapterInstructionsPart<TRuntimeConfig, Name>>
 

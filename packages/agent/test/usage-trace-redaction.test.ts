@@ -57,7 +57,7 @@ it("redacts terminal usage metadata without changing provider evidence", async (
     usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
     raw,
   }
-  const usage = { ...call, calls: [call, { model: "gpt-6-astra", provider: "codex", cost: { source: "models.dev" } }] }
+  const usage = { ...call, calls: [{ ...call, calls: [call] }, { model: "gpt-6-astra", provider: "codex", cost: { source: "models.dev" } }] }
   const original = structuredClone(usage)
 
   await traceAgentInvocationFinish(context, { "usage.record": usage })
@@ -71,7 +71,7 @@ it("redacts terminal usage metadata without changing provider evidence", async (
   expect(emitTraceEvent).toHaveBeenLastCalledWith(context.runtime, expect.objectContaining({
     name: "agent.invocation.finish",
     attributes: expect.objectContaining({
-      "usage.record": { ...safeCall, calls: [safeCall, usage.calls[1]] },
+      "usage.record": { ...safeCall, calls: [{ ...safeCall, calls: [safeCall] }, usage.calls[1]] },
     }),
   }))
   expect(usage).toEqual(original)

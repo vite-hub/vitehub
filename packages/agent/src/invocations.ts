@@ -1041,6 +1041,24 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
         candidate = { ...candidate, attributes: { ...candidate.attributes, "usage.record": summary } }
         size = encoder.encode(JSON.stringify(candidate)).byteLength
         if (bytes + size + (retained.length ? 1 : 0) > maxBytes) {
+          // Arbitrary details and response metadata must not displace measured totals.
+          const usage = summary.usage
+          const cost = summary.cost
+          const scalarUsage = isRuntimeRecord(usage)
+            ? Object.fromEntries(["inputTokens", "outputTokens", "totalTokens"].flatMap(key =>
+                hasRuntimeType(usage[key], "number") ? [[key, usage[key]]] : []))
+            : undefined
+          const scalarCost = isRuntimeRecord(cost)
+            ? Object.fromEntries(["usd", "estimated"].flatMap(key =>
+                hasRuntimeType(cost[key], "string") || hasRuntimeType(cost[key], "boolean") ? [[key, cost[key]]] : []))
+            : undefined
+          candidate = { ...candidate, attributes: { ...candidate.attributes, "usage.record": {
+            ...(scalarUsage ? { usage: scalarUsage } : {}),
+            ...(scalarCost ? { cost: scalarCost } : {}),
+          } } }
+          size = encoder.encode(JSON.stringify(candidate)).byteLength
+        }
+        if (bytes + size + (retained.length ? 1 : 0) > maxBytes) {
           const { "usage.record": _usage, ...attributes } = candidate.attributes!
           candidate = { ...candidate, attributes }
           size = encoder.encode(JSON.stringify(candidate)).byteLength

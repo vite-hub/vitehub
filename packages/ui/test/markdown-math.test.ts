@@ -23,8 +23,10 @@ describe("AgentMarkdown math", () => {
       setup() {
         return () => h(Suspense, null, { default: () => h(AgentMarkdown, {
           value: "Plugin registration $x^2$",
-          plugins: [{ name: "top-level-test", markdownItPlugins: [topLevelPlugin] }],
-          options: { plugins: [{ name: "option-test", markdownItPlugins: [optionPlugin] }] },
+          plugins: [
+            { name: "top-level-test", markdownItPlugins: [topLevelPlugin] },
+            { name: "option-test", markdownItPlugins: [optionPlugin] },
+          ],
         }) });
       },
     }));
