@@ -1856,12 +1856,11 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     options.accumulator.lastCallIdentity = undefined
   }
   if (unmatchedIdentityFree) options.accumulator.identityAmbiguous = true
-  // An itemless measured snapshot cannot be correlated with an existing identified
-  // call; retain aggregate ambiguity rather than pricing unmatched evidence.
-  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined) {
-    // Itemless measured snapshots cannot be correlated to a response boundary.
-    // Keep aggregate usage unknown whenever any such evidence is present, including
-    // alongside an identified raw-only call that remains unresolved.
+  // Itemless measured snapshots are ambiguous only when they cannot complete or
+  // enrich a known response. Valid same-response corrections and enrichments must
+  // remain measurable.
+  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+    && options.accumulator.calls.some(call => call.usage === undefined && call !== options.accumulator.calls.at(-1))) {
     options.accumulator.identityAmbiguous = true
   }
   const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
