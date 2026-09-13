@@ -1192,6 +1192,32 @@ describe("lazy sources", () => {
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
   })
 
+  it.each(["directory", "ancestor"])("preserves a local %s replacement when retiring a startup Source", async (replacement) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const initial = {
+      name: "retired-startup-replacement",
+      sources: { old: custom({ materialize: "startup", mount: "", files: [
+        { path: "old/child.md", content: "generated" },
+        { path: "unchanged.md", content: "generated" },
+      ] }) },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    const replaced = replacement === "directory" ? "old/child.md" : "old"
+    await rm(join(root, replaced), { recursive: true })
+    if (replacement === "directory") {
+      await mkdir(join(root, replaced))
+      await writeFile(join(root, replaced, "user.md"), "user content")
+    }
+    else await writeFile(join(root, replaced), "user content")
+
+    await createWorkspaceSourceView({ name: initial.name, sources: {} }, store).materializeSources()
+
+    await expect(readFile(join(root, replacement === "directory" ? `${replaced}/user.md` : replaced), "utf8")).resolves.toBe("user content")
+    await expect(store.stat("unchanged.md")).resolves.toBeUndefined()
+    await expect(store.getMeta?.(`workspace:${initial.name}:startup-sources`)).resolves.toEqual([])
+  })
+
   it.each(["", "docs"].flatMap(mount => [false, true].map(restart => ({ mount, restart }))))("preserves pre-existing child directories at mount $mount with restart $restart", async ({ mount, restart }) => {
     const root = await createRoot()
     const store = restart ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()

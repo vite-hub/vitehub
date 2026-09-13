@@ -453,7 +453,12 @@ async function reconcileRemovedStartupSourcesInternal(
     if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
     const removedOwnedPaths: string[] = []
     for (const path of previousPaths) {
-      const file = await store.readFile(path)
+      const file = await store.readFile(path).catch((error: unknown) => {
+        // Replaced files and ancestors no longer provide ownership evidence.
+        if (error && hasRuntimeType(error, "object") && "code" in error
+          && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR")) return undefined
+        throw error
+      })
       if (!file) continue
       const owner = file.metadata?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
