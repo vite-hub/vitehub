@@ -274,9 +274,14 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
     return
   }
   if (generated.copiedBridgeSource !== undefined) {
+    // Reconcile conservatively: never remove or overwrite the original Skill
+    // before the replacement is safely staged. If several provider bridges
+    // exist, preserve the original as the explicit conflict policy.
     if ((await lstat(generated.path).catch(() => undefined))?.isDirectory()) {
-      await rm(generated.copiedBridgeSource, { recursive: true, force: true })
-      await cp(generated.path, generated.copiedBridgeSource, { recursive: true })
+      const sourceEntry = await lstat(generated.copiedBridgeSource).catch(() => undefined)
+      if (!sourceEntry) {
+        await cp(generated.path, generated.copiedBridgeSource, { recursive: true })
+      }
     }
     await rm(generated.path, { recursive: true, force: true })
     for (const directory of generated.directories.reverse()) await rmdir(directory).catch(() => undefined)
