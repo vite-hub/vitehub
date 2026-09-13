@@ -65,6 +65,16 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       if (descendants.length > 0 && descendants.every(child => child.type === "directory"
         ? generatedDirectories.has(child.path)
         : generatedFiles.has(child.path))) continue
+      if (descendants.length === 0) {
+        try {
+          const directory = await store.stat(entry.path)
+          if (directory?.type === "directory" && directory.metadata?.source === source.key) continue
+        }
+        catch (error) {
+          if (error && hasRuntimeType(error, "object") && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) continue
+          throw error
+        }
+      }
     }
     entries.push(entry)
   }
