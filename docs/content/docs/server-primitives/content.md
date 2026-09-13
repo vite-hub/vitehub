@@ -10,7 +10,7 @@ ViteHub exposes Comark Content through a small H3 adapter. Content definitions u
 import { defineContent } from "vite-hub/content"
 import fs from "comark-content/sources/fs"
 
-export default defineContent({
+export const content = defineContent({
   sources: {
     docs: fs("./docs"),
     blog: fs("./blog"),
