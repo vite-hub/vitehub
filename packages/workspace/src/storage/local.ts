@@ -4,6 +4,7 @@ import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
+import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { workspaceStoreTarget } from "./target.ts"
 import { fileAttributesUnavailable, markFileAttributesUnavailable } from "../internal/file-attributes.ts"
@@ -337,13 +338,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
     })
   }
 
-  #recordFileAttributes(path: string, file: WorkspaceFile): void {
+  #recordFileAttributes(path: string, file: WorkspaceFile, metadata: WorkspaceFile["metadata"]): void {
     // Restoring a file read after restart must retain its unavailable attributes.
     if (fileAttributesUnavailable(file)) this.#files.delete(path)
-    else this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
+    else this.#files.set(path, { mediaType: file.mediaType, metadata })
   }
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
+    const metadata = copyJsonFileMetadata(path, file.metadata)
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
@@ -354,7 +356,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const digest = await sha256(bytes)
     const existing = await this.stat(normalized)
     if (existing?.type === "file" && existing.digest === digest) {
-      this.#recordFileAttributes(normalized, file)
+      this.#recordFileAttributes(normalized, file, metadata)
       return
     }
     await Promise.all([
@@ -369,7 +371,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
-    this.#recordFileAttributes(normalized, file)
+    this.#recordFileAttributes(normalized, file, metadata)
   }
 
   async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
@@ -377,6 +379,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }> {
+    const metadata = copyJsonFileMetadata(path, file.metadata)
     const { dirname } = await import("node:path")
     const { mkdir, rename, rm } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
@@ -409,12 +412,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
         await rm(temp, { force: true })
         this.#files.set(normalized, {
           mediaType: file.mediaType,
-          metadata: file.metadata,
+          metadata,
         })
         return {
           ...existing,
           mediaType: file.mediaType,
-          metadata: file.metadata,
+          metadata,
           size,
           digest,
         }
@@ -423,14 +426,14 @@ class LocalWorkspaceStore implements WorkspaceStore {
       await rename(temp, absolute)
       this.#files.set(normalized, {
         mediaType: file.mediaType,
-        metadata: file.metadata,
+        metadata,
       })
       return {
         path: normalized,
         type: "file",
         size,
         mediaType: file.mediaType,
-        metadata: file.metadata,
+        metadata,
         digest,
       }
     }
