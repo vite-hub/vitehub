@@ -642,6 +642,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     options: GitHubHostCheckoutOptions = {},
   ): Promise<T> {
     if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headSha must be a full Git commit SHA." })
+    const requestedHead = pullRequest.headSha.toLowerCase()
     for (const repository of [pullRequest.repository, pullRequest.headRepository]) {
       if (repository !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repository)) {
         throw agentDiagnostics.AGENT_R0766({ message: "Expected a GitHub repository in owner/name form." })
@@ -679,14 +680,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         let syntheticHeadMatches = false
         try {
           await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", `refs/pull/${pullRequest.number}/head`], commandOptions)
-          syntheticHeadMatches = (await exec("git", ["-C", checkout, "rev-parse", "FETCH_HEAD"], commandOptions)).stdout.trim() === pullRequest.headSha
+          syntheticHeadMatches = (await exec("git", ["-C", checkout, "rev-parse", "FETCH_HEAD"], commandOptions)).stdout.trim() === requestedHead
         }
         catch {
           // Older GitHub Enterprise installations may not expose PR refs.
         }
         if (!syntheticHeadMatches) {
           // Retry the exact SHA when the synthetic PR ref is stale or unavailable.
-          await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
+          await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", requestedHead], commandOptions)
         }
         await exec("git", ["-C", checkout, "checkout", "--detach", "FETCH_HEAD"], commandOptions)
       }
@@ -700,10 +701,10 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         await exec("git", ["-C", checkout, "config", "remote.origin.push", `HEAD:refs/heads/${pullRequest.headRef}`], commandOptions)
       }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
-      if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` })
+      if (fetched !== requestedHead) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` })
       operation.signal.throwIfAborted()
       const prepareWorkspace = async (target: string) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal })
-      let pushHead = pullRequest.headSha
+      let pushHead = requestedHead
       const push = async (target: string = checkout) => {
         const expectedHead = pushHead
         if (!pullRequest.headRepository || !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "Pull request source repository and branch are required to push." })

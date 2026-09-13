@@ -31,13 +31,13 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   // The host checkout already contains complete history; copying must not
   // require network access or credentials in the provider preparation flow.
   const expected = await git(source, ['rev-parse', 'HEAD'])
-  const origin = await git(source, ['remote', 'get-url', 'origin'])
-  const push = await git(source, ['remote', 'get-url', '--push', 'origin'])
+  const origin = await git(source, ['remote', 'get-url', '--all', 'origin'])
+  const push = await git(source, ['remote', 'get-url', '--all', '--push', 'origin'])
   const remotes = await git(source, ['remote'])
-  const remoteUrls = new Set<string>([origin, push])
+  const remoteUrls = new Set<string>()
   for (const name of remotes.split('\n').filter(Boolean)) {
-    remoteUrls.add(await git(source, ['remote', 'get-url', name]))
-    remoteUrls.add(await git(source, ['remote', 'get-url', '--push', name]))
+    for (const url of (await git(source, ['remote', 'get-url', '--all', name])).split('\n')) remoteUrls.add(url)
+    for (const url of (await git(source, ['remote', 'get-url', '--all', '--push', name])).split('\n')) remoteUrls.add(url)
   }
   for (const remote of remoteUrls) {
     if (URL.canParse(remote)) {
@@ -79,8 +79,8 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
       await git(destination, ['config', '--local', '--unset-all', key])
     }
     if (await git(destination, ['rev-parse', 'HEAD']) !== expected
-      || await git(destination, ['remote', 'get-url', 'origin']) !== origin
-      || await git(destination, ['remote', 'get-url', '--push', 'origin']) !== push) {
+      || await git(destination, ['remote', 'get-url', '--all', 'origin']) !== origin
+      || await git(destination, ['remote', 'get-url', '--all', '--push', 'origin']) !== push) {
       throw new Error('Provider checkout head or remote mismatch.')
     }
   }

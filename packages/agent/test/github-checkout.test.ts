@@ -52,6 +52,24 @@ it('preserves independent ancestry and source push destination, replacing stale 
   expect(await git(source, 'status', '--porcelain')).toBe('')
 })
 
+it.each(['url', 'pushurl'])('rejects credentials in secondary remote %s values before copying metadata', async (key) => {
+  const { source, target } = await fixture()
+  await git(source, 'config', '--add', `remote.origin.${key}`, 'https://user:secret@github.com/acme/private.git')
+  await expect(prepareGitHubPullRequestWorkspace(source, target)).rejects.toThrow('must not contain credentials')
+  await expect(readFile(join(target, '.git/config'), 'utf8')).rejects.toThrow()
+})
+
+it('preserves every credential-free remote URL', async () => {
+  const { source, target } = await fixture()
+  for (const key of ['url', 'pushurl']) {
+    await git(source, 'config', '--add', `remote.origin.${key}`, 'https://github.com/acme/secondary.git')
+  }
+  await prepareGitHubPullRequestWorkspace(source, target)
+  for (const key of ['url', 'pushurl']) {
+    expect(await git(target, 'config', '--get-all', `remote.origin.${key}`)).toBe(await git(source, 'config', '--get-all', `remote.origin.${key}`))
+  }
+})
+
 it('copies historical blobs without contacting the credentialed origin', async () => {
   const { source, target } = await fixture()
   await writeFile(join(source, 'file.txt'), 'current head\n')
@@ -128,7 +146,7 @@ process.exit(result.status ?? 1);
   const credentials = vi.fn(({ repository }: { repository?: string }) => ({ token: repository ?? 'default', rateLimitKey: repository ?? 'default' }))
   const host = createGitHubHost({ credentials })
   const pr = { repository: 'acme/base', headRepository: 'contributor/fork', headRef: 'feature', headSha, number: 123 }
-  await host.withPullRequestCheckout(pr, async checkout => {
+  await host.withPullRequestCheckout({ ...pr, headSha: headSha.toUpperCase() }, async checkout => {
     expect(await git(checkout.path, 'rev-parse', 'HEAD')).toBe(headSha)
     await cp(join(checkout.path, 'file.txt'), join(target, 'file.txt'))
     await checkout.prepareWorkspace(target)
@@ -163,10 +181,10 @@ process.exit(result.status ?? 1);
   await expect(host.withPullRequestCheckout(pr, async () => { throw new Error('must not run') })).rejects.toThrow('head changed')
   await expect(host.withPullRequestCheckout({ ...pr, headRef: '../invalid' }, async () => {})).rejects.toThrow()
   const baseHead = await git(source, 'rev-parse', 'HEAD')
-  await host.withPullRequestCheckout({ ...pr, headRepository: pr.repository, headSha: baseHead }, async checkout => {
+  await host.withPullRequestCheckout({ ...pr, headRepository: pr.repository, headSha: baseHead.toUpperCase() }, async checkout => {
     expect(await git(checkout.path, 'rev-parse', 'HEAD')).toBe(baseHead)
   })
-  await host.withPullRequestCheckout({ repository: pr.repository, number: 124, headSha: baseHead }, async checkout => {
+  await host.withPullRequestCheckout({ repository: pr.repository, number: 124, headSha: baseHead.toUpperCase() }, async checkout => {
     expect(await git(checkout.path, 'rev-parse', 'HEAD')).toBe(baseHead)
     await expect(git(checkout.path, 'symbolic-ref', 'HEAD')).rejects.toThrow()
     await expect(checkout.push()).rejects.toThrow('source repository and branch are required')
