@@ -181,6 +181,7 @@ export function browser(options: BrowserCapabilityOptions = {}): AgentCapability
       },
       sources: {
         [sourceKey]: {
+          // SAFETY: This key is written only by the invocation-local browser preparation hook.
           content: browserSkillContent((context.context.get(invocationSkillContentKey) as string | undefined) ?? defaultSkillContent, skillPath, await supportsSkillPersistence(context.workspace)),
           mediaType: "text/markdown",
           workspacePath: skillPath,
