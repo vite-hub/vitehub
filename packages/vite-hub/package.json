@@ -82,7 +82,6 @@
     "./agent/server": "./dist/agent/server.js",
     "./agent/server/github": "./dist/agent/server/github.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
-    "./agent/vite": "./dist/agent/vite.js",
     "./agent/vue": "./dist/agent/vue.js",
     "./auth": "./dist/auth.js",
     "./auth/agent": "./dist/auth/agent.js",
@@ -164,7 +163,9 @@
     "./console/kv": "./dist/console/runtime/server/kv.js",
     "./console/sections": "./dist/console/runtime/server/sections.js",
     "./ui/styles.css": "./dist/ui/styles.css",
-    "./tsconfig": "./tsconfig.json"
+    "./tsconfig": "./tsconfig.json",
+    "./agent/presets/babysitter": "./dist/agent/presets/babysitter.js",
+    "./agent/presets/babysitter/server": "./dist/agent/presets/babysitter/server.js"
   },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
