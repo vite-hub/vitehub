@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
-import { cp, lstat, realpath, rm } from 'node:fs/promises'
+import { cp, lstat, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -42,23 +43,29 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
   // Preserve the materialized workspace baseline while replacing its Git history.
   // The baseline index contains generated instructions and selected files; restoring
   // it after copying prevents out-of-scope paths from appearing deleted.
-  const destinationGit = await lstat(join(destination, '.git')).catch(() => undefined)
-  if (!destinationGit?.isDirectory()) {
+  const destinationGit = await lstat(join(destination, '.git')).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error
+    return undefined
+  })
+  if (destinationGit && !destinationGit.isDirectory()) {
     throw new Error('Provider workspace must use an independent Git directory.')
   }
-  const baselineTree = await git(destination, ['write-tree']).catch(() => undefined)
-  const baselineObjects = join(destination, '.git', 'objects')
-  const baselineObjectsBackup = join(destination, '.git-baseline-objects')
-  await rm(baselineObjectsBackup, { recursive: true, force: true })
-  await cp(baselineObjects, baselineObjectsBackup, { recursive: true }).catch(() => undefined)
-  // Recycled directories must not retain refs or config from an earlier PR.
-  await rm(join(destination, '.git'), { recursive: true, force: true })
+  const baselineTree = destinationGit ? await git(destination, ['write-tree']) : undefined
+  const baselineBackup = await mkdtemp(join(tmpdir(), 'vitehub-baseline-'))
+  const baselineObjectsBackup = join(baselineBackup, 'objects')
+  let replacingMetadata = false
   try {
-    await cp(join(source, '.git'), join(destination, '.git'), { recursive: true })
-    if (await lstat(baselineObjectsBackup).catch(() => undefined)) {
-      await cp(baselineObjectsBackup, join(destination, '.git', 'objects'), { recursive: true })
+    if (baselineTree) {
+      await cp(join(destination, '.git', 'objects'), baselineObjectsBackup, { recursive: true })
     }
-    if (baselineTree) await git(destination, ['read-tree', baselineTree])
+    // Recycled directories must not retain refs or config from an earlier PR.
+    replacingMetadata = true
+    await rm(join(destination, '.git'), { recursive: true, force: true })
+    await cp(join(source, '.git'), join(destination, '.git'), { recursive: true })
+    if (baselineTree) {
+      await cp(baselineObjectsBackup, join(destination, '.git', 'objects'), { recursive: true })
+      await git(destination, ['read-tree', baselineTree])
+    }
     options.signal?.throwIfAborted()
     // Credentials belong to the host. Never carry saved clone authentication into a worker.
     const config = await git(destination, ['config', '--local', '--name-only', '--list'])
@@ -72,10 +79,10 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     }
   }
   catch (error) {
-    await rm(join(destination, '.git'), { recursive: true, force: true })
+    if (replacingMetadata) await rm(join(destination, '.git'), { recursive: true, force: true })
     throw error
   }
   finally {
-    await rm(baselineObjectsBackup, { recursive: true, force: true })
+    await rm(baselineBackup, { recursive: true, force: true })
   }
 }

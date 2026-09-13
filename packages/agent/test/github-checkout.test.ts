@@ -62,6 +62,20 @@ it('copies historical blobs without contacting the credentialed origin', async (
   await prepareGitHubPullRequestWorkspace(source, target)
   expect(await git(target, 'show', 'HEAD^:file.txt')).toBe('before')
   expect(await git(target, 'diff', 'HEAD^', 'HEAD', '--', 'file.txt')).toContain('+current head')
+  expect(await git(target, 'status', '--porcelain')).toBe('')
+})
+
+it('preserves workspace content named like the former baseline backup', async () => {
+  const { source, target } = await fixture()
+  await git(target, 'init')
+  await mkdir(join(target, '.git-baseline-objects'))
+  await writeFile(join(target, '.git-baseline-objects', 'content.txt'), 'workspace content\n')
+  await git(target, 'add', '.')
+  const baseline = await git(target, 'write-tree')
+  await prepareGitHubPullRequestWorkspace(source, target)
+  expect(await readFile(join(target, '.git-baseline-objects', 'content.txt'), 'utf8')).toBe('workspace content\n')
+  expect(await git(target, 'write-tree')).toBe(baseline)
+  expect(await git(target, 'diff', '--name-only')).toBe('')
 })
 
 it('rejects shared directories, linked worktrees, and cancelled preparation', async () => {
@@ -71,6 +85,9 @@ it('rejects shared directories, linked worktrees, and cancelled preparation', as
   const linked = join(root, 'linked')
   await git(source, 'worktree', 'add', '--detach', linked)
   await expect(prepareGitHubPullRequestWorkspace(linked, target)).rejects.toThrow('independent prepared Git clone')
+  const linkedMetadata = await readFile(join(linked, '.git'), 'utf8')
+  await expect(prepareGitHubPullRequestWorkspace(source, linked)).rejects.toThrow('independent Git directory')
+  expect(await readFile(join(linked, '.git'), 'utf8')).toBe(linkedMetadata)
   await expect(prepareGitHubPullRequestWorkspace(source, target, { signal: AbortSignal.abort() })).rejects.toThrow()
 })
 
