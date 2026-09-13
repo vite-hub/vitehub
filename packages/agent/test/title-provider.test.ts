@@ -55,8 +55,8 @@ describe("title provider inheritance", () => {
 
   it.each([
     { options: { model: "" }, code: "AGENT_R0925" },
-    { options: { timeoutMs: 0 }, code: "AGENT_R0922" },
-    { options: { reasoningEffort: "" }, code: "AGENT_R0923" },
+    { options: { timeoutMs: 0 }, code: "AGENT_R0926" },
+    { options: { reasoningEffort: "" }, code: "AGENT_R0927" },
   ])("identifies invalid title options with $code", ({ options, code }) => {
     let diagnostic: unknown;
     try {

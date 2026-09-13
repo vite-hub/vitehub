@@ -1,3 +1,4 @@
+import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
 import { rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
@@ -5330,6 +5331,7 @@ async function finishAgentInvocation<
       catch {
         // Invocation data must not change Agent output or mask the original failure.
       }
+      usage = invocationUsageWithAuxiliaryCalls(context.context, usage)
     }
     if (hasFinishWork(context)) {
       const details = failed ? agentErrorDetails(error) : undefined

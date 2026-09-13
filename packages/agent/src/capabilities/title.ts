@@ -1,10 +1,11 @@
+import { recordAuxiliaryUsage } from "../internal/auxiliary-usage.ts"
 import { withProviderCallbackMetadata } from "../internal/provider-callback-metadata.ts"
 import { createTraceEventLog, resolveRuntimeValue } from "@vite-hub/runtime"
 import { safeAgentTelemetryMetadata } from "../internal/agent-telemetry.ts"
 import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
-import { streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
+import { resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
 import {
   claimMessageChannelTitleDelivery,
@@ -36,6 +37,7 @@ import type {
   AgentRunInput,
   AgentRunContext,
   AgentRuntimeConfig,
+  AgentUsageRecord,
   MaybePromise,
 } from "../types.ts"
 import type {
@@ -388,11 +390,14 @@ function titleRunContext(
   }
 }
 
-async function titleResultText(result: unknown): Promise<string | undefined> {
+async function titleResultText(context: AgentCapabilityRuntimeContext, result: unknown): Promise<string | undefined> {
   let text = ""
+  let usage: AgentUsageRecord | undefined
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "text-delta") text += event.text
+    if (event.type === "usage") usage = event.usageRecord
   }
+  recordAuxiliaryUsage(context.context, usage ?? await resolveAgentUsageRecord(result))
   if (text) return text
   return toAgentRunResult(result).text
 }
@@ -409,17 +414,17 @@ async function generateTitleWithDriver(
   const driver = inheritedDriver ?? normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "run") {
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
-    return await titleResultText(await driver.run(titleRunContext(context, input, prompt) as never))
+    return await titleResultText(context, await driver.run(titleRunContext(context, input, prompt) as never))
   }
   const runContext = titleAdapterRunContext(context, input, prompt)
   if (driver.kind === "provider") {
     const { createProviderAgentAdapter } = await import("../provider-agent.ts")
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
-    return await titleResultText(await createProviderAgentAdapter(driver).generate(runContext as never))
+    return await titleResultText(context, await createProviderAgentAdapter(driver).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
   // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
-  return await titleResultText(await createAiSdkAdapter({
+  return await titleResultText(context, await createAiSdkAdapter({
     execution: driver.execution,
     instructions: options.instructions ?? driver.instructions,
     model: driver.model,
@@ -543,6 +548,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
         ? { abortSignal, instructions: options.instructions, model: model as never, prompt }
         // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
         : { abortSignal, model: model as never, prompt }))
+      recordAuxiliaryUsage(context.context, await resolveAgentUsageRecord(result))
       return cleanGeneratedTitle(result.text, maxLength, fallback)
     }
   }
