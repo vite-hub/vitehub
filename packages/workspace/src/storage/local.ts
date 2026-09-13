@@ -573,7 +573,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
-    const { dirname } = await import("node:path")
+    const { dirname, relative } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
@@ -630,7 +630,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { dirname } = await import("node:path")
     let current = dirname(resolveInside(this.root, path))
     const root = await import("node:path").then(({ resolve }) => resolve(this.root))
-    while (current !== root && current.startsWith(`${root}/`)) {
+    while (current !== root) {
+      const relation = relative(root, current)
+      if (relation === "" || relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || (process.platform === "win32" && /^[A-Za-z]:/.test(relation))) break
       const info = await lstat(current).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return undefined
         throw error
