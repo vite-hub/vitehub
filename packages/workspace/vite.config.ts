@@ -9,7 +9,7 @@ export default defineConfig({
     },
     tsconfig: "tsconfig.build.json",
     deps: {
-      alwaysBundle: [/^@vite-hub\/internal/, /^@vercel\/blob/],
+      alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/, /^@vercel\/blob/],
       neverBundle: [
         "vite",
         "#vitehub-workspace-assets-registry",
