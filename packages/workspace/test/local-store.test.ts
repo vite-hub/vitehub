@@ -943,6 +943,58 @@ describe("local workspace store", () => {
     expect(await restarted.readFile(path)).toMatchObject({ content: new TextEncoder().encode("after") })
   })
 
+  it.each([
+    { kind: "reader", removalFails: false },
+    { kind: "removal", removalFails: false },
+    { kind: "reader", removalFails: true },
+    { kind: "removal", removalFails: true },
+  ])("closes the $kind handle before cleanup (removal failure: $removalFails)", async ({ kind, removalFails }) => {
+    const store = await createStore()
+    const path = "file.txt"
+    await store.writeFile(path, { path, content: "before", metadata: { source: "startup" } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let marker = ""
+    let handleOpen = false
+    vi.mocked(open).mockImplementation(async (...args) => {
+      const file = await actual.open(...args)
+      if (args[1] === "wx" && String(args[0]).includes(kind === "reader" ? ".readers/" : "/file-removals/")) {
+        marker = String(args[0])
+        handleOpen = true
+        const close = file.close.bind(file)
+        vi.spyOn(file, "close").mockImplementationOnce(async () => { throw new Error("marker close failed") }).mockImplementation(async () => {
+          await close()
+          handleOpen = false
+        })
+      }
+      return file
+    })
+    vi.mocked(rm).mockImplementation(async (...args) => {
+      if (String(args[0]) === marker && (handleOpen || removalFails)) throw Object.assign(new Error("marker unlink denied"), { code: "EPERM" })
+      return actual.rm(...args)
+    })
+    try {
+      const operation = kind === "reader" ? store.readFile(path) : store.rm(path)
+      if (removalFails) {
+        await expect(operation).rejects.toMatchObject({
+          errors: [expect.objectContaining({ message: "marker close failed" }), expect.objectContaining({ code: "EPERM" })],
+        })
+      }
+      else {
+        await expect(operation).rejects.toThrow("marker close failed")
+        await expect(actual.stat(marker)).rejects.toMatchObject({ code: "ENOENT" })
+      }
+      expect(marker).not.toBe("")
+      expect(handleOpen).toBe(false)
+    }
+    finally {
+      vi.mocked(open).mockImplementation(actual.open)
+      vi.mocked(rm).mockImplementation(actual.rm)
+      if (marker) await actual.rm(marker, { force: true })
+    }
+    await store.writeFile(path, { path, content: "after" })
+    await expect(store.readFile(path)).resolves.toMatchObject({ content: new TextEncoder().encode("after") })
+  })
+
   it.each(["EIO", "EMFILE"])("removes reader markers when reopening the lease fails with %s", async (code) => {
     const store = await createStore()
     const root = tempDirs.at(-1)!

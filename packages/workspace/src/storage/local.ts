@@ -243,6 +243,21 @@ async function withFilesystemLock<T>(lock: string, permissions: Pick<import("nod
   }
 }
 
+async function closeCreatedMarker(file: import("node:fs/promises").FileHandle, path: string): Promise<void> {
+  try { await file.close() }
+  catch (error) {
+    const errors = [error]
+    // A rejected close may leave the handle open, preventing unlink on Windows.
+    try { await file.close() }
+    catch (closeError) { errors.push(closeError) }
+    const { rm } = await import("node:fs/promises")
+    try { await rm(path, { force: true }) }
+    catch (removeError) { errors.push(removeError) }
+    if (errors.length > 1) throw new AggregateError(errors, `[vitehub] Failed to close and clean Workspace marker ${path}.`)
+    throw error
+  }
+}
+
 async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import("node:fs").Stats, "mode" | "gid">, description: string, operation: () => Promise<T>): Promise<T> {
   const { open, rm, rmdir } = await import("node:fs/promises")
   const reader = `${lock}.readers/${randomUUID()}`
@@ -250,11 +265,7 @@ async function withFilesystemReadLock<T>(lock: string, permissions: Pick<import(
     await ensureLockDirectory(`${lock}.readers`)
     if (process.platform !== "win32") await applyMetadataPermissions(`${lock}.readers`, permissions.mode & 0o770, permissions.gid)
     const marker = await open(reader, "wx")
-    try { await marker.close() }
-    catch (error) {
-      await rm(reader, { force: true }).catch(() => {})
-      throw error
-    }
+    await closeCreatedMarker(marker, reader)
   })
   // Keep the reader marker open for the duration of the read so its own
   // heartbeat remains authoritative while writers inspect the reader set.
@@ -826,13 +837,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         throw error
       })
       createdMarker = file !== undefined
-      if (file) {
-        try { await file.close() }
-        catch (error) {
-          await rm(marker, { force: true }).catch(() => {})
-          throw error
-        }
-      }
+      if (file) await closeCreatedMarker(file, marker)
     }
     let missingTargetError: NodeJS.ErrnoException | undefined
     await rm(resolveInside(this.root, path), {
