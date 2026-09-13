@@ -2,7 +2,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node"
 import { createMessage, defineAgent, runScheduledAgent } from "../../index.ts"
-import type { CodexDriverOptions } from "../../provider-agent.ts"
+import type { CodexDriverOptions } from "../../index.ts"
 import { createGitHubPullRequestRun, createGitHubPullRequestOperations } from "../../server/github.ts"
 import type { GitHubHost } from "../../server/github.ts"
 import {
@@ -194,7 +194,7 @@ async function reconcile(
             eligible: current => pullRequestInbox.eligible(repository, normalizePullRequest(current)),
             push: async () => {
               if (!providerDirectory) throw new Error("The repair workspace is not prepared.")
-              await prepared.push(providerDirectory)
+              return await prepared.push(providerDirectory)
             },
           })
           const settings = options.agent.__vitehubWorkspaceAgentOptions

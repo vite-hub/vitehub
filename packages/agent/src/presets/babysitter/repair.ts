@@ -14,6 +14,15 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
   return defineCapability({
     id: "babysitter.github",
     tools: {
+      readCheckLogs: {
+        name: "readCheckLogs",
+        description: "Read failed logs for a GitHub Actions run associated with this PR head.",
+        inputSchema: { type: "object", properties: { runId: { type: "integer", minimum: 1 } }, required: ["runId"], additionalProperties: false },
+        execute: input => {
+          if (!input || typeof input !== "object" || !("runId" in input) || typeof input.runId !== "number") throw new Error("Expected a run ID.")
+          return operations.readCheckLogs(input.runId)
+        },
+      },
       pushRepair: {
         name: "pushRepair",
         description: "Push committed repairs to this PR's pinned source branch. Stop the pass after pushing.",
