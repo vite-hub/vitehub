@@ -13,6 +13,7 @@ const puppeteerBrowsersVersion = "2.10.10"
 const chromiumBundleVersion = "149.0.0"
 const chromeForTestingVersion = "149.0.7827.155"
 const browserRuntimeEnvironments = new WeakMap<AgentInvocationContextStore, Readonly<Record<string, string>>>()
+const socketDirectoryReferences = new Map<string, number>()
 const preparations = new Map<string, { controller: AbortController, promise: Promise<PreparedBrowserRuntime>, consumers: number }>()
 
 export interface PreparedBrowserRuntime {
@@ -446,7 +447,11 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
     }
     signal?.addEventListener("abort", onAbort, { once: true })
     generation.promise.then((value) => {
-      if (finish()) resolve(value)
+      if (finish()) {
+        const socketDirectory = value.environment.AGENT_BROWSER_SOCKET_DIR
+        if (socketDirectory) socketDirectoryReferences.set(socketDirectory, (socketDirectoryReferences.get(socketDirectory) ?? 0) + 1)
+        resolve(value)
+      }
     }, (error) => {
       if (finish()) reject(error)
     })
@@ -455,6 +460,7 @@ export function prepareBrowserRuntime(options: BrowserRuntimePreparationOptions 
 
 export function resetBrowserRuntimePreparationForTest(): void {
   preparations.clear()
+  socketDirectoryReferences.clear()
 }
 
 export function provideBrowserRuntimeEnvironment(context: AgentInvocationContextStore, environment: Readonly<Record<string, string>>): void {
@@ -480,6 +486,13 @@ export async function closeBrowserRuntimeSession(environment: Readonly<Record<st
   }
   finally {
     const socketDirectory = environment.AGENT_BROWSER_SOCKET_DIR
-    if (closed && socketDirectory) await rm(socketDirectory, { force: true, recursive: true })
+    if (closed && socketDirectory) {
+      const remaining = (socketDirectoryReferences.get(socketDirectory) ?? 1) - 1
+      if (remaining > 0) socketDirectoryReferences.set(socketDirectory, remaining)
+      else {
+        socketDirectoryReferences.delete(socketDirectory)
+        await rm(socketDirectory, { force: true, recursive: true })
+      }
+    }
   }
 }
