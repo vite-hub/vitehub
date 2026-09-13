@@ -1211,16 +1211,17 @@ function createLazyMaterializedMetadata(
 ): LazyMaterializedMetadata {
   const now = new Date().toISOString()
   const digest = readStringMeta(upstreamMeta, "digest") ?? readStringMeta(item.metadata, "digest")
-  return {
+  const result: LazyMaterializedMetadata = {
     source: resolution.sourceKey,
     sourcePath: resolution.sourcePath,
     materializedAt: now,
     ...(resolution.validate === "request" ? { validatedAt: now } : {}),
-    ...(readStringMeta(upstreamMeta, "etag") !== undefined ? { etag: readStringMeta(upstreamMeta, "etag") } : {}),
-    ...(readStringMeta(upstreamMeta, "sha") !== undefined ? { sha: readStringMeta(upstreamMeta, "sha") } : {}),
-    ...(digest !== undefined ? { digest } : {}),
-    ...(readStringMeta(upstreamMeta, "ref") !== undefined ? { ref: readStringMeta(upstreamMeta, "ref") } : {}),
   }
+  const etag = readStringMeta(upstreamMeta, "etag"); if (etag !== undefined) result.etag = etag
+  const sha = readStringMeta(upstreamMeta, "sha"); if (sha !== undefined) result.sha = sha
+  if (digest !== undefined) result.digest = digest
+  const ref = readStringMeta(upstreamMeta, "ref"); if (ref !== undefined) result.ref = ref
+  return result
 }
 
 function hasSourceMetaChanged(current: LazyMaterializedMetadata, upstreamMeta: Record<string, unknown>) {

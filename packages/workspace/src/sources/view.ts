@@ -424,7 +424,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
             if (entry?.type === "file") file = await store.readFile(path)
           }
           catch (error) {
-            if (!(error && typeof error === "object" && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR" || error.code === "EISDIR"))) throw error
+            const code = error instanceof Error ? Reflect.get(error, "code") : undefined
+            if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "EISDIR") throw error
           }
           if (!file || !await materializedFileMatches(file, item)) {
             incomplete.add(source.key)
