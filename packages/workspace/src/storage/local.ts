@@ -661,12 +661,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
         await rm(temp, { force: true })
         await this.#writeFileMetadata(normalized, {
           mediaType: file.mediaType,
-          metadata: file.metadata,
+          metadata: copyJsonFileMetadata(normalized, file.metadata),
         })
         return {
           ...existing,
           mediaType: file.mediaType,
-          metadata: file.metadata,
+          metadata: copyJsonFileMetadata(normalized, file.metadata),
           size,
           digest,
         }
@@ -692,7 +692,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         type: "file",
         size,
         mediaType: file.mediaType,
-        metadata: file.metadata,
+        metadata: copyJsonFileMetadata(normalized, file.metadata),
         digest,
       }
     }
