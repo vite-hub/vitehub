@@ -77,7 +77,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   // A preset selection alone does not imply Workspace ownership. Classify inline
   // preset definitions only when the source also contains a workspace property;
   // this avoids registering ordinary presets as hosted Workspaces.
-  return /\bdefineAgent\s*\(\s*\{[\s\S]*\bworkspace\s*:/.test(stripped)
+  return /\bdefineAgent\s*\(\s*\{[\s\S]*\bworkspace\s*(?::|[,}])/.test(stripped)
 }
 
 function isAgentDefinitionSource(source: string): boolean {
