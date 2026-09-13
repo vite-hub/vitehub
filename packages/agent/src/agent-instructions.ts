@@ -6,10 +6,12 @@ import type { AgentAdapterInstructions, AgentAdapterMetadataContext, AgentInstru
 async function resolveContent<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   input: AgentInstructionsContent<TRuntimeConfig, Name> | undefined,
   context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
+  preserveWhitespace = false,
 ): Promise<string> {
   const parts = Array.isArray(input) ? input : [input]
   const resolved = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
-  return resolved.flatMap(part => Array.isArray(part) ? part : [part]).map(part => part?.trim()).filter(Boolean).join("\n\n")
+  const parts = resolved.flatMap(part => Array.isArray(part) ? part : [part]).filter((part): part is string => hasRuntimeType(part, "string"))
+  return preserveWhitespace ? parts.join("\n\n") : parts.map(part => part.trim()).filter(Boolean).join("\n\n")
 }
 
 /** Resolve one document before provider-specific instruction composition. */
@@ -25,7 +27,7 @@ export async function resolveAgentInstructions<TRuntimeConfig extends AgentRunti
     }
     // SAFETY: template discriminant identifies composed instructions.
     const composed = input as Extract<AgentAdapterInstructions<TRuntimeConfig, Name>, { template: unknown }>
-    const template = await resolveContent(composed.template, context)
+    const template = await resolveContent(composed.template, context, true)
     const content = await resolveContent(composed.content, context)
     return await fillInstructionSlot(template, content)
   }
