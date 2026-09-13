@@ -846,9 +846,12 @@ class LocalWorkspaceStore implements WorkspaceStore {
     // that do not participate in the workspace path lock: a replacement at
     // the public pathname is never removed by the cleanup operation.
     if (options.ifDigest !== undefined || options.ifSource !== undefined) {
-      const retiredRelative = `${normalized}.vitehub-retired-${randomUUID()}`
+      // Keep recovery artifacts inside the private metadata tree so a failed
+      // restoration can never appear as user workspace content.
+      const retiredRelative = `.vitehub/retired/${randomUUID()}`
       const retired = resolveInside(this.root, retiredRelative)
-      const { rename } = await import("node:fs/promises")
+      const { mkdir: makeDirectory, rename } = await import("node:fs/promises")
+      await makeDirectory(resolveInside(this.root, ".vitehub/retired"), { recursive: true, mode: 0o700 })
       try {
         await rename(absolute, retired)
       }
