@@ -1822,7 +1822,9 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
   const cumulative = usage.totalProcessedTokens
   const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined &&
     options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined &&
-    options.accumulator.previousTotalProcessedTokens === undefined && options.accumulator.calls.length > 0
+    options.accumulator.lastCallIdentity === undefined && options.accumulator.calls.length > 0 &&
+    options.accumulator.previousTotalProcessedTokens === cumulative &&
+    options.accumulator.calls.at(-1)?.usage === undefined
   const changed = responseIdentity !== undefined
     ? responseIdentity !== options.accumulator.lastResponseIdentity
     : cumulative !== undefined
