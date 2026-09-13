@@ -331,7 +331,10 @@ async function provisionLocked(root: string, npmCommand: string, platform: NodeJ
   const binRoot = join(packageRoot, "node_modules", ".bin")
   const command = join(binRoot, process.platform === "win32" ? "agent-browser.cmd" : "agent-browser")
   const browserVersion = platform === "linux" ? chromiumBundleVersion : chromeForTestingVersion
-  const socketRoot = await mkdtemp(join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}-`), { encoding: "utf8" })
+  const socketRootPath = await mkdtemp(join(tmpdir(), `vh-ab-${process.getuid?.() ?? process.pid}-`), { encoding: "utf8" })
+  // Validate the canonical path so symlinked system ancestors (such as
+  // macOS's /var -> /private/var) are inspected as their real directories.
+  const socketRoot = await realpath(socketRootPath)
   try {
     await chmod(socketRoot, 0o700)
     // Every ancestor must be owned by the current user and not writable by
