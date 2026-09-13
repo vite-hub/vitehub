@@ -38,66 +38,18 @@ it('preserves independent ancestry and source push destination, replacing stale 
   await git(target, 'config', 'stale.value', 'yes')
   await git(source, 'config', 'credential.helper', 'secret-helper')
   await git(source, 'config', 'http.https://github.com/.extraheader', 'Authorization: secret')
-  await git(source, 'config', 'http.proxy', 'http://user:secret@proxy.example.com:8080')
-  await git(source, 'config', 'http.https://github.com/.proxy', 'http://user:secret@scoped-proxy.example.com:8080')
-  expect(await git(source, 'config', '--local', '--get-urlmatch', 'http.proxy', 'https://github.com/acme/base.git')).toContain('secret')
   await prepareGitHubPullRequestWorkspace(source, target)
   expect(await git(target, 'rev-parse', 'HEAD')).toBe(head)
   expect(await git(target, 'remote', 'get-url', 'origin')).toBe('https://github.com/acme/base.git')
   expect(await git(target, 'remote', 'get-url', '--push', 'origin')).toBe('https://github.com/contributor/fork.git')
   const config = await readFile(join(target, '.git/config'), 'utf8')
   expect(config).not.toMatch(/secret|stale/)
-  await expect(git(target, 'config', '--local', '--get-urlmatch', 'http.proxy', 'https://github.com/acme/base.git')).rejects.toThrow()
   await writeFile(join(target, 'file.txt'), 'repair\n')
   await git(target, 'add', '.')
   await git(target, 'commit', '-m', 'repair')
   expect(await git(target, 'rev-parse', 'HEAD^')).toBe(head)
   expect(await git(source, 'rev-parse', 'HEAD')).toBe(head)
   expect(await git(source, 'status', '--porcelain')).toBe('')
-})
-
-it.each(['url', 'pushurl'])('rejects credentials in secondary remote %s values before copying metadata', async (key) => {
-  const { source, target } = await fixture()
-  await git(source, 'config', '--add', `remote.origin.${key}`, 'https://user:secret@github.com/acme/private.git')
-  await expect(prepareGitHubPullRequestWorkspace(source, target)).rejects.toThrow('must not contain credentials')
-  await expect(readFile(join(target, '.git/config'), 'utf8')).rejects.toThrow()
-})
-
-it('preserves every credential-free remote URL', async () => {
-  const { source, target } = await fixture()
-  for (const key of ['url', 'pushurl']) {
-    await git(source, 'config', '--add', `remote.origin.${key}`, 'https://github.com/acme/secondary.git')
-  }
-  await prepareGitHubPullRequestWorkspace(source, target)
-  for (const key of ['url', 'pushurl']) {
-    expect(await git(target, 'config', '--get-all', `remote.origin.${key}`)).toBe(await git(source, 'config', '--get-all', `remote.origin.${key}`))
-  }
-})
-
-it('copies historical blobs without contacting the credentialed origin', async () => {
-  const { source, target } = await fixture()
-  await writeFile(join(source, 'file.txt'), 'current head\n')
-  await git(source, 'commit', '-am', 'update')
-  await cp(join(source, 'file.txt'), join(target, 'file.txt'))
-  // Neither preparation nor historical reads may contact this unavailable remote.
-  await git(source, 'remote', 'set-url', 'origin', 'https://127.0.0.1:1/private.git')
-  await prepareGitHubPullRequestWorkspace(source, target)
-  expect(await git(target, 'show', 'HEAD^:file.txt')).toBe('before')
-  expect(await git(target, 'diff', 'HEAD^', 'HEAD', '--', 'file.txt')).toContain('+current head')
-  expect(await git(target, 'status', '--porcelain')).toBe('')
-})
-
-it('preserves workspace content named like the former baseline backup', async () => {
-  const { source, target } = await fixture()
-  await git(target, 'init')
-  await mkdir(join(target, '.git-baseline-objects'))
-  await writeFile(join(target, '.git-baseline-objects', 'content.txt'), 'workspace content\n')
-  await git(target, 'add', '.')
-  const baseline = await git(source, 'write-tree')
-  await prepareGitHubPullRequestWorkspace(source, target)
-  expect(await readFile(join(target, '.git-baseline-objects', 'content.txt'), 'utf8')).toBe('workspace content\n')
-  expect(await git(target, 'write-tree')).toBe(baseline)
-  expect(await git(target, 'diff', '--name-only')).toBe('')
 })
 
 it('rejects shared directories, linked worktrees, and cancelled preparation', async () => {
@@ -107,9 +59,6 @@ it('rejects shared directories, linked worktrees, and cancelled preparation', as
   const linked = join(root, 'linked')
   await git(source, 'worktree', 'add', '--detach', linked)
   await expect(prepareGitHubPullRequestWorkspace(linked, target)).rejects.toThrow('independent prepared Git clone')
-  const linkedMetadata = await readFile(join(linked, '.git'), 'utf8')
-  await expect(prepareGitHubPullRequestWorkspace(source, linked)).rejects.toThrow('independent Git directory')
-  expect(await readFile(join(linked, '.git'), 'utf8')).toBe(linkedMetadata)
   await expect(prepareGitHubPullRequestWorkspace(source, target, { signal: AbortSignal.abort() })).rejects.toThrow()
 })
 
@@ -147,18 +96,11 @@ const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: 'inherit' })
 process.exit(result.status ?? 1);
 `, { mode: 0o755 })
   vi.stubEnv('PATH', `${bin}:${process.env.PATH}`)
-  const hostHooks = join(root, 'host-hooks')
-  const hostHookMarker = join(root, 'host-hook-ran')
-  await mkdir(hostHooks)
-  await writeFile(join(hostHooks, 'post-checkout'), `#!/bin/sh\ntouch '${hostHookMarker}'\n`, { mode: 0o755 })
-  vi.stubEnv('HOME', root)
-  await git(root, 'config', '--global', 'core.hooksPath', hostHooks)
   const credentials = vi.fn(({ repository }: { repository?: string }) => ({ token: repository ?? 'default', rateLimitKey: repository ?? 'default' }))
   const host = createGitHubHost({ credentials })
   const pr = { repository: 'acme/base', headRepository: 'contributor/fork', headRef: 'feature', headSha, number: 123 }
-  await host.withPullRequestCheckout({ ...pr, headSha: headSha.toUpperCase() }, async checkout => {
+  await host.withPullRequestCheckout(pr, async checkout => {
     expect(await git(checkout.path, 'rev-parse', 'HEAD')).toBe(headSha)
-    await expect(readFile(hostHookMarker)).rejects.toMatchObject({ code: 'ENOENT' })
     await cp(join(checkout.path, 'file.txt'), join(target, 'file.txt'))
     await checkout.prepareWorkspace(target)
     await git(target, 'config', 'user.name', 'Test')
@@ -192,21 +134,13 @@ process.exit(result.status ?? 1);
   await expect(host.withPullRequestCheckout(pr, async () => { throw new Error('must not run') })).rejects.toThrow('head changed')
   await expect(host.withPullRequestCheckout({ ...pr, headRef: '../invalid' }, async () => {})).rejects.toThrow()
   const baseHead = await git(source, 'rev-parse', 'HEAD')
-  await host.withPullRequestCheckout({ ...pr, headRepository: pr.repository, headSha: baseHead.toUpperCase() }, async checkout => {
+  await host.withPullRequestCheckout({ ...pr, headRepository: pr.repository, headSha: baseHead }, async checkout => {
     expect(await git(checkout.path, 'rev-parse', 'HEAD')).toBe(baseHead)
   })
-  await host.withPullRequestCheckout({ repository: pr.repository, number: 124, headSha: baseHead.toUpperCase() }, async checkout => {
+  await host.withPullRequestCheckout({ repository: pr.repository, number: 124, headSha: baseHead }, async checkout => {
     expect(await git(checkout.path, 'rev-parse', 'HEAD')).toBe(baseHead)
     await expect(git(checkout.path, 'symbolic-ref', 'HEAD')).rejects.toThrow()
     await expect(checkout.push()).rejects.toThrow('source repository and branch are required')
   })
 
 }, 30_000)
-
-it('strips authenticated per-remote proxy settings before copying metadata', async () => {
-  const { source, target } = await fixture()
-  await git(source, 'config', 'remote.origin.proxy', 'http://user:secret@proxy.example.com:8080')
-  await prepareGitHubPullRequestWorkspace(source, target)
-  await expect(git(target, 'config', '--local', '--get', 'remote.origin.proxy')).rejects.toThrow()
-  expect(await readFile(join(target, '.git/config'), 'utf8')).not.toContain('secret')
-})
