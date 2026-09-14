@@ -471,14 +471,17 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
   return calls
 }
 
-export function findDefaultExportCall(source: string, names: string[]): DefaultExportCall | undefined {
+export function findDefaultExportCall(source: string, names: string[], options: { positionalOptionsIndex?: number } = {}): DefaultExportCall | undefined {
   const masked = maskSourceLiterals(source)
   const calls = names
     .flatMap(name => findIdentifierCalls(source, name))
     .sort((left, right) => left.start - right.start)
 
   for (const call of calls) {
-    const callArgument = stripBoundaryComments(call.arguments[0] || "")
+    const firstArgument = stripBoundaryComments(call.arguments[0] || "")
+    const callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
+      ? stripBoundaryComments(call.arguments[options.positionalOptionsIndex] || "{}")
+      : firstArgument
     if (!callArgument.startsWith("{")) continue
     const objectEnd = findMatching(callArgument, 0, "{", "}")
     if (objectEnd === undefined) continue

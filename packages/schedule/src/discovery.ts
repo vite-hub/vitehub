@@ -20,14 +20,14 @@ const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "manual" | "runtimeOnly"> {
   const source = readFileSync(file, "utf8")
   const names = ["defineSchedule", "defineScheduleTarget"]
-  const definition = findDefaultExportCall(source, names)
+  const definition = findDefaultExportCall(source, names, { positionalOptionsIndex: 2 })
   const unsupported = (offset: number, message: string): never => {
     const line = source.slice(0, offset).split("\n").length
     throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${file}:${line}: ${message}` })
   }
   if (!definition) {
     const call = names.flatMap(name => findIdentifierCalls(source, name))[0]
-    if (call) unsupported(call.start, "Schedule discovery requires a direct default export of defineSchedule() or defineScheduleTarget() with an object literal.")
+    if (call) unsupported(call.start, "Schedule discovery requires a direct default export of defineSchedule() or defineScheduleTarget().")
     return { allowRuntimeSchedules: false }
   }
   if (definition.name === "defineScheduleTarget") {
