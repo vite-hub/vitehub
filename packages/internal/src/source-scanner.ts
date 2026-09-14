@@ -495,7 +495,7 @@ export function findDefaultExportCall(source: string, names: string[], options: 
         // `as const satisfies T` is the only suffix permitted after a
         // const assertion; everything else is runtime expression material.
         if (afterConst && !/^satisfies\s+\S[\s\S]*$/i.test(afterConst)) return false
-        if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=<>]|,|\||&|\^|\b(?:instanceof|in)\b)/.test(afterConst)) return false
+        if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=<>-]|,|\||&|\^|\b(?:instanceof|in)\b)/.test(afterConst)) return false
       }
       // Operators and call syntax after an assertion change the runtime value;
       // reject them while retaining union/intersection punctuation in types.
