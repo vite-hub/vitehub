@@ -74,13 +74,6 @@ const viewMeta: Record<
     shortcut: "D",
   },
 };
-const inspectorViews = computed<InspectorTab[]>(() => [
-  "details",
-  "capabilities",
-  "trace",
-  ...(props.workspaceBase ? (["workspace"] as const) : []),
-  ...(diffs.value.length ? (["diff"] as const) : []),
-]);
 const diffs = computed(() => {
   const patches: string[] = [];
   for (const observation of props.invocation.observations) {
@@ -94,6 +87,13 @@ const diffs = computed(() => {
 const selectedDiffs = ref<number[]>([]);
 const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
 function toggleAllDiffs() { selectedDiffs.value = allDiffsSelected.value ? [] : diffs.value.map((_, index) => index); }
+const inspectorViews = computed<InspectorTab[]>(() => [
+  "details",
+  "capabilities",
+  "trace",
+  ...(props.workspaceBase ? (["workspace"] as const) : []),
+  ...(diffs.value.length ? (["diff"] as const) : []),
+]);
 const treeOpen = ref(true);
 const wrapLines = useConsoleWordWrap();
 const tabstrip = ref<HTMLElement>();
