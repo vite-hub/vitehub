@@ -47,6 +47,8 @@ export default defineConfig({
       "src/runtime/process.ts",
       "src/runtime/workflow.ts",
       "src/server.ts",
+      "src/presets/babysitter.ts",
+      "src/presets/babysitter/server.ts",
       "src/server/github.ts",
       "src/server/github-inbox.ts",
       "src/server/internal.ts",
