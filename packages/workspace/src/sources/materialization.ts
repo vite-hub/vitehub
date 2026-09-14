@@ -70,6 +70,7 @@ const startupSourcesMetaKey = "workspace:startup-sources"
 const promotedSourceSkillsMetaKey = "workspace:promoted-source-skills"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Set<ResolvedWorkspaceSource>>()
+const promotionReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 
 export interface MaterializationControl {
   isCurrent(): boolean
@@ -1039,8 +1040,17 @@ async function materializeWorkspaceSourcesInternal(
     }
   }
 
-  if (rootMaterialization && control.isCurrent()) {
-    await reconcilePromotedSourceSkills(store, configuredSources, control)
+  if (control.isCurrent()) {
+    const previousPromotion = promotionReconciliationByStore.get(store)
+    const promotion = (async () => {
+      await previousPromotion
+      await reconcilePromotedSourceSkills(store, configuredSources, control)
+    })()
+    const tail = promotion.catch(() => {})
+    promotionReconciliationByStore.set(store, tail)
+    try { await promotion } finally {
+      if (promotionReconciliationByStore.get(store) === tail) promotionReconciliationByStore.delete(store)
+    }
   }
 
   return {
