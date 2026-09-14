@@ -30,6 +30,7 @@ export const babysitterPassResultSchema = {
     ): { value: BabysitterPassResult } | { issues: Array<{ message: string }> } {
       if (
         value &&
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Babysitter result validation narrows untyped external output.
         typeof value === "object" &&
         "disposition" in value &&
         "text" in value &&
@@ -64,6 +65,7 @@ export type BabysitterAgent = ConfiguredAgentDefinition<
 >;
 
 export const babysitter: BabysitterAgent = defineAgent({
+  // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The default filter is constrained by BabysitterOptions at the public preset boundary.
   options: { filter: {} as GitHubPullRequestFilter, autoMerge: false },
   configure: ({ filter }) =>
     defineAgent({

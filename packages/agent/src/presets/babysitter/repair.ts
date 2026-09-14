@@ -4,8 +4,11 @@ import type { GitHubPullRequestOperations } from "../../server/github.ts";
 const noArguments = { type: "object", properties: {}, additionalProperties: false } as const;
 
 function stringField(input: unknown, key: string): string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs are untyped until this runtime boundary validates them.
   if (!input || typeof input !== "object" || !(key in input)) throw new Error(`Missing ${key}.`);
+  // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The preceding object guard establishes a record-shaped capability input.
   const value = (input as Record<string, unknown>)[key];
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs are untyped until this runtime boundary validates them.
   if (typeof value !== "string" || !value.trim())
     throw new Error(`${key} must be a non-empty string.`);
   return value;
@@ -27,6 +30,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
         execute: (input: unknown) => {
           if (
             !input ||
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs are untyped until this runtime boundary validates them.
             typeof input !== "object" ||
             !("runId" in input) ||
             typeof input.runId !== "number"

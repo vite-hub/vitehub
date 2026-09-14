@@ -90,6 +90,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         const args = ["api", "graphql", "-f", `query=${query}`];
         for (const [key, value] of Object.entries(variables)) {
           if (value === null) continue;
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
           args.push(typeof value === "number" ? "-F" : "-f", `${key}=${value}`);
         }
         const result = await github.command(args, { repository, timeout: 60_000, signal });
@@ -323,6 +324,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const driver = settings?.driver;
               if (
                 !driver ||
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
                 typeof driver !== "object" ||
                 !("kind" in driver) ||
                 driver.kind !== "codex"
@@ -331,6 +333,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   "Babysitter requires a Codex driver for its isolated Git checkout.",
                 );
               }
+  // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- The preceding schema guard establishes the asserted operation shape.
               const workerDriver = driver as CodexDriverOptions<BabysitterPassResult> & {
                 kind: "codex";
               };
@@ -489,6 +492,7 @@ function assertBabysitterAgent(agent: AgentDefinition): asserts agent is Babysit
     !getAgentLayerOptions(agent) ||
     !("options" in agent) ||
     !agent.options ||
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
     typeof agent.options !== "object" ||
     !("autoMerge" in agent.options) ||
     typeof agent.options.autoMerge !== "boolean" ||

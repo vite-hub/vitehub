@@ -1293,6 +1293,7 @@ function workspaceMetadataInstructions<
     return []
   })
   const composed = instructionObject
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Workspace instruction configuration is untyped until this runtime boundary validates it.
     && typeof instructionObject.template === "string"
     ? fillSynchronousInstructionSlot(
       instructionObject.template,
