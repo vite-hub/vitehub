@@ -2108,7 +2108,7 @@ async function writeAgentWebhookRouteHandler(
       "  function shutdownWebhookQueues() {",
       "    for (const signal of shutdownSignals) nodeProcess?.off(signal, shutdownWebhookQueues)",
       "    shutdownSignals = []",
-      "    stopping ||= stop?.()",
+      "    if (!stopping) stopping = stop?.()",
       "    if (stopping) waitUntil?.(stopping)",
       "    return stopping",
       "  }",
