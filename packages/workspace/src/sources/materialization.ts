@@ -1050,7 +1050,10 @@ async function materializeWorkspaceSourcesInternal(
     }
   }
 
-  if (control.isCurrent()) {
+  // Promotion reconciliation owns the workspace-root skill tree globally.
+  // Scoped materializations must not clean up promotions belonging to sources
+  // outside the requested scope; reconcile only complete root materializations.
+  if (control.isCurrent() && rootMaterialization) {
     const previousPromotion = promotionReconciliationByStore.get(store)
     const promotion = (async () => {
       await previousPromotion
