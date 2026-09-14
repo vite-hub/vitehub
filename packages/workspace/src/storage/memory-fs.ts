@@ -2,7 +2,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 type Entry =
-  | { kind: "dir", children: Set<string>, mtimeMs: number }
+  | { kind: "dir", children: Set<string>, mtimeMs: number, directoryIdentity?: string }
   | { kind: "file", data: Uint8Array, mtimeMs: number }
 
 function copyBinaryData(data: unknown): Uint8Array | undefined {
@@ -17,6 +17,10 @@ function copyBinaryData(data: unknown): Uint8Array | undefined {
 
 class MemoryStats {
   constructor(private entry: Entry) {}
+
+  get directoryIdentity() {
+    return this.entry.kind === "dir" ? this.entry.directoryIdentity : undefined
+  }
 
   get size() {
     return this.entry.kind === "file" ? this.entry.data.byteLength : 0
@@ -107,9 +111,10 @@ export class MemoryFS {
       throw memoryFsError("EEXIST", path)
     }
     const parentEntry = this.#requireDir(parent)
-    this.entries.set(target, { kind: "dir", children: new Set(), mtimeMs: Date.now() })
+    const directoryIdentity = crypto.randomUUID()
+    this.entries.set(target, { kind: "dir", children: new Set(), mtimeMs: Date.now(), directoryIdentity })
     parentEntry.children.add(this.basename(target))
-    if (isPlainObject(options)) options.onCreate?.(target)
+    if (isPlainObject(options)) options.onCreate?.(target, directoryIdentity)
   }
 
   async writeFile(path: string, data: string | Uint8Array | ArrayBuffer) {

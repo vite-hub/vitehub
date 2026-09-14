@@ -143,7 +143,6 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #branch = "main"
   #files = new Map<string, FileMetadata>()
-  #directoryIdentities = new Map<string, string>()
   #fs: MemoryFS | undefined
   #head: string | undefined
   #pendingCommit: string | undefined
@@ -242,7 +241,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #stat(normalized: string): Promise<WorkspaceStat | undefined> {
-    const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, mtimeMs?: number, size?: number } | undefined
+    const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, directoryIdentity?: string, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
     const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
     const fileMetadata = stat.isFile() ? this.#files.get(normalized) : undefined
@@ -254,7 +253,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       path: normalized,
       size: stat.isFile() ? stat.size : undefined,
       type: stat.isDirectory() ? "directory" : "file",
-      directoryIdentity: stat.isDirectory() ? this.#directoryIdentities.get(normalized) : undefined,
+      directoryIdentity: stat.isDirectory() ? stat.directoryIdentity : undefined,
     }
   }
 
@@ -263,12 +262,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     await this.#ensure()
     await this.#mutate(() => this.#fs!.promises.mkdir(this.#absolute(normalized), {
       recursive: options.recursive ?? true,
-      onCreate: options.onCreate ? absolute => {
-        const path = absolute.slice(`${dir}/`.length)
-        const identity = crypto.randomUUID()
-        this.#directoryIdentities.set(path, identity)
-        options.onCreate!(path, identity)
-      } : undefined,
+      onCreate: options.onCreate ? (absolute, identity) => options.onCreate!(absolute.slice(`${dir}/`.length), identity) : undefined,
     }))
   }
 

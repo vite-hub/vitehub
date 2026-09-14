@@ -122,6 +122,21 @@ afterEach(() => {
 })
 
 describe("Cloudflare Artifacts workspace store", () => {
+  it("changes directory identity after a mount is removed and recreated", async () => {
+    const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
+    const created = vi.fn()
+    await store.mkdir("generated", { onCreate: created })
+    const original = (await store.stat("generated"))?.directoryIdentity
+    expect(original).toEqual(expect.any(String))
+    expect(created).toHaveBeenCalledWith("generated", original)
+    await store.mkdir("generated")
+    expect((await store.stat("generated"))?.directoryIdentity).toBe(original)
+    await store.rm("generated")
+    await store.mkdir("generated")
+    expect((await store.stat("generated"))?.directoryIdentity).toEqual(expect.any(String))
+    expect((await store.stat("generated"))?.directoryIdentity).not.toBe(original)
+  })
+
   it("reports only directories created by concurrent mkdir calls", async () => {
     const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
     await store.mkdir("existing")
