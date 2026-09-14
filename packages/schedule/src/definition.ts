@@ -26,6 +26,9 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
   if (!isPlainObject(options)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` options must be an object." })
   }
+  if (typeof cronOrInput !== "string" && !isPlainObject(cronOrInput)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
+  }
   const input = isPlainObject(cronOrInput) ? cronOrInput : { ...options, cron: cronOrInput, handler: handler! }
   if (!isPlainObject(input)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
