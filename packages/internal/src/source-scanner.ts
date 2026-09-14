@@ -487,6 +487,10 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       // punctuation that is valid inside TypeScript type expressions (for
       // example generic arguments and tuple types).
       if (!assertion) return false
+      // `const` is a complete assertion type by itself. Any operator after it
+      // therefore belongs to the runtime expression (including operators whose
+      // right-hand side is an identifier rather than a literal).
+      if (/^(?:as\s+const|satisfies\s+const)\b/i.test(value) && /(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=<>]|,|\||&|\^|\b(?:instanceof|in)\b)/.test(value.slice(value.indexOf("const") + 5))) return false
       // Operators and call syntax after an assertion change the runtime value;
       // reject them while retaining union/intersection punctuation in types.
       if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=]|(?<![\w$])-(?=\s*\d)|,)/.test(value)) return false
