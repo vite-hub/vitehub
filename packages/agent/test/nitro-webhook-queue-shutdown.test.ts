@@ -247,7 +247,7 @@ finally {
     ])
 
     expect(listeners).toMatchObject({ sigterm: expect.any(Array) })
-    expect(listeners.sigterm.slice(0, 2)).toEqual(["shutdownWebhookQueues", "shutdown"])
+    expect(listeners.sigterm.slice(0, 2)).toEqual(["shutdownWebhookQueues", "listener"])
     expect(exit).toEqual([0, null])
     await expect(readFile(proofPath, "utf8")).resolves.toContain("aborted:true")
 
