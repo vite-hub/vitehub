@@ -460,6 +460,7 @@ export type {
   AgentSandboxProviderOptions,
   AgentSchedulerProviderOptions,
   AgentSettings,
+  AgentSourceProvenance,
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolStandardSchema,
@@ -2192,6 +2193,65 @@ export interface DefineAgent {
 
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    const TPreset extends string = string,
+    CALL_OPTIONS = unknown,
+    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,
+    TContextValues extends object = AgentCapabilitiesInvocationContextValues<TCapabilities>,
+    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
+    TOutput = unknown,
+  >(
+    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>>, "driver" | "workspace"> & {
+      preset: TPreset
+      presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput> & { __vitehubWorkspaceAgent: true }> & Record<string, unknown>
+      extends?: never
+      driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>["driver"]>
+      workspace?: WorkspaceAgentWorkspaceConfig
+    } & ValidateWorkspaceAgentOptions<{ workspace?: WorkspaceAgentWorkspaceConfig, capabilities?: TCapabilities }>,
+  ): WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
+
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    const TPreset extends string = string,
+    CALL_OPTIONS = unknown,
+    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,
+    TContextValues extends object = AgentCapabilitiesInvocationContextValues<TCapabilities>,
+    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
+    TOutput = unknown,
+  >(
+    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>>, "driver" | "workspace"> & {
+      preset: TPreset
+      presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>> & Record<string, unknown>
+      extends?: never
+      driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>["driver"]>
+      workspace: WorkspaceAgentWorkspaceConfig
+    } & ValidateWorkspaceAgentOptions<{ workspace: WorkspaceAgentWorkspaceConfig, capabilities?: TCapabilities }>,
+  ): WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
+
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    const TPreset extends string = string,
+    CALL_OPTIONS = unknown,
+    const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TCapabilities extends AgentStaticCapabilitiesList<TRuntimeConfig> | undefined = undefined,
+    TContextValues extends object = AgentCapabilitiesInvocationContextValues<TCapabilities>,
+    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
+    TOutput = unknown,
+  >(
+    options: Omit<Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>>, "driver" | "workspace"> & {
+      preset: TPreset
+      presets: Record<NoInfer<TPreset>, AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>> & Record<string, unknown>
+      extends?: never
+      driver?: Partial<AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>["driver"]>
+      workspace?: TWorkspace
+    } & ValidateWorkspaceAgentOptions<{ workspace?: TWorkspace, capabilities?: TCapabilities }>,
+  ): TWorkspace extends WorkspaceAgentWorkspaceConfig
+    ? WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TInvokerProfile, TContextValues, AgentCapabilitiesOption<TRuntimeConfig, WorkspaceName, CALL_OPTIONS, TCapabilities>, TOutput>
+    : AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
+
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
     TContextValues extends object = AgentInvocationContextValues,
@@ -2438,6 +2498,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   delete decorations.__vitehubAgentSettings
   // The rebuilt workspace definition owns the newly filled instruction template.
   delete decorations.__vitehubWorkspaceAgentOptions
+  delete decorations.options
   Reflect.deleteProperty(decorations, baseAgentResolve)
   Reflect.deleteProperty(decorations, baseAgentModel)
   Reflect.deleteProperty(decorations, baseAgentDriverKind)

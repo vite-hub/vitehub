@@ -109,6 +109,10 @@
       "types": "./dist/presets/babysitter/server.d.ts",
       "import": "./dist/presets/babysitter/server.js"
     },
+    "./presets/workspace": {
+      "types": "./dist/presets/workspace.d.ts",
+      "import": "./dist/presets/workspace.js"
+    },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"

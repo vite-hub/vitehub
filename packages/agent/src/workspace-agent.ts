@@ -1,5 +1,5 @@
-import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { inheritAgentLayerOptions } from "./agent-layers.ts"
+import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
 import {
@@ -280,6 +280,10 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     },
   }
 
+  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
+  // SAFETY: The object is constructed with the required sourceRootDir and optional source defaults immediately below.
+  const decoratedWorkspace = { sourceRootDir: resolvedSourceRootDir } as { sourceRootDir: string; sources?: typeof sourceDefaults }
+  if (Object.keys(sourceDefaults).length) decoratedWorkspace.sources = sourceDefaults
   const decoratedAgent = {
     ...workspaceAgent,
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
@@ -287,9 +291,8 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
-  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
   inheritAgentLayerOptions(workspaceAgent, decoratedAgent, {
-    workspace: { sourceRootDir: resolvedSourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) },
+    workspace: decoratedWorkspace,
   })
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent
@@ -1292,23 +1295,115 @@ function workspaceMetadataInstructions<
     }
     return []
   })
+  const slotParts = Array.isArray(instructionObject?.content)
+    ? instructionObject.content
+    : [instructionObject?.content]
+  const slotIsDynamic = slotParts.some(part => hasRuntimeType(part, "function"))
+  const slotContent = slotIsDynamic
+    ? (resolveLocalInstructions ? readLocalWorkspaceInstructions(options) : undefined)
+      ?? "Dynamic system instructions resolver configured."
+    : slotParts.filter((part): part is string => hasRuntimeType(part, "string") && part.trim().length > 0).map(part => part.trim()).join("\n\n")
+  const templateParts = Array.isArray(instructionObject?.template) ? instructionObject.template : [instructionObject?.template]
   const composed = instructionObject
-    && hasRuntimeType(instructionObject.template, "string")
-    ? fillSynchronousInstructionSlot(
-      instructionObject.template,
-  hasRuntimeType(instructionObject.content, "string") ? instructionObject.content : "",
-    )
+    && !slotIsDynamic
+    && templateParts.every((part): part is string => hasRuntimeType(part, "string"))
+    ? fillSynchronousInstructionSlot(templateParts.join("\n\n"), slotContent)
     : undefined
-  const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()
+  const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed !== undefined ? [composed] : instructions)].join("\n\n").trim()
   return content ? [content] : []
 }
 
+function replaceInstructionSlots(value: string, content: string): string {
+  return value.replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+}
+
 function fillSynchronousInstructionSlot(template: string, content: string): string {
-  let inFence = false
+  let fence: string | undefined
+  let inlineFence: string | undefined
+  let paragraph = false
+  let listContinuationIndent = 4
+  let listActive = false
   return template.split("\n").map((line) => {
-    if (/^\s*```/.test(line)) { inFence = !inFence; return line }
-    return !inFence ? line.replace(/\{\{\{\s*instructions\s*\}\}\}/g, content) : line
-  }).join("\n").trim()
+    // Fenced blocks may occur inside block quotes; include the container
+    // prefix when classifying delimiters so static inspection matches Markdown.
+    const marker = line.match(/^( {0,3}(?:> ?)*(?:(?:[-+*]|\d+[.)])[ \t]+)?)(`{3,}|~{3,})(.*)$/)
+    if (marker) {
+      const delimiter = marker[2]
+      const trailing = marker[3]
+      const isClosing = Boolean(fence && delimiter[0] === fence[0] && delimiter.length >= fence.length && /^\s*$/.test(trailing))
+      if (fence) { if (isClosing) fence = undefined; return line }
+      if (!/^\s*$/.test(trailing)) { fence = delimiter; return line }
+      fence = delimiter
+      return line
+    }
+    if (fence) return line
+    const indented = /^(?:    |\t)/.test(line)
+    const indentation = line.match(/^ */)?.[0].length ?? 0
+    if (indented && (!paragraph || (listActive && indentation > listContinuationIndent))) return line
+    const list = line.match(/^( {0,3})(?:[-+*]|\d+[.)])([ \t]+)/)
+    if (list) {
+      listContinuationIndent = (list[1]?.length ?? 0) + (list[0]?.length ?? 0) + 3
+      listActive = true
+    } else if (!indented && line.trim().length > 0) {
+      listActive = false
+    }
+    paragraph = line.trim().length > 0 && !indented && (!/^ {0,3}(?:#{1,6}\s|>)/.test(line) || Boolean(list))
+    if (inlineFence) {
+      const run = inlineFence
+      const end = findInlineCodeClose(line, run)
+      if (end < 0) return line
+      inlineFence = undefined
+      const closeEnd = end + run.length
+      return line.slice(0, closeEnd) + replaceInstructionSlots(line.slice(closeEnd), content)
+    }
+    let out = ""
+    let index = 0
+    while (index < line.length) {
+      const tick = line[index]
+      if (tick !== "`") {
+        const next = line.indexOf("`", index)
+        const end = next < 0 ? line.length : next
+        out += line.slice(index, end).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+        index = end
+        continue
+      }
+      // A backslash-escaped backtick is ordinary text, not an inline-code delimiter.
+      let backslashes = 0
+      for (let cursor = index - 1; cursor >= 0 && line[cursor] === "\\"; cursor--) backslashes++
+      if (backslashes % 2 === 1) {
+        out += "`"
+        index++
+        continue
+      }
+      const start = index
+      while (line[index] === "`") index++
+      const run = line.slice(start, index)
+      const end = findInlineCodeClose(line, run, index)
+      if (end < 0) {
+        // An unmatched backtick run is literal text in CommonMark; do not
+        // carry code-span state into subsequent lines.
+        out += line.slice(start).replace(/\{\{\{\s*instructions\s*\}\}\}/g, content)
+        break
+      }
+      out += line.slice(start, end + run.length)
+      index = end + run.length
+    }
+    return out
+  }).join("\n")
+}
+
+/** Find a backtick closing run with exactly the same length. */
+function findInlineCodeClose(line: string, run: string, from = 0): number {
+  let index = from
+  while (index < line.length) {
+    const found = line.indexOf(run, index)
+    if (found < 0) return -1
+    const before = found > 0 ? line[found - 1] : ""
+    const after = line[found + run.length] ?? ""
+    if (before !== "`" && after !== "`") return found
+    index = found + 1
+  }
+  return -1
 }
 
 async function staticWorkspaceMetadataInstructions<

@@ -5,7 +5,7 @@ import { dirname } from 'node:path'
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '../../channels.ts'
 import { matchesGitHubPullRequestFilter } from '../../internal/github-pull-request-filter.ts'
-import { parsePullRequest, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
+import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
 
 export type Snapshot = {
   repository: string; number: number; pr: GitHubPullRequestRecord | null
@@ -31,6 +31,31 @@ export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 
 /** Activity comments have a transport marker; all other humans and bots are feedback. */
 export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item && !String(item.body ?? '').startsWith('<!-- vitehub-agent-activity:'))
+
+function parseSnapshot(value: unknown): Snapshot {
+  if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
+  // SAFETY: JSON.parse returns an object here; validation below checks every owned field.
+  const input = value as Record<string, unknown>
+  // SAFETY: Number.isInteger above guarantees this unknown value is a finite integer for the range check.
+  const number = input.number as number
+  const required = ['repository', 'number', 'generation', 'handled', 'dirtyAt', 'nextAt', 'status', 'lease', 'leaseUntil', 'attempts', 'hydrated', 'refresh', 'feedbackRefresh', 'comments', 'reviews', 'reviewComments', 'checks', 'statuses', 'threads', 'reasons']
+  if (Object.prototype.toString.call(input.repository) !== '[object String]' || !Number.isInteger(input.number) || number < 1 ||
+    required.some(key => !(key in input)) || !['ready', 'working', 'waiting', 'terminal'].includes(String(input.status)) ||
+    (input.lease !== null && Object.prototype.toString.call(input.lease) !== '[object String]') ||
+    ![input.generation, input.handled, input.dirtyAt, input.nextAt, input.leaseUntil, input.attempts].every(n => Number.isFinite(n)) ||
+    ![input.hydrated, input.refresh, input.feedbackRefresh].every(value => value === true || value === false) ||
+    !Array.isArray(input.threads) || !Array.isArray(input.reasons) || input.reasons.some(reason => Object.prototype.toString.call(reason) !== '[object String]')) {
+    throw new TypeError('Invalid inbox snapshot')
+  }
+  const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
+    if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
+    return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
+  }
+  // SAFETY: All snapshot fields and nested values are validated immediately above.
+  return { ...input, pr: input.pr === null ? null : parsePullRequest(input.pr), comments: parseMap(input.comments), reviews: parseMap(input.reviews),
+    reviewComments: parseMap(input.reviewComments), checks: parseMap(input.checks), statuses: parseMap(input.statuses),
+    threads: input.threads.map(parseThread) } as Snapshot
+}
 
 export interface PullRequestInboxOptions {
   path: string
@@ -71,10 +96,17 @@ export class PullRequestInbox {
   }
   get(repository: string, number: number): Snapshot | undefined {
     const row = this.db.prepare('SELECT value FROM pr_snapshots WHERE repository=? AND number=?').get(repository, number)
-    return row ? JSON.parse(row.value as string) as Snapshot : undefined
+    if (!row) return undefined
+    // SAFETY: SQLite schema guarantees value is stored as TEXT.
+    const raw = row.value as string
+    // SAFETY: raw is read from the TEXT SQLite value and JSON.parse returns unknown for boundary validation.
+    return parseSnapshot(JSON.parse(raw))
   }
   all(): Snapshot[] {
-    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => JSON.parse(row.value as string) as Snapshot)
+    return this.db.prepare('SELECT value FROM pr_snapshots').all().map(row => {
+      // SAFETY: SQLite schema guarantees value is stored as TEXT; parseSnapshot validates the decoded boundary.
+      return parseSnapshot(JSON.parse(row.value as string))
+    })
       .filter(s => this.repositories.includes(s.repository))
   }
   private put(s: Snapshot) {
@@ -85,8 +117,9 @@ export class PullRequestInbox {
       status: 'ready', lease: null, leaseUntil: 0, attempts: 0, hydrated: false, refresh: true, feedbackRefresh: true,
       comments: {}, reviews: {}, reviewComments: {}, checks: {}, statuses: {}, threads: [], reasons: [] }
   }
-  meta<T>(key: string): T | undefined {
+  meta(key: string): unknown {
     const row = this.db.prepare('SELECT value FROM inbox_meta WHERE key=?').get(key)
+    // SAFETY: SQLite schema guarantees value is stored as TEXT; metadata remains intentionally untyped JSON.
     return row ? JSON.parse(row.value as string) : undefined
   }
   setMeta(key: string, value: unknown): void { this.db.prepare('INSERT OR REPLACE INTO inbox_meta VALUES (?,?)').run(key, JSON.stringify(value)) }
@@ -150,7 +183,8 @@ export class PullRequestInbox {
       const queued: number[] = []
       const updated: number[] = []
       const finish = (reason?: string): GitHubInboxDeliveryResult => {
-        const result: GitHubInboxDeliveryResult = { accepted: true, queued, updated, ...(reason ? { ignored: true, reason } : {}) }
+        const result: GitHubInboxDeliveryResult = { accepted: true, queued, updated }
+        if (reason) Object.assign(result, { ignored: true, reason })
         this.db.prepare('INSERT INTO deliveries VALUES (?,?,?,?,?)').run(id, event, this.clock(), JSON.stringify(payload), JSON.stringify(result))
         return result
       }
@@ -164,14 +198,16 @@ export class PullRequestInbox {
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return finish('irrelevant PR action')
       if (event === 'pull_request_review_thread' && (!['resolved', 'unresolved'].includes(payload.action ?? '') || !payload.thread?.node_id)) return finish('irrelevant review thread action')
       const check = payload.check_run ?? payload.check_suite ?? payload.workflow_run
-      const sha = check?.head_sha ?? payload.sha
+      // Push payloads expose the updated commit as `after`; use it for
+      // head matching when a provider does not include a check object.
+      const sha = check?.head_sha ?? payload.sha ?? payload.after
       const numbers = new Set<number>()
       const direct = payload.pull_request?.number ?? (payload.issue?.pull_request ? payload.issue.number : undefined)
       if (direct) numbers.add(direct)
       for (const pr of check?.pull_requests ?? []) if (pr.number) numbers.add(pr.number)
       for (const s of this.all()) if (s.repository === repository && s.pr?.state === 'open') {
         if (sha && s.pr.head?.sha === sha) numbers.add(s.number)
-        if (event === 'push' && payload.ref === `refs/heads/${s.pr.base?.ref}`) numbers.add(s.number)
+        if (event === 'push' && (payload.ref === `refs/heads/${s.pr.base?.ref}` || payload.ref === `refs/heads/${s.pr.head?.ref}`)) numbers.add(s.number)
       }
       for (const number of numbers) {
         const existing = this.get(repository, number)
@@ -179,7 +215,8 @@ export class PullRequestInbox {
         // Event filters govern admission only. Lifecycle evidence must still
         // invalidate active work when the author, labels, head, or state changes.
         if (!existing && !matchesGitHubPullRequestFilter({ ...pullRequestFilterContext(repository, payload.pull_request ?? null), actor: payload.sender?.login ?? payload.comment?.user?.login, action: payload.action }, { actor: this.filter?.actor, action: this.filter?.action }, 'event')) continue
-        if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha) continue // old-head CI cannot wake current head
+        const pushRefMatch = event === 'push' && (payload.ref === `refs/heads/${s.pr?.base?.ref}` || payload.ref === `refs/heads/${s.pr?.head?.ref}`)
+        if (sha && s.pr?.head?.sha && s.pr.head.sha !== sha && !pushRefMatch) continue // old-head CI cannot wake current head
         let changed = false
         if (payload.pull_request) changed = this.updatePr(s, payload.pull_request)
         const upsert = (map: Record<string, GitHubEvidence>, value: GitHubEvidence | undefined, itemKey?: string) => {

@@ -77,11 +77,13 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
     read(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
     readThreads?.(repository, number),
   ])
-  return { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
+  const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
     checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
-    ...(threads ? { threads, threadsHydrated: true, feedbackRefresh: false } : {}) }
+  }
+  if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })
+  return snapshot
 }
 
 export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads): Promise<boolean> {
@@ -100,13 +102,13 @@ export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGi
   // No more than one PR per minute, and no PR more often than every 15 minutes.
   // The first probe is delayed because bootstrap/claims already hydrate state.
   const globalKey = 'snapshot-reconcile-next'
-  const globalNext = inbox.meta<number>(globalKey)
+  const globalNext = inbox.meta(globalKey) as number | undefined
   if (globalNext === undefined) { inbox.setMeta(globalKey, now + 15 * 60_000); return }
   if (globalNext > now) return
   inbox.setMeta(globalKey, now + 60_000)
   const candidates = inbox.all().filter(s => !s.lease && s.status !== 'terminal')
-    .sort((a, b) => (inbox.meta<number>(`snapshot-probe:${a.repository}:${a.number}`) ?? 0) - (inbox.meta<number>(`snapshot-probe:${b.repository}:${b.number}`) ?? 0))
-  const s = candidates.find(s => (inbox.meta<number>(`snapshot-probe:${s.repository}:${s.number}`) ?? 0) <= now)
+    .sort((a, b) => ((inbox.meta(`snapshot-probe:${a.repository}:${a.number}`) as number | undefined) ?? 0) - ((inbox.meta(`snapshot-probe:${b.repository}:${b.number}`) as number | undefined) ?? 0))
+  const s = candidates.find(s => ((inbox.meta(`snapshot-probe:${s.repository}:${s.number}`) as number | undefined) ?? 0) <= now)
   if (!s) return
   inbox.setMeta(`snapshot-probe:${s.repository}:${s.number}`, now + 15 * 60_000)
   const snapshot = await readSnapshot(read, s.repository, s.number, readThreads)

@@ -33,6 +33,7 @@ export default defineConfig({
       "src/mcp.ts",
       "src/mcp/stdio.ts",
       "src/output.ts",
+      "src/presets/workspace.ts",
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/eval.ts",

@@ -24,11 +24,11 @@ function layerMetadata(value: unknown): AgentLayerMetadata | undefined {
   return (value as { [agentLayerMetadata]?: AgentLayerMetadata })[agentLayerMetadata]
 }
 
-function rememberLayerMetadata(value: object, metadata: AgentLayerMetadata): void {
+function rememberLayerMetadata(value: Record<string, unknown>, metadata: AgentLayerMetadata): void {
   Object.defineProperty(value, agentLayerMetadata, { configurable: true, value: metadata })
 }
 
-function inheritColocatedSkills(parent: object, child: object): void {
+function inheritColocatedSkills(parent: Record<string, unknown>, child: Record<string, unknown>): void {
   const skills = Object.getOwnPropertyDescriptor(parent, colocatedSkills)
   if (skills) Object.defineProperty(child, colocatedSkills, skills)
 }
@@ -52,7 +52,25 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (path === "driver") {
     if (hasRuntimeType(parent, "string")) parent = { kind: parent }
-    if (record(child) && ("run" in child || (record(parent) && "run" in parent && "model" in child))) return child
+    if (hasRuntimeType(child, "string")) child = { kind: child }
+    if (record(child) && record(parent) && !("kind" in parent) && !("kind" in child)
+      && "model" in parent && hasRuntimeType(child.model, "object") && !("run" in child)) {
+      return {
+        ...parent,
+        ...child,
+        instructions: merge(parent.instructions, child.instructions, "driver.instructions"),
+      }
+    }
+    if (record(child) && ("run" in child || (record(parent) && "run" in parent && "model" in child))) {
+      if (record(parent) && ("run" in parent || "model" in parent) && "model" in child && "instructions" in parent && "instructions" in child) {
+        return {
+          ...parent,
+          ...child,
+          instructions: merge(parent.instructions, child.instructions, "driver.instructions"),
+        }
+      }
+      return child
+    }
     if (record(child) && hasRuntimeType(child.model, "object")) return child
   }
   if (path === "workspace" && record(parent) && record(child) && (("name" in parent) !== ("name" in child))) return child
@@ -70,7 +88,13 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
   }
   if (!record(parent) || !record(child)) return child
   if (definitionMaps.has(path)) return { ...parent, ...child }
-  // A different driver, store provider or runtime is a complete replacement.
+  if (path === "driver" && child.kind !== undefined && child.kind !== parent.kind) {
+    return {
+      ...child,
+      instructions: merge(parent.instructions, child.instructions, "driver.instructions"),
+    }
+  }
+  // A different store provider or runtime is a complete replacement.
   for (const discriminator of ["kind", "provider"]) {
     if (child[discriminator] !== undefined && child[discriminator] !== parent[discriminator]) return { ...child }
   }
@@ -126,9 +150,12 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
 
 export function rememberAgentLayerOptions<T extends AgentDefinition>(definition: T, options: AgentSettings, source: AgentSettings = options): T {
   const inherited = layerMetadata(source)
-  rememberLayerMetadata(definition, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
-  if (inherited?.parent) inheritColocatedSkills(inherited.parent, definition)
-  if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured)
+  // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
+  const metadataTarget = asMetadataTarget(definition)
+  rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
+  if (inherited?.parent) inheritColocatedSkills(asMetadataTarget(inherited.parent), asMetadataTarget(definition))
+  // SAFETY: Metadata stores the private configured layer shape created by this module.
+  if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured as ConfiguredLayer)
   return definition
 }
 
@@ -144,9 +171,10 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
   for (const key of new Set([...Object.keys(parent), ...Object.keys(child ?? {})])) {
     if (key === "__proto__" || key === "constructor" || key === "prototype") continue
     const value = child?.[key] === undefined ? parent[key] : child[key]
-    result[key] = record(value)
-      ? mergePresetOptions(record(parent[key]) ? parent[key] : {}, value)
-      : clonePresetOption(value)
+    if (record(value)) {
+      const parentValue = record(parent[key]) ? parent[key] : {}
+      result[key] = mergePresetOptions(parentValue, value)
+    } else result[key] = clonePresetOption(value)
   }
   return result
 }
@@ -169,14 +197,21 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   assertLayerDefinition(definition)
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
-  inheritColocatedSkills(definition, configured)
-  inheritAgentLayerOptions(definition, configured)
+  inheritColocatedSkills(asMetadataTarget(definition), asMetadataTarget(configured))
+  inheritAgentLayerOptions(asMetadataTarget(definition), asMetadataTarget(configured))
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })
   return configured
 }
 
+function asMetadataTarget(value: unknown): Record<string, unknown> {
+  // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
+  return value as Record<string, unknown>
+}
+
 function rememberConfiguredLayer(definition: AgentDefinition, configured: ConfiguredLayer): void {
-  rememberLayerMetadata(definition, { ...layerMetadata(definition)!, configured })
+  // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
+  const metadataTarget = asMetadataTarget(definition)
+  rememberLayerMetadata(metadataTarget, { ...layerMetadata(definition)!, configured })
   Object.defineProperty(definition, "options", {
     value: Object.freeze(mergePresetOptions({}, configured.options)),
     enumerable: true,
@@ -195,9 +230,11 @@ export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaul
   const metadata = layerMetadata(parent)
   if (!metadata || !child || !hasRuntimeType(child, "object")) return
   // SAFETY: Discovery supplies typed defaults for settings of a registered definition.
-  rememberLayerMetadata(child, {
+  rememberLayerMetadata(child as Record<string, unknown>, {
+    // SAFETY: merge preserves the AgentSettings shape from typed metadata and defaults.
     options: merge(defaults, metadata.options, "") as AgentSettings,
     configured: metadata.configured,
+    // SAFETY: merge preserves the optional partial settings shape.
     defaults: merge(metadata.defaults, defaults, "") as Partial<AgentSettings> | undefined,
   })
 }
