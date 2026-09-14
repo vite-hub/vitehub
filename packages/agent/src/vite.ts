@@ -2112,7 +2112,7 @@ async function writeAgentWebhookRouteHandler(
       "    if (stopping) waitUntil?.(stopping)",
       "    return stopping",
       "  }",
-      `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
+      `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
       `  const webhookAliases = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/$/, '') || '/', target])))} ;`,
       "  nitroApp.hooks.hook('request', event => {",
       "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\/$/, '') || '/'",
