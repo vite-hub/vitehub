@@ -20,7 +20,7 @@ const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "manual" | "runtimeOnly"> {
   const source = readFileSync(file, "utf8")
   const names = ["defineSchedule", "defineScheduleTarget"]
-  const definition = findDefaultExportCall(source, ["defineSchedule"], { positional: true })
+  const definition = findDefaultExportCall(source, ["defineSchedule"], { positionalOptionsIndex: 2 })
     ?? findDefaultExportCall(source, ["defineScheduleTarget"])
   const unsupported = (offset: number, message: string): never => {
     const line = source.slice(0, offset).split("\n").length
