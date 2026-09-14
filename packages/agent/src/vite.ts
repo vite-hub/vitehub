@@ -2993,8 +2993,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       if (resolved) mergedNitro.alias = { ...(isRecord(mergedNitro.alias) ? mergedNitro.alias : {}), [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) }
       const result: UserConfig & { nitro?: NitroConfig } = {
-        // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Include resolve only for generated registries.
-        ...(resolved ? { resolve: { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) } } } : {}),
+        resolve: resolved ? { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) } } : undefined,
         define: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(root),
           ...config.define,
