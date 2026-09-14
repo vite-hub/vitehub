@@ -115,9 +115,9 @@ export async function prepareGitHubPullRequestWorkspace(checkout: string, target
     await sanitize('--worktree')
     if (materializedPaths) {
       const trackedPaths = new Set((await git(destination, ['ls-files', '-z'])).split('\0').filter(Boolean))
-      const omitted = [...trackedPaths].filter(path => !materializedPaths.has(path) || /(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(path))
+      const omitted = [...trackedPaths].filter(path => !materializedPaths.has(path) || /(?:^|\/)(?:AGENTS|CLAUDE)\.md$|(?:^|\/)generated[^\/]*$/.test(path))
       if (omitted.length) await git(destination, ['update-index', '--skip-worktree', '--', ...omitted])
-      const selected = [...trackedPaths].filter(path => materializedPaths.has(path) && !/(?:^|\/)(?:AGENTS|CLAUDE)\.md$/.test(path))
+      const selected = [...trackedPaths].filter(path => materializedPaths.has(path) && !/(?:^|\/)(?:AGENTS|CLAUDE)\.md$|(?:^|\/)generated[^\/]*$/.test(path))
       if (selected.length) await git(destination, ['checkout-index', '--force', '--', ...selected])
       // Keep generated-only baseline files out of a provider's ordinary git add -A.
       const generated = [...materializedPaths].filter(path => !trackedPaths.has(path))
