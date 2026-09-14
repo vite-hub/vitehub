@@ -51,6 +51,7 @@ interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStat
   configHash: string
   cacheMaxAge?: number
   ownsMount?: boolean
+  mountIdentity?: string
   ownedAncestors?: string[]
   ownedDirectories?: string[]
   items?: Record<string, LazyMaterializedMetadata>
@@ -795,6 +796,7 @@ async function materializeWorkspaceSourcesInternal(
     let ownsMount = Boolean(source.mountPath)
       && existing?.mountPath === source.mountPath && existing.ownsMount === true
       && Boolean(await store.stat(source.mountPath))
+    let mountIdentity = existing?.mountPath === source.mountPath ? existing.mountIdentity : undefined
     const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let revision = existing?.revision
@@ -810,6 +812,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
         status: "updating",
@@ -833,7 +836,7 @@ async function materializeWorkspaceSourcesInternal(
       if (source.mountPath) {
         await control.mutate(async () => {
           const mountExists = Boolean(await store.stat(source.mountPath))
-          await store.mkdir(source.mountPath, { recursive: true })
+          await store.mkdir(source.mountPath, { recursive: true, onCreate: (_path, identity) => { ownsMount = true; mountIdentity = identity } })
           ownsMount = ownsMount || !mountExists
         })
       }
