@@ -318,6 +318,7 @@ describe("source scanner", () => {
       "as const ?? false",
       "as const + 1",
       "as const - 1",
+      "as Options - Other",
       "as const * 2",
       "as const / 2",
       "as const > false",
