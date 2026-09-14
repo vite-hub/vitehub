@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { resolveRuntimeValue } from "@vite-hub/runtime";
+import { hasRuntimeType } from "../../internal/runtime-type.ts";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
 import { createMessage, defineAgent, runScheduledAgent } from "../../index.ts";
 import type { AgentDefinition, CodexDriverOptions } from "../../index.ts";
@@ -493,13 +494,13 @@ function assertBabysitterAgent(agent: AgentDefinition): asserts agent is Babysit
     !("options" in agent) ||
     !agent.options ||
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
-    typeof agent.options !== "object" || // doctor-disable-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
+    !hasRuntimeType(agent.options, "object") ||
     !("autoMerge" in agent.options) ||
     typeof agent.options.autoMerge !== "boolean" ||
     !("filter" in agent.options) ||
     !agent.options.filter ||
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Agent options are validated at runtime.
-    typeof agent.options.filter !== "object" ||
+    !hasRuntimeType(agent.options.filter, "object") ||
     Array.isArray(agent.options.filter)
   ) {
     throw new Error("Babysitter runtime requires a configured Babysitter Agent Definition.");
