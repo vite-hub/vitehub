@@ -9,6 +9,7 @@ import { prepareWorkspaceSource } from "./preparation.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { fileAttributesUnavailable } from "../internal/file-attributes.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -280,7 +281,8 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
 export async function materializedFileMatches(file: Awaited<ReturnType<WorkspaceStore["readFile"]>>, item: LazyMaterializedMetadata) {
   if (!file || !item.materializedContentDigest) return false
   if (await sha256(file.content) !== item.materializedContentDigest) return false
-  if (!item.materializedAttributes || file.mediaType === undefined || file.metadata === undefined) return true
+  if (!item.materializedAttributes || fileAttributesUnavailable(file)) return true
+  if (file.mediaType === undefined || file.metadata === undefined) return false
   return file.mediaType === item.materializedMediaType
     && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
 }
