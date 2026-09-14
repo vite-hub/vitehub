@@ -471,7 +471,7 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
   return calls
 }
 
-export function findDefaultExportCall(source: string, names: string[]): DefaultExportCall | undefined {
+export function findDefaultExportCall(source: string, names: string[], options: { positional?: boolean } = {}): DefaultExportCall | undefined {
   const masked = maskSourceLiterals(source)
   const calls = names
     .flatMap(name => findIdentifierCalls(source, name))
@@ -479,7 +479,12 @@ export function findDefaultExportCall(source: string, names: string[]): DefaultE
 
   for (const call of calls) {
     const callArgument = stripBoundaryComments(call.arguments[0] || "")
-    if (!callArgument.startsWith("{")) continue
+    if (!callArgument.startsWith("{")) {
+      if (options.positional && /\bexport\s+default\s*(?:\(\s*)*$/.test(masked.slice(0, call.start))) {
+        return { ...call, argument: callArgument }
+      }
+      continue
+    }
     const objectEnd = findMatching(callArgument, 0, "{", "}")
     if (objectEnd === undefined) continue
     const suffix = stripBoundaryComments(callArgument.slice(objectEnd + 1))
