@@ -12,6 +12,15 @@ describe("defineSchedule", () => {
     })
   })
 
+  it("creates a positional definition and preserves options", () => {
+    const handler = () => "ok"
+    expect(defineSchedule("0 9 * * *", handler)).toEqual({ cron: "0 9 * * *", handler })
+    expect(defineSchedule("0 9 * * *", handler, { manual: true, allowRuntimeSchedules: true }))
+      .toEqual({ cron: "0 9 * * *", handler, options: { manual: true, allowRuntimeSchedules: true } })
+    expect(() => defineSchedule("0 9 * * *", handler, { manual: "yes" } as never)).toThrow(/manual must be a boolean/)
+    expect(() => defineSchedule("0 9 * * *", handler, null as never)).toThrow(/options must be an object/)
+  })
+
   it("rejects invalid definition inputs", () => {
     expect(() => defineSchedule(undefined as never)).toThrow(/expects an object/)
     expect(() => defineSchedule({ cron: "", handler: () => {} })).toThrow(/cron string/)

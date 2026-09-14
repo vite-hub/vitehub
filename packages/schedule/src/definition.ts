@@ -1,12 +1,16 @@
-import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleHandler, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleDefinitionOptions, ScheduleHandler, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cronFieldPattern = /^[^\s]+$/
-const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "cron", "handler", "manual"])
+const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "manual", "cron", "handler"])
 const scheduleTargetDefinitionKeys = new Set(["handler"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function isCronString(value: unknown): value is string {
+  return value !== null && value !== undefined && String(value) === value
 }
 
 function validateCron(cron: string): void {
@@ -20,11 +24,16 @@ function validateCron(cron: string): void {
   }
 }
 
+export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: ScheduleDefinitionOptions): ScheduleDefinition<TResult>
 export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult>
-export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: { allowRuntimeSchedules?: boolean, manual?: boolean }): ScheduleDefinition<TResult>
-export function defineSchedule<TResult = unknown>(inputOrCron: ScheduleDefinitionInput<TResult> | string, handler?: ScheduleHandler<TResult>, options: { allowRuntimeSchedules?: boolean, manual?: boolean } = {}): ScheduleDefinition<TResult> {
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime callers may use the positional overload.
-  const input = typeof inputOrCron === "string" ? { cron: inputOrCron, handler, ...options } : inputOrCron
+export function defineSchedule<TResult = unknown>(cronOrInput: string | ScheduleDefinitionInput<TResult>, handler?: ScheduleHandler<TResult>, options: ScheduleDefinitionOptions = {}): ScheduleDefinition<TResult> {
+  if (!isPlainObject(options)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` options must be an object." })
+  }
+  if (!isCronString(cronOrInput) && !isPlainObject(cronOrInput)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
+  }
+  const input = isPlainObject(cronOrInput) ? cronOrInput : { ...options, cron: cronOrInput, handler: handler! }
   if (!isPlainObject(input)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
   }
@@ -40,13 +49,12 @@ export function defineSchedule<TResult = unknown>(inputOrCron: ScheduleDefinitio
     throw scheduleErrorDiagnostics.SCHEDULE_C0005({ message: "`defineSchedule()` requires a schedule handler." })
   }
 
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped runtime options at this public boundary.
   if (typeof input.allowRuntimeSchedules !== "undefined" && typeof input.allowRuntimeSchedules !== "boolean") {
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` allowRuntimeSchedules must be a boolean." })
   }
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped runtime options at this public boundary.
-  if (typeof input.manual !== "undefined" && typeof input.manual !== "boolean") {
-    throw scheduleErrorDiagnostics.SCHEDULE_C0004({ message: "`defineSchedule()` manual must be a boolean." })
+
+  if (input.manual !== undefined && input.manual !== true && input.manual !== false) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` manual must be a boolean." })
   }
 
   const definition: ScheduleDefinition<TResult> = {
@@ -54,9 +62,11 @@ export function defineSchedule<TResult = unknown>(inputOrCron: ScheduleDefinitio
     handler: input.handler,
   }
   if (typeof input.allowRuntimeSchedules !== "undefined") {
-    definition.options = { ...definition.options, allowRuntimeSchedules: input.allowRuntimeSchedules }
+    definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
   }
-  if (input.manual !== undefined) definition.options = { ...definition.options, manual: input.manual }
+  if (input.manual !== undefined) {
+    definition.options = { ...definition.options, manual: input.manual }
+  }
   return definition
 }
 

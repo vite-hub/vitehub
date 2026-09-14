@@ -2,13 +2,14 @@ import { providerCallbackMetadata, withProviderCallbackMetadata } from "./intern
 import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { chmod, cp, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
-import { basename, dirname, extname, join, relative, resolve } from "node:path"
+import { basename, delimiter, dirname, extname, join, relative, resolve } from "node:path"
 
 import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
@@ -107,6 +108,8 @@ interface GeneratedProviderFile {
   existed: boolean
   link?: string
   mode?: number
+  ownedLink?: string
+  copiedBridgeSource?: string
   path: string
 }
 
@@ -144,6 +147,95 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   }
 }
 
+const providerSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"] as const
+
+async function hasSafeProviderPath(root: string, path: string): Promise<boolean> {
+  let current = root
+  for (const segment of relative(root, path).split(/[\\/]/).filter(Boolean)) {
+    current = join(current, segment)
+    const entry = await lstat(current).catch(() => undefined)
+    if (!entry) return false
+    if (entry.isSymbolicLink()) return false
+  }
+  return true
+}
+
+async function providerSkillDirectories(root: string, skillRoot: string): Promise<string[]> {
+  const directory = join(root, skillRoot)
+  if (!await hasSafeProviderPath(root, directory)) return []
+  const entry = await lstat(directory).catch(() => undefined)
+  if (!entry || !entry.isDirectory() || entry.isSymbolicLink()) return []
+  const children = await readdir(directory, { withFileTypes: true })
+  const skills: string[] = []
+  for (const child of children) {
+    if (!child.isDirectory() || child.isSymbolicLink()) continue
+    const manifest = await lstat(join(directory, child.name, "SKILL.md")).catch(() => undefined)
+    if (manifest?.isFile() && !manifest.isSymbolicLink()) skills.push(child.name)
+  }
+  return skills
+}
+
+async function materializeProviderSkillLink(root: string, source: string, target: string): Promise<GeneratedProviderFile | undefined> {
+  const targetEntry = await lstat(target).catch(() => undefined)
+  if (targetEntry) return
+  let parent = root
+  const directories: string[] = []
+  for (const segment of relative(root, dirname(target)).split(/[\\/]/).filter(Boolean)) {
+    parent = join(parent, segment)
+    const parentEntry = await lstat(parent).catch(() => undefined)
+    if (parentEntry?.isSymbolicLink()) return
+    if (parentEntry && !parentEntry.isDirectory()) return
+    if (!parentEntry) {
+      await mkdir(parent)
+      directories.push(parent)
+    }
+  }
+  const link = relative(dirname(target), source)
+  try {
+    await symlink(link, target, "dir")
+    return { directories, existed: false, ownedLink: link, path: target }
+  }
+  catch (error) {
+    // Windows may deny directory symlinks without Developer Mode or elevation.
+    // Copy the skill tree as a safe, self-contained compatibility bridge.
+    if (isRuntimeRecord(error) && (error.code === "EPERM" || error.code === "EACCES")) {
+      try {
+        await cp(source, target, { recursive: true })
+        return { directories, existed: false, path: target, copiedBridgeSource: source }
+      }
+      catch (copyError) {
+        for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
+        throw copyError
+      }
+    }
+    for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
+    throw error
+  }
+}
+
+async function materializeProviderSkillCompatibility(root: string): Promise<GeneratedProviderFile[]> {
+  const skills = new Map<string, string>()
+  for (const skillRoot of providerSkillRoots) {
+    for (const name of await providerSkillDirectories(root, skillRoot)) {
+      if (!skills.has(name)) skills.set(name, join(root, skillRoot, name))
+    }
+  }
+  const generated: GeneratedProviderFile[] = []
+  try {
+    for (const [name, source] of skills) {
+      for (const skillRoot of providerSkillRoots) {
+        const link = await materializeProviderSkillLink(root, source, join(root, skillRoot, name))
+        if (link) generated.push(link)
+      }
+    }
+    return generated
+  }
+  catch (error) {
+    for (const entry of generated.reverse()) await restoreGeneratedProviderFile(entry)
+    throw error
+  }
+}
+
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
   if (generated.appendedContent !== undefined) {
     const entry = await lstat(generated.path).catch(() => undefined)
@@ -162,6 +254,38 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
         return
       }
     }
+    return
+  }
+  if (generated.ownedLink !== undefined) {
+    const entry = await lstat(generated.path).catch(() => undefined)
+    if (entry?.isSymbolicLink() && await readlink(generated.path) === generated.ownedLink) {
+      await rm(generated.path)
+    }
+    for (const directory of generated.directories.reverse()) {
+      await rmdir(directory).catch((error) => {
+        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error
+      })
+    }
+    return
+  }
+  if (generated.copiedBridgeSource !== undefined) {
+    // Reconcile conservatively: never remove or overwrite the original Skill
+    // before the replacement is safely staged. If several provider bridges
+    // exist, preserve the original as the explicit conflict policy.
+    if ((await lstat(generated.path).catch(() => undefined))?.isDirectory()) {
+      const sourceEntry = await lstat(generated.copiedBridgeSource).catch(() => undefined)
+      // The source may have been replaced by a file, symlink, or other entry
+      // while the bridge was active. That entry is not valid custody of the
+      // original Skill tree; restore the bridge contents in its place.
+      if (!sourceEntry || !sourceEntry.isDirectory()) {
+        if (sourceEntry) await rm(generated.copiedBridgeSource, { recursive: true, force: true })
+        await cp(generated.path, generated.copiedBridgeSource, { recursive: true })
+      }
+    }
+    await rm(generated.path, { recursive: true, force: true })
+    for (const directory of generated.directories.reverse()) await rmdir(directory).catch(() => undefined)
     return
   }
   await rm(generated.path, { force: true, recursive: true })
@@ -374,7 +498,7 @@ function parsedProviderLaunchDiagnostic(value: unknown): ProviderLaunchDiagnosti
 }
 
 function providerSecretEnvironmentKeys(environment: AgentProviderEnvironment | undefined, requiredEnvironment: readonly string[]): string[] {
-  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment, "CLIPROXY_API_KEY"])]
+  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment, "CLIPROXY_API_KEY"])].filter(key => key !== "VITEHUB_BROWSER_ACTIVE")
 }
 
 function providerLauncherSource(
@@ -2432,6 +2556,7 @@ async function* runProvider<
       if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
+    generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))
     if (workspaceSession) {
       await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
@@ -2501,9 +2626,21 @@ async function* runProvider<
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
       ? (options.provider === "codex" ? "codex" : "claude")
       : providerExecutable
+    const capabilityEnvironment = auxiliary ? undefined : browserRuntimeEnvironment(context.context)
+    if (options.launch !== undefined && capabilityEnvironment?.PATH) {
+      throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+    }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...providerEnvironmentOverrides,
+      ...capabilityEnvironment,
+      VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
+      ...(capabilityEnvironment?.LD_LIBRARY_PATH
+        ? { LD_LIBRARY_PATH: [capabilityEnvironment.LD_LIBRARY_PATH, providerEnvironmentOverrides?.LD_LIBRARY_PATH].filter(Boolean).join(delimiter) }
+        : {}),
+      ...(capabilityEnvironment?.PATH
+        ? { PATH: `${capabilityEnvironment.PATH}${delimiter}${providerEnvironmentOverrides?.PATH || process.env.PATH || ""}` }
+        : {}),
     }, options.provider)
     let providerLauncher: string | undefined
     if (options.launch !== undefined) {
@@ -2511,6 +2648,7 @@ async function* runProvider<
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
       }
       const requiredEnvironment = Object.freeze([
+        "VITEHUB_BROWSER_ACTIVE",
         ...(codexCredentialHome ? ["CODEX_HOME"] : []),
         ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
       ])
@@ -2542,6 +2680,8 @@ async function* runProvider<
       options.providerSettings?.launchArgs,
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
+      // Login profiles reset PATH and hide the invocation's managed browser CLI.
+      ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
     // The runtime chooses environment arguments over settings. Give auxiliary
