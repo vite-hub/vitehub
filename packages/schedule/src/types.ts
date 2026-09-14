@@ -17,6 +17,7 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
   allowRuntimeSchedules?: boolean
   cron: string
   handler: ScheduleHandler<TResult>
+  manual?: boolean
 }
 
 export interface ScheduleDefinitionOptions {
@@ -163,6 +164,7 @@ export interface ScheduleRunStore {
 export interface DiscoveredScheduleDefinition {
   allowRuntimeSchedules?: boolean
   handler: string
+  manual?: boolean
   name: string
   runtimeOnly?: boolean
   source?: "server-schedules" | "vite-suffix"

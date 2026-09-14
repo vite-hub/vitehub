@@ -17,7 +17,7 @@ import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
-function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "runtimeOnly"> {
+function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "manual" | "runtimeOnly"> {
   const source = readFileSync(file, "utf8")
   const names = ["defineSchedule", "defineScheduleTarget"]
   const definition = findDefaultExportCall(source, names)
@@ -35,6 +35,7 @@ function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDef
   }
 
   let allowRuntimeSchedules = false
+  let manual: boolean | undefined
   for (const entry of splitTopLevel(definition.argument.slice(1, -1))) {
     const property = stripBoundaryComments(entry)
     if (property.startsWith("...") || property.startsWith("[")) {
@@ -47,8 +48,13 @@ function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDef
     else if (value !== undefined || /^(?:(?:get|set)\s+)?allowRuntimeSchedules\b/.test(property)) {
       unsupported(definition.start, "Schedule discovery requires allowRuntimeSchedules to be a literal true or false; it cannot evaluate this expression.")
     }
+    const manualValue = readObjectProperty(`{${property}}`, "manual")
+    if (manualValue === "true" || manualValue === "false") manual = manualValue === "true"
+    else if (manualValue !== undefined || /^(?:(?:get|set)\s+)?manual\b/.test(property)) {
+      unsupported(definition.start, "Schedule discovery requires manual to be a literal true or false; it cannot evaluate this expression.")
+    }
   }
-  return { allowRuntimeSchedules }
+  return { allowRuntimeSchedules, manual }
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {
