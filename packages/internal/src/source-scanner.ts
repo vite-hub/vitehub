@@ -492,6 +492,18 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       if (trailing && !/^(?:as|satisfies)\b/.test(trailing)) break
       callArgument = stripBoundaryComments(callArgument.slice(1, boundaryEnd))
     }
+    // Assertions may wrap a parenthesized expression in the opposite order:
+    // `({ ... } as const)` or `(({ ... }) as const)`. Strip accepted suffixes
+    // before another boundary-parentheses pass so both forms normalize.
+    while (!callArgument.startsWith("{") && /^(?:.|\n)*\}\s+(?:as|satisfies)\b/.test(callArgument)) {
+      const objectStart = callArgument.indexOf("{")
+      if (objectStart < 0) break
+      const objectEnd = findMatching(callArgument, objectStart, "{", "}")
+      if (objectEnd === undefined) break
+      const suffix = stripBoundaryComments(callArgument.slice(objectEnd + 1))
+      if (!/^(?:as|satisfies)\b/.test(suffix)) break
+      callArgument = stripBoundaryComments(callArgument.slice(0, objectEnd + 1))
+    }
     if (!callArgument.startsWith("{")) continue
     const objectEnd = findMatching(callArgument, 0, "{", "}")
     if (objectEnd === undefined) continue
