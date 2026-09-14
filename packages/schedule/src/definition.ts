@@ -1,8 +1,8 @@
-import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleHandler, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cronFieldPattern = /^[^\s]+$/
-const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "cron", "handler"])
+const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "cron", "handler", "manual"])
 const scheduleTargetDefinitionKeys = new Set(["handler"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -20,7 +20,10 @@ function validateCron(cron: string): void {
   }
 }
 
-export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult> {
+export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult>
+export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: { allowRuntimeSchedules?: boolean, manual?: boolean }): ScheduleDefinition<TResult>
+export function defineSchedule<TResult = unknown>(inputOrCron: ScheduleDefinitionInput<TResult> | string, handler?: ScheduleHandler<TResult>, options: { allowRuntimeSchedules?: boolean, manual?: boolean } = {}): ScheduleDefinition<TResult> {
+  const input = typeof inputOrCron === "string" ? { cron: inputOrCron, handler, ...options } : inputOrCron
   if (!isPlainObject(input)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
   }
@@ -39,14 +42,18 @@ export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput
   if (typeof input.allowRuntimeSchedules !== "undefined" && typeof input.allowRuntimeSchedules !== "boolean") {
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` allowRuntimeSchedules must be a boolean." })
   }
+  if (typeof input.manual !== "undefined" && typeof input.manual !== "boolean") {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0004({ message: "`defineSchedule()` manual must be a boolean." })
+  }
 
   const definition: ScheduleDefinition<TResult> = {
     cron: input.cron,
     handler: input.handler,
   }
   if (typeof input.allowRuntimeSchedules !== "undefined") {
-    definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
+    definition.options = { ...definition.options, allowRuntimeSchedules: input.allowRuntimeSchedules }
   }
+  if (typeof input.manual !== "undefined") definition.options = { ...definition.options, manual: input.manual }
   return definition
 }
 

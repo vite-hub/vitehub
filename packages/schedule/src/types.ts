@@ -21,6 +21,7 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
 
 export interface ScheduleDefinitionOptions {
   allowRuntimeSchedules?: boolean
+  manual?: boolean
 }
 
 export interface ScheduleDefinition<TResult = unknown> {
