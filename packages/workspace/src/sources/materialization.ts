@@ -155,8 +155,8 @@ function sourceSkillPromotion(path: string, mountPath: string): { destination: s
   const match = relative.match(/^(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
   const root = match?.[1] as typeof sourceSkillRoots[number] | undefined
   if (!root) return
-  const relative = match[2]
-  const [skill, ...rest] = relative.split("/")
+  const skillPath = match[2]
+  const [skill, ...rest] = skillPath.split("/")
   if (!skill || !/^[a-z0-9][a-z0-9-]*$/.test(skill) || !rest.length) return
   return { destination: `.agents/skills/${skill}/${rest.join("/")}`, root, skill }
 }
