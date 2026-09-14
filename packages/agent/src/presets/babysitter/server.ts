@@ -493,7 +493,7 @@ function assertBabysitterAgent(agent: AgentDefinition): asserts agent is Babysit
     !("options" in agent) ||
     !agent.options ||
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
-    typeof agent.options !== "object" ||
+    typeof agent.options !== "object" || // doctor-disable-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
     !("autoMerge" in agent.options) ||
     typeof agent.options.autoMerge !== "boolean" ||
     !("filter" in agent.options) ||
