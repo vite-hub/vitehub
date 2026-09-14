@@ -490,7 +490,13 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       // `const` is a complete assertion type by itself. Any operator after it
       // therefore belongs to the runtime expression (including operators whose
       // right-hand side is an identifier rather than a literal).
-      if (/^(?:as\s+const|satisfies\s+const)\b/i.test(value) && /(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=<>]|,|\||&|\^|\b(?:instanceof|in)\b)/.test(value.slice(value.indexOf("const") + 5))) return false
+      if (/^(?:as\s+const|satisfies\s+const)\b/i.test(value)) {
+        const afterConst = value.slice(value.indexOf("const") + 5).trim()
+        // `as const satisfies T` is the only suffix permitted after a
+        // const assertion; everything else is runtime expression material.
+        if (afterConst && !/^satisfies\s+\S[\s\S]*$/i.test(afterConst)) return false
+        if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=<>]|,|\||&|\^|\b(?:instanceof|in)\b)/.test(afterConst)) return false
+      }
       // Operators and call syntax after an assertion change the runtime value;
       // reject them while retaining union/intersection punctuation in types.
       if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=]|(?<![\w$])-(?=\s*\d)|,)/.test(value)) return false
