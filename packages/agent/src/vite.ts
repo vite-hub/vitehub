@@ -1896,12 +1896,12 @@ async function generateAgentWebhookRouteHandler(
           "",
         ]
       : []),
-    `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
+    `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
     ...(options.inspectionRoute
       ? [`const inspectionRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.inspectionRoute))})`]
       : []),
     "",
-    `const webhookAliases: Record<string, { agent: string, webhook: string }> = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/$/, "") || "/", target])))}`,
+    `const webhookAliases: Record<string, { agent: string, webhook: string }> = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/$/, "") || "/", target])))};`,
     "export default defineEventHandler(async (event) => {",
     "  const pathname = getRequestURL(event).pathname",
     "  const alias = webhookAliases[pathname.replace(/\\/$/, '') || '/']",
