@@ -20,6 +20,7 @@ function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}) {
   }
   const state = {
     rules: [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "test" }] } }] as unknown[],
+    additionalRulePages: [] as unknown[][],
     protection: null as { requiresStatusChecks: boolean, requiredStatusCheckContexts: string[] } | null,
     children: 0,
     thread: { pullRequest: { id: "PR_123" }, isResolved: false },
@@ -34,7 +35,7 @@ function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}) {
   const command = vi.fn(async (args: string[]) => {
     if (args[1]?.includes("/actions/runs/")) return { stdout: JSON.stringify(state.run), stderr: "" }
     if (args[0] === "run") return { stdout: state.logs, stderr: "" }
-    if (args[1]?.includes("/rules/branches/")) return { stdout: JSON.stringify(state.rules), stderr: "" }
+    if (args.some(arg => arg.includes("/rules/branches/"))) return { stdout: JSON.stringify([state.rules, ...state.additionalRulePages]), stderr: "" }
     if (args[1] !== "graphql") return { stdout: "{}", stderr: "" }
     const query = args.find(arg => arg.startsWith("query="))!
     let data: unknown
@@ -101,6 +102,17 @@ describe("native auto-merge", () => {
     prepare(f)
     expect(await f.operations.requestAutoMerge()).toEqual({ status: "blocked", reason })
     expect(f.mutations()).toHaveLength(0)
+  })
+
+  it("accepts required checks returned on a later branch rules page", async () => {
+    const f = fixture({ autoMerge: true })
+    f.state.additionalRulePages = [f.state.rules]
+    f.state.rules = [{ type: "required_signatures" }]
+    expect(await f.operations.requestAutoMerge()).toEqual({ status: "enabled" })
+    expect(f.command).toHaveBeenCalledWith(
+      ["api", "--paginate", "--slurp", "/repos/acme/app/rules/branches/main?per_page=100"],
+      expect.anything(),
+    )
   })
 
   it("accepts classic branch protection with required checks", async () => {
