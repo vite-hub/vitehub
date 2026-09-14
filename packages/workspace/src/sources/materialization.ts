@@ -458,6 +458,16 @@ async function removeStaleMaterializedSourceFiles(
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[entry.path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
+      // Re-read immediately before removal so edits made while checkpointing
+      // are treated as explicit ownership and never deleted.
+      const latest = await store.readFile(entry.path)
+      if (!latest) continue
+      const latestOwner = latest.metadata?.source
+      if (latestOwner !== undefined && latestOwner !== source.key) continue
+      if (latestOwner === undefined && previousSnapshot?.items?.[entry.path]) {
+        const digest = previousSnapshot.items[entry.path].materializedContentDigest
+        if (!digest || await sha256(latest.content) !== digest) continue
+      }
       await control.mutate(() => store.rm(entry.path, { force: true }))
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
