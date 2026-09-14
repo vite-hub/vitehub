@@ -480,7 +480,7 @@ export function findDefaultExportCall(source: string, names: string[], options: 
   for (const call of calls) {
     // Accept only complete assertions to named types (or `const`). More complex
     // type syntax stays unsupported rather than risking a runtime expression.
-    const isCompleteAssertion = (value: string) => /^(?:(?:as|satisfies)\s+[a-z_$][\w$]*(?:\s*\.\s*[a-z_$][\w$]*)*\s*)+$/i.test(value)
+    const isCompleteAssertion = (value: string) => /^(?:(?:as|satisfies)\s+[a-z_$][\w$]*(?:\s*\.\s*[a-z_$][\w$]*)*(?:\s*[|&]\s*[a-z_$][\w$]*(?:\s*\.\s*[a-z_$][\w$]*)*)*\s*)+$/i.test(value)
     const firstArgument = stripBoundaryComments(call.arguments[0] || "")
     let callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
       ? stripBoundaryComments(call.arguments[options.positionalOptionsIndex] || "{}")
