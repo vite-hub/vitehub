@@ -1640,3 +1640,6 @@
 .session-inspector__diff-turn { border: 1px solid var(--ui-border); border-radius: 0.5rem; margin-bottom: 0.75rem; overflow: hidden; }
 .session-inspector__diff-select { align-items: center; background: var(--ui-bg-muted); display: flex; gap: 0.5rem; padding: 0.45rem 0.65rem; font-size: 0.75rem; }
 .session-inspector__patch { min-height: 12rem; }
+.session-inspector__diff-turns { display: flex; gap: 0.25rem; overflow-x: auto; padding: 0.5rem 1rem; border-bottom: 1px solid var(--ui-border); }
+.session-inspector__diff-turns button { flex-shrink: 0; border: 0; border-radius: 0.35rem; background: transparent; color: var(--ui-text-muted); cursor: pointer; font-size: 0.75rem; padding: 0.35rem 0.6rem; }
+.session-inspector__diff-turns button:hover, .session-inspector__diff-turns button.is-active { background: var(--ui-bg-accented); color: var(--ui-text-highlighted); }

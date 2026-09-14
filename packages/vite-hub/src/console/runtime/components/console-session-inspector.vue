@@ -109,9 +109,13 @@ const diffs = computed(() => {
   return [...new Set(patches)];
 });
 const selectedDiffs = ref<number[]>([]);
+const activeDiffTurn = ref<number | "all">("all");
 const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
 function toggleAllDiffs() { selectedDiffs.value = allDiffsSelected.value ? [] : diffs.value.map((_, index) => index); }
-watch(diffs, (value) => { selectedDiffs.value = selectedDiffs.value.filter((index) => index < value.length); });
+watch(diffs, (value) => {
+  selectedDiffs.value = selectedDiffs.value.filter((index) => index < value.length);
+  if (typeof activeDiffTurn.value === "number" && activeDiffTurn.value >= value.length) activeDiffTurn.value = "all";
+});
 const treeOpen = ref(true);
 const wrapLines = useConsoleWordWrap();
 const tabstrip = ref<HTMLElement>();
@@ -643,9 +647,13 @@ function message(error: unknown) {
           {{ allDiffsSelected ? 'Clear selection' : 'Select all' }}
         </UButton>
       </div>
+      <nav v-if="diffs.length > 1" class="session-inspector__diff-turns" aria-label="Diff turns">
+        <button type="button" :class="{ 'is-active': activeDiffTurn === 'all' }" @click="activeDiffTurn = 'all'">All changes</button>
+        <button v-for="(_, index) in diffs" :key="index" type="button" :class="{ 'is-active': activeDiffTurn === index }" @click="activeDiffTurn = index">Turn {{ index + 1 }}</button>
+      </nav>
       <UEmpty v-if="!diffs.length" icon="i-lucide-git-compare-arrows" title="No code changes" description="Changes made during this run will appear here." />
       <div v-else class="session-inspector__diff-list">
-        <section v-for="(patch, index) in diffs" :key="index" class="session-inspector__diff-turn">
+        <section v-for="(patch, index) in diffs" v-show="activeDiffTurn === 'all' || activeDiffTurn === index" :key="index" class="session-inspector__diff-turn">
           <label class="session-inspector__diff-select">
             <input v-model="selectedDiffs" type="checkbox" :value="index" />
             <span>Turn {{ index + 1 }}</span>
