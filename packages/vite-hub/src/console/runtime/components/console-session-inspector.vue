@@ -90,7 +90,7 @@ const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.
 function toggleAllDiffs() { selectedDiffs.value = allDiffsSelected.value ? [] : diffs.value.map((_, index) => index); }
 watch(diffs, (value) => {
   selectedDiffs.value = selectedDiffs.value.filter((index) => index < value.length);
-  if (typeof activeDiffTurn.value === "number" && activeDiffTurn.value >= value.length) activeDiffTurn.value = "all";
+  if (activeDiffTurn.value !== "all" && activeDiffTurn.value >= value.length) activeDiffTurn.value = "all";
 });
 const treeOpen = ref(true);
 const wrapLines = useConsoleWordWrap();
