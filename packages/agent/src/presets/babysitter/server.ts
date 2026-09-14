@@ -498,6 +498,7 @@ function assertBabysitterAgent(agent: AgentDefinition): asserts agent is Babysit
     typeof agent.options.autoMerge !== "boolean" ||
     !("filter" in agent.options) ||
     !agent.options.filter ||
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Agent options are validated at runtime.
     typeof agent.options.filter !== "object" ||
     Array.isArray(agent.options.filter)
   ) {

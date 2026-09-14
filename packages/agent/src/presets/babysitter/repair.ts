@@ -33,6 +33,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability inputs are untyped until this runtime boundary validates them.
             typeof input !== "object" ||
             !("runId" in input) ||
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Capability input is validated at runtime.
             typeof input.runId !== "number"
           )
             throw new Error("Expected a run ID.");

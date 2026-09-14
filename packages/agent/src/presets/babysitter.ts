@@ -35,6 +35,7 @@ export const babysitterPassResultSchema = {
         "disposition" in value &&
         "text" in value &&
         (value.disposition === "park" || value.disposition === "retry") &&
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Result text is validated at runtime.
         typeof value.text === "string" &&
         value.text.trim()
       ) {
