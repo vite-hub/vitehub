@@ -148,10 +148,13 @@ async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: Sour
 const sourceSkillRoots = [".agents", ".claude", ".codex"] as const
 
 function sourceSkillPromotion(path: string): { destination: string, root: typeof sourceSkillRoots[number], skill: string } | undefined {
-  const root = sourceSkillRoots.find(candidate => path.startsWith(`${candidate}/skills/`) || path.includes(`/${candidate}/skills/`))
+  // Snapshot paths are source-relative when mounted at the workspace root, or
+  // prefixed by the (single) mount segment. Keep discovery at the Source root
+  // so nested examples and vendored projects cannot contribute instructions.
+  const match = path.match(/^(?:[^/]+\/)?(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
+  const root = match?.[1] as typeof sourceSkillRoots[number] | undefined
   if (!root) return
-  const marker = `/${root}/skills/`
-  const relative = path.slice(path.indexOf(marker) + marker.length)
+  const relative = match[2]
   const [skill, ...rest] = relative.split("/")
   if (!skill || !/^[a-z0-9][a-z0-9-]*$/.test(skill) || !rest.length) return
   return { destination: `.agents/skills/${skill}/${rest.join("/")}`, root, skill }
