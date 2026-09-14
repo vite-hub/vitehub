@@ -103,7 +103,7 @@ describe("hubMarkdownTemplate", () => {
     await Promise.all([rm(template), rm(partial)])
     // SAFETY: The fixture entry exports the declared default function and is built immediately above.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("# Babysitter\n\nReview PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n\n  ```\n      @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
     const typesPath = join(root, ".vitehub", "types", "markdown-template.d.ts")
     await expect(readFile(typesPath, "utf8")).resolves.toContain(`declare module "*.template.md"`)
 
