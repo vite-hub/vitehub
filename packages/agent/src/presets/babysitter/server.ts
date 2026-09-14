@@ -213,6 +213,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     } catch (error) {
       schedulerError("babysitter.snapshot.reconcile.failed", error);
     }
+    // Recover leases that expired while the host was stopped before claiming work.
+    pullRequestInbox.recoverLeases();
     if (!isAccepting()) return;
     // The durable inbox is the sole eligibility checkpoint. A second work
     // tracker checkpoint used to swallow new webhook generations and leak
