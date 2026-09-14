@@ -281,6 +281,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           }
           const pullRequest = snapshotPullRequest(inboxClaim.snapshot);
           const webhookSnapshot = inboxClaim.snapshot;
+          let pushSucceeded = false;
           await github.withPullRequestCheckout(
             {
               headRef: pullRequest.headRefName,
@@ -318,7 +319,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   pullRequestInbox.eligible(repository, normalizePullRequest(current)),
                 push: async () => {
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
-                  return await prepared.push(providerDirectory);
+                  const result = await prepared.push(providerDirectory);
+                  pushSucceeded = true;
+                  return result;
                 },
               });
               const settings = getAgentLayerOptions(baseAgent);
@@ -424,7 +427,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
           const current = pullRequestInbox.get(repository, number);
           const terminal = current?.status === "terminal";
-          const parked = terminal || disposition === "park";
+          // A successful push advances the PR asynchronously via its synchronize
+          // webhook. Park this pass regardless of the worker disposition so the
+          // same inbox generation cannot immediately schedule duplicate work.
+          const parked = terminal || disposition === "park" || pushSucceeded;
           outcome = parked ? "completed" : "retry";
           pullRequestInbox.finish(inboxClaim, { text: resultText, retry: !parked, terminal });
         } catch (error) {
