@@ -2178,9 +2178,11 @@ cli_auth_credentials_store = "keyring"
     ])
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
-    expect(events.find(item => item.type === "usage")).toEqual({
+    expect(events.find(item => item.type === "usage")).toMatchObject({
       type: "usage",
       usageRecord: {
+        provider: "codex",
+        calls: [{ provider: "codex", raw: usage }],
         raw: usage,
         usage: {
           details: {},
