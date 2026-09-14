@@ -52,7 +52,7 @@ export interface WorkspaceSearchHit {
 
 export interface MkdirOptions {
   /** Optional creation evidence. Supporting Stores report only directories created by this call, including before failure. */
-  onCreate?: (path: string) => void
+  onCreate?: (path: string, directoryIdentity?: string) => void
   recursive?: boolean
 }
 
@@ -285,6 +285,8 @@ export interface WorkspaceEntry {
 }
 
 export interface WorkspaceStat extends WorkspaceEntry {
+  /** Opaque directory identity, stable across reads/restarts and changed on recreation. Omit when unsupported. */
+  directoryIdentity?: string
   type: "file" | "directory"
 }
 

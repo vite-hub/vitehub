@@ -53,6 +53,7 @@ interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStat
   configHash: string
   cacheMaxAge?: number
   ownsMount?: boolean
+  mountIdentity?: string
   ownedAncestors?: string[]
   ownedDirectories?: string[]
   items?: Record<string, LazyMaterializedMetadata>
@@ -825,6 +826,7 @@ async function materializeWorkspaceSourcesInternal(
 
     let ownsMount = Boolean(source.mountPath)
       && existing?.mountPath === source.mountPath && existing.ownsMount === true
+    let mountIdentity = ownsMount ? existing?.mountIdentity : undefined
     const ownedAncestors = [...(existing?.mountPath === source.mountPath ? existing.ownedAncestors || [] : [])]
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     for (const directory of new Set([...ownedDirectories, ...(ownsMount && source.materialize === "startup" ? [source.mountPath] : [])])) {
@@ -870,6 +872,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
         status: "updating",
@@ -903,8 +906,11 @@ async function materializeWorkspaceSourcesInternal(
         await control.mutate(async () => {
           await store.mkdir(source.mountPath, {
             recursive: true,
-            onCreate(directory) {
-              if (directory === source.mountPath) ownsMount = true
+            onCreate(directory, directoryIdentity) {
+              if (directory === source.mountPath) {
+                ownsMount = true
+                mountIdentity = directoryIdentity
+              }
               else if (parentDirectoryPaths(source.mountPath).includes(directory) && !ownedAncestors.includes(directory)) ownedAncestors.push(directory)
             },
           })
@@ -1040,6 +1046,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
         status: "ready",
@@ -1056,6 +1063,7 @@ async function materializeWorkspaceSourcesInternal(
         await control.mutate(() => writeSourceSnapshotMetadata(store, {
           ...existing,
           ownsMount,
+          mountIdentity,
           ownedAncestors,
           ownedDirectories: [...ownedDirectories],
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
@@ -1102,6 +1110,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
         status: "error",

@@ -37,7 +37,9 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     if (source.materialize !== "startup") continue
     const snapshot = await readCurrentSourceSnapshot(store, source)
     if (snapshot?.status !== "ready") continue
-    if (source.mountPath && snapshot.ownsMount && Object.keys(snapshot.items || {}).length === 0) {
+    if (source.mountPath && snapshot.ownsMount && snapshot.mountIdentity
+      && (await store.stat(source.mountPath))?.directoryIdentity === snapshot.mountIdentity
+      && Object.keys(snapshot.items || {}).length === 0) {
       generatedEmptyDirectories.add(source.mountPath)
     }
     for (const [path, item] of Object.entries(snapshot.items || {})) {

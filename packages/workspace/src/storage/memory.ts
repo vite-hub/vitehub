@@ -24,6 +24,7 @@ type MemoryNode = {
   mediaType?: string
   metadata?: Record<string, unknown>
   mtime: number
+  directoryIdentity?: string
 }
 
 function now() {
@@ -88,7 +89,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   async stat(path: string): Promise<WorkspaceStat | undefined> {
     const normalized = normalizeWorkspacePath(path)
     const node = this.#nodes.get(normalized)
-    return node ? await this.#entry(normalized, node) : undefined
+    return node ? { ...await this.#entry(normalized, node), directoryIdentity: node.directoryIdentity } : undefined
   }
 
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
@@ -96,8 +97,11 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       const normalized = normalizeWorkspacePath(path)
       this.#ensureParents(normalized, options.onCreate)
       const existed = this.#nodes.has(normalized)
-      this.#nodes.set(normalized, { type: "directory", mtime: now() })
-      if (!existed) options.onCreate?.(normalized)
+      if (!existed) {
+        const directoryIdentity = crypto.randomUUID()
+        this.#nodes.set(normalized, { type: "directory", mtime: now(), directoryIdentity })
+        options.onCreate?.(normalized, directoryIdentity)
+      }
     })
   }
 
@@ -177,13 +181,14 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     return result
   }
 
-  #ensureParents(path: string, onCreate?: (path: string) => void) {
+  #ensureParents(path: string, onCreate?: (path: string, directoryIdentity?: string) => void) {
     const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
     for (let index = 1; index < parts.length; index++) {
       const dir = parts.slice(0, index).join("/")
       if (!this.#nodes.has(dir)) {
-        this.#nodes.set(dir, { type: "directory", mtime: now() })
-        onCreate?.(dir)
+        const directoryIdentity = crypto.randomUUID()
+        this.#nodes.set(dir, { type: "directory", mtime: now(), directoryIdentity })
+        onCreate?.(dir, directoryIdentity)
       }
     }
   }

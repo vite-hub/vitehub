@@ -792,6 +792,10 @@ class LocalWorkspaceStore implements WorkspaceStore {
       mediaType: metadata?.mediaType,
       metadata: copyJsonFileMetadata(normalized, metadata?.metadata),
     }
+    if (info.isDirectory()) {
+      const directory = await stat(absolute, { bigint: true })
+      entry.directoryIdentity = `${directory.dev}:${directory.ino}:${directory.birthtimeNs}`
+    }
     if (includeDigest && info.isFile()) entry.digest = await fileDigest(absolute)
     return entry
   }
@@ -815,7 +819,8 @@ class LocalWorkspaceStore implements WorkspaceStore {
         if (Reflect.get(Object(error), "code") !== "EEXIST" || !(await stat(absolute)).isDirectory()) throw error
         continue
       }
-      options.onCreate(directory)
+      const created = await stat(absolute, { bigint: true })
+      options.onCreate(directory, `${created.dev}:${created.ino}:${created.birthtimeNs}`)
     }
   }
 
