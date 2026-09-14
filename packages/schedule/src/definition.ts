@@ -46,7 +46,7 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` allowRuntimeSchedules must be a boolean." })
   }
 
-  if (typeof input.manual !== "undefined" && typeof input.manual !== "boolean") {
+  if (input.manual !== undefined && input.manual !== true && input.manual !== false) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` manual must be a boolean." })
   }
 
@@ -57,7 +57,7 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
   if (typeof input.allowRuntimeSchedules !== "undefined") {
     definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
   }
-  if (typeof input.manual !== "undefined") {
+  if (input.manual !== undefined) {
     definition.options = { ...definition.options, manual: input.manual }
   }
   return definition
