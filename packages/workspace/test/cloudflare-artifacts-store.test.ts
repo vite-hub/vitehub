@@ -169,7 +169,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     await materializeWorkspaceSources(definition, store)
     expect(await store.stat("existing/generated/nested/guide.md")).toMatchObject({ type: "file" })
 
-    await reconcileRemovedStartupSources("docs", store, [])
+    await reconcileRemovedStartupSources(store, [])
 
     expect(await store.stat("existing/generated/nested/guide.md")).toMatchObject({ type: "file" })
     expect(await store.stat("existing")).toMatchObject({ type: "directory" })
