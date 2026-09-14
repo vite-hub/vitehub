@@ -89,7 +89,7 @@ export class MemoryFS {
     return this.normalize(path).split("/").filter(Boolean).pop() || ""
   }
 
-  async mkdir(path: string, options?: { recursive?: boolean, onCreate?: (path: string) => void } | number) {
+  async mkdir(path: string, options?: { recursive?: boolean, onCreate?: (path: string, directoryIdentity?: string) => void } | number) {
     const target = this.normalize(path)
     const recursive = isPlainObject(options) && options.recursive === true
     if (target === "/") {
