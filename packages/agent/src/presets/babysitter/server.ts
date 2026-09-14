@@ -180,11 +180,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Failed reads stay retryable; they must never masquerade as empty success.
     for (const repository of repositories) {
       const key = `bootstrap-rest-v1:${repository}`;
-      const previous = pullRequestInbox.meta<{ at: string }>(key);
+      const previous = pullRequestInbox.meta(key) as { at: string } | undefined;
       if (previous && Date.now() - Date.parse(previous.at) < 30 * 60_000) continue;
       // Failed bootstraps retry on the repair timer, not on every owner wake.
       const nextKey = `${key}:next`;
-      if ((pullRequestInbox.meta<number>(nextKey) ?? 0) > Date.now()) continue;
+      if (((pullRequestInbox.meta(nextKey) as number | undefined) ?? 0) > Date.now()) continue;
       pullRequestInbox.setMeta(nextKey, Date.now() + 2 * 60_000);
       try {
         const result = await github.command(
