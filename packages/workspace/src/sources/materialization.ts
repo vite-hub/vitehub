@@ -153,9 +153,9 @@ function sourceSkillPromotion(path: string, mountPath: string): { destination: s
   const relative = prefix ? (path === prefix ? "" : path.startsWith(`${prefix}/`) ? path.slice(prefix.length + 1) : undefined) : path
   if (relative === undefined) return
   const match = relative.match(/^(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
+  // SAFETY: The regular expression capture is one of the known source skill roots.
   const root = match?.[1] as typeof sourceSkillRoots[number] | undefined
   if (!root) return
-  // SAFETY: The regular expression's `(.+)` capture is guaranteed when `match` exists.
   const skillPath = match[2]
   const [skill, ...rest] = skillPath.split("/")
   if (!skill || !/^[a-z0-9][a-z0-9-]*$/.test(skill) || !rest.length) return
