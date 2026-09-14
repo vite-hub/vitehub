@@ -2640,7 +2640,7 @@ export default defineAgent({
         expect(queuePlugin).toContain('import { resumeWebhookQueues, waitUntilFromEvent } from "./chat-webhook-route"')
         expect(queuePlugin).toContain("nitroApp.hooks.hook('request', event => {")
         expect(queuePlugin).toContain("waitUntil ||= waitUntilFromEvent(event)")
-        expect(queuePlugin).toContain("stopping ||= stop?.()")
+        expect(queuePlugin).toContain("if (!stopping) stopping = stop?.()")
         expect(queuePlugin).toContain("if (stopping) waitUntil?.(stopping)")
         expect(queuePlugin).toContain("nitroApp.hooks.hook('close', shutdownWebhookQueues)")
         expect(queuePlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listenerCount(signal))")
