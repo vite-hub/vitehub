@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AgentCapabilityInspector, AgentFileTree, AgentInvocationInspector, type AgentInvocationView } from "@vite-hub/ui";
+import { AgentCapabilityInspector, AgentFileTree, AgentInvocationInspector, AgentPatchDiff, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
@@ -9,7 +9,7 @@ import { useConsoleWordWrap } from "./console-wrap";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
-type InspectorTab = "details" | "trace" | "workspace" | "capabilities";
+type InspectorTab = "details" | "trace" | "workspace" | "capabilities" | "diff";
 type WorkspaceDescriptor = {
   paths: string[];
   pullRequest?: number;
@@ -67,13 +67,33 @@ const viewMeta: Record<
     label: "Workspace",
     shortcut: "W",
   },
+  diff: {
+    description: "Review code changes from this run or its pull request.",
+    icon: "i-lucide-git-compare-arrows",
+    label: "Diff",
+    shortcut: "D",
+  },
 };
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
   "capabilities",
   "trace",
   ...(props.workspaceBase ? (["workspace"] as const) : []),
+  ...(diffs.value.length ? (["diff"] as const) : []),
 ]);
+const diffs = computed(() => {
+  const patches: string[] = [];
+  for (const observation of props.invocation.observations) {
+    for (const value of Object.values(observation.attributes ?? {})) {
+      if (typeof value === "string" && /(^diff --git |^@@ |^\+\+\+ |^--- )/.test(value)) patches.push(value);
+      if (Array.isArray(value)) for (const item of value) if (typeof item === "string" && item.includes("diff --git")) patches.push(item);
+    }
+  }
+  return [...new Set(patches)];
+});
+const selectedDiffs = ref<number[]>([]);
+const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
+function toggleAllDiffs() { selectedDiffs.value = allDiffsSelected.value ? [] : diffs.value.map((_, index) => index); }
 const treeOpen = ref(true);
 const wrapLines = useConsoleWordWrap();
 const tabstrip = ref<HTMLElement>();
@@ -287,7 +307,7 @@ function activateSurface(value: string | number) {
   if (id.startsWith("file:")) openFile(id.slice(5));
   else if (id.startsWith("view:")) {
     const view = id.slice(5);
-    if (view === "details" || view === "trace" || view === "workspace" || view === "capabilities") openView(view);
+    if (view === "details" || view === "trace" || view === "workspace" || view === "capabilities" || view === "diff") openView(view);
   }
 }
 
@@ -595,6 +615,27 @@ function message(error: unknown) {
       @focus-activity="emit('focusActivity', $event)"
     />
 
+    <div v-else-if="tab === 'diff'" class="session-inspector__diff">
+      <div class="session-inspector__diff-toolbar">
+        <div>
+          <strong>Code changes</strong>
+          <span class="session-inspector__eyebrow">{{ diffs.length }} turn{{ diffs.length === 1 ? '' : 's' }}</span>
+        </div>
+        <UButton size="xs" color="neutral" variant="outline" :disabled="!diffs.length" @click="toggleAllDiffs">
+          {{ allDiffsSelected ? 'Clear selection' : 'Select all' }}
+        </UButton>
+      </div>
+      <UEmpty v-if="!diffs.length" icon="i-lucide-git-compare-arrows" title="No code changes" description="Changes made during this run will appear here." />
+      <div v-else class="session-inspector__diff-list">
+        <section v-for="(patch, index) in diffs" :key="index" class="session-inspector__diff-turn">
+          <label class="session-inspector__diff-select">
+            <input v-model="selectedDiffs" type="checkbox" :value="index" />
+            <span>Turn {{ index + 1 }}</span>
+          </label>
+          <AgentPatchDiff :patch="patch" class="session-inspector__patch" />
+        </section>
+      </div>
+    </div>
     <div v-else class="session-inspector__workspace">
       <div class="session-inspector__breadcrumbs">
         <span class="session-inspector__repository">{{
