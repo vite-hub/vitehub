@@ -12,6 +12,5 @@ export async function renderMarkdownFile(path: string | URL, options: RenderMark
 
   return renderMarkdownTemplate(template, {
     data: options.data,
-    plugins: options.plugins,
   })
 }

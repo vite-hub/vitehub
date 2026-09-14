@@ -26,5 +26,5 @@ it("exports the Markdown template contract", () => {
     template: string,
     options?: RenderMarkdownTemplateInternalOptions,
   ]>()
-  expectTypeOf<keyof RenderMarkdownTemplateOptions>().toEqualTypeOf<"data">()
+  expectTypeOf<keyof RenderMarkdownTemplateOptions>().toEqualTypeOf<"data" | "plugins">()
 })
