@@ -486,7 +486,12 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       // Reject runtime operators that can follow an assertion, while allowing
       // punctuation that is valid inside TypeScript type expressions (for
       // example generic arguments and tuple types).
-      return assertion && !/(?:&&|\|\||;)/.test(value)
+      if (!assertion) return false
+      // Operators and call syntax after an assertion change the runtime value;
+      // reject them while retaining union/intersection punctuation in types.
+      if (/(?:&&|\|\||\?\?|[+*/?;]|(?<![\w$])-(?=\s*\d)|,)/.test(value)) return false
+      if (/\b[A-Za-z_$][\w$]*\s*\(/.test(value)) return false
+      return true
     }
     const firstArgument = stripBoundaryComments(call.arguments[0] || "")
     let callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
