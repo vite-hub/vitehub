@@ -1294,8 +1294,10 @@ function workspaceMetadataInstructions<
   })
   const composed = instructionObject
     && typeof instructionObject.template === "string"
-    && typeof instructionObject.content === "string"
-    ? fillSynchronousInstructionSlot(instructionObject.template, instructionObject.content)
+    ? fillSynchronousInstructionSlot(
+      instructionObject.template,
+      typeof instructionObject.content === "string" ? instructionObject.content : "",
+    )
     : undefined
   const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()
   return content ? [content] : []
