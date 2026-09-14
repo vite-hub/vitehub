@@ -2993,7 +2993,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
       if (resolved) mergedNitro.alias = { ...(isRecord(mergedNitro.alias) ? mergedNitro.alias : {}), [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) }
       const result: UserConfig & { nitro?: NitroConfig } = {
-        resolve: resolved ? { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) } } : undefined,
         define: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(root),
           ...config.define,
@@ -3004,6 +3003,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           },
         },
       }
+      if (resolved) result.resolve = { alias: { [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) } }
       if (agent !== undefined) result.agent = agent
       if (nitroHandlers.length) {
         // SAFETY: Vite's build options accept the Rolldown external field merged by this boundary.
