@@ -155,6 +155,7 @@ function sourceSkillPromotion(path: string, mountPath: string): { destination: s
   const match = relative.match(/^(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
   const root = match?.[1] as typeof sourceSkillRoots[number] | undefined
   if (!root) return
+  // SAFETY: The regular expression's `(.+)` capture is guaranteed when `match` exists.
   const skillPath = match[2]
   const [skill, ...rest] = skillPath.split("/")
   if (!skill || !/^[a-z0-9][a-z0-9-]*$/.test(skill) || !rest.length) return
