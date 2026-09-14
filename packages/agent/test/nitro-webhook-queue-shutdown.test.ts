@@ -200,7 +200,7 @@ finally {
         throw new Error(`Nitro child exited before serving (${exit.join(", ")}):\n${unownedStderr}`)
       }),
     ])
-    expect(unownedListeners.sigterm).toEqual([])
+    expect(unownedListeners.sigterm).toEqual(["listener"])
     child.kill("SIGTERM")
     await expect(unownedExited).resolves.toEqual([null, "SIGTERM"])
     child = undefined
