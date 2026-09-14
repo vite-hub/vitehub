@@ -180,7 +180,10 @@ async function reconcilePromotedSourceSkills(
     ? Object.fromEntries(Object.entries(previousValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
     : {}
   const selectedSkills = new Map<string, { paths: string[], source: string }>()
-  const sortedSources = [...sources].sort((left, right) => left.key.localeCompare(right.key))
+  // Keep promotion aligned with Workspace source precedence: more-specific
+  // mounts win, with the source key only breaking ties.
+  const sortedSources = [...sources].sort((left, right) =>
+    right.mountPath.length - left.mountPath.length || left.key.localeCompare(right.key))
   for (const source of sortedSources) {
     const snapshot = await readSourceSnapshotMetadata(store, source.key)
     if (!snapshot || !["ready", "updating", "error"].includes(snapshot.status)) continue
