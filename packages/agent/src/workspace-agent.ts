@@ -1838,9 +1838,9 @@ export function createAgentInspectionMetadata<
   return {
     ...capabilityInspectionMetadataProjection(Array.isArray(options.capabilities) ? options.capabilities : undefined),
     files: workspaceMetadataFiles(options),
-    instructions: [...workspaceMetadataInstructions(options), ...channelInstructions],
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...agentInspectionMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
+    instructions: [...workspaceMetadataInstructions(options), ...channelInstructions],
     tools: workspaceMetadataTools(options),
   }
 }
