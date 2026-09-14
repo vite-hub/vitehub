@@ -4,7 +4,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: ["comark"],
+      neverBundle: ["comark", "vite"],
       onlyBundle: false,
       alwaysBundle: [/^@vite-hub\/internal/],
     },
