@@ -302,6 +302,15 @@ describe("source scanner", () => {
     expect(call?.argument).toBe("{ manual: true }")
   })
 
+  it("rejects positional options with trailing expression material", () => {
+    const call = findDefaultExportCall(
+      `export default defineThing("cron", handler, (({ manual: true }) as const && false))`,
+      ["defineThing"],
+      { positionalOptionsIndex: 2 },
+    )
+    expect(call).toBeUndefined()
+  })
+
   it("reads top-level object properties without matching nested values", () => {
     expect(readObjectProperty(`{ nested: { cron: "wrong" }, cron: "0 8 * * *" }`, "cron"))
       .toBe(`"0 8 * * *"`)
