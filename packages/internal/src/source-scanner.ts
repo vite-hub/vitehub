@@ -478,9 +478,13 @@ export function findDefaultExportCall(source: string, names: string[], options: 
     .sort((left, right) => left.start - right.start)
 
   for (const call of calls) {
-    // Accept only complete assertions to named types (or `const`). More complex
-    // type syntax stays unsupported rather than risking a runtime expression.
-    const isCompleteAssertion = (value: string) => /^(?:(?:as|satisfies)\s+[a-z_$][\w$]*(?:\s*\.\s*[a-z_$][\w$]*)*(?:\s*[|&]\s*[a-z_$][\w$]*(?:\s*\.\s*[a-z_$][\w$]*)*)*\s*)+$/i.test(value)
+    // Validate the assertion boundary while leaving TypeScript's type grammar
+    // unrestricted (generic, union, indexed-access, `typeof`, etc.). Runtime
+    // expression operators after the assertion remain unsupported.
+    const isCompleteAssertion = (value: string) => {
+      const assertion = /^(?:as|satisfies)\s+.+$/is.test(value)
+      return assertion && !/[;&|]{2}|[,;]/.test(value)
+    }
     const firstArgument = stripBoundaryComments(call.arguments[0] || "")
     let callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
       ? stripBoundaryComments(call.arguments[options.positionalOptionsIndex] || "{}")
