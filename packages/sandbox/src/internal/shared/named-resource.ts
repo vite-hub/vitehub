@@ -1,5 +1,8 @@
-import { upperFirst } from 'scule'
 import { sandboxErrorDiagnostics } from "../../error-diagnostics.ts"
+
+function upperFirst(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
 
 export function resolveNamedResourceName(feature: string, name: string | undefined) {
   if (!name)

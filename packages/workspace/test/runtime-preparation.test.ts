@@ -29,6 +29,30 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
 }
 
 describe("Workspace runtime preparation", () => {
+  it.each(["", "docs"])("prepares overlapping startup Sources in path precedence order at %s", async (mount) => {
+    const name = `workspace-preparation-${crypto.randomUUID()}`
+    const store = createMemoryWorkspaceStore()
+    const path = mount ? `${mount}/AGENTS.md` : "AGENTS.md"
+    registerWorkspace(name, {
+      sources: {
+        first: custom({ materialize: "startup", mount, files: [{ path: "AGENTS.md", content: "first" }] }),
+        second: custom({ materialize: "startup", mount, files: [{ path: "AGENTS.md", content: "second" }] }),
+        root: custom({ materialize: "startup", mount: "", files: [{ path, content: "root" }] }),
+      },
+      store,
+    })
+    const preparation = createWorkspacePreparation({ workspace: name })
+    try {
+      await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
+      // Check the provider's backing Store before a read can repair precedence.
+      await expect(store.readFile(path)).resolves.toMatchObject({ content: "first" })
+      await expect(useWorkspace(name).fs.readFile(path, { encoding: "utf8" })).resolves.toBe("first")
+    }
+    finally {
+      await preparation.stop()
+    }
+  })
+
   it("rejects preparation without startup sources while an unrelated lazy read is pending", async () => {
     let release!: () => void
     const blocked = new Promise<void>((resolve) => {

@@ -1,3 +1,4 @@
+import { readAgentErrorProperty } from "./agent-error.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
@@ -29,6 +30,8 @@ export interface AgentEvlogOptions {
   deliveryTimeoutMs?: number
   trustedErrorCodes?: readonly string[]
   level?: "minimal" | "standard" | "full"
+  /** HTTP request logs sent through the exporter. Defaults to failures only. */
+  logs?: "all" | "failures" | false
   sessionUrl?: (invocation: { agentName: string, id: string }) => string
   /** Build Console links for all events and reports from one origin. */
   console?: { origin: string | ((agent: string) => string), base?: string }
@@ -55,7 +58,7 @@ export interface AgentEvlog {
   flush(): Promise<void>
 }
 
-const minimalKeys = /^(?:agent_name|environment|service|run_id|invocation_id|thread_id|trace_id|parent_trace_id|\$ai_trace_id|session_url|model|provider|provider_name|status|level|severity|duration_ms|timestamp|started_at|ended_at|input_tokens|output_tokens|total_tokens|cost_usd|cost_estimated|cost_source|tool_steps|retry|attempt|reason|code|diagnostic_code|diagnostic_status|warning|error|message)$/i
+const minimalKeys = /^(?:agent_name|environment|service|run_id|invocation_id|thread_id|trace_id|parent_trace_id|\$ai_trace_id|session_url|model|provider|provider_name|status_code|request_id|method|path|operation|status|level|severity|duration_ms|timestamp|started_at|ended_at|input_tokens|output_tokens|total_tokens|cost_usd|cost_estimated|cost_source|tool_steps|retry|attempt|reason|code|diagnostic_code|diagnostic_status|warning|error|message)$/i
 const contentKeys = /(?:prompt|message|input|output|instruction|tool|argument|result|body|context|header|cookie|token|secret|credential)/i
 
 /** Apply the configured observability level before exporter delivery. */
@@ -88,6 +91,7 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   } : undefined)
   const exporter = options.exporter
   const level = options.level ?? "standard"
+  const exportedLogs = options.logs ?? "failures"
   const metadata = { ...options.metadata, service: options.service, environment: options.environment }
   const pending = new Set<Promise<unknown>>()
   const counts = { accepted: 0, failed: 0, dropped: 0 }
@@ -178,7 +182,6 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const capability: AgentCapabilityDefinition = defineCapability({
     id: "evlog",
     instructionCoverage: false,
-    async input(context) { event("agent_run_started", await invocationMetadata(context)) },
     finish(result: AgentFinishEvent) {
       summaries.set(result.runtime, { usage: result.invocation.usage, error: result.error, cancelled: result.input.abortSignal?.aborted === true, toolSteps: result.toolResults.length })
     },
@@ -236,6 +239,12 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
     plugin: host => agentEvlogPlugin(telemetry, reporter ? [reporter] : [])(host),
     drain(context: DrainContext) {
       if (closing || !exporter) return
+      const httpRequest = context.request !== undefined
+      if (httpRequest && exportedLogs === false) return
+      if (httpRequest && exportedLogs === "failures"
+        && context.event.level !== "warn"
+        && context.event.level !== "error"
+        && !(hasRuntimeType(context.event.status, "number") && context.event.status >= 400)) return
       const safe = sanitizeAgentLog(filterAgentObservability(level, { ...context.event, ...metadata }), { allowContent: level === "full" })
       if (safe.error) safe.error = { message: "Request failed; inspect the correlated exception." }
       logs({ ...safe, timestamp: context.event.timestamp, level: context.event.level, service: options.service, environment: options.environment })
@@ -265,6 +274,10 @@ export interface AgentEvlogHost {
 }
 
 export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { start(): void; stop(): Promise<void> }[] = []): (host: AgentEvlogHost) => void {
+  const statusCodeOf = (error: unknown) => {
+    const value = readAgentErrorProperty(error, "statusCode") ?? readAgentErrorProperty(error, "status")
+    return hasRuntimeType(value, "number") && Number.isInteger(value) ? value : undefined
+  }
   return (host) => {
     host.hooks.hook("request", event => {
       event.req.context ||= {}
@@ -273,12 +286,19 @@ export function agentEvlogPlugin(telemetry: AgentEvlog, reporters: readonly { st
     host.hooks.hook("evlog:drain", telemetry.drain)
     host.hooks.hook("error", (error, context) => {
       const request = context.event?.req
-      telemetry.exception(error, {
+      const status = statusCodeOf(error)
+      const properties = {
         operation: "http.request",
         method: request?.method,
         path: request ? new URL(request.url).pathname : undefined,
         request_id: request?.context?.requestId,
-      })
+        status_code: status,
+      }
+      // Client errors are expected request outcomes. Keep them visible as warning
+      // events without creating PostHog exception noise or fake failures.
+      if (request && status !== undefined && status >= 400 && status < 500) {
+        telemetry.event("http.request.failed", { ...properties, level: "warn" })
+      } else telemetry.exception(error, properties)
     })
     if (telemetry.status().configured) for (const reporter of reporters) reporter.start()
     host.hooks.hook("close", async () => {

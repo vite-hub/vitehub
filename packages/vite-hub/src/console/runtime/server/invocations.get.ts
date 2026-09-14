@@ -61,11 +61,13 @@ async function listLifecyclePage(
   cursor: string | null | undefined,
   agentName: string | undefined,
   capabilityId: string | undefined,
+  triggeredBy: string | undefined,
 ): Promise<AgentInvocationListResult> {
   const options: AgentInvocationListOptions = { limit }
   if (status) options.status = status
   if (agentName) options.agentName = agentName
   if (capabilityId) options.capabilityId = capabilityId
+  if (triggeredBy) options.triggeredBy = triggeredBy
   if (cursor !== null && cursor !== undefined) options.cursor = cursor
   return getConsoleInvocations().list(options)
 }
@@ -74,7 +76,7 @@ async function summaryWithUsage(
   invocations: AgentInvocations,
   summary: AgentInvocationSummary,
 ): Promise<ConsoleInvocationSummary> {
-  const invocation = await invocations.get(summary.id)
+  const invocation = await invocations.get(summary.id, { observationNames: ["agent.invocation.finish"] })
   if (!invocation) return summary
   const usage = invocationUsage(invocation)
   return {
@@ -118,6 +120,13 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       statusMessage: "Invalid Capability id",
     })
   }
+  const triggeredBy = query.get("triggeredBy")?.trim() || undefined
+  if (triggeredBy && triggeredBy.length > 512) {
+    throw Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0061({ message: "Invalid triggering person" }), {
+      statusCode: 400,
+      statusMessage: "Invalid triggering person",
+    })
+  }
   const limitValue = query.get("limit")
   const limit = limitValue === null ? undefined : Number(limitValue)
   if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
@@ -157,7 +166,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
       continue
     }
     const limit = Math.ceil(remainingLimit / remainingGroups)
-    const page = await listLifecyclePage(statuses, limit, cursor[key], agentName, capabilityId)
+    const page = await listLifecyclePage(statuses, limit, cursor[key], agentName, capabilityId, triggeredBy)
     pages[key] = page
     const returnedIds = new Set(Object.values(pages).flatMap(current => current.invocations.map(invocation => invocation.id)))
     remainingLimit = Math.max(0, pageLimit - returnedIds.size)
@@ -168,7 +177,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
     const page = pages[key]
     if (page.cursor === undefined) continue
     const backfillBudget = remainingLimit
-    const backfill = await listLifecyclePage(statuses, backfillBudget, page.cursor, agentName, capabilityId)
+    const backfill = await listLifecyclePage(statuses, backfillBudget, page.cursor, agentName, capabilityId, triggeredBy)
     pages[key] = {
       ...backfill,
       invocations: [...page.invocations, ...backfill.invocations],
@@ -188,6 +197,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
           cursor[laterKey],
           agentName,
           capabilityId,
+          triggeredBy,
         )
         const previousIds = new Set(laterPage.invocations.map(invocation => invocation.id))
         const added = refreshed.invocations.filter(invocation => !previousIds.has(invocation.id))
@@ -225,7 +235,7 @@ const invocationsHandler: (event: ConsoleRequestEvent) => Promise<AgentInvocatio
         deferredGroups.add(key)
       }
       else {
-        pages[key] = await listLifecyclePage(statuses, refillLimit, cursor[key], agentName, capabilityId)
+        pages[key] = await listLifecyclePage(statuses, refillLimit, cursor[key], agentName, capabilityId, triggeredBy)
       }
       return refillLimit
     }

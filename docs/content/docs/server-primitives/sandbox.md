@@ -53,9 +53,7 @@ export default async function releaseNotes(payload: SandboxPayload = {}) {
 import { runSandbox } from '@vite-hub/sandbox'
 
 export default defineEventHandler(async () => {
-  const [error, result] = await runSandbox('release-notes', { notes: 'ship it' })
-  if (error) throw error
-  return result
+  return runSandbox('release-notes', { notes: 'ship it' })
 })
 ```
 
@@ -112,7 +110,7 @@ export default async function optimize(
 }
 ```
 
-`runSandbox()` infers its payload and result from the default function. A zero-argument function accepts an `unknown` payload.
+`runSandbox()` infers its payload from the default function and returns a native Web `Response`. A zero-argument function accepts an `unknown` payload.
 
 Nested `Blob` and `Uint8Array` values in payloads and results are staged through invocation-local Box files. Node.js `Buffer` values retain their `Buffer` type. Application code keeps the binary values and does not convert them to base64 JSON. Other values keep the existing JSON-serialization contract.
 

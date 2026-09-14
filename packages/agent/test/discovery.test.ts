@@ -1325,6 +1325,68 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
+  it("validates strict typed Dev Loop payloads without runtime metadata", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-typed-payload-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
+
+    const v = await import("valibot")
+    const { defineChannel, defineChannelTrigger } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const invoke = vi.fn((_context: unknown, input: { text: string, prompt: string }) => ({ input: { prompt: `${input.prompt}: ${input.text}` } }))
+    const agent = defineAgent({
+      channels: {
+        review: defineChannel("review", {
+          messages: false,
+          triggers: {
+            requested: defineChannelTrigger({
+              input: v.strictObject({ prompt: v.string(), text: v.pipe(v.string(), v.trim()) }),
+              invoke,
+            }),
+          },
+        }),
+      },
+      invoker: {
+        profiles: [
+          { id: "default", kind: "customer", label: "Default" },
+          { id: "technical", kind: "technical", label: "Technical" },
+        ],
+      },
+      driver: { run: ({ input, invoker, context }) => {
+        expect(invoker.id).toBe("technical")
+        expect(context.get("channel")).toMatchObject({ meta: { source: "dev-loop" } })
+        expect(input.abortSignal).toBeInstanceOf(AbortSignal)
+        return input.prompt
+      } },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+    await configurePluginServer(plugin, server)
+
+    for (const payload of [{ text: "  review this  " }, { text: "review this", unexpected: true }]) {
+      const response = await invokeMiddleware(handlers[0]!, {
+        agent: "review",
+        payload,
+        text: "Please review",
+        invokerProfileId: "technical",
+        meta: { source: "dev-loop" },
+        trigger: "review.requested",
+      }, agentInvocationStreamRoute, {
+        "content-type": "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      })
+      const events = response.body.trim().split("\n").map(line => JSON.parse(line))
+      if ("unexpected" in payload) {
+        expect(events).toContainEqual(expect.objectContaining({ type: "error" }))
+      } else {
+        expect(events).toContainEqual({ text: "Please review: review this", type: "text-delta" })
+      }
+    }
+    expect(invoke).toHaveBeenCalledTimes(1)
+    expect(invoke).toHaveBeenCalledWith(expect.anything(), { prompt: "Please review", text: "review this" })
+  })
+
   it("derives built-in GitHub webhook dev input from webhook payload", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-github-payload-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

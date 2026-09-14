@@ -36,6 +36,55 @@ describe("Console requests", () => {
     })
   })
 
+  it("reconnects when the cached Devframe client has disconnected", async () => {
+    const disconnectedClient = { call: vi.fn(), ensureTrusted: vi.fn(), status: "disconnected" }
+    const connectedClient = {
+      call: vi.fn().mockResolvedValue({ ok: true, value: { sections: ["agents"] } }),
+      ensureTrusted: vi.fn(),
+      status: "connected",
+    }
+    mocks.connectDevframe
+      .mockResolvedValueOnce(disconnectedClient)
+      .mockResolvedValueOnce(connectedClient)
+
+    await expect(requestConsole("/reconnect-test/api/_vitehub/console/sections"))
+      .resolves.toEqual({ sections: ["agents"] })
+    expect(mocks.connectDevframe).toHaveBeenCalledTimes(2)
+    expect(disconnectedClient.call).not.toHaveBeenCalled()
+    expect(connectedClient.call).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not replay a request that disconnects while the RPC call is in flight", async () => {
+    const disconnected = new Error("[devframe] Disconnected from the devframe server")
+    const firstClient = {
+      call: vi.fn().mockImplementation(async () => {
+        firstClient.status = "disconnected"
+        throw disconnected
+      }),
+      ensureTrusted: vi.fn(),
+      status: "connected",
+    }
+    const nextClient = {
+      call: vi.fn().mockResolvedValue({ ok: true, value: { found: true } }),
+      ensureTrusted: vi.fn(),
+      status: "connected",
+    }
+    mocks.connectDevframe
+      .mockResolvedValueOnce(firstClient)
+      .mockResolvedValueOnce(nextClient)
+
+    const path = "/in-flight-disconnect-test/api/_vitehub/console/kv"
+    await expect(requestConsole(path, { body: { key: "entry" }, method: "POST" }))
+      .rejects.toBe(disconnected)
+    expect(firstClient.call).toHaveBeenCalledTimes(1)
+    expect(nextClient.call).not.toHaveBeenCalled()
+
+    await expect(requestConsole(path, { body: { key: "entry" }, method: "POST" }))
+      .resolves.toEqual({ found: true })
+    expect(mocks.connectDevframe).toHaveBeenCalledTimes(2)
+    expect(nextClient.call).toHaveBeenCalledTimes(1)
+  })
+
   it("deduplicates keys repeated across provider pages", () => {
     expect(appendUniqueConsoleKeys(["first", "repeated"], ["repeated", "last"]))
       .toEqual(["first", "repeated", "last"])

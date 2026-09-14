@@ -100,7 +100,7 @@ export async function requestGitHub(input: string | URL, init: RequestInit = {})
 
 class GitHubRequestError extends Diagnostic {
   constructor(message: string, readonly status: number) {
-    super({ code: "WORKSPACE_R0068", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: message }, GitHubRequestError);
+    super({ code: "WORKSPACE_R0068", docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, GitHubRequestError);
     this.name = "GitHubRequestError";
   }
 }

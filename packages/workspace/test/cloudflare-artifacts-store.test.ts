@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { defineWorkspace } from "../src/index.ts"
+import { custom, defineWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { resetWorkspaceStoreCache } from "../src/core/workspace-cache.ts"
 import { setWorkspaceHostedStoreLoader } from "../src/runtime/hosted-store-loader.ts"
 import { setWorkspaceRuntimeConfig } from "../src/runtime/config.ts"
+
+import { materializeWorkspaceSources, reconcileRemovedStartupSources } from "../src/sources/materialization.ts"
 
 const gitMock = vi.hoisted(() => ({
   add: vi.fn(async () => {}),
@@ -120,6 +122,59 @@ afterEach(() => {
 })
 
 describe("Cloudflare Artifacts workspace store", () => {
+  it("changes directory identity after a mount is removed and recreated", async () => {
+    const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
+    const created = vi.fn()
+    await store.mkdir("generated", { onCreate: created })
+    const original = (await store.stat("generated"))?.directoryIdentity
+    expect(original).toEqual(expect.any(String))
+    expect(created).toHaveBeenCalledWith("generated", original)
+    await store.mkdir("generated")
+    expect((await store.stat("generated"))?.directoryIdentity).toBe(original)
+    await store.rm("generated")
+    await store.mkdir("generated")
+    expect((await store.stat("generated"))?.directoryIdentity).toEqual(expect.any(String))
+    expect((await store.stat("generated"))?.directoryIdentity).not.toBe(original)
+  })
+
+  it("reports only directories created by concurrent mkdir calls", async () => {
+    const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
+    await store.mkdir("existing")
+    const first: string[] = []
+    const second: string[] = []
+    await Promise.all([
+      store.mkdir("existing/new/nested", { onCreate: path => first.push(path) }),
+      store.mkdir("existing/new/nested", { onCreate: path => second.push(path) }),
+    ])
+    expect([...first, ...second].sort()).toEqual(["existing/new", "existing/new/nested"])
+    const failed = vi.fn()
+    await expect(store.mkdir("missing/child", { recursive: false, onCreate: failed })).rejects.toThrow()
+    expect(failed).not.toHaveBeenCalled()
+  })
+
+  it("preserves startup files because Artifacts lacks conditional removal", async () => {
+    const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
+    await store.mkdir("existing")
+    const definition = {
+      name: "docs",
+      sources: {
+        generated: custom({
+          mount: "existing/generated/nested",
+          materialize: "startup",
+          getKeys: async () => ["guide.md"],
+          getItem: async (key: string) => ({ key, content: "generated" }),
+        }),
+      },
+    }
+    await materializeWorkspaceSources(definition, store)
+    expect(await store.stat("existing/generated/nested/guide.md")).toMatchObject({ type: "file" })
+
+    await reconcileRemovedStartupSources("docs", store, [])
+
+    expect(await store.stat("existing/generated/nested/guide.md")).toMatchObject({ type: "file" })
+    expect(await store.stat("existing")).toMatchObject({ type: "directory" })
+  })
+
   it("derives distinct repository names from distinct Workspace names", async () => {
     const names: string[] = []
     const binding = {

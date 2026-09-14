@@ -1,4 +1,5 @@
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
+import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
 
@@ -23,6 +24,7 @@ type MemoryNode = {
   mediaType?: string
   metadata?: Record<string, unknown>
   mtime: number
+  directoryIdentity?: string
 }
 
 function now() {
@@ -30,6 +32,7 @@ function now() {
 }
 
 class MemoryWorkspaceStore implements WorkspaceStore {
+  readonly conditionalRemoval = true;
   [workspaceStoreTarget]() {
     return { provider: "memory" }
   }
@@ -47,7 +50,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       path: normalized,
       content: node.content || "",
       mediaType: node.mediaType,
-      metadata: node.metadata,
+      metadata: structuredClone(node.metadata),
     }
   }
 
@@ -86,21 +89,30 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   async stat(path: string): Promise<WorkspaceStat | undefined> {
     const normalized = normalizeWorkspacePath(path)
     const node = this.#nodes.get(normalized)
-    return node ? await this.#entry(normalized, node) : undefined
+    return node ? { ...await this.#entry(normalized, node), directoryIdentity: node.directoryIdentity } : undefined
   }
 
-  async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
-    await this.#mutate(() => {
+  async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
+    await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
-      this.#ensureParents(normalized)
-      this.#nodes.set(normalized, { type: "directory", mtime: now() })
+      this.#ensureParents(normalized, options.onCreate)
+      const existed = this.#nodes.has(normalized)
+      if (!existed) {
+        const directoryIdentity = crypto.randomUUID()
+        this.#nodes.set(normalized, { type: "directory", mtime: now(), directoryIdentity })
+        options.onCreate?.(normalized, directoryIdentity)
+      }
     })
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    await this.#mutate(() => {
+    await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
       const node = this.#nodes.get(normalized)
+      if (options.ifDigest !== undefined) {
+        if (node?.type !== "file" || (await this.#entry(normalized, node)).digest !== options.ifDigest) return
+        if (options.ifSource !== undefined && (node.metadata?.source ?? null) !== options.ifSource) return
+      }
       if (!node) {
         if (options.force) return
         throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
@@ -151,13 +163,14 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   #writeFile(path: string, file: WorkspaceFile): void {
+    file = { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }
     const normalized = normalizeWorkspacePath(path)
     this.#ensureParents(normalized)
     this.#nodes.set(normalized, {
       type: "file",
       content: file.content,
       mediaType: file.mediaType,
-      metadata: file.metadata,
+      metadata: structuredClone(file.metadata),
       mtime: now(),
     })
   }
@@ -168,11 +181,15 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     return result
   }
 
-  #ensureParents(path: string) {
+  #ensureParents(path: string, onCreate?: (path: string, directoryIdentity?: string) => void) {
     const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
     for (let index = 1; index < parts.length; index++) {
       const dir = parts.slice(0, index).join("/")
-      if (!this.#nodes.has(dir)) this.#nodes.set(dir, { type: "directory", mtime: now() })
+      if (!this.#nodes.has(dir)) {
+        const directoryIdentity = crypto.randomUUID()
+        this.#nodes.set(dir, { type: "directory", mtime: now(), directoryIdentity })
+        onCreate?.(dir, directoryIdentity)
+      }
     }
   }
 
@@ -185,7 +202,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       size,
       mtime: node.mtime,
       mediaType: node.mediaType,
-      metadata: node.metadata,
+      metadata: structuredClone(node.metadata),
       digest: node.type === "file" ? await sha256(content) : undefined,
     }
   }

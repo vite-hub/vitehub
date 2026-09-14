@@ -1796,6 +1796,28 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("exports recoverable stream errors as warnings with error metadata", () => {
+    const [record] = traceEventsToOpenTelemetryLogRecords([{
+      attributes: { "error.message": "Project config was skipped", "error.recoverable": true },
+      name: "agent.stream.error",
+      sequence: 1,
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "run-1" },
+      type: "error",
+    }])
+
+    expect(record).toMatchObject({
+      attributes: {
+        "error.message": "Project config was skipped",
+        "error.recoverable": true,
+        "vitehub.event.type": "error",
+      },
+      eventName: "agent.stream.error",
+      severityNumber: 13,
+      severityText: "WARN",
+    })
+  })
+
   it("keeps provider activity open through progress and fails terminal task errors", () => {
     const events = [
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.

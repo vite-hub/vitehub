@@ -316,6 +316,9 @@ describe("framework package contract", () => {
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-session-bootstrap.ts`),
     ).toBe(true);
+    expect(
+      existsSync(`${packageRoot}/dist/console/runtime/components/console-workspace-file.ts`),
+    ).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/console-route.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/sections.js`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/client/request.js`)).toBe(true);
@@ -347,7 +350,7 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleSessionCss).toMatch(/\.session-inspector\s*\{[\s\S]*?height: 100%;/);
-    expect(consolePage).toContain("limit: 10");
+    expect(consolePage).toContain("limit: 50");
     expect(consolePage).toContain("const initialSessionLoading = computed");
     expect(consolePage).toContain(
       "[() => detail.invocation.value?.id, () => detail.invocation.value?.status]",
@@ -380,7 +383,7 @@ describe("framework package contract", () => {
       consolePage.indexOf("onMounted(() =>"),
     );
     expect(consolePage).toContain(
-      'v-else-if="isDesktop && detailsOpen && (selectedInvocationId || initialSessionLoading)"',
+      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
     );
     expect(consolePage).toContain(
       'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
@@ -414,7 +417,8 @@ describe("framework package contract", () => {
     expect(consolePage).toContain(':maximizable="Boolean(selectedInvocationId)"');
     expect(consoleSessionNavbar).toContain('data-slot="session-details-toggle"');
     expect(consoleSessionNavbar).toContain(':disabled="!hasSelection"');
-    expect(consoleSessionNavbar).toContain('icon: "i-lucide-github"');
+    expect(consoleSessionNavbar).toContain('v-if="externalTarget.github"');
+    expect(consoleSessionNavbar).toContain('fill="currentColor"');
     expect(consoleSessionNavbar).toContain('label: "Open on GitHub"');
     expect(consolePage).toMatch(/scrollbar-width: none;/);
     expect(consolePage).toMatch(/::-webkit-scrollbar[\s\S]*?display: none;/);
@@ -439,7 +443,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toContain('if (tab.value === "workspace") void loadWorkspace();');
     expect(sessionInspector).toContain("workspaceLoading.value = false;");
     expect(sessionInspector).toContain("workspaceRequest = undefined;");
-    expect(sessionInspector).toContain('<button v-if="props.workspaceBase"');
+    expect(sessionInspector).toMatch(/<button\s+v-if="props.workspaceBase"/);
     expect(sessionInspector).toMatch(
       /const invocationId = props\.invocation\.id;[\s\S]*?if \(!workspace\.value\) await loadWorkspace\(\);[\s\S]*?if \(props\.invocation\.id !== invocationId\) return;/,
     );
@@ -447,7 +451,7 @@ describe("framework package contract", () => {
     expect(sessionInspector).toMatch(
       /const loadedWorkspace = parseWorkspaceDescriptor\([\s\S]*?if \(workspaceRequest !== controller\) return;[\s\S]*?workspace\.value = loadedWorkspace;/,
     );
-    expect(sessionInspector).toContain("invocationUsage.totalTokens");
+    expect(sessionInspector).toContain("<template #identityActions>");
     expect(sessionInspector).toContain("workspace.pullRequest !== undefined");
     expect(sessionInspector).toContain("hasPullRequest && (pullRequest === undefined");
     expect(sessionInspector).toContain('openViews.value.includes("workspace")');
@@ -505,7 +509,7 @@ describe("framework package contract", () => {
     expect(consoleSessionCss).toMatch(
       /\.session-inspector__file \{[\s\S]*?grid-template-rows: minmax\(0, 1fr\);[\s\S]*?height: 100%;/,
     );
-    expect(consoleSessionCss).toContain("padding: 1rem 1.5rem 2rem 0;");
+    expect(consoleSessionCss).toContain("padding: 0.75rem 0 1.5rem;");
     expect(consolePage).not.toContain("/api/health");
     expect(existsSync(`${packageRoot}/dist/console/runtime/server/status.get.js`)).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
@@ -535,7 +539,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain('window.matchMedia("(min-width: 981px)")');
     expect(consolePage).toContain("root: 'md:flex'");
     expect(consolePage).toContain("content: 'md:hidden'");
-    expect(consolePage).toContain("detailsOpen.value = isDesktop.value");
+    expect(consolePage).toContain("const detailsOpen = ref(false)");
     expect(consolePage).toContain("}, 60_000);");
     expect(consolePage).toContain(
       "if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();",

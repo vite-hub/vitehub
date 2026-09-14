@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const runtimeErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics",
+  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
   codes: {
     RUNTIME_R0001: dynamicError,
     RUNTIME_R0002: dynamicError,

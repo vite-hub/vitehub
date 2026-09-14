@@ -13,6 +13,7 @@ export interface ViteHubUINuxtModule {
 }
 
 const componentNames = [
+  "AgentCapabilityInspector",
   "AgentChat",
   "AgentChatMessage",
   "AgentChatPrompt",

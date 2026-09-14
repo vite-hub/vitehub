@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -180,7 +181,7 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
 
     expect(await functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/monthly-recap"))
-      .toBe(`/@fs/${template}?markdown-template`)
+      .toBe(`\0vitehub:email-template:${template}`)
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe([
       'declare module "#vitehub/emails/monthly-recap/index.mjs/detail" {',
       "  const render: (data?: Record<string, unknown>) => Promise<string>",
@@ -298,6 +299,37 @@ describe("hubEmail", () => {
     }
   })
 
+  it("renders Email fragments in development and materialized output without a Markdown import plugin", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "server/emails"), { recursive: true })
+    await mkdir(join(root, "server/shared"), { recursive: true })
+    await writeFile(join(root, "server/emails/welcome.md"), "Hello {{name}}\n\n@../shared/policy.md")
+    await writeFile(join(root, "server/shared/policy.md"), "::if{ready}\nReady for review.\n::else\nPending.\n::")
+    const plugin = hubEmail({ driver: "resend" })
+    const server = await createServer({
+      appType: "custom",
+      configFile: false,
+      plugins: [plugin],
+      root,
+      server: { middlewareMode: true },
+    })
+    try {
+      // SAFETY: Email template modules export a renderer with these explicit data inputs.
+      const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<string> }
+      await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\nPending.")
+      // Stop development refreshes before removing the source tree to simulate deployment.
+      await server.close()
+      const paths = await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
+      await rm(join(root, "server"), { recursive: true })
+      // SAFETY: prepareTypes materializes the same Email renderer contract for deployment.
+      const deployed = await import(pathToFileURL(paths.welcome!).href) as typeof development
+      await expect(deployed.default({ name: "Team", ready: true })).resolves.toBe("Hello Team\n\nReady for review.")
+    }
+    finally {
+      await server.close()
+    }
+  })
+
   it("resolves nested standalone host templates through exact aliases", async () => {
     const root = await createTempProject()
     const parentTemplate = join(root, "server", "emails", "monthly.md")
@@ -316,7 +348,7 @@ describe("hubEmail", () => {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
-        .toBe(`/@fs${nestedTemplate}?markdown-template`)
+        .toBe(`\0vitehub:email-template:${nestedTemplate}`)
     }
     finally {
       await server.close()

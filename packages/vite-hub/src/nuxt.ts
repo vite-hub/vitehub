@@ -1,3 +1,4 @@
+import { consoleDatabaseUrl, withDataDir } from "./storage-config.ts"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -131,58 +132,9 @@ function installEmailTemplateResolver(config: Record<string, unknown>, root: str
   }
 }
 
-type MarkdownTemplatePlugin = Omit<Plugin, "load" | "resolveId"> & {
-  load: HookHandler<NonNullable<Plugin["load"]>>
-  resolveId(
-    this: ThisParameterType<HookHandler<NonNullable<Plugin["resolveId"]>>>,
-    ...args: Parameters<HookHandler<NonNullable<Plugin["resolveId"]>>>
-  ): Promise<string | undefined> | string | undefined
-}
-
-function markdownTemplateResolver(plugin: MarkdownTemplatePlugin): Plugin {
-  return {
-    name: "vite-hub/nuxt-markdown-templates",
-    load(id, ...args) {
-      // SAFETY: Object.create preserves the complete Rollup plugin context supplied as this.
-      const context = Object.create(this) as typeof this
-      Object.defineProperty(context, "resolve", {
-        value: async (...resolveArgs: Parameters<typeof this.resolve>) => {
-          const resolved = await this.resolve(...resolveArgs)
-          return resolved && {
-            ...resolved,
-            id: resolved.id.startsWith("\0raw:") ? resolved.id.slice(5) : resolved.id,
-          }
-        },
-      })
-      return plugin.load.call(context, id.startsWith("\0raw:") ? id.slice(5) : id, ...args)
-    },
-    async resolveId(...args) {
-      const resolved = await plugin.resolveId.call(this, ...args)
-      return resolved?.startsWith("\0raw:") ? resolved.slice(5) : resolved
-    },
-  }
-}
-
 function pluginOptionHasName(option: PluginOption, name: string): boolean {
   if (Array.isArray(option)) return option.some(candidate => pluginOptionHasName(candidate, name))
   return Boolean(option && Reflect.get(Object(option), "name") === name)
-}
-
-function installMarkdownTemplateResolver(config: Record<string, unknown>, plugin: MarkdownTemplatePlugin | undefined): void {
-  if (!plugin) return
-  // SAFETY: Nitro rollupConfig is an object namespace owned and initialized here.
-  const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
-  // SAFETY: Nitro Rollup plugins use Vite's compatible Plugin contract.
-  const configuredPlugins = rollupConfig.plugins as PluginOption | undefined
-  const plugins = Array.isArray(configuredPlugins)
-    ? configuredPlugins
-    : configuredPlugins
-      ? [configuredPlugins]
-      : []
-  rollupConfig.plugins = plugins
-  if (!plugins.some(candidate => pluginOptionHasName(candidate, "vite-hub/nuxt-markdown-templates"))) {
-    plugins.push(markdownTemplateResolver(plugin))
-  }
 }
 
 const nitroRuntimeResolverNames = new Set([
@@ -315,6 +267,7 @@ async function installConsole(
   invocationRootState?: ConsoleInvocationRootState,
   canDiscoverDefinitions: () => boolean = () => true,
   discoveryOptions: Pick<Parameters<typeof discoverConsoleBuildCatalog>[0], "databaseDiscoveryRoot" | "rateLimitDiscoveryRoot" | "rateLimitScanDirs" | "scheduleDiscoveryRoot" | "workspaceDiscoveryRoot"> = {},
+  databaseUrl?: string,
 ): Promise<string> {
   const uiModule = (await import("@vite-hub/ui/nuxt")).default
   const uiConfigured = (nuxt.options.modules ?? []).some((entry) => {
@@ -327,7 +280,7 @@ async function installConsole(
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleSections(projectRoot, sections)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
-  if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations)
+  if (installInvocations && nuxt.options.dev && sections.includes("agents") && !fixture) installConsoleInvocations(projectRoot, undefined, observations, databaseUrl)
   const routeRules = (nuxt.options.routeRules ??= {})
   for (const route of ["/_vitehub", "/_vitehub/**"]) {
     const rule = (routeRules[route] ??= {})
@@ -473,6 +426,7 @@ async function installConsole(
       invoke,
       observations,
       () => !invocationRootState?.closed,
+      databaseUrl,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
@@ -787,10 +741,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const envOptions = configuredEnv && typeof configuredEnv === "object"
     ? Object.fromEntries(Object.entries(configuredEnv).filter(([key]) => !["define", "public", "server"].includes(key)))
     : configuredEnv
-  const options = {
+  const options = withDataDir({
     ...moduleOptions,
     env: envOptions,
-  } as Parameters<typeof vitehub>[0]
+  } as Parameters<typeof vitehub>[0])
   const plan = resolveDeploymentPlan(options.preset)
   const nitro = (nuxt.options.nitro ??= {})
   const nitroPreset = plan.preset === "cloudflare" && options.realtime
@@ -980,11 +934,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         }
       })
     | undefined
-  const markdownTemplatePluginCandidate: unknown = installedPlugins.find(
-    plugin => plugin.name === "@vite-hub/markdown-template/vite",
-  )
-  // SAFETY: The canonical Markdown Template plugin name identifies the framework-owned function-hook contract.
-  const markdownTemplatePlugin = markdownTemplatePluginCandidate as MarkdownTemplatePlugin | undefined
   const emailTemplatePaths =
     (await emailPlugin?.api?.prepareTypes?.({
       materialize: true,
@@ -1164,11 +1113,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleInvokeEnabled && !resolvedConsoleFixture,
         options.console === true ? undefined : options.console.observations,
         () => !consoleInvocationRootState.closed,
+        consoleDatabaseUrl(options),
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     installNitroRuntimeResolvers(config, replayPlugins)
-    installMarkdownTemplateResolver(config, markdownTemplatePlugin)
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }
@@ -1237,6 +1186,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
         workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, nuxt.options.vite.workspace ?? options.workspace),
       },
+      consoleDatabaseUrl(options),
     )
   }
 }

@@ -1,3 +1,4 @@
+import { deserializeResponse, isSerializedResponse } from '@vite-hub/runtime'
 import { isSandboxError, sandboxError } from '../sandbox/errors'
 import type { SandboxExecutionBox } from './execution-box'
 
@@ -145,6 +146,12 @@ export async function decodeSandboxValue(
   const descriptor = value[SANDBOX_VALUE_MARKER]
   if (!isPlainObject(descriptor) || typeof descriptor.tag !== 'string')
     throw serializationError(`Sandbox ${label} contains an invalid binary sidecar descriptor.`, { label })
+
+  if (descriptor.tag === 'response') {
+    if (!isSerializedResponse(descriptor.value))
+      throw serializationError(`Sandbox ${label} contains an invalid response descriptor.`, { label })
+    return deserializeResponse(descriptor.value)
+  }
 
   if (descriptor.tag === 'object') {
     if (!Array.isArray(descriptor.entries) || !descriptor.entries.every(entry => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string'))

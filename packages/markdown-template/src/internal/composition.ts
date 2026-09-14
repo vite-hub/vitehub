@@ -1,3 +1,5 @@
+export { extractMarkdownTemplateImportSpecifiers } from "../import-specifiers.ts"
+
 export {
   renderMarkdownTemplateInternal,
   resolveMarkdownTemplateImports,

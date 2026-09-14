@@ -136,26 +136,27 @@ async function runQuickAction(
 export async function runBrowserAction(
   action: BrowserAction,
   input: BrowserActionInput,
-): Promise<BrowserRunResult<Response>> {
+): Promise<BrowserRunResult> {
   try {
     const binding = await resolveBinding()
     const normalized = normalizeInput(input)
-    return [null, await runQuickAction(binding, action, normalized)]
+    return await runQuickAction(binding, action, normalized)
   }
   catch (error) {
-    return [toBrowserError(error), undefined]
+    const normalized = toBrowserError(error)
+    return Response.json({ error: { code: normalized.code, message: normalized.message, details: normalized.details } }, { status: 500 })
   }
 }
 
 export async function runBrowserContent(
   input: BrowserActionInput,
-): Promise<BrowserRunResult<string>> {
-  const [error, response] = await runBrowserAction("content", input)
-  if (error) return [error, undefined]
+): Promise<string> {
+  const response = await runBrowserAction("content", input)
+  if (!response.ok) throw new Error(`Browser content request failed with status ${response.status}`)
   try {
-    return [null, await readQuickActionText(response, "content", normalizeInput(input))]
+    return await readQuickActionText(response, "content", normalizeInput(input))
   }
   catch (error) {
-    return [toBrowserError(error), undefined]
+    throw toBrowserError(error)
   }
 }

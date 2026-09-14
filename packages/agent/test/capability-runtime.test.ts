@@ -284,10 +284,106 @@ describe("agent capability runtime", () => {
       expect.objectContaining({ text: "rewritten" }),
     ])
     await expect(applyCapabilityToolTransforms(resolved.tools, resolved.toolTransforms)).resolves.toEqual({
-      added: { name: "added" },
-      original: { name: "original" },
+      tools: { added: { name: "added" }, original: { name: "original" } },
+      originalNames: new Map([["added", "added"], ["original", "original"]]),
     })
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
+  })
+
+  it.each([false, true])("preserves tool descriptors through identity transforms and MCP replacement=%s", async (replaceMcp) => {
+    const { applyCapabilityToolTransforms } = await import("../src/capability-runtime.ts")
+    const description = vi.fn(() => "Read a document")
+    const marker = Symbol("tool-marker")
+    class ReadTool {
+      get name() { return "read" }
+      execute() { return this.name }
+    }
+    const shared = new ReadTool()
+    Object.defineProperties(shared, {
+      description: { configurable: true, enumerable: true, get: description },
+      hidden: { value: "retained" },
+      [marker]: { value: "symbol value" },
+    })
+    const initial = replaceMcp
+      ? { a: { name: "a", metadata: { mcpServer: "docs", originalName: "read" } }, b: shared }
+      : { a: shared, b: shared }
+    const result = await applyCapabilityToolTransforms(initial, [current => replaceMcp ? { ...current, a: shared } : current])
+    expect(description).not.toHaveBeenCalled()
+    expect(result.tools!.a).not.toBe(result.tools!.b)
+    for (const tool of Object.values(result.tools!)) {
+      expect(Object.getPrototypeOf(tool)).toBe(ReadTool.prototype)
+      for (const key of ["description", "hidden", marker]) {
+        const original = Object.getOwnPropertyDescriptor(shared, key)!
+        expect(Object.getOwnPropertyDescriptor(tool, key)).toEqual(original.get ? { ...original, get: expect.any(Function) } : original)
+      }
+      expect(tool.execute?.(undefined)).toBe("read")
+    }
+    if (replaceMcp) expect(result.tools!.a!.metadata).toEqual({ mcpServer: "docs", originalName: "read" })
+  })
+
+  it.each(["data", "accessor", "inherited accessor"])("preserves %s metadata behavior while restoring MCP provenance", async (kind) => {
+    const { applyCapabilityToolTransforms } = await import("../src/capability-runtime.ts")
+    const computed = vi.fn(() => "computed")
+    const marker = Symbol("metadata-marker")
+    class Metadata {
+      [key: string]: unknown
+      #inherited = "prototype value"
+      get inherited() { return this.#inherited }
+    }
+    const prototype = Metadata.prototype
+    let metadata: Record<string, unknown> = Object.defineProperties(new Metadata(), {
+      hidden: { value: "hidden value" },
+      computed: { configurable: true, enumerable: true, get: computed },
+      [marker]: { value: "symbol value" },
+    })
+    const originalMetadata = metadata
+    const setter = vi.fn((value: Record<string, unknown>) => { metadata = value })
+    const descriptor: PropertyDescriptor = kind === "data"
+      ? { configurable: false, enumerable: false, writable: false, value: metadata }
+      : { configurable: false, enumerable: false, get: () => metadata, set: setter }
+    const replacement = { name: "read" }
+    if (kind === "inherited accessor") Object.setPrototypeOf(replacement, Object.defineProperty({}, "metadata", descriptor))
+    else Object.defineProperty(replacement, "metadata", descriptor)
+    const result = await applyCapabilityToolTransforms({ read: { name: "read", metadata: { mcpServer: "docs", originalName: "original" } } }, [() => ({ read: replacement })])
+    const tool = result.tools!.read!
+    const restored = tool.metadata!
+    expect(computed).not.toHaveBeenCalled()
+    expect(Object.getOwnPropertyDescriptor(tool, "metadata")).toMatchObject(kind === "data"
+      ? { configurable: false, enumerable: false, writable: false }
+      : { configurable: false, enumerable: false, get: expect.any(Function), set: expect.any(Function) })
+    expect(Object.getPrototypeOf(restored)).toBe(prototype)
+    for (const key of ["hidden", "computed", marker]) {
+      const original = Object.getOwnPropertyDescriptor(originalMetadata, key)!
+      expect(Object.getOwnPropertyDescriptor(restored, key)).toEqual(original.get ? { ...original, get: expect.any(Function) } : original)
+    }
+    expect(restored.inherited).toBe("prototype value")
+    expect(restored.computed).toBe("computed")
+    expect(restored).toMatchObject({ mcpServer: "docs", originalName: "original" })
+    expect(originalMetadata.mcpServer).toBeUndefined()
+    if (kind !== "data") {
+      tool.metadata = { updated: true }
+      expect(setter).toHaveBeenCalledWith({ updated: true })
+      expect(tool.metadata).toEqual({ updated: true, mcpServer: "docs", originalName: "original" })
+    }
+  })
+
+  it("preserves WeakMap-backed accessor receivers through tool preparation without eager reads", async () => {
+    const { withAgentToolStepReporting, withJsonCompatibleToolOutputs } = await import("../src/tool-runtime.ts")
+    const original = { name: "lookup", execute: () => "result" }
+    const state = new WeakMap<object, string>([[original, "before"]])
+    const getter = vi.fn(function (this: object) { return state.get(this) })
+    Object.defineProperty(original, "description", {
+      enumerable: true,
+      get: getter,
+      set(this: object, value: string) { state.set(this, value) },
+    })
+    const tools = withAgentToolStepReporting(withJsonCompatibleToolOutputs({ lookup: original }), vi.fn())!
+    expect(getter).not.toHaveBeenCalled()
+    expect(Reflect.get(tools.lookup, "description")).toBe("before")
+    Reflect.set(tools.lookup, "description", "after")
+    expect(state.get(original)).toBe("after")
+    expect(Reflect.get(tools.lookup, "description")).toBe("after")
+    expect(Object.getOwnPropertyDescriptor(tools.lookup, "description")).toMatchObject({ enumerable: true, configurable: false, get: expect.any(Function), set: expect.any(Function) })
   })
 
   it("preserves output extension scope when final renderers run last", async () => {

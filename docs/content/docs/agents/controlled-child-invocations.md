@@ -53,7 +53,11 @@ if (child.support.respond) {
 }
 ```
 
-Inline provider runtimes accept approval decisions and `data-agent-input` answers while the matching provider request is pending. Text steering, follow-up turns, and Workflow-backed input remain unsupported until their runtime adapters provide equivalent ordering and lifecycle semantics.
+Inline provider runtimes accept approval decisions and `data-agent-input` answers while the matching provider request is pending.
+
+When `child.support.steer` is true, send text through `child.sendInput({ prompt: text }, { mode: 'steer' })` to steer the active provider turn. The prompt may also be a text-only `Message[]`. Steering returns `accepted` when the provider adds the input to that turn, or `unsupported` when it cannot do so safely, including attachment-bearing input. An ambiguous submission or cancellation failure returns `invalid-state`; do not resubmit that input automatically.
+
+Follow-up turns and Workflow-backed input remain unsupported until their runtime adapters provide equivalent ordering and lifecycle semantics.
 
 Keep child Agent selection outside model input. The model can choose a named application tool, while trusted code supplies the Agent Definition and ViteHub assigns the child id. Use `startAgentInvocation()` for tools that need child control. When using `runAgent()`, handle its runtime-specific return contract rather than assuming every runtime returns a completed result.
 

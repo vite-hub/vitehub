@@ -4,6 +4,7 @@ import {
   normalizeCapabilities,
 } from "./capability-runtime.ts"
 import { AgentHttpError } from "./http-error.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 
 import type {
   AgentCallbackContext,
@@ -27,9 +28,18 @@ import type {
   ResolvedAgentRuntimeContext,
   ResolvedAgentTriggerDefinition,
 } from "./types.ts"
+import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import type { StreamEvent } from "./messages.ts"
+import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+
+function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<unknown, TInput> | undefined): input is StandardSchemaV1<unknown, TInput> {
+  if (!isRuntimeRecord(input) && !hasRuntimeType(input, "function")) return false
+  if (!("~standard" in input)) return false
+  const standard = input["~standard"]
+  return isRuntimeRecord(standard) && hasRuntimeType(standard.validate, "function")
+}
 
 const agentTriggerContextKey = "agent.trigger"
 
@@ -437,7 +447,23 @@ export async function resolveAgentTriggerInvocation<
       requireSecretHeader: requiresWebhookSecretHeader(trigger.webhooks),
     })
   }
-  return resolveAgentTriggerInvocationResult(await trigger.invoke(input), trigger)
+  let validatedInput = input
+  if (isTriggerInputSchema(trigger.input)) {
+    if (trigger.webhooks?.length && context.request) {
+      const result = await trigger.input["~standard"].validate(input)
+      if (result.issues?.length || !("value" in result)) {
+        return {
+          response: Response.json({ accepted: false, reason: "invalid_payload" }, { status: 400 }),
+          // SAFETY: A handled invalid payload never invokes the trigger, so its validated input type remains opaque to consumers.
+          trigger: trigger as never,
+        }
+      }
+      validatedInput = result.value
+    } else {
+      validatedInput = await parseStandardSchema(trigger.input, input, `Agent trigger "${trigger.id}" input`)
+    }
+  }
+  return resolveAgentTriggerInvocationResult(await trigger.invoke(validatedInput), trigger)
 }
 
 export function resolveAgentTriggerInvocationResult<

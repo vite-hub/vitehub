@@ -237,15 +237,8 @@ onBeforeUnmount(() => {
       </template>
 
       <template #default="{ collapsed }">
-        <div v-if="!collapsed" class="flex items-end justify-between px-4 pb-3 pt-5">
-          <div>
-            <span class="text-[10px] font-semibold uppercase tracking-[.1em] text-muted">Object storage</span>
-            <h1 class="mt-1 text-lg font-semibold tracking-tight text-highlighted">Objects</h1>
-          </div>
-          <span class="text-xs text-muted">{{ blobs.length }}{{ hasMore ? "+" : "" }}</span>
-        </div>
-        <div class="px-2 pb-3" :class="collapsed ? 'pt-2' : ''">
-          <UDashboardSearchButton :collapsed="collapsed" block class="w-full bg-transparent ring-default" label="Search console" />
+        <div class="flex shrink-0 items-center gap-1 px-[0.875rem] pb-2 pt-1">
+          <UDashboardSearchButton :collapsed="collapsed" block class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60" label="Search console" />
         </div>
         <div v-if="!collapsed" class="grid gap-2 px-3 pb-3">
           <USelect v-if="stores.length > 1" v-model="selectedStore" :items="storeItems" aria-label="Blob store" size="sm" />

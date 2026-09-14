@@ -58,19 +58,19 @@ export default async function releaseNotes(payload: ReleaseNotesPayload = {}) {
 }
 ```
 
-Invoke the discovered name from server code. `runSandbox()` returns an error-first tuple and infers its payload and result from the Definition:
+Invoke the discovered name from server code. `runSandbox()` returns a native Web `Response` and infers its payload from the Definition:
 
 ```ts
 // src/server.ts
 import { runSandbox } from "@vite-hub/sandbox";
 
-const [error, result] = await runSandbox("release-notes", {
+const response = await runSandbox("release-notes", {
   notes: "ship it\nadd tests",
 });
 
-if (error) throw error;
+if (!response.ok) throw new Error(await response.text());
 
-console.log(JSON.stringify(result));
+console.log(JSON.stringify(await response.json()));
 ```
 
 Build through Vite so discovery and the runtime registry are generated, then run the server entry:
@@ -91,9 +91,9 @@ The Definition entrypoint does not import `@vite-hub/sandbox`. ViteHub calls its
 ## Provider and lifecycle limits
 
 - Provider selection belongs to application or host configuration, not to a Definition. `hubSandbox({ provider: "vercel" })` and `hubSandbox({ provider: "cloudflare" })` are the direct-package forms. The `vite-hub` distribution can infer these from its Vercel and Cloudflare presets.
-- `vitehub.sandbox.timeout` must be a positive integer no greater than `2_147_483_647`. It bounds one execution attempt after provider startup, including package preparation, staging, and execution. Queueing, Box startup, and retry delays can make the complete `runSandbox()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable provider operations and returns a `SANDBOX_TIMEOUT` error in the tuple.
+- `vitehub.sandbox.timeout` must be a positive integer no greater than `2_147_483_647`. It bounds one execution attempt after provider startup, including package preparation, staging, and execution. Queueing, Box startup, and retry delays can make the complete `runSandbox()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable provider operations and returns a `SANDBOX_TIMEOUT` error in a non-2xx JSON response.
 - Callers cannot currently pass an `AbortSignal` to `runSandbox()`. A disconnected request does not by itself cancel the run; configure a Definition timeout to bound each execution attempt.
-- Vercel Box sessions are closed in a `finally` block after success or failure. Cloudflare also creates and closes a unique Box for each run unless you configure `sandboxId` or pass one to `runSandbox()`. Cleanup failures are surfaced through the `runSandbox()` error tuple; they are not suppressed after a successful handler.
+- Vercel Box sessions are closed in a `finally` block after success or failure. Cloudflare also creates and closes a unique Box for each run unless you configure `sandboxId` or pass one to `runSandbox()`. Cleanup failures are surfaced through the `runSandbox()` non-2xx JSON response; they are not suppressed after a successful handler.
 - An explicit Cloudflare `sandboxId` opts into a shared Box identity. ViteHub deletes invocation-local files after each attempt, caches prepared projects by digest inside that Box, and serializes runs with the same ID within one runtime isolate. Separate Worker isolates can still enter the Box concurrently, so use external coordination when deployment-wide serialization is required. The provider normally leaves an explicitly named Box for idle shutdown; setting `keepAlive: true` makes ViteHub close its session after the run.
 
 ## Security and isolation

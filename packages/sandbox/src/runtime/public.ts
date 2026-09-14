@@ -5,19 +5,18 @@ import type {
   SandboxDefinitionName,
   SandboxPayload,
   SandboxRegistryDefinition,
-  SandboxResult,
 } from './registry-types'
 
 export function runSandbox<const TName extends SandboxDefinitionName>(
   name: TName,
   payload?: SandboxPayload<SandboxRegistryDefinition<TName>>,
   options?: import('../module-types').SandboxExecutionOptions,
-): Promise<import('../module-types').SandboxRunResult<SandboxResult<SandboxRegistryDefinition<TName>>>>
+): Promise<import('../module-types').SandboxRunResult>
 export function runSandbox(
   name: string,
   payload?: unknown,
   options?: import('../module-types').SandboxExecutionOptions,
-): Promise<import('../module-types').SandboxRunResult<unknown>>
+): Promise<import('../module-types').SandboxRunResult>
 export async function runSandbox(
   name: string | undefined,
   payload?: unknown,

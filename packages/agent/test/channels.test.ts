@@ -17,6 +17,7 @@ function githubIssueCommentPayload(body = "/review please", userType = "User") {
       user: { id: 1, login: "mona", type: userType },
     },
     issue: {
+      author_association: "OWNER",
       html_url: "https://github.test/acme/app/issues/42",
       number: 42,
       pull_request: {
@@ -24,6 +25,8 @@ function githubIssueCommentPayload(body = "/review please", userType = "User") {
         url: "https://api.github.test/repos/acme/app/pulls/42",
       },
       title: "Improve app",
+      labels: [{ name: "review" }],
+      user: { login: "mona" },
     },
     installation: { id: 123 },
     repository: {
@@ -1451,6 +1454,81 @@ describe("agent channels", () => {
       if (previousToken === undefined) delete process.env.VITEHUB_GITHUB_TOKEN
       else process.env.VITEHUB_GITHUB_TOKEN = previousToken
     }
+  })
+
+  it("filters issue comment and pull request deliveries before invocation", async () => {
+    const { github } = await import("../src/channels.ts")
+    const seen: unknown[] = []
+    const channel = github({ app: { fetch: vi.fn(async () => Response.json({ draft: false, base: { ref: "main" }, head: { ref: "feature", repo: { full_name: "contributor/app" } } })) }, pullRequest: {
+      filter: { repository: { allow: ["acme/app"] }, author: { deny: ["blocked"] }, labels: { allow: ["review"] } },
+      when: async (context) => { seen.push(context); return true },
+      ignored: reason => Response.json({ accepted: false, reason }),
+    } })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const invoke = (payload: unknown) => trigger.invoke({ capabilities: [], channel, trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" } } as never, { payload })
+    const denied = await invoke({ ...githubIssueCommentPayload(), issue: { ...githubIssueCommentPayload().issue, user: { login: "blocked" } } })
+    expect(denied).toBeInstanceOf(Response)
+    expect(await (denied as Response).json()).toMatchObject({ accepted: false, reason: "filtered" })
+    const accepted = await invoke(githubIssueCommentPayload())
+    expect(accepted).not.toBeInstanceOf(Response)
+    expect(seen[0]).toMatchObject({ repository: "acme/app", author: "mona", actor: "mona", labels: ["review"], title: "Improve app" })
+  })
+
+  it.each(["issue_comment", "pull_request"])("hydrates PR-only filters for %s deliveries", async (event) => {
+    const { github } = await import("../src/channels.ts")
+    const pr = { draft: false, base: { ref: "main" }, head: { ref: "feature", repo: { full_name: "contributor/app" } } }
+    const fetcher = vi.fn(async () => Response.json(pr))
+    const when = vi.fn(async () => false)
+    const channel = github({
+      app: { fetch: fetcher, token: "metadata-token" },
+      pullRequest: {
+        filter: { base: { allow: ["main"] }, head: { allow: ["feature"] }, draft: { allow: ["false"] }, fork: { allow: ["true"] } },
+        when,
+        ignored: reason => Response.json({ reason }),
+      },
+    })
+    const trigger = channel.triggers?.webhook
+    if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+    const payload = { ...githubIssueCommentPayload(), ...(event === "pull_request" ? { pull_request: pr } : {}) }
+    const result = await trigger.invoke({ capabilities: [], channel } as never, { payload })
+    expect(when).toHaveBeenCalledWith(expect.objectContaining({ base: "main", head: "feature", draft: false, fork: true }))
+    expect(fetcher).toHaveBeenCalledTimes(event === "issue_comment" ? 1 : 0)
+    expect(await (result as Response).json()).toEqual({ reason: "filtered" })
+  })
+
+  it.each(["token", "http", "network"])("handles unavailable filter metadata after %s failure", async (failure) => {
+    const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async () => {
+      if (failure === "network") throw new Error("Network unavailable")
+      return Response.json({ message: "Forbidden" }, { status: 403 })
+    })
+    const token = () => {
+      if (failure === "token") throw new Error("Token unavailable")
+      return "metadata-token"
+    }
+    for (const field of ["base", "head", "draft", "fork", undefined] as const) {
+      const when = vi.fn(async () => false)
+      const channel = github({
+        app: { fetch: fetcher, token },
+        pullRequest: {
+          filter: field ? { [field]: { deny: ["blocked"] } } : undefined,
+          when,
+          ignored: reason => Response.json({ reason }),
+        },
+      })
+      const trigger = channel.triggers?.webhook
+      if (!trigger) throw new Error("Missing GitHub webhook trigger.")
+      // SAFETY: This fixture supplies the callback context used by filtering.
+      const result = await trigger.invoke({ capabilities: [], channel } as never, { payload: githubIssueCommentPayload() })
+      expect(result).toBeInstanceOf(Response)
+      expect(await (result as Response).json()).toEqual({ reason: "filtered" })
+      if (field) expect(when).not.toHaveBeenCalled()
+      else expect(when).toHaveBeenCalledWith(expect.objectContaining({
+        repository: "acme/app", base: undefined, head: undefined, draft: undefined, fork: undefined,
+      }))
+    }
+    expect(fetcher).toHaveBeenCalledTimes(failure === "token" ? 0 : 5)
   })
 
   it("marks disabled pull request workspaces in invocation context", async () => {

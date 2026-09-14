@@ -115,3 +115,9 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 - [Headless message scroller](https://vitehub.dev/docs/ui/message-scroller)
 - [Agent Invocation views](https://vitehub.dev/docs/ui/invocation)
 - [Diff](https://vitehub.dev/docs/ui/diff) and [file-tree views](https://vitehub.dev/docs/ui/file-tree)
+
+## Capability inspector
+
+`AgentCapabilityInspector` takes the same `invocation` prop as `AgentInvocationInspector`. It provides capability selection, recorded MCP server/tool contracts, Title generation state, and a generic tools/configuration fallback. It renders capability-contributed JSON Render specs through a bounded, read-only Vue catalog. Unsupported specs fall back to recorded data; the renderer has no tool execution or RPC handlers.
+
+`AgentInvocationInspector` keeps its embedded capability summary by default. Set `showCapabilities` to `false` when a separate Capabilities panel provides this information, as in the Console. Load the package stylesheet for both components.

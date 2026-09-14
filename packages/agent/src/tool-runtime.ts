@@ -1,4 +1,5 @@
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 import {
   formatRuntimeDiagnosticError,
   resolveCapabilityPolicy,
@@ -8,9 +9,50 @@ import {
 import type {
   AgentRuntimeContext,
   AgentToolDefinition,
+  AgentToolExecutionContext,
   AgentToolSet,
   AgentToolStepItem,
 } from "./types.ts"
+
+function copyWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides, bindExecute: boolean): Omit<T, keyof Overrides> & Overrides {
+  const descriptors: Record<PropertyKey, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool)
+  const seen = new Set<PropertyKey>()
+  // Accessors can depend on private fields or WeakMap state on the constructed instance.
+  for (let owner: object | null = tool; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
+    const inherited = Object.getOwnPropertyDescriptors(owner)
+    for (const key of Reflect.ownKeys(inherited)) {
+      if (seen.has(key)) continue
+      seen.add(key)
+      if (Object.hasOwn(overrides, key)) continue
+      const descriptor = Object.getOwnPropertyDescriptor(owner, key)!
+      const bindMethod = bindExecute && key === "execute"
+      if (descriptor.get || descriptor.set) {
+        Object.defineProperty(descriptors, key, { configurable: true, enumerable: true, writable: true, value: {
+          ...descriptor,
+          get: descriptor.get ? () => {
+            const value: unknown = descriptor.get!.call(tool)
+            return bindMethod && hasRuntimeType(value, "function") ? value.bind(tool) : value
+          } : undefined,
+          set: descriptor.set ? (value: unknown) => { descriptor.set!.call(tool, value) } : undefined,
+        } })
+      } else if (bindMethod && hasRuntimeType(descriptor.value, "function")) {
+        Object.defineProperty(descriptors, key, { configurable: true, enumerable: true, writable: true, value: { ...descriptor, value: descriptor.value.bind(tool) } })
+      }
+    }
+  }
+  return Object.create(Object.getPrototypeOf(tool), {
+    ...descriptors,
+    ...Object.getOwnPropertyDescriptors(overrides),
+  })
+}
+
+export function copyToolWithOverrides<T extends object, Overrides extends object>(tool: T, overrides: Overrides): Omit<T, keyof Overrides> & Overrides {
+  return copyWithOverrides(tool, overrides, true)
+}
+
+export function copyToolMetadataWithOverrides(metadata: Record<string, unknown>, overrides: Record<string, unknown>): Record<string, unknown> {
+  return copyWithOverrides(metadata, overrides, false)
+}
 
 function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
   return typeof value === "object" && value !== null && "name" in value && typeof (value as { name?: unknown }).name === "string"
@@ -48,15 +90,14 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
   const approvedInputs = new Set<unknown>()
 
   // SAFETY: The wrapper preserves the tool fields and execute signature, and adds an internal approval symbol.
-  return {
-    ...tool,
+  return copyToolWithOverrides(tool, {
     [agentToolPolicyApproveSymbol](input: unknown) {
       approvedInputs.add(input)
     },
-    async execute(input, context) {
+    async execute(input: unknown, context?: AgentToolExecutionContext) {
       if (approvedInputs.delete(input)) {
         context?.abortSignal?.throwIfAborted()
-        return await execute(input, context)
+        return await execute.call(tool, input, context)
       }
       const decision = typeof policy === "function"
         ? await policy({
@@ -88,9 +129,9 @@ function withToolPolicy(tool: AgentToolDefinition): AgentToolDefinition {
       }
 
       context?.abortSignal?.throwIfAborted()
-      return await execute(input, context)
+      return await execute.call(tool, input, context)
     },
-  } as AgentToolDefinition
+  })
 }
 
 export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(tools: TTools | undefined): TTools | undefined {
@@ -109,18 +150,18 @@ export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(t
 export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools: TTools): TTools {
   if (!tools || typeof tools !== "object") return tools
 
+  // SAFETY: Each key and definition is preserved; execute retains its call signature while normalizing the output.
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
       return [name, tool]
     }
 
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
-    return [name, {
-      ...tool,
+    return [name, copyToolWithOverrides(tool, {
       async execute(input: unknown, ...args: unknown[]) {
         return toJsonCompatibleValue(await execute.call(tool, input, ...args))
       },
-    }]
+    })]
   })) as TTools
 }
 
@@ -198,8 +239,7 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
     }
 
     const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
-    return [name, {
-      ...tool,
+    return [name, copyToolWithOverrides(tool, {
       async execute(input: unknown, ...args: unknown[]) {
         const toolCall: AgentToolStepItem = {
           input,
@@ -220,6 +260,6 @@ export function withAgentToolStepReporting<TTools extends AgentToolSet>(tools: T
           throw error
         }
       },
-    }]
+    })]
   })) as TTools
 }

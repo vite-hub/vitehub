@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { hasRuntimeType } from "../internal/runtime-type.ts"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -400,6 +401,12 @@ function selectedTrigger(entry: AgentInvocationStreamEntry, body: AgentInvocatio
 
 function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvocationStreamBody, signal: AbortSignal, run: AgentRunMetadata): unknown {
   const payload = payloadFromBody(body)
+  if (trigger.input && "~standard" in Object(trigger.input)) {
+    const prompt = promptFromBody(body)
+    if (payload) return withPayloadDefaults(payload, { prompt })
+    if (!prompt) throw new Response("Missing Agent Trigger payload. Pass --payload or prompt.", { status: 400 })
+    return { prompt }
+  }
   if (trigger.id !== "chat.message") {
     const prompt = promptFromBody(body)
     if (payload) {
@@ -715,7 +722,21 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
           if (!signal.aborted) emit(event)
         })
-        output = await streamAgentWithWorkspaceProgress(entry, emit, signal, async () => await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevLoopAbortSignal(invocation.input, signal) as never, {
+        const input = trigger.input && "~standard" in Object(trigger.input)
+          ? {
+              ...invocation.input,
+              context: {
+                ...withPayloadDefaults(invocation.input.context || {}, {
+                  invokerProfileId: hasRuntimeType(body.invokerProfileId, "string") ? body.invokerProfileId : undefined,
+                }),
+                ...(isRecord(body.meta) ? {
+                  channel: withPayloadDefaults(isRecord(invocation.input.context?.channel) ? invocation.input.context.channel : {}, { meta: body.meta }),
+                } : {}),
+              },
+            }
+          : invocation.input
+        // SAFETY: The resolved trigger and preview Agent share the discovered Agent contract; only Dev Loop context defaults and cancellation are added.
+        output = await streamAgentWithWorkspaceProgress(entry, emit, signal, async () => await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevLoopAbortSignal(input, signal) as never, {
           output: "events",
         }))
       }

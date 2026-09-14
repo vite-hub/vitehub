@@ -240,7 +240,7 @@ describe("hubBrowser", () => {
       join(root, "consumer.ts"),
       [
         `import { runBrowser, type BrowserRunResult } from "@vite-hub/browser"`,
-        `const result: Promise<BrowserRunResult<{ length: number }>> = runBrowser("code-image", { code: "const ok = true" })`,
+        `const result: Promise<BrowserRunResult> = runBrowser("code-image", { code: "const ok = true" })`,
         `void result`,
         `// @ts-expect-error unknown Browser Definition`,
         `runBrowser("missing", { code: "const ok = false" })`,

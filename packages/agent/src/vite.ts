@@ -744,7 +744,9 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
   const existingNoExternals = Array.isArray(nitro.noExternals) ? nitro.noExternals : []
   nitro.noExternals = nitro.noExternals === true
     ? true
-    : [...new Set([...existingNoExternals, "@t3tools/provider-runtime"])]
+    // Keep the provider's Effect dependencies together so Nitro does not emit
+    // platform chunks with unresolved Effect peer imports in the Node output.
+    : [...new Set([...existingNoExternals, "@t3tools/provider-runtime", "effect", "@effect/platform-node", "@effect/platform-node-shared"])]
   nitro.rollupConfig ||= {}
   // SAFETY: Nitro forwards this field to Rolldown, whose external option accepts the shared Rollup shape.
   const existingExternal = nitro.rollupConfig.external as RollupExternalOption | undefined
@@ -885,6 +887,10 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  const resolvedSourceRootDir = workspace.sourceRootDir ?? resolvedAgent.sourceRootDir ?? sourceRootDir",
     `  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }${typescript ? " as WorkspaceAgentOptions" : ""}`,
     `  const decoratedAgent = { ...resolvedAgent, ...${workspaceDefinitionFromOptions}(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }`,
+    "  const remainingSkills = Object.fromEntries(Object.entries(skills).filter(([key]) => !Object.hasOwn(workspace.sources ?? {}, key)))",
+    "  const skillsSymbol = Symbol.for('vitehub.agent.colocatedSkills')",
+    "  if (Object.keys(remainingSkills).length) Object.defineProperty(decoratedAgent, skillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })",
+    "  else Reflect.deleteProperty(decoratedAgent, skillsSymbol)",
     "  for (const key of Reflect.ownKeys(resolvedAgent)) {",
     `    if (!Object.prototype.propertyIsEnumerable.call(resolvedAgent, key)) Object.defineProperty(decoratedAgent, key, Object.getOwnPropertyDescriptor(resolvedAgent, key)${typescript ? "!" : ""})`,
     "  }",

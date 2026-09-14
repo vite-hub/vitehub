@@ -200,7 +200,7 @@ export class CollectionCursorError extends Diagnostic {
     super({
       cause: options?.cause,
       code: "SOURCE_R0023",
-      docs: "https://vitehub.dev/docs/reference/errors-diagnostics",
+      docs: "https://vitehub.dev/docs/reference/diagnostics",
       why: message,
     }, CollectionCursorError)
     this.name = "CollectionCursorError"

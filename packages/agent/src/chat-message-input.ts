@@ -1,3 +1,4 @@
+import * as v from "valibot"
 import { createMessage, isAttachmentData, isAttachmentPart } from "./messages.ts"
 import { normalizeAgentInvoker } from "./invoker.ts"
 
@@ -13,6 +14,10 @@ import type {
 } from "./types.ts"
 import type { AttachmentData, AttachmentPart, Message, MessagePart } from "./messages.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+
+const retainedQueueMetadataSchema = v.object({
+  chat: v.object({ skippedCount: v.pipe(v.number(), v.safeInteger(), v.minValue(1)) }),
+})
 
 export type UIMessageLike = {
   createdAt?: Date | string
@@ -255,7 +260,7 @@ function metadataRecord(message: UIMessageLike | undefined): Record<string, unkn
 }
 
 function nestedSessionId(metadata: Record<string, unknown> | undefined): string | undefined {
-  const chat = typeof metadata?.chat === "object" && metadata.chat !== null ? metadata.chat as Record<string, unknown> : undefined
+  const chat = metadata?.chat as Record<string, unknown> | undefined
   const session = typeof metadata?.session === "object" && metadata.session !== null ? metadata.session as Record<string, unknown> : undefined
   return firstString(
     metadata?.sessionId,
@@ -433,7 +438,15 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     throw agentDiagnostics.AGENT_R0375({ message: "[vitehub] chat.message trigger requires at least one UI message." })
   }
   const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
-  const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
+  let selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
+  if (options.concurrency === "queue") {
+    const metadata = v.safeParse(retainedQueueMetadataSchema, messages.at(-1)?.metadata)
+    if (metadata.success) {
+      // Retained queue input belongs to this invocation, even when history is disabled.
+      const retained = messages.slice(-Math.min(messages.length, metadata.output.chat.skippedCount + 1))
+      selectedMessages = [...selectedMessages.filter(message => !retained.includes(message)), ...retained]
+    }
+  }
   const transportSessionId = triggerInput?.run?.threadId ?? triggerInput?.run?.runId
   const selectedSessionId = resolveChatSessionId(messages, options.sessions, triggerInput?.session)
   const providerSessionId = triggerInput?.context?.["chat.sessionId"] || (transportSessionId && selectedSessionId

@@ -31,6 +31,7 @@ export type {
   ScheduleRunContext,
   ScheduleRunError,
   ScheduleRunRecord,
+  ScheduleRunResponse,
   ScheduleRunStatus,
   ScheduleRunStore,
   ScheduleTargetName,

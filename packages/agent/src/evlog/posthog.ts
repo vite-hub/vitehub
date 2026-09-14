@@ -1,4 +1,4 @@
-import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { sendBatchToPostHog } from "evlog/posthog"
 import { PostHog } from "posthog-node"
 import type { AgentEvlogExporter } from "../evlog.ts"
@@ -6,7 +6,8 @@ import type { AgentEvlogExporter } from "../evlog.ts"
 export interface AgentPostHogOptions {
   apiKey: string
   host?: string
-  service: string
+  /** Override PostHog's distinct ID. Defaults to the event service, agent name, or `vitehub`. */
+  service?: string
 }
 
 /** Node exporter for PostHog events, Error Tracking and evlog's official log drain. */
@@ -14,7 +15,14 @@ export function posthogAgentExporter(options: AgentPostHogOptions): AgentEvlogEx
   const host = options.host || "https://us.i.posthog.com"
   const endpoint = new URL("/batch/", host)
   if (!["https:", "http:"].includes(endpoint.protocol)) throw new TypeError("[vitehub] PostHog requires an HTTP(S) host.")
-  if (!options.apiKey?.trim() || !options.service?.trim()) throw new TypeError("[vitehub] PostHog requires an API key and service.")
+  if (!options.apiKey?.trim()) throw new TypeError("[vitehub] PostHog requires an API key.")
+
+  function distinctId(properties: Record<string, unknown>): string {
+    for (const value of [options.service, properties.service, properties.agent_name]) {
+      if (hasRuntimeType(value, "string") && value.trim()) return value.trim()
+    }
+    return "vitehub"
+  }
 
   async function acknowledged(message: Parameters<PostHog["captureImmediate"]>[0], signal?: AbortSignal) {
     const body = JSON.stringify({
@@ -55,8 +63,8 @@ export function posthogAgentExporter(options: AgentPostHogOptions): AgentEvlogEx
   }
   const client = new AcknowledgedPostHog(options.apiKey, { host, disableGeoip: true, enableExceptionAutocapture: false, flushInterval: 0 })
   return {
-    capture: (event, properties, delivery) => acknowledged({ distinctId: options.service, event, properties, uuid: delivery?.uuid, timestamp: delivery?.timestamp }, delivery?.signal),
-    exception: (error, properties) => client.captureExceptionImmediate(error, options.service, properties),
+    capture: (event, properties, delivery) => acknowledged({ distinctId: distinctId(properties), event, properties, uuid: delivery?.uuid, timestamp: delivery?.timestamp }, delivery?.signal),
+    exception: (error, properties) => client.captureExceptionImmediate(error, distinctId(properties), properties),
     logs: events => sendBatchToPostHog(events, { apiKey: options.apiKey, host, timeout: 3000, retries: 2 }),
     flush: () => client.shutdown(10_000),
   }

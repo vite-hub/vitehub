@@ -28,6 +28,10 @@ export default defineConfig({
 
 This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation).
 
+On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Console, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
+
+Explicit store paths, remote URLs, and disabled services remain authoritative. Set `console.databaseUrl` to preserve an existing journal location; `VITEHUB_CONSOLE_DATABASE_URL` remains a runtime override. Changing paths does not migrate existing data.
+
 ## Run a complete first result
 
 Choose the result that matches the application you are building:
@@ -114,12 +118,15 @@ Vite config resolution and builds also refresh the entry. Defining `files` in th
 import { defineAgent } from "vite-hub/agent";
 import { workspaceShell } from "vite-hub/agent/capabilities";
 import { env } from "vite-hub/env";
+import { renderMarkdownFile } from "vite-hub/markdown-template/file";
 import { renderMarkdownTemplate } from "vite-hub/markdown-template";
 import { defineWorkspace } from "vite-hub/workspace";
 import { defineWorkflow } from "vite-hub/workflow";
 ```
 
 The root export intentionally contains only the framework configuration API. Feature code belongs on a feature subpath, which forwards to the package that owns it.
+
+Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. Use ordinary `.md` files and ship their relative fragments with the server. File rendering reads the local filesystem at runtime and needs no Vite plugin. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
 
 Built-in Agent Drivers and Box runtimes are selected by literal or tagged values, so they do not need provider-specific ViteHub imports. Install an optional external provider or SDK explicitly when its runtime requires one.
 

@@ -1,11 +1,11 @@
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
-import { normalizeWorkspacePath } from "../core/path.ts"
+import { normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
-import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
+import { forwardWorkspaceStoreTarget, resolveWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
 import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
@@ -88,7 +88,7 @@ function writeOperations(options: WritableWorkspaceFacadeToolOptions | undefined
 function createOverlaySourceStore<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   fallback: (path: string) => boolean,
-): WorkspaceStore & { isTombstoned(path: string): boolean } {
+): WorkspaceStore & WorkspaceStoreTargetCarrier & { isTombstoned(path: string): boolean } {
   const memory = createMemoryWorkspaceStore()
   const tombstones = new Set<string>()
 
@@ -144,7 +144,13 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 
   return {
+    // Snapshot metadata falls back to this Store, so its format must match too.
+    [workspaceStoreTarget]: async () => await resolveWorkspaceStoreTarget(workspace) ?? { provider: "memory" },
     isTombstoned,
+    // Overlay validation and tombstoning are separate operations. Do not
+    // advertise conditional removal without an atomic backing-store check.
+    // Reconciliation will conservatively skip conditional cleanup instead.
+    conditionalRemoval: false,
     async readFile(path) {
       return await memory.readFile(path) || await readBaseFile(path)
     },
@@ -166,6 +172,17 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       await memory.mkdir(path, options)
     },
     async rm(path, options) {
+      if (options?.ifDigest !== undefined || options?.ifSource !== undefined) {
+        // Validate the effective overlay entry first; the base layer may be
+        // shadowed by a replacement in memory.
+        const current = await memory.readFile(path) || await readBaseFile(path)
+        if (!current) return
+        if (options.ifSource !== undefined && (current.metadata?.source ?? null) !== options.ifSource) return
+        if (options.ifDigest !== undefined) {
+          const digest = await sha256(current.content)
+          if (digest !== options.ifDigest) return
+        }
+      }
       const removedBaseEntries = options?.recursive ? await baseEntries(path, { recursive: true }) : []
       await memory.rm(path, options)
       tombstones.add(path)
@@ -189,17 +206,25 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 }
 
-function createWritableFacadeStore(workspace: WritableWorkspaceFacade): WorkspaceStore {
+const sourceSyncStores = new WeakMap<WritableWorkspaceFacade, WorkspaceStore>()
+
+function createWritableFacadeStore(workspace: WritableWorkspaceFacade, sourceSync = false): WorkspaceStore {
+  // Nested resolution must keep syncing to the backing Store, not a prior overlay.
+  const backingSyncStore = sourceSync ? sourceSyncStores.get(workspace) : undefined
+  if (backingSyncStore) return backingSyncStore
   const meta = new Map<string, unknown>()
   const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
   const store: WorkspaceStore = {
     async readFile(path) {
+      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      if (target?.readFile) return await target.readFile(path)
       try {
         const stat = await workspace.fs.stat(path as never)
         if (stat.type === "directory") return
         return {
           content: await workspace.fs.readFile(path as never, { encoding: "binary" } as never) as Uint8Array,
           mediaType: stat.mediaType,
+          metadata: stat.metadata,
           path,
         }
       }
@@ -208,7 +233,11 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
       }
     },
     async writeFile(path, file) {
-      await workspace.fs.writeFile(path as never, file.content, { mediaType: file.mediaType })
+      // Source Sync owns its provenance; public writes must still enforce write policy.
+      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      if (target?.writeFile) return await target.writeFile(path, file)
+      // SAFETY: Store paths are checked by the facade at runtime; the generic facade has no statically known named Workspace paths.
+      await workspace.fs.writeFile(path as never, file.content, { mediaType: file.mediaType, metadata: file.metadata })
     },
     async list(path, options) {
       return await workspace.fs.list(path as never, options)
@@ -225,9 +254,13 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
       }
     },
     async mkdir(path, options) {
+      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      if (target?.mkdir) return await target.mkdir(path, options)
       await workspace.fs.mkdir(path as never, options)
     },
     async rm(path, options) {
+      const target = sourceSync ? await resolveWorkspaceMetadataTarget(workspace) : undefined
+      if (target?.rm) return await target.rm(path, options)
       await workspace.fs.rm(path as never, options)
     },
     async snapshot(options) {
@@ -389,7 +422,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   if (isWritableWorkspaceFacade(workspace)) {
     const writePolicy = createWorkspaceWritePolicy(resolvedDefinition)
-    const syncStore = createWritableFacadeStore(workspace)
+    const syncStore = createWritableFacadeStore(workspace, true)
     let writeWorkspace!: Workspace
 
     async function previousStat(path: string) {
@@ -557,7 +590,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       sync: writeWorkspace.sync,
       tools: writeTools,
     }
+    sourceSyncStores.set(writableWorkspace, syncStore)
     forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => overlayStore }, writableWorkspace)
+    forwardWorkspaceStoreTarget(workspace, writableWorkspace)
 
     return {
       definition: resolvedDefinition,
@@ -570,6 +605,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     tools,
   }
   forwardWorkspaceMetadataTarget({ [workspaceMetadataTarget]: () => overlayStore }, readonlyWorkspace)
+  forwardWorkspaceStoreTarget(workspace, readonlyWorkspace)
   const starter = workspaceSessionStarter(workspace)
   if (starter) {
     readonlyWorkspace.startSession = async options => await starter.startSession(options)

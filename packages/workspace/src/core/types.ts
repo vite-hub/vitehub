@@ -18,6 +18,7 @@ export type ReadFileResult<TOptions extends ReadFileOptions | undefined = undefi
 export interface WriteFileOptions {
   ifDigest?: string | null
   mediaType?: string
+  /** JSON-safe file attributes. Undefined properties, cycles, class instances, and non-finite numbers are rejected before provider dispatch. */
   metadata?: Record<string, unknown>
   preservePath?: boolean
 }
@@ -50,12 +51,17 @@ export interface WorkspaceSearchHit {
 }
 
 export interface MkdirOptions {
+  /** Optional creation evidence. Supporting Stores report only directories created by this call, including before failure. */
+  onCreate?: (path: string, directoryIdentity?: string) => void
   recursive?: boolean
 }
 
 export interface RmOptions {
   recursive?: boolean
   force?: boolean
+  ifDigest?: string
+  /** With ifDigest, also require this Source owner (null means unowned). */
+  ifSource?: string | null
 }
 
 export type WorkspaceWriteOperation = "writeFile" | "mkdir" | "rm"
@@ -256,6 +262,7 @@ export interface WorkspaceFile {
   path: string
   content: WorkspaceContent
   mediaType?: string
+  /** JSON-safe file attributes: plain objects, dense arrays, strings, booleans, null, and finite numbers except negative zero. `source` is reserved for a string Source name. */
   metadata?: Record<string, unknown>
 }
 
@@ -263,6 +270,7 @@ export interface WorkspaceStreamFile {
   path: string
   content: WorkspaceContentStream
   mediaType?: string
+  /** JSON-safe file attributes: plain objects, dense arrays, strings, booleans, null, and finite numbers except negative zero. `source` is reserved for a string Source name. */
   metadata?: Record<string, unknown>
 }
 
@@ -277,6 +285,8 @@ export interface WorkspaceEntry {
 }
 
 export interface WorkspaceStat extends WorkspaceEntry {
+  /** Opaque directory identity, stable across reads/restarts and changed on recreation. Omit when unsupported. */
+  directoryIdentity?: string
   type: "file" | "directory"
 }
 
@@ -315,6 +325,8 @@ export interface WorkspaceRebaseOptions {
 }
 
 export interface WorkspaceStore {
+  /** rm atomically checks SHA-256 content and Source ownership before removing a file. */
+  readonly conditionalRemoval?: boolean
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
@@ -792,5 +804,6 @@ export interface WorkspaceMaterializeSourcesResult {
   durationMs: number
   files: number
   path: string
+  /** Selected Sources in resolution order: longest mount path first, then Source key alphabetically. */
   sources: WorkspaceSourceMaterializationStatus[]
 }

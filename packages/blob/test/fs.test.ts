@@ -70,4 +70,17 @@ describe("fs blob driver", () => {
     expect(blob?.type).toBe("text/plain")
     expect(await blob?.text()).toBe("hello")
   })
+
+  it("rejects paths reserved for internal metadata", async () => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
+    tempDirs.push(base)
+    const driver = createDriver({ base, driver: "fs" })
+
+    await expect(driver.put(".vitehub/blob-meta/poison.json", "{}"))
+      .rejects.toMatchObject({ code: "BLOB_R0005" })
+    await expect(driver.put("nested/../.vitehub/blob-meta/poison.json", "{}"))
+      .rejects.toMatchObject({ code: "BLOB_R0005" })
+    await expect(driver.put(".VITEHUB/blob-meta/poison.json", "{}"))
+      .rejects.toMatchObject({ code: "BLOB_R0005" })
+  })
 })

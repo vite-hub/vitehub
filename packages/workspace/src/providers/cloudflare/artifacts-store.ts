@@ -1,6 +1,8 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { boolean, check, object, optional, parse, pipe, record, string, unknown } from "valibot"
 
 import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../../core/errors.ts"
+import { copyJsonFileMetadata } from "../../core/file-metadata.ts"
 import { contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, normalizeWorkspacePath, sha256 } from "../../core/path.ts"
 import { MemoryFS } from "../../storage/memory-fs.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts"
@@ -53,9 +55,27 @@ interface ArtifactsBinding {
 
 const dir = "/workspace"
 const fileMetadataPath = ".vitehub/files.json"
+const fileMetadataJournalPath = ".vitehub/files.pending.json"
 const tokenRefreshWindow = 60_000
 
 type FileMetadata = Pick<WorkspaceFile, "mediaType" | "metadata">
+
+const fileMetadataSchema = object({
+  mediaType: optional(string()),
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate the reserved ownership field while parsing persisted JSON at the Store boundary.
+  metadata: optional(pipe(record(string(), unknown()), check(value => value.source === undefined || typeof value.source === "string", "metadata.source must be a string when provided"))),
+})
+const fileMetadataFilesSchema = record(string(), fileMetadataSchema)
+const fileMetadataJournalSchema = object({
+  path: string(),
+  existed: boolean(),
+  digest: string(),
+  metadata: fileMetadataSchema,
+})
+
+function parseJson(content: Uint8Array): unknown {
+  return JSON.parse(new TextDecoder().decode(content))
+}
 
 function sameSnapshotEntry(
   left: WorkspaceSnapshot["entries"][string] | undefined,
@@ -120,6 +140,9 @@ function isNonFastForward(error: unknown) {
 }
 
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
+  // Artifacts cannot provide an atomic digest/owner-checked removal operation.
+  // Advertise that limitation so startup cleanup preserves user replacements.
+  readonly conditionalRemoval = false
   #baseline: WorkspaceSnapshot | undefined
   #branch = "main"
   #files = new Map<string, FileMetadata>()
@@ -148,7 +171,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       path: normalized,
       content: content as Uint8Array,
       mediaType: fileMetadata?.mediaType,
-      metadata: fileMetadata?.metadata,
+      metadata: structuredClone(fileMetadata?.metadata),
     }
   }
 
@@ -180,7 +203,8 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     for (const [absolute, entry] of this.#fs!.entries) {
       if (absolute === dir || !absolute.startsWith(`${dir}/`)) continue
       const path = normalizeWorkspacePath(absolute.slice(`${dir}/`.length))
-      if (!path || path === ".git" || path.startsWith(".git/") || path === ".vitehub" || path.startsWith(".vitehub/")) continue
+      const root = path.split("/")[0]?.toLowerCase()
+      if (!path || root === ".git" || root === ".vitehub") continue
       if (isExcludedWorkspacePath(path, options.exclude)) continue
       if (normalizedPrefix) {
         if (path === normalizedPrefix) continue
@@ -192,7 +216,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
         entries.push({
           digest: await sha256(entry.data),
           mediaType: fileMetadata?.mediaType,
-          metadata: fileMetadata?.metadata,
+          metadata: structuredClone(fileMetadata?.metadata),
           mtime: entry.mtimeMs,
           path,
           size: entry.data.byteLength,
@@ -220,25 +244,30 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #stat(normalized: string): Promise<WorkspaceStat | undefined> {
-    const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, mtimeMs?: number, size?: number } | undefined
+    // SAFETY: The filesystem stat shape is narrowed to the methods and fields used below.
+    const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, directoryIdentity?: string, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
     const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
     const fileMetadata = stat.isFile() ? this.#files.get(normalized) : undefined
     return {
       digest: bytes ? await sha256(bytes) : undefined,
       mediaType: fileMetadata?.mediaType,
-      metadata: fileMetadata?.metadata,
+      metadata: structuredClone(fileMetadata?.metadata),
       mtime: stat.mtimeMs,
       path: normalized,
       size: stat.isFile() ? stat.size : undefined,
       type: stat.isDirectory() ? "directory" : "file",
+      directoryIdentity: stat.isDirectory() ? stat.directoryIdentity : undefined,
     }
   }
 
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    await this.#mutate(() => this.#fs!.promises.mkdir(this.#absolute(normalized), { recursive: options.recursive ?? true }))
+    await this.#mutate(() => this.#fs!.promises.mkdir(this.#absolute(normalized), {
+      recursive: options.recursive ?? true,
+      onCreate: options.onCreate ? (absolute, identity) => options.onCreate!(absolute.slice(`${dir}/`.length), identity) : undefined,
+    }))
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
@@ -422,12 +451,18 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
-    await this.#fs!.promises.writeFile(this.#absolute(path), contentToBytes(file.content))
+    file = { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }
+    const existed = await this.#fs!.promises.stat(this.#absolute(path)).then(stat => stat.isFile()).catch(() => false)
+    const content = contentToBytes(file.content)
+    const digest = await sha256(content)
+    await this.#fs!.promises.writeFile(this.#internalAbsolute(fileMetadataJournalPath), JSON.stringify({ path, existed, digest, metadata: { mediaType: file.mediaType, metadata: file.metadata } }))
+    await this.#fs!.promises.writeFile(this.#absolute(path), content)
     if (file.mediaType !== undefined || file.metadata !== undefined) {
       this.#files.set(path, { mediaType: file.mediaType, metadata: file.metadata })
     }
     else this.#files.delete(path)
     await this.#writeFileMetadata()
+    this.#fs!.deleteTree(this.#internalAbsolute(fileMetadataJournalPath))
   }
 
   #absolute(path: string) {
@@ -445,9 +480,32 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
 
   async #loadFileMetadata(): Promise<void> {
     const content = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataPath)).catch(() => undefined)
-    if (!content) return
-    const files = JSON.parse(new TextDecoder().decode(content as Uint8Array)) as Record<string, FileMetadata>
-    this.#files = new Map(Object.entries(files))
+    if (content) {
+      const files = parse(fileMetadataFilesSchema, parseJson(contentToBytes(content)))
+      this.#files = new Map(Object.entries(files).map(([path, file]) => [path, { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }]))
+    }
+    const pending = await this.#fs!.promises.readFile(this.#internalAbsolute(fileMetadataJournalPath)).catch(() => undefined)
+    if (!pending) return
+    let journal
+    try {
+      journal = parse(fileMetadataJournalSchema, parseJson(contentToBytes(pending)))
+      journal.metadata.metadata = copyJsonFileMetadata(journal.path, journal.metadata.metadata)
+    }
+    catch {
+      // Interrupted journal writes cannot safely supply recovery metadata.
+      this.#fs!.deleteTree(this.#internalAbsolute(fileMetadataJournalPath))
+      return
+    }
+    try {
+      if (journal.path && await this.#fs!.promises.stat(this.#absolute(journal.path)).then(stat => stat.isFile()).catch(() => false)) {
+        const content = await this.#fs!.promises.readFile(this.#absolute(journal.path))
+        if (await sha256(contentToBytes(content)) !== journal.digest) return
+        if (journal.metadata && (journal.metadata.mediaType !== undefined || journal.metadata.metadata !== undefined)) this.#files.set(journal.path, journal.metadata)
+        else this.#files.delete(journal.path)
+        await this.#writeFileMetadata()
+      }
+    }
+    finally { this.#fs!.deleteTree(this.#internalAbsolute(fileMetadataJournalPath)) }
   }
 
   async #writeFileMetadata(): Promise<void> {

@@ -1,10 +1,5 @@
 <template>
-  <span
-    class="grid size-7 shrink-0 grid-cols-3 items-end gap-0.5 rounded-md bg-highlighted p-1.5"
-    aria-hidden="true"
-  >
-    <i class="h-2/3 bg-inverted" />
-    <i class="h-full bg-primary" />
-    <i class="h-4/5 bg-inverted" />
-  </span>
+  <svg class="size-4 shrink-0 text-muted" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true">
+    <path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/>
+  </svg>
 </template>

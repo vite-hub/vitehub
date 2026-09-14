@@ -88,6 +88,7 @@ export const AgentToolList = defineComponent({
               ),
             ]),
             h("div", { class: "vh-agent-tool-list__body" }, [
+              tool.mcp ? h("p", ["MCP tool: ", h("code", tool.mcp.name), " on ", h("code", tool.mcp.server)]) : null,
               tool.description ? h("p", tool.description) : null,
               schemaBlock("Input schema", tool.inputSchema),
               schemaBlock("Output schema", tool.outputSchema),

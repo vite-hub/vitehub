@@ -1,8 +1,12 @@
 export const workspaceMetadataTarget: unique symbol = Symbol.for("vitehub.workspace.metadataTarget")
 
-import type { ListOptions, WorkspaceEntry } from "../core/types.ts"
+import type { ListOptions, MkdirOptions, RmOptions, WorkspaceEntry, WorkspaceFile } from "../core/types.ts"
 
 export interface WorkspaceMetadataTarget {
+  readFile?(path: string): Promise<WorkspaceFile | undefined>
+  writeFile?(path: string, file: WorkspaceFile): Promise<void>
+  mkdir?(path: string, options?: MkdirOptions): Promise<void>
+  rm?(path: string, options?: RmOptions): Promise<void>
   getMeta?(key: string): Promise<unknown>
   list?(path: string, options?: ListOptions): Promise<WorkspaceEntry[]>
 }

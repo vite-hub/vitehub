@@ -83,7 +83,9 @@ export function normalizeAgentInvoker(value: unknown, label = "Agent Invoker"): 
   if (email) invoker.email = email
   if (kind) invoker.kind = kind
   if (displayLabel) invoker.label = displayLabel
-  if (meta) invoker.meta = { ...meta }
+  // Preserve descriptor values for Channel ownership comparisons; spreading can
+  // collapse distinct Proxy metadata through its property-read traps.
+  if (meta) invoker.meta = Object.defineProperties({}, Object.getOwnPropertyDescriptors(meta))
   return invoker
 }
 

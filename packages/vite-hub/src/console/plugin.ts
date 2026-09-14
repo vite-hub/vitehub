@@ -26,6 +26,7 @@ function renderConsoleNitroPlugin(
   runtimeBinding?: string,
   invoke = false,
   observations?: AgentInvocationsOptions["observations"],
+  databaseUrl?: string,
 ): string {
   const definitions = agents.map((agent, index) => {
     const skills = readColocatedAgentSkills(agent.handler)
@@ -82,7 +83,7 @@ function renderConsoleNitroPlugin(
             `const vitehubConsoleInvocations = installConsoleFixtureInvocations(${JSON.stringify(projectRoot)}, ${JSON.stringify(fixture)}, ${fixtureSource}, ${JSON.stringify(revision)}, ${JSON.stringify(runtimeBinding)})`,
             `installConsoleAgentDefinitions([${definitions}], { invocations: vitehubConsoleInvocations })`,
           ]
-        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""} })`]
+        : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${databaseUrl !== undefined ? `, databaseUrl: ${JSON.stringify(databaseUrl)}` : ""} })`]
       : []),
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
@@ -105,6 +106,7 @@ export async function writeConsoleNitroPlugin(
   invoke = false,
   observations: AgentInvocationsOptions["observations"] = undefined,
   active: () => boolean = () => true,
+  databaseUrl?: string,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -114,7 +116,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations)
+  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, databaseUrl)
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

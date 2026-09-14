@@ -112,11 +112,11 @@ onBeforeUnmount(() => request++);
           class="grid gap-1 px-2"
           :class="collapsed ? 'pt-2' : ''"
         >
-          <div class="pb-2">
+          <div class="flex shrink-0 items-center gap-1 pb-2 pt-1">
             <UDashboardSearchButton
               :collapsed="collapsed"
               block
-              class="w-full bg-transparent ring-default"
+              class="vitehub-console__search min-w-0 flex-1 rounded-md border border-default bg-transparent px-2 ring-0 hover:bg-elevated/60"
               label="Search console"
             />
           </div>

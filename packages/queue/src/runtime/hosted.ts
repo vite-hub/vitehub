@@ -3,6 +3,7 @@ import { getRequestHeaders, getRequestURL, readRawBody } from "h3"
 
 import { createQueueError } from "../errors.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
+import { toResponse } from "@vite-hub/runtime"
 
 import { dynamicQueue } from "./client.ts"
 
@@ -32,13 +33,13 @@ function createVercelJobHandler(definition: QueueDefinition) {
   return async (payload: unknown, metadata?: unknown) => {
     // SAFETY: Vercel supplies this optional delivery metadata shape to queue callbacks.
     const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
-    await definition.handler({
+    return toResponse(await definition.handler({
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Vercel metadata is untyped at this boundary and must be validated before use.
       attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
       id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
       metadata,
       payload,
-    })
+    }))
   }
 }
 

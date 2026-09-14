@@ -4,6 +4,7 @@
   --vh-sidebar-width: 268px;
   --vh-toc-width: 240px;
   --vh-content-width: 796px;
+  --vh-docs-width: calc(var(--vh-sidebar-width) + var(--vh-content-width) + var(--vh-toc-width) + 3rem);
   --vh-ink: #09090b;
   --vh-paper: #fafafa;
 }

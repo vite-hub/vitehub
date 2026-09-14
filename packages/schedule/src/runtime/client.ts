@@ -24,8 +24,8 @@ const cronFieldRanges = [
   cronRange.dayOfWeek,
 ] as const
 
-const runtimeScheduleCreateInputKeys = new Set(["cron", "enabled", "id", "input", "target", "timeZone"])
-const runtimeScheduleUpdateInputKeys = new Set(["cron", "enabled", "input", "target", "timeZone"])
+const runtimeScheduleCreateInputKeys = new Set(["console", "cron", "enabled", "id", "input", "target", "timeZone"])
+const runtimeScheduleUpdateInputKeys = new Set(["console", "cron", "enabled", "input", "target", "timeZone"])
 
 function parseCronNumber(value: string, range: { min: number, max: number }): number {
   if (!/^\d+$/.test(value)) {
@@ -197,6 +197,7 @@ const dynamicSchedules = {
     const now = new Date()
     return await getRuntimeScheduleStore().create({
       createdAt: now,
+      ...(input.console ? { console: { ...input.console } } : {}),
       cron: input.cron,
       enabled: input.enabled ?? true,
       id: input.id ?? randomId("sched"),

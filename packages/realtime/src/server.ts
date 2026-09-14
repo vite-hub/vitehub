@@ -138,7 +138,7 @@ export function realtimeRoomKey(definitionName: string, documentId: string): str
 
 class AwarenessOwnershipConflict extends Diagnostic {
   constructor() {
-    super({ code: "REALTIME_R0013", docs: "https://vitehub.dev/docs/reference/errors-diagnostics", why: "Awareness client id is already owned by another peer." }, AwarenessOwnershipConflict)
+    super({ code: "REALTIME_R0013", docs: "https://vitehub.dev/docs/reference/diagnostics", why: "Awareness client id is already owned by another peer." }, AwarenessOwnershipConflict)
     this.name = "AwarenessOwnershipConflict"
   }
 }

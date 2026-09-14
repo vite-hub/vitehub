@@ -17,7 +17,7 @@ describe("MountX Workspace driver", () => {
     const docs = workspace()
     await docs.writeFile("README.md", "before", {
       mediaType: "text/markdown",
-      metadata: { source: "docs" },
+      metadata: { category: "docs" },
     })
     await docs.writeFile("remove.md", "temporary")
     await docs.writeFile("script.sh", "#!/bin/sh\n", {
@@ -47,7 +47,7 @@ describe("MountX Workspace driver", () => {
     await expect(session.list()).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({
         mediaType: "text/markdown",
-        metadata: { source: "docs" },
+        metadata: { category: "docs" },
         path: "README.md",
       }),
       expect.objectContaining({
@@ -66,7 +66,7 @@ describe("MountX Workspace driver", () => {
     await expect(docs.exists("remove.md")).resolves.toBe(false)
     await expect(docs.stat("README.md")).resolves.toMatchObject({
       mediaType: "text/markdown",
-      metadata: { source: "docs" },
+      metadata: { category: "docs" },
     })
     await expect(docs.stat("run.sh")).resolves.toMatchObject({
       mediaType: "text/x-shellscript",

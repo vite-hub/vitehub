@@ -21,7 +21,12 @@ const mobileLinks = [
 
 <template>
   <div class="sticky top-0 z-50">
-    <UHeader :ui="{ toggle: isSupportMatrix ? 'hidden' : undefined }">
+    <UHeader
+      :ui="{
+        container: isDocsRoute && !isSupportMatrix ? 'max-w-(--vh-docs-width) mx-auto' : undefined,
+        toggle: isSupportMatrix ? 'hidden' : undefined,
+      }"
+    >
       <template #left>
         <UTooltip
           text="Just a library where I test different solutions and agents. APIs break all the time."

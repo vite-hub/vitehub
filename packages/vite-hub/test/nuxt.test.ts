@@ -62,8 +62,6 @@ const mocks = vi.hoisted(() => ({
   envHook: vi.fn((config: Record<string, unknown>) => {
     config.envReady = true
   }),
-  markdownTemplateLoad: vi.fn(),
-  markdownTemplateResolveId: vi.fn(),
   outputHook: vi.fn(),
   agentHook: vi.fn((config: { [VITEHUB_SERVER_DIRS]?: string[]; nitro?: Record<string, unknown>; root?: string }) => {
     const replace = isTestRecord(config.nitro?.replace)
@@ -205,8 +203,6 @@ describe("ViteHub Nuxt integration", () => {
     mocks.existingQueueNitroConfig.mockClear()
     mocks.existingOwnerConfig.mockClear()
     mocks.envHook.mockClear()
-    mocks.markdownTemplateLoad.mockClear()
-    mocks.markdownTemplateResolveId.mockClear()
     mocks.outputHook.mockClear()
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxHook.mockClear()
@@ -305,11 +301,6 @@ describe("ViteHub Nuxt integration", () => {
         },
         config: mocks.envHook,
       },
-      {
-        name: "@vite-hub/markdown-template/vite",
-        load: mocks.markdownTemplateLoad,
-        resolveId: mocks.markdownTemplateResolveId,
-      },
     ])
   })
 
@@ -321,67 +312,6 @@ describe("ViteHub Nuxt integration", () => {
 
     expect(nuxt.options.vite.root).toBe(nuxt.options.rootDir)
     expect(Reflect.get(nuxt.options.vite, "__vitehubProjectRoot")).toBe(nuxt.options.rootDir)
-  })
-
-  it("loads colocated Markdown templates through Nitro Rollup", async () => {
-    const existingPlugin: Plugin = { name: "existing-nitro-plugin" }
-    const standaloneLoad = vi.fn()
-    const standaloneResolveId = vi.fn()
-    const { nuxt, runNitroConfigHook } = createNuxt(false, [{
-      name: "@vite-hub/markdown-template/vite",
-      load: standaloneLoad,
-      resolveId: standaloneResolveId,
-    }])
-    const nitroConfig: { rollupConfig: { plugins: Plugin | Plugin[] } } = {
-      rollupConfig: { plugins: existingPlugin },
-    }
-    const nestedResolve = vi.fn().mockResolvedValue({
-      id: "\0raw:/app/server/api/name.md",
-      meta: { marker: "preserved" },
-    })
-    const context = { marker: "nitro-context", resolve: nestedResolve }
-    mocks.markdownTemplateResolveId.mockResolvedValueOnce(
-      "\0raw:/app/server/api/reply.template.md?markdown-template",
-    )
-    mocks.markdownTemplateLoad.mockImplementationOnce(function (this: { resolve: typeof nestedResolve }) {
-      return this.resolve("./name.md", "/app/server/api/reply.template.md")
-    })
-
-    await viteHubNuxtModule({ preset: "node" }, nuxt)
-    await runNitroConfigHook(nitroConfig)
-
-    // SAFETY: The Nitro configuration hook normalizes this plugin option to an array.
-    const plugins = nitroConfig.rollupConfig.plugins as Plugin[]
-    expect(plugins[0]).toBe(existingPlugin)
-    expect(plugins.map(plugin => plugin.name)).toEqual([
-      "existing-nitro-plugin",
-      "vite-hub/nuxt-markdown-templates",
-    ])
-
-    const markdownPluginCandidate: unknown = plugins[1]
-    // SAFETY: The preceding names assertion identifies the installed resolver and its function hooks.
-    const markdownPlugin = markdownPluginCandidate as {
-      load(this: typeof context, id: string): unknown
-      resolveId(this: typeof context, source: string, importer: string): unknown
-    }
-    await expect(markdownPlugin.resolveId.call(context, "./reply.template.md", "/app/server/api/reply.ts")).resolves.toBe(
-      "/app/server/api/reply.template.md?markdown-template",
-    )
-    await expect(markdownPlugin.load.call(
-      context,
-      "\0raw:/app/server/api/reply.template.md?markdown-template",
-    )).resolves.toEqual({
-      id: "/app/server/api/name.md",
-      meta: { marker: "preserved" },
-    })
-    expect(mocks.markdownTemplateResolveId.mock.contexts[0]).toBe(context)
-    expect(Object.getPrototypeOf(mocks.markdownTemplateLoad.mock.contexts[0])).toBe(context)
-    expect(mocks.markdownTemplateLoad).toHaveBeenCalledWith(
-      "/app/server/api/reply.template.md?markdown-template",
-    )
-    expect(standaloneResolveId).not.toHaveBeenCalled()
-    expect(standaloneLoad).not.toHaveBeenCalled()
-    expect(nestedResolve).toHaveBeenCalledWith("./name.md", "/app/server/api/reply.template.md")
   })
 
   it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
@@ -601,6 +531,35 @@ describe("ViteHub Nuxt integration", () => {
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleAgentDefinitions([], { projectRoot: "/tmp/vitehub-nuxt" })`,
     )
+  })
+
+  it.each([true, false])("carries the Node data directory into the Nuxt Console bootstrap (dev: %s)", async (dev) => {
+    const application = createNuxt(dev)
+    await viteHubNuxtModule({
+      preset: "node",
+      dataDir: "/tmp/vitehub-nuxt/persistent data",
+      agent: true,
+      console: { exposure: "host-managed" },
+    }, application.nuxt)
+
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
+      'databaseUrl: "file:///tmp/vitehub-nuxt/persistent%20data/console.sqlite"',
+    )
+    await application.runCloseHook()
+  })
+
+  it("preserves Console shorthand invocation with a Node data directory", async () => {
+    const application = createNuxt(true)
+    await viteHubNuxtModule({
+      preset: "node",
+      dataDir: "/tmp/vitehub-nuxt/persistent data",
+      agent: true,
+      console: true,
+    }, application.nuxt)
+    const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(generated).toContain("invoke: true")
+    expect(generated).toContain('databaseUrl: "file:///tmp/vitehub-nuxt/persistent%20data/console.sqlite"')
+    await application.runCloseHook()
   })
 
   it("installs only KV navigation and metadata for a KV-only Console", async () => {
@@ -1574,10 +1533,10 @@ describe("ViteHub Nuxt integration", () => {
     expect(generated).toContain(`observations: ${JSON.stringify(observations)}`)
   })
 
-  it("rejects bare production Console enablement", async () => {
+  it.each([undefined, "/tmp/vitehub-nuxt/persistent data"])("rejects bare production Console enablement with dataDir %s", async (dataDir) => {
     const production = createNuxt(false)
 
-    await expect(viteHubNuxtModule({ console: true, preset: "node" }, production.nuxt))
+    await expect(viteHubNuxtModule({ console: true, preset: "node", dataDir }, production.nuxt))
       .rejects.toThrow("console: true is development-only")
   })
 
@@ -1819,7 +1778,6 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
       existingPlugin,
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
-      expect.objectContaining({ name: "@vite-hub/markdown-template/vite" }),
       existingOwnerPlugin,
     ])
 
@@ -1917,9 +1875,6 @@ describe("ViteHub Nuxt integration", () => {
       },
       replace: {
         __VITEHUB_AGENT_APP_ROOT__: JSON.stringify("/tmp/vitehub-nuxt"),
-      },
-      rollupConfig: {
-        plugins: [expect.objectContaining({ name: "vite-hub/nuxt-markdown-templates" })],
       },
       sandbox: true,
       workflows: true,

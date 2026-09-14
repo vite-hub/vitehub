@@ -51,6 +51,14 @@ function toolJsonSchema(value: unknown, direction: "input" | "output"): AgentIns
   return inspectionValue(value)
 }
 
+export function inspectMcpToolProvenance(value: unknown): AgentToolInspection["mcp"] {
+  const tool = isRuntimeRecord(value) ? value : undefined
+  const metadata = isRuntimeRecord(tool?.metadata) ? tool.metadata : undefined
+  if (hasRuntimeType(metadata?.mcpServer, "string") && hasRuntimeType(metadata?.originalName, "string")) {
+    return { server: metadata.mcpServer, name: metadata.originalName }
+  }
+}
+
 /** Return the serializable tool contract exposed to an Agent model. */
 export function inspectAgentTools(tools: Record<string, unknown> | undefined): AgentToolInspection[] | undefined {
   if (!tools) return
@@ -63,12 +71,14 @@ export function inspectAgentTools(tools: Record<string, unknown> | undefined): A
         ? tool.description
         : ""
       const inputSchema = toolJsonSchema(tool.inputSchema, "input")
-        ?? (!providerDefined ? emptyToolInputSchema : undefined)
+        ?? (!providerDefined && tool.inputSchema === undefined ? emptyToolInputSchema : undefined)
       const outputSchema = toolJsonSchema(tool.outputSchema, "output")
+      const mcp = inspectMcpToolProvenance(value)
       return {
         ...(description ? { description } : {}),
         ...(inputSchema ? { inputSchema } : {}),
         name: key,
+        ...(mcp ? { mcp } : {}),
         ...(outputSchema ? { outputSchema } : {}),
       }
     })

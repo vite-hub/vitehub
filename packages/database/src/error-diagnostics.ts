@@ -6,7 +6,7 @@ const dynamicError = {
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 export const databaseErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics",
+  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
   codes: {
     DATABASE_C0001: dynamicError,
     DATABASE_C0002: dynamicError,

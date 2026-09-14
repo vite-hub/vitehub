@@ -257,3 +257,70 @@ export default defineEval({
 
 - [Capabilities overview](/docs/capabilities)
 - [Official capabilities](/docs/capabilities/official-capabilities)
+
+## Contribute an inspection view
+
+The Console's **Capabilities** tab shows the selected Invocation's recorded capabilities. It supplies a default tools and configuration view. Add `inspection` when your Capability needs a different presentation, then publish data with `await context.inspection.set(state)` during its normal lifecycle.
+
+```ts [server/agents/capabilities/tickets.ts]
+import { defineCapability } from 'vite-hub/agent'
+
+export const tickets = defineCapability({
+  id: 'tickets',
+  inspection: {
+    label: 'Tickets',
+    view: {
+      root: 'summary',
+      elements: {
+        summary: { type: 'Stack', props: {}, children: ['status', 'tools'] },
+        status: {
+          type: 'KeyValue',
+          props: { label: 'Index', value: { $state: '/status' } },
+        },
+        tools: { type: 'Tools', props: {} },
+      },
+    },
+  },
+  async configure(context) {
+    await context.inspection.set({ status: 'Ready' })
+  },
+})
+```
+
+`inspection.set()` replaces this Capability's state for the current Invocation. Await it to record an update before the next lifecycle step. Keep state serializable and publish only data already produced by the Capability. The Console reads snapshots; opening a view does not run lifecycle hooks, connect to services, or execute tools. The last snapshot remains available after cleanup. Inspection presentation and state do not change the execution configuration fingerprint.
+
+The view uses a read-only subset of [JSON Render](https://github.com/vercel-labs/json-render). ViteHub owns the Vue components. Capability code does not import Vue or the Console.
+
+| Component | Props | Purpose |
+| --- | --- | --- |
+| `Stack` | None | Arrange child elements vertically. |
+| `Section` | `title` | Group children under a heading. |
+| `Text` | `text` | Display plain text. |
+| `KeyValue` | `label`, `value` | Display a named value, including structured JSON. |
+| `Tools` | Optional `names`, `mcpServer` | Show recorded contracts for this Capability's tools. Filter by final tool names or MCP server provenance; omit both to show all of them. |
+
+Use `{ $state: '/path' }` to read a state value. A container can repeat its children with `repeat: { statePath: '/items', key: 'id' }`; its descendants use `{ $item: '/field' }` to read the current item. `children` contains element IDs. The exported `AgentCapabilityInspectionView` type checks component names and props. The Console rejects unsupported components, actions, computed expressions, and cyclic element trees, then shows the recorded data and tools instead.
+
+Inspection state and view specs follow the Invocation journal's configuration retention policy. Use `configuration: 'content'` to retain them independently of prompts and model output. Credential-shaped state keys are redacted. Existing observation limits still apply; a truncated snapshot may not contain the complete view. A label remains available with metadata-only capture. Telemetry exporters retain custom inspection content only when their `instructions`, `inputs`, and `outputs` content options are all enabled, because custom state can contain any of these.
+
+MCP and Title provide custom views. Other official Capabilities use the default view.
+
+### Transform MCP tools
+
+Each transform receives a copy of each tool definition that preserves its prototype, property flags, and accessor behavior. Accessors and executors use bound functions to retain their contributed instance as receiver, including when they use private fields. Their function identities can change. Shared definitions registered under different keys remain separate contributions. Rename local tools using the definitions supplied to the callback so inspection can retain their Capability ownership.
+
+Tool transforms may remove MCP tools, replace them under the same key, or rename them. Replacements under an existing key inherit its MCP provenance. A rename must preserve `metadata.mcpServer` and `metadata.originalName`, including when it reconstructs the tool:
+
+```ts
+context.tools.transform(tools => ({
+  lookup: {
+    name: 'lookup',
+    description: 'Look up a document',
+    inputSchema: tools!.mcp_docs_read!.inputSchema,
+    execute: tools!.mcp_docs_read!.execute,
+    metadata: { ...tools!.mcp_docs_read!.metadata },
+  },
+}))
+```
+
+A transform can remove MCP keys and move existing non-MCP tool objects to new keys. These tools keep their original Capability ownership in inspection, including after a same-key replacement in an earlier transform. New keys that contain reconstructed tools without provenance fail with `AGENT_R0923` when MCP keys are removed in the same transform. The runtime cannot infer which server a reconstructed tool came from. To add unrelated tools while removing MCP tools, contribute the new tools with `context.tools.add()` and remove the MCP entries in the transform.

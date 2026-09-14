@@ -8,6 +8,7 @@ import type {
   AgentInvocationSummary,
 } from "./invocations.ts";
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { hasRuntimeType } from "./internal/runtime-type.ts"
 
 export interface AgentInvocationRequestOptions {
   signal?: AbortSignal;
@@ -401,6 +402,10 @@ export function useAgentInvocations(
       const requestedStatuses = Array.isArray(query?.status) ? query.status : [query?.status];
       const statuses = new Set(requestedStatuses.filter(isInvocationStatus));
       const search = query?.search?.trim().toLowerCase();
+      const triggeredBy = hasRuntimeType(query?.triggeredBy, "string") ? query.triggeredBy.trim() : undefined;
+      const matchesTriggeredBy = (invocation: AgentInvocationSummary) => !triggeredBy
+        || (hasRuntimeType(invocation.annotations?.triggeredBy, "string")
+          && invocation.annotations.triggeredBy.trim() === triggeredBy);
       const retainedIds = resetFirstPage
         ? []
         : invocations.value
@@ -422,12 +427,12 @@ export function useAgentInvocations(
         const reconciledInvocations = new Map<string, AgentInvocationSummary>();
         for (const id of selectedRetainedIds) {
           const summary = refreshed.get(id);
-          if (summary) reconciledInvocations.set(id, summary);
+          if (summary && matchesTriggeredBy(summary)) reconciledInvocations.set(id, summary);
           else departedIds.add(id);
         }
         return { ...result, departedIds, reconciledInvocations };
       }
-      if (resetFirstPage || (statuses.size === 0 && !search)) return result;
+      if (resetFirstPage || (statuses.size === 0 && !search && !triggeredBy)) return result;
       const nextPendingDepartureIds = new Set(pendingDepartureIds);
       for (const id of returnedIds) nextPendingDepartureIds.delete(id);
       const reconciliationCount = Math.min(retainedIds.length, retainedReconciliationLimit);
@@ -457,7 +462,8 @@ export function useAgentInvocations(
         // SAFETY: The detail parser has validated the invocation summary fields; observations are the only detail-only field removed here.
         const { observations: _observations, ...searchableInvocation } = outcome.value.invocation as AgentInvocationSummary & { observations?: unknown };
         if (
-          (statuses.size > 0 && !statuses.has(outcome.value.invocation.status))
+          !matchesTriggeredBy(searchableInvocation)
+          || (statuses.size > 0 && !statuses.has(outcome.value.invocation.status))
           || (search && !JSON.stringify(searchableInvocation).toLowerCase().includes(search))
         ) departedIds.add(id);
         else reconciledInvocations.set(id, searchableInvocation);

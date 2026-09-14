@@ -44,6 +44,10 @@ describe("inspectAgentTools", () => {
     ])
   })
 
+  it("leaves an unavailable input contract unknown instead of inventing an empty schema", () => {
+    expect(inspectAgentTools({ dynamic: { inputSchema: { "~standard": { validate: () => ({ value: {} }) } } } })).toEqual([{ name: "dynamic" }])
+  })
+
   it("reads AI SDK JSON schemas and keeps provider-defined tools opaque", () => {
     expect(inspectAgentTools({
       native: { args: { properties: { query: { type: "string" } }, type: "object" }, name: "native", type: "provider-defined" },
