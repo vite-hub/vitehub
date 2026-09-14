@@ -140,6 +140,9 @@ function isNonFastForward(error: unknown) {
 }
 
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
+  // Artifacts cannot provide an atomic digest/owner-checked removal operation.
+  // Advertise that limitation so startup cleanup preserves user replacements.
+  readonly conditionalRemoval = false
   #baseline: WorkspaceSnapshot | undefined
   #branch = "main"
   #files = new Map<string, FileMetadata>()

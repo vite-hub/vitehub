@@ -152,7 +152,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(failed).not.toHaveBeenCalled()
   })
 
-  it("retires created startup directories while preserving existing parents", async () => {
+  it("preserves startup files because Artifacts lacks conditional removal", async () => {
     const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
     await store.mkdir("existing")
     const definition = {
@@ -171,7 +171,7 @@ describe("Cloudflare Artifacts workspace store", () => {
 
     await reconcileRemovedStartupSources("docs", store, [])
 
-    expect(await store.stat("existing/generated")).toBeUndefined()
+    expect(await store.stat("existing/generated/nested/guide.md")).toMatchObject({ type: "file" })
     expect(await store.stat("existing")).toMatchObject({ type: "directory" })
   })
 
