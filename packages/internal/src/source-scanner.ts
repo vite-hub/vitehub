@@ -489,7 +489,7 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       const boundaryEnd = findMatching(callArgument, 0, "(", ")")
       if (boundaryEnd === undefined) break
       const trailing = stripBoundaryComments(callArgument.slice(boundaryEnd + 1))
-      if (trailing) break
+      if (trailing && !/^(?:as|satisfies)\b/.test(trailing)) break
       callArgument = stripBoundaryComments(callArgument.slice(1, boundaryEnd))
     }
     if (!callArgument.startsWith("{")) continue

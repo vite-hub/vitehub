@@ -293,6 +293,15 @@ describe("source scanner", () => {
     }
   })
 
+  it("finds positional options with nested parentheses and assertions", () => {
+    const call = findDefaultExportCall(
+      `export default defineThing("cron", handler, (({ manual: true }) as const))`,
+      ["defineThing"],
+      { positionalOptionsIndex: 2 },
+    )
+    expect(call?.argument).toBe("{ manual: true }")
+  })
+
   it("reads top-level object properties without matching nested values", () => {
     expect(readObjectProperty(`{ nested: { cron: "wrong" }, cron: "0 8 * * *" }`, "cron"))
       .toBe(`"0 8 * * *"`)
