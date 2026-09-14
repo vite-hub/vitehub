@@ -66,7 +66,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       // another Store instance) after the startup snapshot was recorded. With
       // no child ownership metadata, retain that addition so auto-commit does
       // not hide the replacement.
-      if ((descendants.length === 0 && generatedDirectories.has(entry.path)) || (descendants.length > 0 && descendants.every(child => child.type === "directory"
+      if ((descendants.length === 0 && generatedEmptyDirectories.has(entry.path)) || (descendants.length > 0 && descendants.every(child => child.type === "directory"
         ? generatedDirectories.has(child.path)
         : generatedFiles.has(child.path)))) continue
     }
