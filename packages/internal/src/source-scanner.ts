@@ -483,7 +483,10 @@ export function findDefaultExportCall(source: string, names: string[], options: 
     // expression operators after the assertion remain unsupported.
     const isCompleteAssertion = (value: string) => {
       const assertion = /^(?:as|satisfies)\s+.+$/is.test(value)
-      return assertion && !/[;&|]{2}|[,;]/.test(value)
+      // Reject runtime operators that can follow an assertion, while allowing
+      // punctuation that is valid inside TypeScript type expressions (for
+      // example generic arguments and tuple types).
+      return assertion && !/(?:&&|\|\||;)/.test(value)
     }
     const firstArgument = stripBoundaryComments(call.arguments[0] || "")
     let callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
