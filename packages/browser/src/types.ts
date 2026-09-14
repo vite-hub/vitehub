@@ -2,7 +2,6 @@ import type {
   LeaseStore,
   MaybePromise,
   TraceEvent,
-  ViteHubError,
 } from "@vite-hub/runtime"
 
 export type BrowserEngine = "chromium" | "kitesurf"
@@ -179,9 +178,7 @@ export interface BrowserDefinition<TInput = unknown, TResult = unknown> {
   run: BrowserDefinitionHandler<TInput, TResult>
 }
 
-export type BrowserRunResult<TResult = unknown> =
-  | [error: null, value: TResult]
-  | [error: ViteHubError<`BROWSER_${string}`>, value: undefined]
+export type BrowserRunResult = Response
 
 export type BrowserDefinitionRegistry = Record<
   string,

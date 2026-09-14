@@ -1,4 +1,3 @@
-import type { ViteHubError } from '@vite-hub/runtime'
 import type { VercelBoxNetworkPolicy, VercelBoxSource } from '@vite-hub/box'
 import type { SandboxProject } from './project'
 
@@ -92,9 +91,9 @@ export type SandboxDefinitionFromHandler<THandler extends (...args: any[]) => an
     run: THandler
   }
 
-export type SandboxRunResult<TResult = unknown> =
-  | [error: null, value: TResult]
-  | [error: ViteHubError<`SANDBOX_${string}`>, value: undefined]
+/** The result of a sandbox invocation. HTTP semantics are used for both
+ * successful values and failures. */
+export type SandboxRunResult = Response
 
 export function getSandboxFeatureProvider(config?: AgentSandboxConfig | false): SandboxDefinitionProviderOptions | undefined {
   if (!config || typeof config !== 'object' || typeof config.provider !== 'string')

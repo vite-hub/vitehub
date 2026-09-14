@@ -76,6 +76,19 @@ describe("mcpResources", () => {
     })
   })
 
+  it("omits absent metadata fields so resources survive JSON persistence", async () => {
+    const source = mcpResources({ server: createClient() })
+    const item = await source.getItem("nuxt-com/blog-posts.json", { rootDir: "/tmp" })
+
+    expect(item?.metadata).toEqual({
+      description: "Complete list of Nuxt blog posts",
+      name: "blog-posts",
+      serverResourceCount: 1,
+      uri: "resource://nuxt-com/blog-posts",
+    })
+    expect(JSON.parse(JSON.stringify(item?.metadata))).toStrictEqual(item?.metadata)
+  })
+
   it("filters resources and supports custom paths", async () => {
     const source = mcpResources({
       ignore: "**/blog-posts.json",

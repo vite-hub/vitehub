@@ -101,6 +101,10 @@
       "types": "./dist/output.d.ts",
       "import": "./dist/output.js"
     },
+    "./presets/workspace": {
+      "types": "./dist/presets/workspace.d.ts",
+      "import": "./dist/presets/workspace.js"
+    },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
@@ -120,6 +124,10 @@
     "./server/github": {
       "types": "./dist/server/github.d.ts",
       "import": "./dist/server/github.js"
+    },
+    "./server/github-inbox": {
+      "types": "./dist/server/github-inbox.d.ts",
+      "import": "./dist/server/github-inbox.js"
     },
     "./server/internal": {
       "types": "./dist/server/internal.d.ts",

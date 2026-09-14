@@ -177,13 +177,10 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.workflow) {
-    const [{ hubMarkdownTemplate }, { hubWorkflow }] = await Promise.all([
-      import("@vite-hub/markdown-template/vite"),
-      import("@vite-hub/workflow/vite"),
-    ])
+    const { hubWorkflow } = await import("@vite-hub/workflow/vite")
     return {
       ...baseConfig,
-      plugins: [hubMarkdownTemplate(), hubWorkflow()],
+      plugins: [hubWorkflow()],
       workflow: {},
     }
   }

@@ -8,6 +8,8 @@ import { custom, defineWorkspace, markdown, useWorkspace } from "../src/index.ts
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
+import type { WritableWorkspaceFacade } from "../src/core/use.ts"
 import { registerWorkspace } from "../src/test.ts"
 
 import type { WorkspaceStore } from "../src/index.ts"
@@ -26,6 +28,110 @@ afterEach(async () => {
 })
 
 describe("Workspace Source Sync", () => {
+  it.each(["memory", "local"].flatMap(provider => [1, 2, 3].map(depth => ({ provider, depth }))))("preserves Source ownership through $depth resolved writable facades: $provider", async ({ provider, depth }) => {
+    const root = await createRoot()
+    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    let keys = ["README.md"]
+    const definition = defineWorkspace({
+      store,
+      sources: {
+        docs: custom({
+          sync: { stale: "remove" },
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: "# Docs", metadata: { title: "Docs" } } },
+        }),
+      },
+    })
+    registerWorkspace("resolved-metadata", definition)
+    const base = useWorkspace("resolved-metadata", { mode: "write" })
+    let workspace = base
+    for (let level = 0; level < depth; level++) {
+      const resolved = await createWorkspaceSourceResolutionFacade(workspace, { ...definition, name: "resolved-metadata" }, {
+        invocation: { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false, toJSON: () => ({}) } },
+        overlay: true,
+      })
+      workspace = resolved.workspace as WritableWorkspaceFacade
+    }
+    await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({ status: "ready" })
+    const reader = provider === "local" ? createLocalWorkspaceStore(root) : store
+    await expect(reader.readFile("docs/README.md")).resolves.toMatchObject({ metadata: { title: "Docs", source: "docs" } })
+    keys = ["next.md"]
+    await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({ status: "ready" })
+    await expect(reader.readFile("docs/README.md")).resolves.toBeUndefined()
+    await expect(reader.readFile("docs/next.md")).resolves.toMatchObject({ metadata: { title: "Docs", source: "docs" } })
+    await expect(workspace.fs.writeFile("forged.md", "forged", { metadata: { source: "docs" } })).rejects.toThrow()
+    await expect(workspace.fs.mkdir("docs/forged")).rejects.toThrow()
+    await expect(workspace.fs.rm("docs/next.md")).rejects.toThrow()
+    await expect(reader.readFile("docs/next.md")).resolves.toBeDefined()
+  })
+
+  it.each([
+    { provider: "local", sync: true }, { provider: "memory", sync: true },
+    { provider: "local", sync: false }, { provider: "memory", sync: false },
+  ])("materializes optional Source metadata: $provider, sync=$sync", async ({ provider, sync }) => {
+    const root = await createRoot()
+    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const metadata = { title: "Readme", optional: undefined, nested: { keep: true, optional: undefined }, values: ["docs", undefined, undefined, { optional: undefined }] }
+    delete metadata.values[2]
+    registerWorkspace("optional-metadata", defineWorkspace({
+      store,
+      sources: {
+        docs: {
+          sync: sync ? true : undefined,
+          materialize: sync ? undefined : "lazy",
+          async getKeys() { return ["README.md"] },
+          async getItem(key: string) { return { key, content: "# Readme", metadata } },
+        },
+      },
+    }))
+    const workspace = await useRegisteredWorkspace("optional-metadata")
+    if (sync) await workspace.sync({ sources: ["docs"] })
+    else await workspace.readFile("docs/README.md")
+    const reader = provider === "local" ? createLocalWorkspaceStore(root) : store
+    const file = await reader.readFile("docs/README.md")
+    expect(file?.metadata).toMatchObject({ title: "Readme", nested: { keep: true }, source: "docs" })
+    expect(file?.metadata).not.toHaveProperty("optional")
+    expect(file?.metadata?.nested).not.toHaveProperty("optional")
+    expect(file?.metadata?.values).toEqual(["docs", null, null, {}])
+    expect(metadata.values[1]).toBeUndefined()
+    expect(Object.hasOwn(metadata.values, 2)).toBe(false)
+    expect(metadata).toHaveProperty("optional")
+  })
+
+  it.each([true, false])("rejects invalid Source metadata without invoking getters, sync=%s", async (sync) => {
+    for (const kind of ["getter", "cycle", "array-cycle", "symbol", "hidden", "top-getter"]) {
+      const getter = vi.fn(() => "unexpected")
+      const nested: Record<string, unknown> = {}
+      if (kind === "getter") Object.defineProperty(nested, "value", { enumerable: true, get: getter })
+      if (kind === "cycle") nested.self = nested
+      if (kind === "array-cycle") {
+        const array: unknown[] = []
+        array.push(array)
+        nested.array = array
+      }
+      if (kind === "symbol") Object.defineProperty(nested, Symbol("value"), { enumerable: true, value: "invalid" })
+      if (kind === "hidden") Object.defineProperty(nested, "value", { value: "invalid" })
+      const metadata = { nested }
+      if (kind === "top-getter") Object.defineProperty(metadata, "value", { enumerable: true, get: getter })
+      const name = `invalid-${kind}-${sync}`
+      registerWorkspace(name, defineWorkspace({
+        store: { provider: "memory" },
+        sources: {
+          docs: {
+            sync: sync ? true : undefined,
+            materialize: sync ? undefined : "lazy",
+            async getKeys() { return ["README.md"] },
+            async getItem(key: string) { return { key, content: "# Readme", metadata } },
+          },
+        },
+      }))
+      const workspace = await useRegisteredWorkspace(name)
+      const result = sync ? await workspace.sync({ sources: ["docs"] }) : await workspace.materializeSources!({ sources: ["docs"] })
+      expect(result.sources).toEqual([expect.objectContaining({ error: expect.stringContaining("Invalid Workspace metadata") })])
+      expect(getter).not.toHaveBeenCalled()
+    }
+  })
+
   it("requires explicit source selection and materializes sync-only sources on demand", async () => {
     registerWorkspace("explicit-sync", defineWorkspace({
       store: { provider: "memory" },
@@ -212,6 +318,44 @@ describe("Workspace Source Sync", () => {
 
     expect(result.sources[0]?.counts.removed).toBe(1)
     await expect(workspace.exists("docs/stale")).resolves.toBe(false)
+  })
+
+  it.each(["memory", "local"] as const)("reports metadata-only Source updates: %s", async (provider) => {
+    const store = provider === "local" ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    let metadata: Record<string, unknown> = { title: "Original", nested: { first: 1, second: 2 } }
+    let mediaType = "text/plain"
+    registerWorkspace("metadata-sync", defineWorkspace({
+      store,
+      sources: {
+        docs: {
+          sync: true,
+          async getKeys() { return ["README.md"] },
+          async getItem(key: string) { return { key, content: "same bytes", metadata, mediaType } },
+        },
+      },
+    }))
+    const workspace = await useRegisteredWorkspace("metadata-sync")
+    const sync = () => workspace.sync({ details: "paths", sources: ["docs"] })
+    await sync()
+    metadata = { title: "Updated", nested: { first: 1, second: 2 } }
+    const updated = await sync()
+    expect(updated.sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    expect(updated.sources[0]?.paths).toContainEqual({ path: "docs/README.md", sourcePath: "README.md", status: "updated" })
+    await expect(store.readFile("docs/README.md")).resolves.toMatchObject({ metadata: { title: "Updated" } })
+
+    metadata = { nested: { second: 2, first: 1 }, title: "Updated", absent: undefined }
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 0, unchanged: 1 })
+    metadata = { nested: { "\u00e9": 1, "e\u0301": 2 } }
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    metadata = { nested: { "e\u0301": 2, "\u00e9": 1 } }
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 0, unchanged: 1 })
+    metadata = { nested: { "e\u0301": 1, "\u00e9": 2 } }
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    mediaType = "text/markdown"
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    metadata = {}
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 1, unchanged: 0 })
+    expect((await sync()).sources[0]?.counts).toMatchObject({ updated: 0, unchanged: 1 })
   })
 
   it("does not rewrite sync state for unchanged no-op source syncs", async () => {

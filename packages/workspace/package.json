@@ -131,7 +131,6 @@
   "dependencies": {
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/box": "workspace:*",
-    "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
@@ -144,7 +143,9 @@
     "mountx": "catalog:workspace",
     "mrmime": "catalog:workspace",
     "nostics": "catalog:runtime",
-    "ofetch": "catalog:unjs"
+    "ofetch": "catalog:unjs",
+    "valibot": "catalog:runtime",
+    "@vite-hub/markdown-template": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

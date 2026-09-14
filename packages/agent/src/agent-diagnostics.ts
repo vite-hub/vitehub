@@ -7,7 +7,6 @@ const providerErrorEnvelopeSchema = v.object({
 })
 
 const agentTypeDiagnosticCodes = new Set([
-  "AGENT_R0924",
   "AGENT_R0923",
   "AGENT_R0922",
   "AGENT_R0921",
@@ -21,6 +20,9 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0907",
   "AGENT_R0906",
   // Instruction composition retains the input-error status of Markdown Template failures.
+  "MARKDOWN_TEMPLATE_R0008",
+  "MARKDOWN_TEMPLATE_R0009",
+  "MARKDOWN_TEMPLATE_R0010",
   "MARKDOWN_TEMPLATE_R0014",
   "MARKDOWN_TEMPLATE_R0018",
   "MARKDOWN_TEMPLATE_R0020",
@@ -227,6 +229,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0433",
   "AGENT_R0434",
   "AGENT_R0446",
+  "AGENT_R0449",
   "AGENT_R0453",
   "AGENT_R0455",
   "AGENT_R0456",
@@ -444,6 +447,10 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0882",
   "AGENT_R0886",
   "AGENT_R0888",
+  "AGENT_R0926",
+  "AGENT_R0927",
+  "AGENT_R0924",
+  "AGENT_R0925",
 ])
 
 const dynamicError = {
@@ -470,7 +477,6 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0920: dynamicError,
     AGENT_R0921: dynamicError,
     AGENT_R0922: dynamicError,
-    AGENT_R0924: dynamicError,
     AGENT_R0923: {
       why: ({ names }: { names: string[] }) => `[vitehub] A tool transform removed MCP tools and introduced ${names.map(name => JSON.stringify(name)).join(", ")} without MCP provenance.`,
       fix: "Preserve metadata.mcpServer and metadata.originalName when renaming MCP tools. Use context.tools.add() to contribute unrelated tools and a transform to remove MCP tools.",
@@ -936,6 +942,8 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0444: dynamicError,
     AGENT_R0446: dynamicError,
     AGENT_R0447: dynamicError,
+    AGENT_R0448: dynamicError,
+    AGENT_R0449: dynamicError,
     AGENT_R0450: dynamicError,
     AGENT_R0451: dynamicError,
     AGENT_R0452: dynamicError,
@@ -1404,10 +1412,15 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0881: dynamicError,
     AGENT_R0882: dynamicError,
     AGENT_R0883: dynamicError,
+    AGENT_R0884: dynamicError,
     AGENT_R0885: dynamicError,
     AGENT_R0886: dynamicError,
     AGENT_R0887: dynamicError,
     AGENT_R0888: dynamicError,
+    AGENT_R0926: dynamicError,
+    AGENT_R0927: dynamicError,
+    AGENT_R0924: dynamicError,
+    AGENT_R0925: dynamicError,
     AGENT_R0001: {
       why: ({ name, available }: { name: string, available: string[] }) => formatUnknownAgentMessage(name, available, { prefix: true }),
       fix: "Use a discovered Agent name. Check the Agent Definition and the ViteHub Agent plugin configuration.",

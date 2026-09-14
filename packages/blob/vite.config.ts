@@ -2,6 +2,8 @@ import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vite-plus";
 
+import { filesSdkDriverPeers } from "./src/internal/files-sdk-peers.ts";
+
 const bundledFilesSdkDrivers = new Set([
   "akamai",
   "azure",
@@ -20,22 +22,7 @@ const bundledFilesSdkDrivers = new Set([
   "uploadthing",
 ]);
 
-const filesSdkProviderPeers = [
-  "@aws-sdk/client-s3",
-  "@aws-sdk/lib-storage",
-  "@aws-sdk/s3-presigned-post",
-  "@aws-sdk/s3-request-presigner",
-  "@azure/identity",
-  "@azure/storage-blob",
-  "@google-cloud/storage",
-  "@googleapis/drive",
-  "@microsoft/microsoft-graph-client",
-  "@supabase/storage-js",
-  "box-typescript-sdk-gen",
-  "dropbox",
-  "google-auth-library",
-  "uploadthing",
-];
+const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())].sort();
 
 export default defineConfig({
   pack: {

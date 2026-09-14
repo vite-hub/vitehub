@@ -25,11 +25,19 @@
   "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": {
+        "node": "./dist/index.d.ts",
+        "default": "./dist/portable.d.ts"
+      },
+      "node": "./dist/index.js",
+      "default": "./dist/portable.js"
+    },
+    "./file": "./dist/file.js",
     "./internal/composition": "./dist/internal/composition.js",
+    "./package.json": "./package.json",
     "./internal/vite": "./dist/internal/vite.js",
-    "./vite": "./dist/vite.js",
-    "./package.json": "./package.json"
+    "./vite": "./dist/vite.js"
   },
   "scripts": {
     "build": "vp pack",
@@ -43,21 +51,12 @@
     "nostics": "catalog:runtime"
   },
   "devDependencies": {
-    "@vite-hub/internal": "workspace:*",
     "@types/node": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
-  },
-  "peerDependencies": {
-    "vite": "catalog:vite-compat"
-  },
-  "peerDependenciesMeta": {
-    "vite": {
-      "optional": true
-    }
   },
   "engines": {
     "node": ">=24.0.0"

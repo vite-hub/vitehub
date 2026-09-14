@@ -16,7 +16,6 @@ import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub/kv/vite"
-import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
@@ -24,6 +23,7 @@ import { hubSandbox } from "@vite-hub/sandbox/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
+import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -731,7 +731,7 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
     : []
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const consoleSections = resolveConsoleSectionIds({ ...options, blob: blobEnabled, preset: plan.preset, sandbox: sandboxEnabled })
-  const plugins: unknown[] = []
+  const plugins: unknown[] = [hubMarkdownTemplate()]
   const requestedServices: DeploymentService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
@@ -759,7 +759,6 @@ export function vitehub(options: ViteHubOptions): PluginOption[] {
   const workspaceDependencyRuntimeImports = frameworkWorkspaceDependencyRuntimeImports(sandboxEnabled)
 
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
-  plugins.push(hubMarkdownTemplate({ runtimeImport: `${generatedImportBase}/markdown-template` }))
 
   if (envPlugin) plugins.push(envPlugin)
 

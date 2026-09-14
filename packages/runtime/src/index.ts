@@ -1291,3 +1291,11 @@ export async function resolveCapabilityPolicy(
 
 export { createWorkTracker } from "./work.ts"
 export type { WorkCheckpoint, WorkCheckpointStore, WorkOutcome, WorkTracker } from "./work.ts"
+
+export {
+  deserializeResponse,
+  isSerializedResponse,
+  serializeResponse,
+  toResponse,
+  type SerializedResponse,
+} from "./response.ts"
