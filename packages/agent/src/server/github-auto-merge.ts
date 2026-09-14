@@ -153,9 +153,20 @@ export function createGitHubPullRequestOperations(
       labels.push(...result.node.labels.nodes.map(label => label.name))
       page = result.node.labels.pageInfo
     }
+    const reviews = [...pullRequest.latestOpinionatedReviews.nodes]
+    page = pullRequest.latestOpinionatedReviews.pageInfo
+    const reviewCursors = new Set<string>()
+    while (page.hasNextPage) {
+      const cursor = page.endCursor
+      if (!cursor || reviewCursors.has(cursor)) throw new Error("GitHub returned an invalid review cursor.")
+      reviewCursors.add(cursor)
+      const result = v.parse(v.object({ node: v.object({ latestOpinionatedReviews: v.object({ nodes: v.array(reviewSchema), pageInfo: pageSchema }) }) }), await graphQL(`query($id:ID!,$cursor:String!){node(id:$id){... on PullRequest{latestOpinionatedReviews(first:100,after:$cursor){nodes{author{login __typename} state} pageInfo{hasNextPage endCursor}}}}}`, { id: pullRequest.id, cursor }))
+      reviews.push(...result.node.latestOpinionatedReviews.nodes)
+      page = result.node.latestOpinionatedReviews.pageInfo
+    }
     const { latestOpinionatedReviews: _reviews, labels: _labels, ...fields } = pullRequest
     if (options.eligible && !await options.eligible({ ...fields, repository, labels })) throw new Error("Pull request no longer matches the configured filter.")
-    return data.repository
+    return { ...data.repository, pullRequest: { ...fields, latestOpinionatedReviews: { nodes: reviews, pageInfo: { hasNextPage: false, endCursor: null } }, labels: pullRequest.labels } }
   }
 
   async function requestAutoMerge(): Promise<GitHubAutoMergeResult> {
@@ -165,8 +176,8 @@ export function createGitHubPullRequestOperations(
     const pullRequest = current.pullRequest
     if (pullRequest.isDraft) return { status: "blocked", reason: "draft" }
     if (!current.autoMergeAllowed) return { status: "blocked", reason: "repository-disabled" }
-    const rules = await github.command(["api", `/repos/${repository}/rules/branches/${encodeURIComponent(pullRequest.baseRefName)}`], commandOptions)
-    const activeRules = v.parse(v.array(v.object({ type: v.string(), parameters: v.optional(v.unknown()) })), JSON.parse(rules.stdout))
+    const rules = await github.command(["api", "--paginate", "--slurp", `/repos/${repository}/rules/branches/${encodeURIComponent(pullRequest.baseRefName)}?per_page=100`], commandOptions)
+    const activeRules = v.parse(v.array(v.object({ type: v.string(), parameters: v.optional(v.unknown()) })), JSON.parse(rules.stdout).flat())
     const requiredChecks = activeRules.some(rule => rule.type === "required_status_checks"
       && v.safeParse(v.object({ required_status_checks: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success)
     // The branch rules endpoint includes active repository and organization rulesets.
@@ -176,17 +187,7 @@ export function createGitHubPullRequestOperations(
       const rule = protection.repository.ref?.branchProtectionRule
       if (!rule?.requiresStatusChecks || rule.requiredStatusCheckContexts.length === 0) return { status: "blocked", reason: "required-checks-missing" }
     }
-    const reviews = [...pullRequest.latestOpinionatedReviews.nodes]
-    let page = pullRequest.latestOpinionatedReviews.pageInfo
-    const cursors = new Set<string>()
-    while (page.hasNextPage) {
-      const cursor = page.endCursor
-      if (!cursor || cursors.has(cursor)) throw new Error("GitHub returned an invalid review cursor.")
-      cursors.add(cursor)
-      const result = v.parse(v.object({ node: v.object({ latestOpinionatedReviews: v.object({ nodes: v.array(reviewSchema), pageInfo: pageSchema }) }) }), await graphQL(`query($id:ID!,$cursor:String!){node(id:$id){... on PullRequest{latestOpinionatedReviews(first:100,after:$cursor){nodes{author{login __typename} state} pageInfo{hasNextPage endCursor}}}}}`, { id: pullRequest.id, cursor }))
-      reviews.push(...result.node.latestOpinionatedReviews.nodes)
-      page = result.node.latestOpinionatedReviews.pageInfo
-    }
+    const reviews = pullRequest.latestOpinionatedReviews.nodes
     if (pullRequest.reviewDecision === "CHANGES_REQUESTED" || reviews.some(review => review.state === "CHANGES_REQUESTED" && review.author?.__typename !== "Bot")) return { status: "blocked", reason: "changes-requested" }
     if (current.deleteBranchOnMerge && pullRequest.headRepository?.nameWithOwner.toLowerCase() === repository.toLowerCase()) {
       const children = v.parse(v.object({ repository: v.object({ pullRequests: v.object({ totalCount: v.number() }) }) }), await graphQL(`query($owner:String!,$name:String!,$base:String!){repository(owner:$owner,name:$name){pullRequests(first:1,states:OPEN,baseRefName:$base){totalCount}}}`, { owner: owner!, name: name!, base: pullRequest.headRefName }))
