@@ -1297,8 +1297,7 @@ function workspaceMetadataInstructions<
     && typeof instructionObject.template === "string"
     ? fillSynchronousInstructionSlot(
       instructionObject.template,
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Instruction content is validated at runtime.
-      typeof instructionObject.content === "string" ? instructionObject.content : "",
+  hasRuntimeType(instructionObject.content, "string") ? instructionObject.content : "",
     )
     : undefined
   const content = [...(defaultInstructions ? [defaultInstructions] : []), ...(composed ? [composed] : instructions)].join("\n\n").trim()
