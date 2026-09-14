@@ -495,6 +495,9 @@ export function findDefaultExportCall(source: string, names: string[], options: 
         // `as const satisfies T` is the only suffix permitted after a
         // const assertion; everything else is runtime expression material.
         if (afterConst && !/^satisfies\s+\S[\s\S]*$/i.test(afterConst)) return false
+        // A const assertion may only be followed by a complete `satisfies`
+        // clause. Any arithmetic (including subtraction with an identifier)
+        // changes the runtime value and must remain unsupported.
         if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=<>-]|,|\||&|\^|\b(?:instanceof|in)\b)/.test(afterConst)) return false
       }
       // Operators and call syntax after an assertion change the runtime value;
