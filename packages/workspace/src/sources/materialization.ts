@@ -148,11 +148,11 @@ async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: Sour
 
 const sourceSkillRoots = [".agents", ".claude", ".codex"] as const
 
-function sourceSkillPromotion(path: string): { destination: string, root: typeof sourceSkillRoots[number], skill: string } | undefined {
-  // Snapshot paths are source-relative when mounted at the workspace root, or
-  // prefixed by the (single) mount segment. Keep discovery at the Source root
-  // so nested examples and vendored projects cannot contribute instructions.
-  const match = path.match(/^(?:(?:[^/]+)\/)?(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
+function sourceSkillPromotion(path: string, mountPath: string): { destination: string, root: typeof sourceSkillRoots[number], skill: string } | undefined {
+  const prefix = normalizeWorkspacePath(mountPath)
+  const relative = prefix ? (path === prefix ? "" : path.startsWith(`${prefix}/`) ? path.slice(prefix.length + 1) : undefined) : path
+  if (relative === undefined) return
+  const match = relative.match(/^(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
   const root = match?.[1] as typeof sourceSkillRoots[number] | undefined
   if (!root) return
   const relative = match[2]
@@ -185,7 +185,7 @@ async function reconcilePromotedSourceSkills(
     if (!snapshot || !["ready", "updating", "error"].includes(snapshot.status)) continue
     const pathsBySkill = new Map<string, Map<typeof sourceSkillRoots[number], string[]>>()
     for (const sourcePath of Object.keys(snapshot.items || {}).sort()) {
-      const promotion = sourceSkillPromotion(sourcePath)
+      const promotion = sourceSkillPromotion(sourcePath, source.mountPath)
       if (!promotion) continue
       const pathsByRoot = pathsBySkill.get(promotion.skill) || new Map()
       const paths = pathsByRoot.get(promotion.root) || []
@@ -212,7 +212,7 @@ async function reconcilePromotedSourceSkills(
       continue
     }
     for (const sourcePath of selected.paths) {
-      const promotion = sourceSkillPromotion(sourcePath)
+      const promotion = sourceSkillPromotion(sourcePath, sortedSources.find(source => source.key === selected.source)?.mountPath || "")
       if (!promotion || sourcePath === promotion.destination) continue
       candidates.set(promotion.destination, { source: selected.source, sourcePath })
     }
