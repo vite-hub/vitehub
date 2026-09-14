@@ -479,9 +479,19 @@ export function findDefaultExportCall(source: string, names: string[], options: 
 
   for (const call of calls) {
     const firstArgument = stripBoundaryComments(call.arguments[0] || "")
-    const callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
+    let callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
       ? stripBoundaryComments(call.arguments[options.positionalOptionsIndex] || "{}")
       : firstArgument
+    // Positional options are often wrapped in parentheses (and may contain a
+    // trailing type assertion). Unwrap only complete boundary parentheses so
+    // nested expressions remain intact for object matching below.
+    while (callArgument.startsWith("(")) {
+      const boundaryEnd = findMatching(callArgument, 0, "(", ")")
+      if (boundaryEnd === undefined) break
+      const trailing = stripBoundaryComments(callArgument.slice(boundaryEnd + 1))
+      if (trailing) break
+      callArgument = stripBoundaryComments(callArgument.slice(1, boundaryEnd))
+    }
     if (!callArgument.startsWith("{")) continue
     const objectEnd = findMatching(callArgument, 0, "{", "}")
     if (objectEnd === undefined) continue
