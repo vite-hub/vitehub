@@ -294,21 +294,51 @@ describe("source scanner", () => {
   })
 
   it("finds positional options with nested parentheses and assertions", () => {
-    const call = findDefaultExportCall(
-      `export default defineThing("cron", handler, (({ manual: true }) as const))`,
-      ["defineThing"],
-      { positionalOptionsIndex: 2 },
-    )
-    expect(call?.argument).toBe("{ manual: true }")
+    for (const suffix of ["as const", "satisfies ThingOptions", "as Types.Options", "as const satisfies ThingOptions"]) {
+      for (const argument of [
+        `{ manual: true } ${suffix}`,
+        `({ manual: true } ${suffix})`,
+        `(({ manual: true }) ${suffix})`,
+        `(/* options */ ({ manual: true }) /* assertion */ ${suffix} /* end */)`,
+      ]) {
+        const call = findDefaultExportCall(
+          `export default defineThing("cron", handler, ${argument})`,
+          ["defineThing"],
+          { positionalOptionsIndex: 2 },
+        )
+        expect(call?.argument, argument).toBe("{ manual: true }")
+      }
+    }
   })
 
   it("rejects positional options with trailing expression material", () => {
-    const call = findDefaultExportCall(
-      `export default defineThing("cron", handler, (({ manual: true }) as const && false))`,
-      ["defineThing"],
-      { positionalOptionsIndex: 2 },
-    )
-    expect(call).toBeUndefined()
+    for (const suffix of [
+      "as const && false",
+      "as const || false",
+      "as const ?? false",
+      "as const + 1",
+      "as const - 1",
+      "as const * 2",
+      "as const / 2",
+      "as const ? false : true",
+      "as Options()",
+      "satisfies Options, false",
+      "as",
+      "satisfies",
+    ]) {
+      for (const argument of [
+        `{ manual: true } ${suffix}`,
+        `({ manual: true } ${suffix})`,
+        `(({ manual: true }) ${suffix})`,
+      ]) {
+        const call = findDefaultExportCall(
+          `export default defineThing("cron", handler, (${argument}))`,
+          ["defineThing"],
+          { positionalOptionsIndex: 2 },
+        )
+        expect(call, argument).toBeUndefined()
+      }
+    }
   })
 
   it("reads top-level object properties without matching nested values", () => {

@@ -478,7 +478,9 @@ export function findDefaultExportCall(source: string, names: string[], options: 
     .sort((left, right) => left.start - right.start)
 
   for (const call of calls) {
-    const isCompleteAssertion = (value: string) => /^(?:as|satisfies)\b[\s\S]*$/.test(value) && !/[&|?=]/.test(value)
+    // Accept only complete assertions to named types (or `const`). More complex
+    // type syntax stays unsupported rather than risking a runtime expression.
+    const isCompleteAssertion = (value: string) => /^(?:(?:as|satisfies)\s+[a-z_$][\w$]*(?:\s*\.\s*[a-z_$][\w$]*)*\s*)+$/i.test(value)
     const firstArgument = stripBoundaryComments(call.arguments[0] || "")
     let callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
       ? stripBoundaryComments(call.arguments[options.positionalOptionsIndex] || "{}")
@@ -492,18 +494,6 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       const trailing = stripBoundaryComments(callArgument.slice(boundaryEnd + 1))
       if (trailing && !isCompleteAssertion(trailing)) break
       callArgument = stripBoundaryComments(callArgument.slice(1, boundaryEnd))
-    }
-    // Assertions may wrap a parenthesized expression in the opposite order:
-    // `({ ... } as const)` or `(({ ... }) as const)`. Strip accepted suffixes
-    // before another boundary-parentheses pass so both forms normalize.
-    while (!callArgument.startsWith("{") && /^(?:.|\n)*\}\s+(?:as|satisfies)\b/.test(callArgument)) {
-      const objectStart = callArgument.indexOf("{")
-      if (objectStart < 0) break
-      const objectEnd = findMatching(callArgument, objectStart, "{", "}")
-      if (objectEnd === undefined) break
-      const suffix = stripBoundaryComments(callArgument.slice(objectEnd + 1))
-      if (!isCompleteAssertion(suffix)) break
-      callArgument = stripBoundaryComments(callArgument.slice(0, objectEnd + 1))
     }
     if (!callArgument.startsWith("{")) continue
     const objectEnd = findMatching(callArgument, 0, "{", "}")
