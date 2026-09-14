@@ -87,6 +87,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           additionalProperties: false,
         },
         execute: async (input: unknown) => {
+          // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped capability input at the runtime boundary.
           if (!input || typeof input !== "object") throw new Error("Expected a title or body.");
           const title = "title" in input ? stringField(input, "title") : undefined;
           const body = "body" in input ? stringField(input, "body") : undefined;
@@ -96,7 +97,8 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           return { updated: true };
         },
       },
-      ...(autoMerge
+          // doctor-disable-next-line typescript/style/no-conditional-empty-object-spread -- Optional capability is intentionally omitted when disabled.
+          ...(autoMerge
         ? {
             requestAutoMerge: {
               name: "requestAutoMerge",
