@@ -241,6 +241,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #stat(normalized: string): Promise<WorkspaceStat | undefined> {
+    // SAFETY: The filesystem stat shape is narrowed to the methods and fields used below.
     const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, directoryIdentity?: string, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
     const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
