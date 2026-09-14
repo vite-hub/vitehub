@@ -56,7 +56,7 @@ export function defineSchedule<TResult = unknown>(inputOrCron: ScheduleDefinitio
   if (typeof input.allowRuntimeSchedules !== "undefined") {
     definition.options = { ...definition.options, allowRuntimeSchedules: input.allowRuntimeSchedules }
   }
-  if (typeof input.manual !== "undefined") definition.options = { ...definition.options, manual: input.manual }
+  if (input.manual !== undefined) definition.options = { ...definition.options, manual: input.manual }
   return definition
 }
 
