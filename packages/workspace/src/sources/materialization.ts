@@ -153,8 +153,9 @@ function sourceSkillPromotion(path: string, mountPath: string): { destination: s
   const relative = prefix ? (path === prefix ? "" : path.startsWith(`${prefix}/`) ? path.slice(prefix.length + 1) : undefined) : path
   if (relative === undefined) return
   const match = relative.match(/^(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
+  if (!match) return
   // SAFETY: The regular expression capture is one of the known source skill roots.
-  const root = match?.[1] as typeof sourceSkillRoots[number] | undefined
+  const root = match[1] as typeof sourceSkillRoots[number]
   if (!root) return
   const skillPath = match[2]
   const [skill, ...rest] = skillPath.split("/")
@@ -279,7 +280,7 @@ function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
 export async function materializedFileMatches(file: Awaited<ReturnType<WorkspaceStore["readFile"]>>, item: LazyMaterializedMetadata) {
   if (!file || !item.materializedContentDigest) return false
   if (await sha256(file.content) !== item.materializedContentDigest) return false
-  if (!item.materializedAttributes || fileAttributesUnavailable(file)) return true
+  if (!item.materializedAttributes || file.mediaType === undefined || file.metadata === undefined) return true
   return file.mediaType === item.materializedMediaType
     && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
 }
