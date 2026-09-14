@@ -26,6 +26,16 @@ async function fixture(source: string, server: boolean) {
 }
 
 describe.each([false, true])("Schedule option discovery, server=%s", (server) => {
+  it("rejects positional runtime targets during discovery", async () => {
+    const { discover } = await fixture('export default defineScheduleTarget("not-an-object", () => {})', server)
+    expect(discover).toThrow(/literal options/)
+  })
+
+  it("discovers object-form runtime targets", async () => {
+    const { discover } = await fixture("export default defineScheduleTarget({ handler() {} })", server)
+    expect(discover()).toMatchObject([{ name: "daily", allowRuntimeSchedules: true, runtimeOnly: true }])
+  })
+
   it.each([false, true])("discovers positional options %s without executing the handler", async (allowed) => {
     const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => { throw new Error('never execute') }, { manual: true, allowRuntimeSchedules: ${allowed} })`, server)
     expect(discover()).toMatchObject([{ name: "daily", allowRuntimeSchedules: allowed }])
