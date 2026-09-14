@@ -471,24 +471,77 @@ export function findIdentifierCalls(source: string, name: string): IdentifierCal
   return calls
 }
 
-export function findDefaultExportCall(source: string, names: string[], options: { positional?: boolean } = {}): DefaultExportCall | undefined {
+export function findDefaultExportCall(source: string, names: string[], options: { positionalOptionsIndex?: number } = {}): DefaultExportCall | undefined {
   const masked = maskSourceLiterals(source)
   const calls = names
     .flatMap(name => findIdentifierCalls(source, name))
     .sort((left, right) => left.start - right.start)
 
   for (const call of calls) {
-    const callArgument = stripBoundaryComments(call.arguments[0] || "")
-    if (!callArgument.startsWith("{")) {
-      if (options.positional && /\bexport\s+default\s*(?:\(\s*)*$/.test(masked.slice(0, call.start))) {
-        return { ...call, argument: callArgument }
+    // Validate the assertion boundary while leaving TypeScript's type grammar
+    // unrestricted (generic, union, indexed-access, `typeof`, etc.). Runtime
+    // expression operators after the assertion remain unsupported.
+    const isCompleteAssertion = (value: string) => {
+      const assertion = /^(?:as|satisfies)\b\s+.+$/is.test(value)
+      // Reject runtime operators that can follow an assertion, while allowing
+      // punctuation that is valid inside TypeScript type expressions (for
+      // example generic arguments and tuple types).
+      if (!assertion) return false
+      // `const` is a complete assertion type by itself. Any operator after it
+      // therefore belongs to the runtime expression (including operators whose
+      // right-hand side is an identifier rather than a literal).
+      if (/^(?:as\s+const|satisfies\s+const)\b/i.test(value)) {
+        const afterConst = value.slice(value.indexOf("const") + 5).trim()
+        // `as const satisfies T` is the only suffix permitted after a
+        // const assertion; everything else is runtime expression material.
+        if (afterConst && !/^satisfies\s+\S[\s\S]*$/i.test(afterConst)) return false
+        // A const assertion may only be followed by a complete `satisfies`
+        // clause. Any arithmetic (including subtraction with an identifier)
+        // changes the runtime value and must remain unsupported.
+        if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=<>-]|,|\||&|\^|\b(?:instanceof|in)\b)/.test(afterConst)) return false
       }
-      continue
+      // Operators and call syntax after an assertion change the runtime value;
+      // reject them while retaining union/intersection punctuation in types.
+      if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=]|,)/.test(value)) return false
+      // A spaced subtraction after an assertion is runtime syntax. Hyphens
+      // inside template-literal types remain allowed because they are not
+      // surrounded by operator whitespace.
+      if (/\s-\s/.test(value)) return false
+      // Identifier operands may omit operator whitespace; this is still
+      // runtime subtraction rather than punctuation in a TypeScript type.
+      // A subtraction may also use a numeric or otherwise literal operand;
+      // reject the operator whenever it follows an identifier in the
+      // assertion suffix. Hyphens embedded in template-literal types do not
+      // have an identifier directly before the operator boundary.
+      if (/\b[A-Za-z_$][\w$]*\s*-\s*(?:[A-Za-z_$\d"'`])/.test(value)) return false
+      // Relational operators are spaced; generic/type delimiters are not.
+      if (/(?:^|\s)(?:<<|>>>|>>|[<>])(?:=)?(?=\s|[A-Za-z_$\d])/.test(value)) return false
+      if (/\b(?:instanceof|in)\b/.test(value)) return false
+      // Bitwise operators are runtime expressions; retain type unions and
+      // intersections whose right side is a type name, but reject literals.
+      if (/(?:\||&|\^)\s*(?:true|false|null|undefined|\d+(?:\.\d+)?|["'`])/.test(value)) return false
+      if (/\b[A-Za-z_$][\w$]*\s*\(/.test(value)) return false
+      return true
     }
+    const firstArgument = stripBoundaryComments(call.arguments[0] || "")
+    let callArgument = !firstArgument.startsWith("{") && options.positionalOptionsIndex !== undefined
+      ? stripBoundaryComments(call.arguments[options.positionalOptionsIndex] || "{}")
+      : firstArgument
+    // Positional options are often wrapped in parentheses (and may contain a
+    // trailing type assertion). Unwrap only complete boundary parentheses so
+    // nested expressions remain intact for object matching below.
+    while (callArgument.startsWith("(")) {
+      const boundaryEnd = findMatching(callArgument, 0, "(", ")")
+      if (boundaryEnd === undefined) break
+      const trailing = stripBoundaryComments(callArgument.slice(boundaryEnd + 1))
+      if (trailing && !isCompleteAssertion(trailing)) break
+      callArgument = stripBoundaryComments(callArgument.slice(1, boundaryEnd))
+    }
+    if (!callArgument.startsWith("{")) continue
     const objectEnd = findMatching(callArgument, 0, "{", "}")
     if (objectEnd === undefined) continue
     const suffix = stripBoundaryComments(callArgument.slice(objectEnd + 1))
-    if (suffix && !/^(?:as|satisfies)\b/.test(suffix)) continue
+    if (suffix && !isCompleteAssertion(suffix)) continue
     const argument = callArgument.slice(0, objectEnd + 1)
     if (/\bexport\s+default\s*(?:\(\s*)*$/.test(masked.slice(0, call.start))) {
       return { ...call, argument }

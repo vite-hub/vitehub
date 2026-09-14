@@ -168,7 +168,7 @@ export function validateProviderCron(cron: string, scheduleName: string): void {
 
 function readStaticScheduleCron(file: string, scheduleName: string): string {
   const source = readFileSync(file, "utf8")
-  const definition = findDefaultExportCall(source, ["defineSchedule"], { positional: true })
+  const definition = findDefaultExportCall(source, ["defineSchedule"], { positionalOptionsIndex: 2 })
   const cron = definition && readStaticString(definition.arguments.length > 1 ? definition.arguments[0] : readObjectProperty(definition.argument, "cron"))
   if (!cron) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0004({ message: `Schedule "${scheduleName}" must declare a static cron string for provider wake output.` })
