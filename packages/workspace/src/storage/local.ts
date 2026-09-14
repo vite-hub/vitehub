@@ -413,6 +413,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   #meta = new Map<string, unknown>()
   #metaLoaded = false
   #metaPath: string
+  #knownFileMetadata = new Set<string>()
 
   constructor(public root: string) {
     this.#fileMetadataRoot = `${root}/.vitehub/file-metadata`
@@ -541,6 +542,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     }
     if (!hasMetadata) {
       await rm(metadataPath, { force: true })
+      this.#knownFileMetadata.add(path)
       return
     }
     const temp = `${metadataPath}.${randomUUID()}.tmp`
@@ -550,6 +552,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         await applyMetadataPermissions(temp, permissions.mode, permissions.gid)
       }
       await rename(temp, metadataPath)
+      this.#knownFileMetadata.add(path)
     }
     catch (error) {
       await rm(temp, { force: true }).catch(() => undefined)
@@ -577,7 +580,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       mediaType: metadata?.mediaType,
       metadata: copyJsonFileMetadata(normalized, metadata?.metadata),
     }
-    return metadata ? file : markFileAttributesUnavailable(file)
+    return metadata || this.#knownFileMetadata.has(normalized) ? file : markFileAttributesUnavailable(file)
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
