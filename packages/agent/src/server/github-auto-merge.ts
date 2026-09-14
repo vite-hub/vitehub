@@ -122,7 +122,7 @@ export function createGitHubPullRequestOperations(
     let submitted = false
     try {
       const args = ["api", "graphql", "-f", `query=${query}`]
-      for (const [key, value] of Object.entries(variables)) args.push(typeof value === "number" ? "-F" : "-f", `${key}=${value}`)
+      for (const [key, value] of Object.entries(variables)) args.push(Number.isFinite(value) ? "-F" : "-f", `${key}=${value}`)
       reservation.submit()
       submitted = true
       const result = await github.command(args, commandOptions)
