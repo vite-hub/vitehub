@@ -2113,6 +2113,7 @@ async function writeAgentWebhookRouteHandler(
       "    return stopping",
       "  }",
       "  nitroApp.hooks.hook('request', event => {",
+      "    if (!String(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '').includes('webhook')) return",
       "    if (stop) return",
       "    waitUntil ||= waitUntilFromEvent(event)",
       "    stop = resumeWebhookQueues(waitUntil)",
