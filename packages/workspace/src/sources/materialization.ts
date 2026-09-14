@@ -148,7 +148,7 @@ async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: Sour
 const sourceSkillRoots = [".agents", ".claude", ".codex"] as const
 
 function sourceSkillPromotion(path: string): { destination: string, root: typeof sourceSkillRoots[number], skill: string } | undefined {
-  const root = sourceSkillRoots.find(candidate => path.includes(`/${candidate}/skills/`))
+  const root = sourceSkillRoots.find(candidate => path.startsWith(`${candidate}/skills/`) || path.includes(`/${candidate}/skills/`))
   if (!root) return
   const marker = `/${root}/skills/`
   const relative = path.slice(path.indexOf(marker) + marker.length)
@@ -178,7 +178,7 @@ async function reconcilePromotedSourceSkills(
   const sortedSources = [...sources].sort((left, right) => left.key.localeCompare(right.key))
   for (const source of sortedSources) {
     const snapshot = await readSourceSnapshotMetadata(store, source.key)
-    if (snapshot?.status !== "ready") continue
+    if (!snapshot || !["ready", "updating", "error"].includes(snapshot.status)) continue
     const pathsBySkill = new Map<string, Map<typeof sourceSkillRoots[number], string[]>>()
     for (const sourcePath of Object.keys(snapshot.items || {}).sort()) {
       const promotion = sourceSkillPromotion(sourcePath)
@@ -214,7 +214,7 @@ async function reconcilePromotedSourceSkills(
     }
   }
   for (const [path, prior] of Object.entries(previous)) {
-    if (!path.endsWith("/SKILL.md")) continue
+    if (!path.includes("/skills/")) continue
     const promotion = sourceSkillPromotion(`source/${path}`)
     if (!promotion) continue
     const existing = await store.readFile(path)
@@ -245,7 +245,10 @@ async function reconcilePromotedSourceSkills(
   for (const [destination, prior] of Object.entries(previous)) {
     if (next[destination]) continue
     const existing = await store.readFile(destination)
-    if (existing && await sha256(existing.content) === prior.digest) await control.mutate(() => store.rm(destination, { force: true }))
+    if (existing && await sha256(existing.content) === prior.digest) {
+      const latest = await store.readFile(destination)
+      if (latest && await sha256(latest.content) === prior.digest) await control.mutate(() => store.rm(destination, { force: true }))
+    }
     else if (existing) next[destination] = prior
   }
   await control.checkpoint(async () => await store.setMeta?.(promotedSourceSkillsMetaKey, next))
@@ -263,6 +266,14 @@ function materializedItemMeta(
 
 function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
   return Object.keys(items).length ? items : undefined
+}
+
+export async function materializedFileMatches(file: Awaited<ReturnType<WorkspaceStore["readFile"]>>, item: LazyMaterializedMetadata) {
+  if (!file || !item.materializedContentDigest) return false
+  if (await sha256(file.content) !== item.materializedContentDigest) return false
+  if (!item.materializedAttributes || fileAttributesUnavailable(file)) return true
+  return file.mediaType === item.materializedMediaType
+    && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
 }
 
 function contentSize(content: string | Uint8Array) {
