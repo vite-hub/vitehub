@@ -728,7 +728,9 @@ async function materializeWorkspaceSourcesInternal(
   let directories = 0
   let bytes = 0
 
-  for (const source of sources) {
+  // Materialize lower-priority sources first so earlier normalized sources
+  // retain deterministic precedence when mounts overlap.
+  for (const source of [...sources].reverse()) {
     throwIfAborted(options.abortSignal)
     const sourceStarted = Date.now()
     await reportMaterializationProgress(options, source, { status: "started" })
