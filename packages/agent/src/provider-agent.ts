@@ -1840,6 +1840,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
       ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
       : options.accumulator.lastSignature !== signature
   const identityFree = options.provider === "codex" && responseIdentity === undefined && cumulative === undefined
+  if (options.provider === "codex" && partitionTotal !== undefined) options.accumulator.observedPartition = true
   const unmatchedIdentityFree = options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
     && options.accumulator.calls.some(call => call.usage === undefined && options.accumulator.lastResponseIdentity !== undefined)
   if (identityFree) {
@@ -1883,7 +1884,7 @@ function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-u
     && options.accumulator.calls.some(call => call.usage === undefined) && !completesRawOnly) {
     options.accumulator.identityAmbiguous = true
   }
-  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly) && !(responseIdentity === undefined && options.accumulator.calls.some(call => call.usage === undefined) && !completesRawOnly)
+  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
   if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
     options.accumulator.lastCallIdentity = responseIdentity
     options.accumulator.partitionComplete = false
