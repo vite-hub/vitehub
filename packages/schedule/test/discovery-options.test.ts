@@ -26,6 +26,24 @@ async function fixture(source: string, server: boolean) {
 }
 
 describe.each([false, true])("Schedule option discovery, server=%s", (server) => {
+  it.each([false, true])("discovers positional options %s without executing the handler", async (allowed) => {
+    const { discover } = await fixture(`export default defineSchedule('0 9 * * *', () => { throw new Error('never execute') }, { manual: true, allowRuntimeSchedules: ${allowed} })`, server)
+    expect(discover()).toMatchObject([{ name: "daily", allowRuntimeSchedules: allowed }])
+  })
+
+  it("discovers positional schedules without options", async () => {
+    const { discover } = await fixture("export default defineSchedule('0 9 * * *', () => {})", server)
+    expect(discover()).toMatchObject([{ name: "daily", allowRuntimeSchedules: false }])
+  })
+
+  it.each([
+    "const options = {}; export default defineSchedule('0 9 * * *', () => {}, options)",
+    "export default defineSchedule('0 9 * * *', () => {}, { ...options })",
+  ])("rejects unresolved positional options", async (source) => {
+    const { discover } = await fixture(source, server)
+    expect(discover).toThrow(/literal/)
+  })
+
   it.each([
     "const allowed = true;\nexport default defineSchedule({ cron: '0 9 * * *', handler() {}, allowRuntimeSchedules: allowed })",
     "const options = { allowRuntimeSchedules: true };\nexport default defineSchedule({ ...options, cron: '0 9 * * *', handler() {} })",
