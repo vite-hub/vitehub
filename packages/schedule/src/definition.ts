@@ -23,6 +23,7 @@ function validateCron(cron: string): void {
 export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult>
 export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: { allowRuntimeSchedules?: boolean, manual?: boolean }): ScheduleDefinition<TResult>
 export function defineSchedule<TResult = unknown>(inputOrCron: ScheduleDefinitionInput<TResult> | string, handler?: ScheduleHandler<TResult>, options: { allowRuntimeSchedules?: boolean, manual?: boolean } = {}): ScheduleDefinition<TResult> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Runtime callers may use the positional overload.
   const input = typeof inputOrCron === "string" ? { cron: inputOrCron, handler, ...options } : inputOrCron
   if (!isPlainObject(input)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
@@ -39,9 +40,11 @@ export function defineSchedule<TResult = unknown>(inputOrCron: ScheduleDefinitio
     throw scheduleErrorDiagnostics.SCHEDULE_C0005({ message: "`defineSchedule()` requires a schedule handler." })
   }
 
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped runtime options at this public boundary.
   if (typeof input.allowRuntimeSchedules !== "undefined" && typeof input.allowRuntimeSchedules !== "boolean") {
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` allowRuntimeSchedules must be a boolean." })
   }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped runtime options at this public boundary.
   if (typeof input.manual !== "undefined" && typeof input.manual !== "boolean") {
     throw scheduleErrorDiagnostics.SCHEDULE_C0004({ message: "`defineSchedule()` manual must be a boolean." })
   }
