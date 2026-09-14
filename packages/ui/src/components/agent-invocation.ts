@@ -18,6 +18,8 @@ import {
   terminalText,
   type InvocationActivity,
 } from "../internal/invocation-activity.ts";
+
+export { invocationActivities } from "../internal/invocation-activity.ts";
 import { hasRuntimeType, runtimeType } from "../internal/runtime-type.ts";
 import { AgentPatchDiff } from "./agent-code-view.ts";
 import { AgentMarkdown } from "./agent-markdown.ts";

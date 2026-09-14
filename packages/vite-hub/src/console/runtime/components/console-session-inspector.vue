@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AgentCapabilityInspector, AgentFileTree, AgentInvocationInspector, AgentPatchDiff, type AgentInvocationView } from "@vite-hub/ui";
+import { AgentCapabilityInspector, AgentFileTree, AgentInvocationInspector, AgentPatchDiff, invocationActivities, type AgentInvocationView } from "@vite-hub/ui";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
@@ -82,31 +82,7 @@ const inspectorViews = computed<InspectorTab[]>(() => [
   ...(diffs.value.length ? (["diff"] as const) : []),
 ]);
 const diffs = computed(() => {
-  const patches: string[] = [];
-  for (const observation of props.invocation.observations) {
-    const attributes = observation.attributes ?? {};
-    for (const key of ["tool.output", "tool.input"]) {
-      const payload = attributes[key];
-      const item = payload && typeof payload === "object" && !Array.isArray(payload)
-        ? (payload as Record<string, unknown>).item
-        : undefined;
-      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-      const changeItem = item as Record<string, unknown>;
-      if (!Array.isArray(changeItem.changes)) continue;
-      for (const change of changeItem.changes) {
-        if (!change || typeof change !== "object" || Array.isArray(change)) continue;
-        const entry = change as Record<string, unknown>;
-        if (typeof entry.path !== "string" || typeof entry.diff !== "string" || !entry.diff) continue;
-        const path = entry.path.split("/workspace/").at(-1) || entry.path.replace(/^\/+/, "");
-        patches.push(`diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${entry.diff.endsWith("\n") ? entry.diff : `${entry.diff}\n`}`);
-      }
-    }
-    for (const value of Object.values(attributes)) {
-      if (typeof value === "string" && /(^diff --git |^@@ |^\+\+\+ |^--- )/.test(value)) patches.push(value);
-      if (Array.isArray(value)) for (const item of value) if (typeof item === "string" && item.includes("diff --git")) patches.push(item);
-    }
-  }
-  return [...new Set(patches)];
+  return [...new Set(invocationActivities(props.invocation).flatMap(activity => activity.patches))];
 });
 const selectedDiffs = ref<number[]>([]);
 const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
