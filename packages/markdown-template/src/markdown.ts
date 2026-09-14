@@ -3,6 +3,9 @@ import binding, { Binding } from "comark/plugins/binding"
 
 import type { ComarkElement } from "./ast.ts"
 import type { NodeHandler } from "comark/render"
+import type { RenderMarkdownTemplateOptions } from "./types.ts"
+
+type MarkdownPlugins = NonNullable<RenderMarkdownTemplateOptions["plugins"]>
 
 export interface MarkdownTemplateRuntime {
   components: Record<string, NodeHandler>
@@ -20,12 +23,12 @@ export function createMarkdownTemplateRuntime(nonce: string): MarkdownTemplateRu
   }
 }
 
-export async function parseTemplateMarkdown(template: string, bindings = false) {
+export async function parseTemplateMarkdown(template: string, bindings = false, plugins: MarkdownPlugins = []) {
   return await parseMarkdown(template, {
     autoClose: false,
     autoUnwrap: false,
     linkify: false,
-    plugins: bindings ? [binding()] : [],
+    plugins: bindings ? [binding(), ...plugins] : plugins,
   })
 }
 
