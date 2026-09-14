@@ -6,6 +6,7 @@ import { workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
+import { normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
@@ -871,15 +872,15 @@ async function materializeWorkspaceSourcesInternal(
           continue
         }
         const item = entry.item!
-        const metadata = item.metadata || {}
+        const metadata = normalizeSourceFileMetadata(item.metadata || {})
         const previousStat = await store.stat(path)
         const previous = entry.contentStream && store.writeFileStream ? undefined : await store.readFile(path)
         const previousExists = previousStat?.type === "file" || Boolean(previous)
-        const fileMetadata = {
+        const fileMetadata = normalizeSourceFileMetadata({
           ...metadata,
           ...entry.metadata,
           source: source.key,
-        }
+        })
         const missingDirectories: string[] = []
         for (const directory of parentDirectoryPaths(path)) {
           if (directory !== source.mountPath && sourceOwnsDirectory(source, directory) && !await store.stat(directory)) missingDirectories.push(directory)
