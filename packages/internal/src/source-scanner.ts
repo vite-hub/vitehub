@@ -509,7 +509,11 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       if (/\s-\s/.test(value)) return false
       // Identifier operands may omit operator whitespace; this is still
       // runtime subtraction rather than punctuation in a TypeScript type.
-      if (/\b[A-Za-z_$][\w$]*\s*-\s*[A-Za-z_$][\w$]*/.test(value)) return false
+      // A subtraction may also use a numeric or otherwise literal operand;
+      // reject the operator whenever it follows an identifier in the
+      // assertion suffix. Hyphens embedded in template-literal types do not
+      // have an identifier directly before the operator boundary.
+      if (/\b[A-Za-z_$][\w$]*\s*-\s*(?:[A-Za-z_$\d"'`])/.test(value)) return false
       // Relational operators are spaced; generic/type delimiters are not.
       if (/(?:^|\s)(?:<<|>>>|>>|[<>])(?:=)?(?=\s|[A-Za-z_$\d])/.test(value)) return false
       if (/\b(?:instanceof|in)\b/.test(value)) return false
