@@ -489,7 +489,11 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       if (!assertion) return false
       // Operators and call syntax after an assertion change the runtime value;
       // reject them while retaining union/intersection punctuation in types.
-      if (/(?:&&|\|\||\?\?|[+*/?;]|(?<![\w$])-(?=\s*\d)|,)/.test(value)) return false
+      if (/(?:&&|\|\||\?\?|[+*/?;%=<>]|(?<![\w$])-(?=\s*\d)|,)/.test(value)) return false
+      if (/\b(?:instanceof|in)\b/.test(value)) return false
+      // Bitwise operators are runtime expressions; retain type unions and
+      // intersections whose right side is a type name, but reject literals.
+      if (/(?:\||&)\s*(?:true|false|null|undefined|\d+(?:\.\d+)?)/.test(value)) return false
       if (/\b[A-Za-z_$][\w$]*\s*\(/.test(value)) return false
       return true
     }
