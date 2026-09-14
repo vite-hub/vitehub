@@ -127,6 +127,21 @@ async function instructionDirectiveLinesInCode(content: string): Promise<Set<num
   return instructionTokensInCode(tree.nodes, prefix)
 }
 
+/** Fill the single authored instruction slot while preserving code literals. */
+export async function fillInstructionSlot(template: string, content: string): Promise<string> {
+  const pattern = /\{\{\{\s*instructions\s*\}\}\}/g
+  const prefix = `VITEHUBINSTRUCTIONSLOT${crypto.randomUUID().replaceAll("-", "")}`
+  let count = 0
+  const masked = template.replace(pattern, () => `${prefix}${count++}END`)
+  const { tree } = await parseInstructionTemplate(masked)
+  const inCode = instructionTokensInCode(tree.nodes, prefix)
+  if (count - inCode.size !== 1) {
+    throw new TypeError("[vitehub] Instruction templates require exactly one {{{ instructions }}} slot outside code.")
+  }
+  let index = 0
+  return template.replace(pattern, match => inCode.has(index++) ? match : content)
+}
+
 function instructionTokensInCode(nodes: ComarkNode[], prefix: string, inCode = false): Set<number> {
   const found = new Set<number>()
   for (const node of nodes) {
