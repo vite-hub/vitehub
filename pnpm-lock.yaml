@@ -78,6 +78,12 @@ catalogs:
     '@t3tools/provider-runtime':
       specifier: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@f603ba290f3fba0706137f485bdda71e6a0dec7c
       version: 0.0.33
+    '@types/proper-lockfile':
+      specifier: 4.1.4
+      version: 4.1.4
+    proper-lockfile:
+      specifier: 4.1.2
+      version: 4.1.2
     remark-gfm:
       specifier: ^4.0.1
       version: 4.0.1
@@ -737,6 +743,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.2.0
+      proper-lockfile:
+        specifier: 'catalog:'
+        version: 4.1.2
       valibot:
         specifier: catalog:runtime
         version: 1.4.2(typescript@6.0.3)
@@ -759,6 +768,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
+      '@types/proper-lockfile':
+        specifier: 'catalog:'
+        version: 4.1.4
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.9.5(@aws-sdk/credential-provider-web-identity@3.972.76)(ws@8.21.3)
@@ -16196,6 +16208,12 @@ packages:
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
+
+  '@types/proper-lockfile@4.1.4':
+    resolution: {integrity: sha512-uo2ABllncSqg9F1D4nugVl9v93RmjxF6LJzQLMLDdPaXCUIDPeOJ21Gbqi43xNKzBi/WQ0Q0dICqufzQbMjipQ==}
+
+  '@types/retry@0.12.5':
+    resolution: {integrity: sha512-3xSjTp3v03X/lSQLkczaN9UIEwJMoMCA1+Nb5HfbJEQWogdeQIyVtTvxPXDQjZ5zws8rFQfVfRdz03ARihPJgw==}
 
 snapshots:
 
@@ -36717,3 +36735,9 @@ snapshots:
   zod@4.5.4: {}
 
   zwitch@2.0.4: {}
+
+  '@types/proper-lockfile@4.1.4':
+    dependencies:
+      '@types/retry': 0.12.5
+
+  '@types/retry@0.12.5': {}

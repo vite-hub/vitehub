@@ -18,6 +18,7 @@ import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface RenderState {
   data: Record<string, unknown>
+  plugins: RenderMarkdownTemplateOptions["plugins"]
   directiveTokens: TemplateTokenState
   fragmentToken: string
   fragments: Array<{ path: string }>
@@ -66,9 +67,10 @@ export async function renderMarkdownTemplateInternal(
   const normalizedLinks = await normalizeLinkBindings(prepared)
   const fragmentToken = `VITEHUBMARKDOWNTEMPLATEFRAGMENT${crypto.randomUUID().replaceAll("-", "")}`
   const normalized = await normalizeTripleBindings(normalizedLinks.template, fragmentToken, preparation.runtime)
-  const tree = await parseTemplateMarkdown(normalized.template, true)
+  const tree = await parseTemplateMarkdown(normalized.template, true, options.plugins)
   const nodes = await composeNodes(tree.nodes, {
     data,
+    plugins: options.plugins,
     directiveTokens: preparation.directiveTokens,
     fragmentToken,
     fragments: normalized.fragments,
@@ -563,7 +565,11 @@ async function fragmentNodes(
     throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template fragment "{{{ ${path} }}}" must resolve to a string.` })
   }
 
-  const tree = await parseTemplateMarkdown(protectLiteralDirectives(value, state.directiveTokens))
+  const tree = await parseTemplateMarkdown(
+    protectLiteralDirectives(value, state.directiveTokens),
+    false,
+    state.plugins,
+  )
   if (inline) {
     if (!tree.nodes.length) return []
     if (tree.nodes.length !== 1 || !isElement(tree.nodes[0]) || tree.nodes[0][0] !== "p") {
