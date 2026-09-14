@@ -482,7 +482,7 @@ export function findDefaultExportCall(source: string, names: string[], options: 
     // unrestricted (generic, union, indexed-access, `typeof`, etc.). Runtime
     // expression operators after the assertion remain unsupported.
     const isCompleteAssertion = (value: string) => {
-      const assertion = /^(?:as|satisfies)\s+.+$/is.test(value)
+      const assertion = /^(?:as|satisfies)\b\s+.+$/is.test(value)
       // Reject runtime operators that can follow an assertion, while allowing
       // punctuation that is valid inside TypeScript type expressions (for
       // example generic arguments and tuple types).
