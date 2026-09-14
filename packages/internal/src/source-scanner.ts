@@ -502,7 +502,7 @@ export function findDefaultExportCall(source: string, names: string[], options: 
       }
       // Operators and call syntax after an assertion change the runtime value;
       // reject them while retaining union/intersection punctuation in types.
-      if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=\-]|,)/.test(value)) return false
+      if (/(?:&&|\|\||\?\?|=>|\?\.|[+*/?;%=]|,)/.test(value)) return false
       // Relational operators are spaced; generic/type delimiters are not.
       if (/(?:^|\s)(?:<<|>>>|>>|[<>])(?:=)?(?=\s|[A-Za-z_$\d])/.test(value)) return false
       if (/\b(?:instanceof|in)\b/.test(value)) return false
