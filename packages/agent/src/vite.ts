@@ -1986,7 +1986,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDiscordGatewayDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(defaultAgentChatRoute))})`,
-    `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
+    `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
     `const discordGatewayRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.discordGatewayRoute))})`,
     ...(options.inspectionRoute
       ? [`const inspectionRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.inspectionRoute))})`]
