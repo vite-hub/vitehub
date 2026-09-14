@@ -2116,7 +2116,7 @@ async function writeAgentWebhookRouteHandler(
       `  const webhookAliases = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/$/, '') || '/', target])))} `,
       "  nitroApp.hooks.hook('request', event => {",
       "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\/$/, '') || '/'",
-      "    if (!webhookAliases[pathname] && !webhookRoutePattern.test(pathname)) return",
+      "    if (!(webhookAliases[pathname] || webhookRoutePattern.test(pathname))) return",
       "    if (stop) return",
       "    waitUntil ||= waitUntilFromEvent(event)",
       "    stop = resumeWebhookQueues(waitUntil)",
