@@ -10,6 +10,7 @@ import { check, fallback, literal, object, optional, pipe, record, safeParse, st
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { workspaceStoreTarget } from "./target.ts"
+import { markFileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
@@ -570,12 +571,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
     if (!bytes) return undefined
     const normalized = normalizeWorkspacePath(path)
     const metadata = await this.#readFileMetadata(normalized)
-    return {
+    const file = {
       path: normalized,
       content: new Uint8Array(bytes),
       mediaType: metadata?.mediaType,
       metadata: copyJsonFileMetadata(normalized, metadata?.metadata),
     }
+    return metadata ? file : markFileAttributesUnavailable(file)
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
