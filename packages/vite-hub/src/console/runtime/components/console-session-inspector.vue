@@ -88,7 +88,17 @@ const selectedDiffs = ref<number[]>([]);
 const activeDiffTurn = ref<number | "all">("all");
 const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
 function toggleAllDiffs() { selectedDiffs.value = allDiffsSelected.value ? [] : diffs.value.map((_, index) => index); }
-watch(diffs, (value) => {
+watch(() => props.invocation.id, () => {
+  selectedDiffs.value = [];
+  activeDiffTurn.value = "all";
+});
+watch(diffs, (value, previous) => {
+  const identityChanged = !previous || value.length !== previous.length || value.some((diff, index) => diff.id !== previous[index]?.id);
+  if (identityChanged) {
+    selectedDiffs.value = [];
+    activeDiffTurn.value = "all";
+    return;
+  }
   selectedDiffs.value = selectedDiffs.value.filter((index) => index < value.length);
   if (activeDiffTurn.value !== "all" && activeDiffTurn.value >= value.length) activeDiffTurn.value = "all";
 });
