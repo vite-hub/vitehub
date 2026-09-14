@@ -9,6 +9,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
+function isString(value: unknown): value is string {
+  return Object.prototype.toString.call(value) === "[object String]"
+}
+
 function validateCron(cron: string): void {
   if (typeof cron !== "string" || cron.trim() !== cron || cron.length === 0) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0001({ message: "`defineSchedule()` requires a cron string." })
@@ -26,7 +30,7 @@ export function defineSchedule<TResult = unknown>(cronOrInput: string | Schedule
   if (!isPlainObject(options)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` options must be an object." })
   }
-  if (typeof cronOrInput !== "string" && !isPlainObject(cronOrInput)) {
+  if (!isString(cronOrInput) && !isPlainObject(cronOrInput)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
   }
   const input = isPlainObject(cronOrInput) ? cronOrInput : { ...options, cron: cronOrInput, handler: handler! }
