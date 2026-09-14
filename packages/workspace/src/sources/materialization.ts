@@ -151,7 +151,7 @@ function sourceSkillPromotion(path: string): { destination: string, root: typeof
   // Snapshot paths are source-relative when mounted at the workspace root, or
   // prefixed by the (single) mount segment. Keep discovery at the Source root
   // so nested examples and vendored projects cannot contribute instructions.
-  const match = path.match(/^(?:[^/]+\/)?(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
+  const match = path.match(/^(?:(?:[^/]+)\/)?(\.agents|\.claude|\.codex)\/skills\/(.+)$/)
   const root = match?.[1] as typeof sourceSkillRoots[number] | undefined
   if (!root) return
   const relative = match[2]
@@ -218,15 +218,15 @@ async function reconcilePromotedSourceSkills(
   }
   for (const [path, prior] of Object.entries(previous)) {
     if (!path.includes("/skills/")) continue
-    const promotion = sourceSkillPromotion(`source/${path}`)
-    if (!promotion) continue
+    const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
+    if (!destinationMatch) continue
     const existing = await store.readFile(path)
-    if (existing && await sha256(existing.content) !== prior.digest) retainedSkills.add(promotion.skill)
+    if (existing && await sha256(existing.content) !== prior.digest) retainedSkills.add(destinationMatch[1])
   }
 
   const next: Record<string, PromotedSourceSkillFile> = Object.fromEntries(Object.entries(previous).filter(([path]) => {
-    const promotion = sourceSkillPromotion(`source/${path}`)
-    return promotion && retainedSkills.has(promotion.skill)
+    const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
+    return destinationMatch && retainedSkills.has(destinationMatch[1])
   }))
   for (const [destination, candidate] of candidates) {
     const sourceFile = await store.readFile(candidate.sourcePath)
