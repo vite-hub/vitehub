@@ -62,6 +62,7 @@ const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "cl
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
 
+import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { markTrustedWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
@@ -71,6 +72,7 @@ import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocati
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
+import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
 import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
@@ -81,7 +83,7 @@ function event(type: string, threadId: string, payload: Record<string, unknown>,
 
 function runtime(threadId: string, events: unknown[], options: {
   afterEvents?: () => Promise<void>
-  onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined, input: { input: string; threadId: string }) => Promise<void>
+  onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
   onStartSession?: () => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
   resumeCursor?: string
@@ -103,8 +105,8 @@ function runtime(threadId: string, events: unknown[], options: {
     interruptTurn: vi.fn(async () => undefined),
     respondToRequest: vi.fn(async () => undefined),
     respondToUserInput: vi.fn(async () => undefined),
-    sendTurn: vi.fn(async (input: { input: string; threadId: string }) => {
-      await options.onSendTurn?.(mcp, input)
+    sendTurn: vi.fn(async () => {
+      await options.onSendTurn?.(mcp)
       return { resumeCursor: options.turnResumeCursor, threadId, turnId: "turn-1" }
     }),
     startSession: vi.fn(async (input: { mcp?: typeof mcp }) => {
@@ -152,7 +154,7 @@ async function collect(value: unknown) {
 }
 
 describe("Provider Agent Driver", () => {
-  it("forwards parent Workspace metadata to auxiliary resolvers without mounting it", async () => {
+  it.each([undefined, 30_000])("forwards parent Workspace metadata without mounting it (timeout: %s)", async (timeout) => {
     const threadId = "title-parent-metadata"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     const workspace = { fs: {}, startSession: vi.fn(), tools: {} }
@@ -162,7 +164,9 @@ describe("Provider Agent Driver", () => {
       return { TITLE_METADATA: "available" }
     })
     const adapter = createProviderAgentAdapter({ provider: "codex", env })
-    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId))
+    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId, {
+      input: { prompt: "hello", timeout, abortSignal: new AbortController().signal },
+    }))
     // SAFETY: The fixture provides the Workspace metadata used by the resolver.
     withProviderCallbackMetadata(auxiliary, { workspace, fs: workspace.fs } as never)
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -225,6 +229,88 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("keeps managed browser lifecycle values consistent while preserving caller search paths", async () => {
+    const browserThread = "thread-browser-environment"
+    runtime(browserThread, [event("turn.completed", browserThread, { state: "completed" }, { turnId: "turn-1" })])
+    const browserContext = context(browserThread)
+    provideBrowserRuntimeEnvironment(browserContext.context as never, {
+      AGENT_BROWSER_EXECUTABLE_PATH: "/managed/chrome",
+      AGENT_BROWSER_SOCKET_DIR: "/managed/sockets",
+      AGENT_BROWSER_SESSION: "managed-session",
+      PATH: "/managed/bin",
+      LD_LIBRARY_PATH: "/managed/lib",
+    })
+    await createProviderAgentAdapter({
+      env: { AGENT_BROWSER_SOCKET_DIR: "/caller/sockets", AGENT_BROWSER_SESSION: "caller-session", PATH: "/caller/bin", LD_LIBRARY_PATH: "/caller/lib" },
+      provider: "codex",
+    }).generate(browserContext as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toMatchObject({
+      AGENT_BROWSER_EXECUTABLE_PATH: "/managed/chrome",
+      AGENT_BROWSER_SOCKET_DIR: "/managed/sockets",
+      AGENT_BROWSER_SESSION: "managed-session",
+      PATH: `/managed/bin${process.platform === "win32" ? ";" : ":"}/caller/bin`,
+      LD_LIBRARY_PATH: `/managed/lib${process.platform === "win32" ? ";" : ":"}/caller/lib`,
+    })
+
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs).toContain('allow_login_shell=false')
+
+    const cleanThread = "thread-without-browser-environment"
+    runtime(cleanThread, [event("turn.completed", cleanThread, { state: "completed" }, { turnId: "turn-1" })])
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(cleanThread) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("AGENT_BROWSER_EXECUTABLE_PATH")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+  })
+
+  it.each([false, true])("keeps the primary browser environment out of auxiliary providers with launcher %s", async (customLaunch) => {
+    const threadId = "thread-browser-auxiliary"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId)
+    const environment = { PATH: "/managed/bin", AGENT_BROWSER_SESSION: "primary-session" }
+    provideBrowserRuntimeEnvironment(runContext.context as never, environment)
+    const launch = vi.fn(() => ({ command: "ssh", args: ["host"] }))
+
+    await createProviderAgentAdapter({
+      provider: "codex",
+      ...(customLaunch ? { launch } : {}),
+    }).generate(markAuxiliaryMessageChannelInstructionContext(runContext) as never)
+
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).not.toHaveProperty("AGENT_BROWSER_SESSION")
+    expect(createProviderRuntime.mock.lastCall?.[0].environment?.PATH).not.toContain("/managed/bin")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+    expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
+  })
+
+  it.each([false, true])("scopes external browser availability to one invocation with launcher %s", async (customLaunch) => {
+    const threadId = "thread-external-browser"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId)
+    provideBrowserRuntimeEnvironment(runContext.context as never, { VITEHUB_BROWSER_ACTIVE: "1" })
+    const launch = vi.fn(() => ({ command: "ssh", args: ["host"] }))
+    const adapter = createProviderAgentAdapter({
+      provider: "codex",
+      env: { VITEHUB_BROWSER_ACTIVE: "1" },
+      ...(customLaunch ? { launch } : {}),
+    })
+    await adapter.generate(runContext as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toHaveProperty("VITEHUB_BROWSER_ACTIVE", "1")
+    expect(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs || "").not.toContain("allow_login_shell")
+    expect(launch).toHaveBeenCalledTimes(customLaunch ? 1 : 0)
+
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    await adapter.generate(context(threadId) as never)
+    expect(createProviderRuntime.mock.lastCall?.[0].environment).toHaveProperty("VITEHUB_BROWSER_ACTIVE", "0")
+  })
+
+  it("rejects managed browser environment with a custom or remote launcher", async () => {
+    const threadId = "thread-browser-remote-launch"
+    const runContext = context(threadId)
+    provideBrowserRuntimeEnvironment(runContext.context as never, { PATH: "/managed/bin" })
+    await expect(createProviderAgentAdapter({
+      launch: { command: "ssh", args: ["host"] },
+      provider: "codex",
+    }).generate(runContext as never)).rejects.toThrow('browser({ runtime: "external" })')
+  })
+
   it.each([
     { provider: "codex", endpoint: undefined },
     { provider: "codex", endpoint: "   " },
@@ -264,7 +350,7 @@ describe("Provider Agent Driver", () => {
       expect(launchContext.environment).not.toHaveProperty("PATH")
       expect(launchContext.cwd).toContain("vitehub-provider-")
       expect(Object.isFrozen(launchContext.environment)).toBe(true)
-      expect(launchContext.requiredEnvironment).toEqual([])
+      expect(launchContext.requiredEnvironment).toEqual(["VITEHUB_BROWSER_ACTIVE"])
       expect(Object.isFrozen(launchContext.requiredEnvironment)).toBe(true)
       return {
         args: ["-e", 'require("node:fs").writeFileSync(process.env.LAUNCH_OUTPUT, JSON.stringify(process.argv.slice(1)))'],
@@ -306,7 +392,7 @@ describe("Provider Agent Driver", () => {
     await createProviderAgentAdapter({ launch, provider: "codex" }).generate(invocation as never)
 
     expect(launch).toHaveBeenCalledWith(expect.objectContaining({
-      requiredEnvironment: ["T3_MCP_BEARER_TOKEN"],
+      requiredEnvironment: ["VITEHUB_BROWSER_ACTIVE", "T3_MCP_BEARER_TOKEN"],
     }))
   })
 
@@ -2014,6 +2100,8 @@ cli_auth_credentials_store = "keyring"
     const threadId = "thread-events"
     const provider = runtime(threadId, [
       event("session.started", threadId, { provider: "codex" }),
+      event("content.delta", threadId, { delta: "old answer", streamKind: "assistant_text" }, { turnId: "old-turn" }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 90, outputTokens: 10 } }, { turnId: "old-turn" }),
       event("content.delta", threadId, { delta: "thinking", streamKind: "reasoning_text" }, { turnId: "turn-1" }),
       event("item.started", threadId, { data: { command: "pwd" }, itemType: "command_execution", title: "shell" }, { itemId: "tool-1", turnId: "turn-1" }),
       event("item.completed", threadId, { data: { stdout: "/tmp" }, itemType: "command_execution", status: "completed", title: "shell" }, { itemId: "tool-1", turnId: "turn-1" }),
@@ -2061,9 +2149,11 @@ cli_auth_credentials_store = "keyring"
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
 
-    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    const events = await collect(await createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
     expect(events.find(item => item.type === "usage")).toMatchObject({
       usageRecord: {
+        model: "gpt-6-astra",
+        provider: "codex",
         raw: usage,
         usage: {
           details: { cachedInputTokens: 0, reasoningOutputTokens: 3 },
@@ -2089,7 +2179,10 @@ cli_auth_credentials_store = "keyring"
 
     const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
     expect(events.find(item => item.type === "usage")).toMatchObject({
+      type: "usage",
       usageRecord: {
+        provider: "codex",
+        calls: [{ provider: "codex", raw: usage }],
         raw: usage,
         usage: {
           details: {},
@@ -2118,19 +2211,193 @@ cli_auth_credentials_store = "keyring"
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
 
-    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+    const events = await collect(await createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" }).stream!(context(threadId) as never)) as Array<Record<string, unknown>>
     expect(events.find(item => item.type === "usage")).toEqual({
       type: "usage",
       usageRecord: {
+        calls: [{
+          model: "gpt-6-astra",
+          provider: "codex",
+          raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
+          usage: {
+            details: { cachedInputTokens: 2, reasoningOutputTokens: 3 },
+            inputTokenDetails: { cacheReadTokens: 2 },
+            inputTokens: 7,
+            outputTokens: 5,
+            totalTokens: 12,
+          },
+        }],
+        model: "gpt-6-astra",
+        provider: "codex",
         raw: { ...partition, cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1, totalProcessedTokens: 100, usedTokens: 12 },
         usage: {
           details: { cachedInputTokens: 2, reasoningOutputTokens: 3, toolUses: 1 },
+          inputTokenDetails: { cacheReadTokens: 2 },
           inputTokens: 7,
           outputTokens: 5,
-          totalTokens: 100,
+          totalTokens: 12,
         },
       },
     })
+  })
+
+  it("does not report a resumed thread cumulative total as invocation usage", async () => {
+    const threadId = "thread-resumed-cumulative-usage"
+    const adapter = createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" })
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 12 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { turnResumeCursor: "cursor-1" })
+    await collect(await adapter.stream!(context(threadId) as never))
+
+    const raw = { totalProcessedTokens: 100 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: raw }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const events = await collect(await adapter.stream!(context(threadId) as never)) as Array<Record<string, unknown>>
+
+    expect(events.find(item => item.type === "usage")).toMatchObject({
+      usageRecord: {
+        model: "gpt-6-astra",
+        provider: "codex",
+        raw,
+        usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: undefined },
+      },
+    })
+  })
+
+  it("uses the final current-turn usage update for an invocation", async () => {
+    const threadId = "thread-final-usage-update"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ model: "gpt-6-astra", provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
+    expect(result.usageRecord).toMatchObject({
+      calls: [
+        { usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 } },
+        { usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 } },
+      ],
+      model: "gpt-6-astra",
+      provider: "codex",
+      raw: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 },
+      usage: { inputTokens: 9, outputTokens: 3, totalTokens: 12 },
+    })
+  })
+
+  it("ignores duplicate usage updates and counts a reset from its latest response", async () => {
+    const threadId = "thread-usage-reset"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 2, totalProcessedTokens: 5 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
+    expect(result.usageRecord).toMatchObject({
+      raw: { inputTokens: 3, outputTokens: 2, totalProcessedTokens: 5 },
+      usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
+    })
+  })
+
+  it.each([
+    { inputTokens: 4, outputTokens: 1 },
+    { inputTokens: 5, outputTokens: 2 },
+    { inputTokens: 4, outputTokens: 1, cachedInputTokens: 2 },
+  ])("retains identity-free snapshots without claiming aggregate usage: %j", async (latest) => {
+    const threadId = "thread-duplicate-no-total-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1 } }, { eventId: "notification-1" }),
+      event("thread.token-usage.updated", threadId, { usage: latest }, { eventId: "notification-2" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
+    expect(result.usageRecord).toMatchObject({
+      usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: undefined },
+      raw: latest,
+      calls: [{ provider: "codex", raw: latest }],
+    })
+    if (!isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !isRuntimeRecord(result.usageRecord.calls[0])) throw new Error("Expected provider usage calls")
+    expect(result.usageRecord.calls).toHaveLength(1)
+    expect(result.usageRecord.calls[0].usage).toBeUndefined()
+  })
+
+  it("keeps accumulated usage unknown when a distinct response lacks its partition", async () => {
+    const threadId = "thread-partial-usage-update"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { cachedInputTokens: 1, inputTokens: 4, outputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result)) throw new Error("Expected provider result")
+    expect(result.usageRecord).toMatchObject({
+      calls: [
+        { usage: { inputTokens: 4, outputTokens: 1, totalTokens: 5 } },
+        { raw: { totalProcessedTokens: 47 } },
+      ],
+      raw: { totalProcessedTokens: 47 },
+      usage: { inputTokens: undefined, outputTokens: undefined, totalTokens: undefined },
+    })
+  })
+
+  it("keeps optional token partitions unknown when any counted response omits them", async () => {
+    const threadId = "thread-optional-usage-partitions"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { cachedInputTokens: 1, inputTokens: 4, outputTokens: 1, reasoningOutputTokens: 1, totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage")
+    expect(result.usageRecord.usage).toMatchObject({ inputTokens: 9, outputTokens: 3, totalTokens: 12 })
+    expect(result.usageRecord.usage).not.toHaveProperty("details.cachedInputTokens")
+    expect(result.usageRecord.usage).not.toHaveProperty("details.reasoningOutputTokens")
+    expect(result.usageRecord.usage).not.toHaveProperty("inputTokenDetails")
+  })
+
+  it("keeps reasoning summaries separate from following commentary", async () => {
+    const threadId = "thread-commentary-boundary"
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "**Reading related facts**", streamKind: "reasoning_summary_text" }, { itemId: "reasoning-1", turnId: "turn-1" }),
+      event("item.started", threadId, { data: { item: { phase: "commentary" } }, itemType: "assistant_message" }, { itemId: "message-1", turnId: "turn-1" }),
+      event("content.delta", threadId, { delta: "I’m also applying the evidence skill.", streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
+    expect(events.filter(event => event.type === "text-delta")).toEqual([
+      { id: "reasoning_summary_text:reasoning-1:0", phase: "commentary", text: "**Reading related facts**", type: "text-delta" },
+      { id: "assistant_text:message-1:0", messageId: "message-1", phase: "commentary", text: "I’m also applying the evidence skill.", type: "text-delta" },
+    ])
+  })
+
+  it("preserves a shared message identity across final content segments", async () => {
+    const threadId = "thread-final-segments"
+    runtime(threadId, [
+      event("content.delta", threadId, { contentIndex: 0, delta: "First. ", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("content.delta", threadId, { contentIndex: 1, delta: "Second.", streamKind: "assistant_text" }, { itemId: "answer", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)) as StreamEvent[]
+    expect(events.filter(value => value.type === "text-delta")).toEqual([
+      { id: "assistant_text:answer:0", messageId: "answer", phase: "final", text: "First. ", type: "text-delta" },
+      { id: "assistant_text:answer:1", messageId: "answer", phase: "final", text: "Second.", type: "text-delta" },
+    ])
+    let finalText: { identity: string | undefined, text: string } = { identity: undefined, text: "" }
+    for (const value of events) {
+      if (value.type === "text-delta" && value.phase === "final") finalText = appendLatestFinalText(finalText.text, finalText.identity, value)
+    }
+    expect(finalText.text).toBe("First. Second.")
   })
 
   it("keeps assistant item phases separate and forgets completed items", async () => {
@@ -2150,18 +2417,18 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     const events = await collect(await adapter.stream!(context(threadId) as never)) as StreamEvent[]
     expect(events.filter(value => value.type === "text-delta")).toEqual([
-      { phase: "commentary", text: "Checking.", type: "text-delta" },
-      { phase: "final", text: "Found it.", type: "text-delta" },
-      { phase: "commentary", text: "One more check.", type: "text-delta" },
-      { phase: "final", text: "Reused item.", type: "text-delta" },
-      { phase: "final", text: "No item.", type: "text-delta" },
+      { id: "assistant_text:comment:0", messageId: "comment", phase: "commentary", text: "Checking.", type: "text-delta" },
+      { id: "assistant_text:answer:0", messageId: "answer", phase: "final", text: "Found it.", type: "text-delta" },
+      { id: "assistant_text:comment:0", messageId: "comment", phase: "commentary", text: "One more check.", type: "text-delta" },
+      { id: "assistant_text:comment:0", messageId: "comment", phase: "final", text: "Reused item.", type: "text-delta" },
+      { id: "assistant_text:provider:0", messageId: "provider", phase: "final", text: "No item.", type: "text-delta" },
     ])
   })
 
   it.each([undefined, 0, 120])("omits absent provider latency and preserves duration %s", async (durationMs) => {
     const threadId = "thread-optional-latency"
     runtime(threadId, [
-      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 2, ...(durationMs === undefined ? {} : { durationMs }) } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 2, ...(durationMs === undefined ? {} : { durationMs }) } }, { itemId: "response-1" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
     const adapter = createProviderAgentAdapter({ provider: "codex" })
@@ -2457,6 +2724,130 @@ cli_auth_credentials_store = "keyring"
       }],
     })
     expect(getAgentTelemetryConfiguration(runContext.context)?.value.fingerprint).not.toBe(initialFingerprint)
+  })
+
+  it.each([[false, true], [true, true], [false, false], [true, false]])("completes a raw-only Codex response without losing earlier unknown partitions: %s, cumulative: %s", async (earlierUnknown, cumulative) => {
+    const threadId = "thread-raw-enriched-usage"
+    const partition = { inputTokens: 5, outputTokens: 2, cachedInputTokens: 1, reasoningOutputTokens: 1, ...(cumulative ? { totalProcessedTokens: 47 } : {}) }
+    runtime(threadId, [
+      ...(earlierUnknown ? [event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 40 } })] : []),
+      event("thread.token-usage.updated", threadId, { usage: cumulative ? { totalProcessedTokens: 47 } : {} }, { itemId: "response-1" }),
+      event("thread.token-usage.updated", threadId, { usage: partition }, { itemId: "response-1" }),
+      event("thread.token-usage.updated", threadId, { usage: partition }, { itemId: "response-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord?.calls).toHaveLength(earlierUnknown ? 2 : 1)
+    expect(result.usageRecord?.calls?.at(-1)).toMatchObject({
+      raw: partition,
+      usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7, details: { cachedInputTokens: 1, reasoningOutputTokens: 1 } },
+    })
+    if (earlierUnknown) {
+      expect(result.usageRecord?.calls?.[0]?.usage).toBeUndefined()
+      expect(result.usageRecord?.usage?.totalTokens).toBeUndefined()
+    }
+    else {
+      expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 2, totalTokens: 7 })
+    }
+  })
+
+  it.each([{}, { totalProcessedTokens: 47 }])("completes an itemless raw snapshot: %j", async (rawUsage) => {
+    const threadId = "thread-itemless-raw-completion"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: rawUsage }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord?.calls).toHaveLength(1)
+    expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 2, totalTokens: 7 })
+  })
+
+  it("keeps a raw itemless call unknown when the cumulative total changes", async () => {
+    const threadId = "thread-distinct-raw-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 40 } }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord.calls).toHaveLength(2)
+    expect(result.usageRecord.calls[0]?.usage).toBeUndefined()
+    expect(result.usageRecord.usage.totalTokens).toBeUndefined()
+  })
+
+  it.each([undefined, "response-2"])("keeps unmatched raw-only usage unknown: %s", async (laterIdentity) => {
+    const threadId = "thread-unmatched-usage"
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { totalProcessedTokens: 47 } }, { itemId: "response-1" }),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 } }, laterIdentity ? { itemId: laterIdentity } : {}),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord?.calls?.[0]?.usage).toBeUndefined()
+    expect(result.usageRecord?.usage?.inputTokens).toBeUndefined()
+    expect(result.usageRecord?.usage?.totalTokens).toBeUndefined()
+  })
+
+  it.each(["itemId"] as const)("replaces progressive Codex snapshots for one %s", async (identityKey) => {
+    const threadId = "thread-progressive-usage"
+    const identity = { [identityKey]: "response-1" }
+    const corrected = { inputTokens: 5, outputTokens: 2, totalProcessedTokens: 47 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 1, totalProcessedTokens: 45 } }, identity),
+      event("thread.token-usage.updated", threadId, { usage: corrected }, identity),
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 3, outputTokens: 1, totalProcessedTokens: 51 } }, { [identityKey]: "response-2" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord?.calls).toHaveLength(2)
+    expect(result.usageRecord?.calls?.[0]).toMatchObject({ raw: corrected, usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 } })
+    expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 8, outputTokens: 3, totalTokens: 11 })
+  })
+
+  it.each([undefined, "response-1"])("replaces corrected same-total Codex partitions: %s", async (itemId) => {
+    const threadId = "thread-corrected-partition"
+    const identity = itemId ? { itemId } : {}
+    const corrected = { inputTokens: 5, outputTokens: 1, totalProcessedTokens: 46 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: { inputTokens: 4, outputTokens: 2, totalProcessedTokens: 46 } }, identity),
+      event("thread.token-usage.updated", threadId, { usage: corrected }, identity),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord?.calls).toHaveLength(1)
+    expect(result.usageRecord?.calls?.[0]).toMatchObject({ raw: corrected, usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 } })
+    expect(result.usageRecord?.usage).toMatchObject({ inputTokens: 5, outputTokens: 1, totalTokens: 6 })
+  })
+
+  it("merges enriched and corrected same-total Codex usage snapshots", async () => {
+    const threadId = "thread-enriched-usage"
+    const partition = { inputTokens: 4, outputTokens: 2, totalProcessedTokens: 40 }
+    runtime(threadId, [
+      event("thread.token-usage.updated", threadId, { usage: partition }),
+      event("thread.token-usage.updated", threadId, { usage: { ...partition, cachedInputTokens: 1, reasoningOutputTokens: 1 } }),
+      event("thread.token-usage.updated", threadId, { usage: { ...partition, cachedInputTokens: 3, reasoningOutputTokens: 2 } }),
+      event("thread.token-usage.updated", threadId, { usage: partition }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This fixture constructs the provider invocation contract.
+    const result = await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId) as never)
+    if (!isRuntimeRecord(result) || !isRuntimeRecord(result.usageRecord) || !Array.isArray(result.usageRecord.calls) || !result.usageRecord.calls.every(isRuntimeRecord) || !isRuntimeRecord(result.usageRecord.usage)) throw new Error("Expected provider usage record")
+    expect(result.usageRecord).toMatchObject({
+      calls: [{ usage: { inputTokenDetails: { cacheReadTokens: 3 }, details: { cachedInputTokens: 3, reasoningOutputTokens: 2 } } }],
+      usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6, inputTokenDetails: { cacheReadTokens: 3 }, details: { cachedInputTokens: 3, reasoningOutputTokens: 2 } },
+    })
+    expect(result.usageRecord?.calls).toHaveLength(1)
   })
 
   it("does not replace primary telemetry configuration during an auxiliary provider run", async () => {
@@ -2909,7 +3300,7 @@ cli_auth_credentials_store = "keyring"
     expect(resumed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue", threadId }))
   })
 
-  it("routes live steering, approval, and provider input responses", async () => {
+  it("routes live approval and provider input responses and text-only steering", async () => {
     const threadId = "thread-live-input"
     let release!: () => void
     const response = new Promise<void>((resolve) => {
@@ -2944,6 +3335,19 @@ cli_auth_credentials_store = "keyring"
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
     await ready
     await expect(sendAgentInvocationInput(invocationId, { prompt: "change course" }, { mode: "steer" })).resolves.toBe("accepted")
+    const message = { id: "steering", role: "user" as const, parts: [{ type: "text" as const, text: "new direction" }] }
+    for (const input of [{ message }, { messages: [message] }, { prompt: [message] }]) {
+      await expect(sendAgentInvocationInput(invocationId, input, { mode: "steer" })).resolves.toBe("accepted")
+      expect(provider.sendTurn).toHaveBeenLastCalledWith({ threadId, input: "new direction" })
+    }
+    await expect(sendAgentInvocationInput(invocationId, { messages: [message, message] }, { mode: "steer" })).resolves.toBe("accepted")
+    expect(provider.sendTurn).toHaveBeenLastCalledWith({ threadId, input: "new direction\n\nnew direction" })
+    const calls = provider.sendTurn.mock.calls.length
+    await expect(sendAgentInvocationInput(invocationId, { messages: [{ ...message, parts: [...message.parts, { type: "data", data: "private" }] }] }, { mode: "steer" })).resolves.toBe("unsupported")
+    expect(provider.sendTurn).toHaveBeenCalledTimes(calls)
+    provider.sendTurn.mockResolvedValueOnce({ resumeCursor: undefined, threadId, turnId: "successor" })
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "rejected successor" }, { mode: "steer" })).resolves.toBe("unsupported")
+    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "successor")
     await expect(sendAgentInvocationInput(invocationId, {
       messages: [{
         id: "response-1",
@@ -2956,104 +3360,76 @@ cli_auth_credentials_store = "keyring"
     }, { mode: "respond" })).resolves.toBe("accepted")
     await expect(result).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ data: { questions: [{ id: "scope" }], requestId: "input-1", status: "requested" }, type: "data-agent-input" }),
+      expect.objectContaining({ data: { kind: "input.message", value: { message: "change course", mode: "steer" } }, type: "data-agent-event" }),
+      expect.objectContaining({ data: { kind: "input.steered", value: { mode: "steer" } }, type: "data-agent-event" }),
     ]))
+    expect(JSON.stringify(await result)).not.toContain("rejected successor")
     expect(provider.respondToRequest).toHaveBeenCalledWith(threadId, "approval-1", "accept")
     expect(provider.respondToUserInput).toHaveBeenCalledWith(threadId, "input-1", { scope: "workspace" })
   })
 
-  it("steers a running provider turn and emits input plus method evidence", async () => {
-    const threadId = "thread-live-steer"
-    let releaseTurn!: () => void
-    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
-    const provider = runtime(threadId, [
-      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
-    ], {
-      beforeEvent: () => turnReleased,
+  it("advertises steering only after the initial provider turn exists", async () => {
+    const threadId = "thread-initial-steering-admission"
+    let release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    let finish!: () => void
+    const finishing = new Promise<void>(resolve => { finish = resolve })
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      onSendTurn: () => pending,
+      beforeEvent: () => finishing,
     })
     const invocationId = `run-${threadId}`
-    const liveContext = context(threadId)
-    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
-    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
-
+    const runContext = context(threadId)
+    runContext.runtime = withAgentInvocationResponseOwner(runContext.runtime, invocationId)
+    const result = collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(runContext as never))
+    await vi.waitFor(() => expect(provider.sendTurn).toHaveBeenCalledOnce())
+    expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: false })
+    await expect(sendAgentInvocationInput(invocationId, { prompt: "too soon" }, { mode: "steer" })).resolves.toBe("unsupported")
+    expect(provider.sendTurn).toHaveBeenCalledOnce()
+    release()
     await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
-    await expect(sendAgentInvocationInput(invocationId, { prompt: "private follow-up" }, { mode: "steer" })).resolves.toBe("accepted")
-    releaseTurn()
-
-    await expect(result).resolves.toEqual(expect.arrayContaining([{
-      data: {
-        kind: "input.message",
-        value: {
-          message: "private follow-up",
-          mode: "steer",
-        },
-      },
-      type: "data-agent-event",
-    }, {
-      data: { kind: "input.steered", value: { mode: "steer" } },
-      type: "data-agent-event",
-    }]))
-    expect(provider.sendTurn).toHaveBeenNthCalledWith(2, { input: "private follow-up", threadId })
+    finish()
+    await result
   })
 
-  it("falls back before submitting live steering with attachments", async () => {
-    const threadId = "thread-steer-attachment"
-    let releaseTurn!: () => void
-    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
-    const provider = runtime(threadId, [
-      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
-    ], { beforeEvent: () => turnReleased })
+  it.each([false, true])("drains pending steering after completion (timeout: %s)", async (timesOut) => {
+    const threadId = "thread-pending-steering-drain"
+    let finish!: () => void
+    const finishing = new Promise<void>(resolve => { finish = resolve })
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { beforeEvent: () => finishing })
     const invocationId = `run-${threadId}`
-    const liveContext = context(threadId)
-    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
-    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
-    const fetchData = vi.fn(async () => new Uint8Array([1, 2, 3]))
-
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)?.steer).toBe(true))
-    try {
-      await expect(sendAgentInvocationInput(invocationId, {
-        messages: [{ id: "message-steer-attachment", role: "user", parts: [
-          { type: "text", text: "inspect this image" },
-          { type: "image", mediaType: "image/png", url: "https://assets.example/image.png", fetchData },
-        ] }],
-      }, { mode: "steer" })).resolves.toBe("unsupported")
-      expect(provider.sendTurn).toHaveBeenCalledTimes(1)
-      expect(fetchData).not.toHaveBeenCalled()
-    } finally {
-      releaseTurn()
-      await result
+    const runContext = context(threadId)
+    runContext.runtime = withAgentInvocationResponseOwner(runContext.runtime, invocationId)
+    const result = collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(runContext as never))
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
+    let release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    provider.sendTurn.mockImplementationOnce(async () => {
+      await pending
+      return { resumeCursor: undefined, threadId, turnId: "turn-1" }
+    })
+    const steering = sendAgentInvocationInput(invocationId, { prompt: "pending direction" }, { mode: "steer" })
+    finish()
+    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: false }))
+    expect(provider.close).not.toHaveBeenCalled()
+    if (timesOut) {
+      try {
+        await expect(result).rejects.toThrow("[vitehub] Provider Agent steering did not settle before cleanup timed out.")
+      }
+      finally {
+        release()
+      }
+      await expect(steering).resolves.toBe("unavailable")
     }
-  })
-
-  it.each([false, true])("does not advertise steering when the provider opens another turn (cancellation fails: %s)", async (cancellationFails) => {
-    const threadId = "thread-false-steer"
-    let releaseTurn!: () => void
-    const turnReleased = new Promise<void>(resolve => { releaseTurn = resolve })
-    const provider = runtime(threadId, [
-      event("content.delta", threadId, { delta: "rejected output", streamKind: "assistant_text" }, { turnId: "turn-2" }),
-      event("item.started", threadId, { data: { command: "rejected command" }, itemType: "command_execution", title: "shell" }, { itemId: "rejected-tool", turnId: "turn-2" }),
-      event("turn.aborted", threadId, { reason: "rejected steering" }, { turnId: "turn-2" }),
-      event("content.delta", threadId, { delta: "original output", streamKind: "assistant_text" }, { turnId: "turn-1" }),
-      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
-    ], {
-      beforeEvent: () => turnReleased,
-    })
-    provider.sendTurn.mockImplementationOnce(async () => ({ resumeCursor: undefined, threadId, turnId: "turn-1" }))
-    provider.sendTurn.mockImplementationOnce(async () => ({ resumeCursor: undefined, threadId, turnId: "turn-2" }))
-    if (cancellationFails) provider.interruptTurn.mockRejectedValueOnce(new Error("cancellation failed"))
-    const invocationId = `run-${threadId}`
-    const liveContext = context(threadId)
-    liveContext.runtime = withAgentInvocationResponseOwner(liveContext.runtime, invocationId)
-    const result = collect(createProviderAgentAdapter({ provider: "codex" }).stream!(liveContext as never))
-
-    await vi.waitFor(() => expect(agentInvocationInputSupport(invocationId)).toEqual({ respond: true, steer: true }))
-    await expect(sendAgentInvocationInput(invocationId, { prompt: "follow-up" }, { mode: "steer" })).resolves.toBe(cancellationFails ? "invalid-state" : "unsupported")
-    expect(provider.interruptTurn).toHaveBeenCalledWith(threadId, "turn-2")
-    releaseTurn()
-    const output = await result
-    expect(output).toContainEqual({ type: "text-delta", text: "original output", phase: "final" })
-    expect(JSON.stringify(output)).not.toContain("rejected")
-    expect(JSON.stringify(output)).not.toContain("input.steered")
-  })
+    else {
+      release()
+      await expect(steering).resolves.toBe("accepted")
+      const events = await result as StreamEvent[]
+      const messageIndex = events.findIndex(event => event.type === "data-agent-event" && isRuntimeRecord(event.data) && event.data.kind === "input.message")
+      expect(messageIndex).toBeGreaterThanOrEqual(0)
+      expect(events.findIndex(event => event.type === "finish")).toBeGreaterThan(messageIndex)
+    }
+  }, 20_000)
 
   it("preserves the primary input handler during auxiliary provider runs", async () => {
     const primaryThreadId = "thread-primary-input"
@@ -3326,14 +3702,6 @@ cli_auth_credentials_store = "keyring"
     let validationStarted!: () => void
     const validationReady = new Promise<void>(resolve => validationStarted = resolve)
     const validationRelease = new Promise<void>(resolve => finishValidation = resolve)
-    let reportServerCancellation!: () => void
-    const serverCancellation = new Promise<void>(resolve => reportServerCancellation = resolve)
-    const combineSignals = AbortSignal.any.bind(AbortSignal)
-    vi.spyOn(AbortSignal, "any").mockImplementation((signals) => {
-      const signal = combineSignals(signals)
-      signal.addEventListener("abort", reportServerCancellation, { once: true })
-      return signal
-    })
     const controller = new AbortController()
     const execute = vi.fn(async () => undefined)
     runtime("thread-tool-validation-cancel", [event("turn.completed", "thread-tool-validation-cancel", { state: "completed" }, { turnId: "turn-1" })], {
@@ -3347,9 +3715,9 @@ cli_auth_credentials_store = "keyring"
         const toolCallResult = toolCall.then(value => ({ value }), error => ({ error }))
         await validationReady
         controller.abort()
-        await expect(toolCallResult).resolves.toMatchObject({ error: expect.objectContaining({ message: expect.stringMatching(/AbortError/) }) })
-        await serverCancellation
+        await new Promise(resolve => setTimeout(resolve, 20))
         finishValidation()
+        await expect(toolCallResult).resolves.toMatchObject({ error: expect.objectContaining({ message: expect.stringMatching(/AbortError/) }) })
         await client.close()
       },
     })
@@ -3537,7 +3905,8 @@ cli_auth_credentials_store = "keyring"
       cwd: new URL("..", import.meta.url),
       encoding: "utf8",
       env: { ...process.env, HEARTBEAT_FILE: heartbeatFile },
-      timeout: 3_000,
+      // Includes a cold TypeScript module load before the heartbeat starts.
+      timeout: 15_000,
     })
 
     await rm(heartbeatFile, { force: true })
@@ -4072,6 +4441,115 @@ cli_auth_credentials_store = "keyring"
     expect(session.diff).toHaveBeenCalledOnce()
     expect(session.commit).not.toHaveBeenCalled()
     expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("makes canonical and legacy Skill directories mutually readable without overwriting collisions", async () => {
+    const { gmail } = await import("../src/capabilities/gmail.ts")
+    const capability = gmail()
+    if (typeof capability.workspace !== "function") throw new Error("expected workspace resolver")
+    const contribution = await capability.workspace({} as never)
+    if (!contribution) throw new Error("expected Gmail workspace contribution")
+    const gmailSource = contribution.sources?.["skill.gmail"]
+    if (!gmailSource || typeof gmailSource !== "object" || !("content" in gmailSource) || typeof gmailSource.content !== "string") throw new Error("expected Gmail Skill content")
+    const gmailPath = capability.metadata!.skillPath as string
+    const threadId = "thread-workspace-provider-skill-compatibility"
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        for (const provider of [".agents", ".codex", ".claude"]) {
+          await expect(readFile(`${root}/${provider}/skills/gmail/SKILL.md`, "utf8")).resolves.toBe(gmailSource.content)
+        }
+        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        await expect(readFile(`${root}/.claude/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        await expect(readFile(`${root}/.agents/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
+        await expect(readFile(`${root}/.codex/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
+        await expect(readFile(`${root}/.codex/skills/collision/SKILL.md`, "utf8")).resolves.toBe("# Codex collision\n")
+        await expect(readFile(`${root}/.agents/skills/collision/SKILL.md`, "utf8")).resolves.toBe("# Canonical collision\n")
+        await rm(`${root}/.codex/skills/canonical`)
+        await mkdir(`${root}/.codex/skills/canonical`)
+        await writeFile(`${root}/.codex/skills/canonical/SKILL.md`, "# Provider replacement\n")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => {
+        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Provider replacement\n")
+        await expect(access(`${root}/.agents/skills/legacy`)).rejects.toMatchObject({ code: "ENOENT" })
+        await expect(readFile(`${root}/.agents/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        await expect(readFile(`${root}/.claude/skills/legacy/SKILL.md`, "utf8")).resolves.toBe("# Legacy\n")
+        return { entries: [] }
+      }),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(join(root, gmailPath, ".."), { recursive: true })
+        await writeFile(join(root, gmailPath), gmailSource.content)
+        await mkdir(`${root}/.agents/skills/canonical`, { recursive: true })
+        await mkdir(`${root}/.agents/skills/collision`, { recursive: true })
+        await mkdir(`${root}/.claude/skills/legacy`, { recursive: true })
+        await mkdir(`${root}/.codex/skills/collision`, { recursive: true })
+        await writeFile(`${root}/.agents/skills/canonical/SKILL.md`, "# Canonical\n")
+        await writeFile(`${root}/.agents/skills/collision/SKILL.md`, "# Canonical collision\n")
+        await writeFile(`${root}/.claude/skills/legacy/SKILL.md`, "# Legacy\n")
+        await writeFile(`${root}/.codex/skills/collision/SKILL.md`, "# Codex collision\n")
+        return session
+      }),
+      tools: {},
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceAutoCommit: true,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
+  it("does not discover Skills through a linked provider directory", async () => {
+    const threadId = "thread-workspace-linked-provider-skills"
+    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skills-"))
+    await mkdir(`${external}/skills/escaped`, { recursive: true })
+    await writeFile(`${external}/skills/escaped/SKILL.md`, "# External\n")
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        await expect(access(`${root}/.agents/skills/escaped`)).rejects.toMatchObject({ code: "ENOENT" })
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await symlink(external, `${root}/.claude`, "dir")
+        return session
+      }),
+      tools: {},
+    }
+
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "claude-code" }).generate(context(threadId, { workspace }) as never)
+      await expect(readFile(`${external}/skills/escaped/SKILL.md`, "utf8")).resolves.toBe("# External\n")
+    }
+    finally {
+      await rm(external, { force: true, recursive: true })
+    }
   })
 
   it("rejects colocated Skill materialization through Workspace symlinks", async () => {

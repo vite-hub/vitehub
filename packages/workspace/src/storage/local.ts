@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream, createWriteStream } from "node:fs"
 import { Readable, Transform } from "node:stream"
+import { relative } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
@@ -573,7 +574,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeFile(path: string, file: WorkspaceFile): Promise<void> {
     file = { ...file, metadata: assertFileMetadata(path, file.metadata) }
-    const { dirname } = await import("node:path")
+    const { dirname, relative } = await import("node:path")
     const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
     const tempRoot = `${this.root}/.vitehub/tmp`
@@ -581,6 +582,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const backup = `${tempRoot}/${randomUUID()}.bak`
     await reclaimCommittedBackups(tempRoot)
     const normalized = normalizeWorkspacePath(path)
+    await this.#assertWritableAncestors(normalized)
     const bytes = contentToBytes(file.content)
     const digest = await sha256(bytes)
     const existing = await this.#stat(normalized)
@@ -621,6 +623,23 @@ class LocalWorkspaceStore implements WorkspaceStore {
     catch (error) {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
+    }
+  }
+
+  async #assertWritableAncestors(path: string): Promise<void> {
+    const { lstat } = await import("node:fs/promises")
+    const { dirname } = await import("node:path")
+    let current = dirname(resolveInside(this.root, path))
+    const root = await import("node:path").then(({ resolve }) => resolve(this.root))
+    while (current !== root) {
+      const relation = relative(root, current)
+      if (relation === "" || relation === ".." || relation.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || (process.platform === "win32" && /^[A-Za-z]:/.test(relation))) break
+      const info = await lstat(current).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (info?.isSymbolicLink()) throw workspaceError(`[vitehub] Refusing to write through symbolic-link ancestor: ${path}.`)
+      current = dirname(current)
     }
   }
 

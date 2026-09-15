@@ -642,7 +642,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     options: GitHubHostCheckoutOptions = {},
   ): Promise<T> {
     if (!/^[a-f0-9]{40}$/i.test(pullRequest.headSha)) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headSha must be a full Git commit SHA." })
-    const requestedHead = pullRequest.headSha.toLowerCase()
     for (const repository of [pullRequest.repository, pullRequest.headRepository]) {
       if (repository !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(repository)) {
         throw agentDiagnostics.AGENT_R0766({ message: "Expected a GitHub repository in owner/name form." })
@@ -665,34 +664,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         await exec("git", ["check-ref-format", `refs/heads/${pullRequest.headRef}`], commandOptions)
         if (pullRequest.headRef.startsWith("-")) throw agentDiagnostics.AGENT_R0766({ message: "A pull request headRef cannot start with a dash." })
       }
-      // Initialize an empty checkout and fetch only the requested PR history.
-      // Avoid cloning unrelated branches and tags from the base repository.
-      await exec("git", ["init", "--template=/dev/null", "--object-format=sha1", "--", checkout], commandOptions)
-      // Host-global hooks must not run against fork content with host credentials.
-      await exec("git", ["-C", checkout, "config", "core.hooksPath", "/dev/null"], commandOptions)
-      await exec("git", ["-C", checkout, "remote", "add", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
-      if (pullRequest.headRef && pullRequest.headRepository) {
+      await exec("git", ["clone", "--filter=blob:none", "--no-checkout", "--", `https://github.com/${pullRequest.repository}.git`, checkout], commandOptions)
+      if (pullRequest.headRef) {
         // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
-        const sourceRepository = pullRequest.headRepository
+        const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
         const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
         await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
         await exec("git", ["-C", checkout, "checkout", "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
       }
       else {
-        // When source metadata is unavailable, fetch GitHub's synthetic PR ref first.
-        // It resolves heads from forks that are not reachable in the base repository.
-        let syntheticHeadMatches = false
-        try {
-          await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", `refs/pull/${pullRequest.number}/head`], commandOptions)
-          syntheticHeadMatches = (await exec("git", ["-C", checkout, "rev-parse", "FETCH_HEAD"], commandOptions)).stdout.trim() === requestedHead
-        }
-        catch {
-          // Older GitHub Enterprise installations may not expose PR refs.
-        }
-        if (!syntheticHeadMatches) {
-          // Retry the exact SHA when the synthetic PR ref is stale or unavailable.
-          await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", requestedHead], commandOptions)
-        }
+        await exec("git", ["-C", checkout, "fetch", "--no-tags", "--", "origin", pullRequest.headSha], commandOptions)
         await exec("git", ["-C", checkout, "checkout", "--detach", "FETCH_HEAD"], commandOptions)
       }
       await exec("git", ["-C", checkout, "remote", "set-url", "origin", `https://github.com/${pullRequest.repository}.git`], commandOptions)
@@ -705,10 +686,10 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         await exec("git", ["-C", checkout, "config", "remote.origin.push", `HEAD:refs/heads/${pullRequest.headRef}`], commandOptions)
       }
       const fetched = (await exec("git", ["-C", checkout, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
-      if (fetched !== requestedHead) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` })
+      if (fetched !== pullRequest.headSha) throw agentDiagnostics.AGENT_R0767({ message: `Pull request head changed from ${pullRequest.headSha} to ${fetched}.` })
       operation.signal.throwIfAborted()
       const prepareWorkspace = async (target: string) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal })
-      let pushHead = requestedHead
+      let pushHead = pullRequest.headSha
       const push = async (target: string = checkout) => {
         const expectedHead = pushHead
         if (!pullRequest.headRepository || !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "Pull request source repository and branch are required to push." })

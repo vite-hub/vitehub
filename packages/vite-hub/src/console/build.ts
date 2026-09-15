@@ -150,6 +150,9 @@ function scheduleDefinition(
   if (definition.allowRuntimeSchedules) {
     fields.push({ label: "Runtime schedules", value: "Allowed" })
   }
+  if (definition.manual) {
+    fields.push({ label: "Manual", value: "Enabled" })
+  }
   return {
     fields,
     file: relativeDefinitionFile(projectRoot, definition.handler),

@@ -1,12 +1,13 @@
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createClient } from "@libsql/client"
-import { createTraceEventLog, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, vi } from "vitest"
 
 import { agentInvocationId, defineAgent, defineCapability, runAgent, runAgentInline, streamAgent } from "../src/index.ts"
+import * as invocationModule from "../src/invocations.ts"
 import { applyAgentInvocationStoreUpdate, bindAgentInvocations, byteBoundedObservations, observationLimits } from "../src/invocations.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
@@ -45,6 +46,168 @@ function inspectableToolCapability() {
 }
 
 describe("Agent Invocations", () => {
+  it("retains terminal usage totals when raw and call evidence exceeds the byte budget", () => {
+    const usage = { inputTokens: 5, outputTokens: 2, totalTokens: 7 }
+    const result = byteBoundedObservations([{
+      name: "agent.invocation.finish", type: "run", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z",
+      attributes: { "usage.record": { usage, raw: { text: "x".repeat(10_000) }, calls: Array.from({ length: 200 }, () => ({ usage })) } },
+    }], observationLimits({ maxBytes: 512 }))
+    expect(result.truncated).toBe(true)
+    expect(result.observations).toHaveLength(1)
+    expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage })
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
+  })
+
+  it("retains canonical totals and cost when arbitrary usage details exceed the byte budget", () => {
+    const usage = { inputTokens: 5, outputTokens: 2, totalTokens: 7 }
+    const result = byteBoundedObservations([{
+      name: "agent.invocation.finish", type: "run", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z",
+      attributes: { "usage.record": {
+        usage: { ...usage, details: { text: "x".repeat(10_000) }, inputTokenDetails: { ["x".repeat(1_000)]: 5 } },
+        cost: { usd: "0.01", estimated: true, display: "x".repeat(1_000), source: "custom" },
+        response: { id: "x".repeat(1_000) },
+      } },
+    }], observationLimits({ maxBytes: 512 }))
+    expect(result.truncated).toBe(true)
+    expect(result.observations).toHaveLength(1)
+    expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage, cost: { usd: "0.01", estimated: true } })
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
+  })
+
+  it.each(["https://example.com", "postgres://alice:hunter2@db.example"])("retains safe URI evidence across intervening events: %s", async (uri) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("uri-event-boundary"))
+    if (!journal) throw new Error("Expected an invocation journal")
+    await journal.context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "answer", "message.content": `See ${uri}` } })
+    await journal.context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run", attributes: {} })
+    await journal.finish("completed")
+    const record = await invocations.getByRunId("uri-event-boundary")
+    expect(record?.observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")).toBe(`See ${uri.replace("alice:hunter2", "[REDACTED]")}`)
+  })
+
+  it.each([
+    ["basic explanation", " follows", "basic explanation follows"],
+    ["API_TOKEN ?", "= sensitive;status=ok", "API_TOKEN ?= [REDACTED];status=ok"],
+    ["PASSWORD +", "= sensitive;status=ok", "PASSWORD += [REDACTED];status=ok"],
+    ["bearer of", " good news", "bearer of good news"],
+    ["postgres://alice", ":hunter2@db.example/path", "postgres://[REDACTED]@db.example/path"],
+  ])("retains ambiguous text across event boundaries: %s", async (prefix, suffix, expected) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("ambiguous-event-boundary"))
+    if (!journal) throw new Error("Expected an invocation journal")
+    await journal.context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "answer", "message.content": prefix } })
+    await journal.context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+    await journal.context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "answer", "message.content": suffix } })
+    await journal.context.traceLog?.append({ name: "agent.invocation.finish", type: "run", attributes: {} })
+    await journal.finish("completed")
+    const record = await invocations.getByRunId("ambiguous-event-boundary")
+    expect(record?.observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")).toBe(expected)
+  })
+
+  it("flushes interleaved message identities and safe text before tool events", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const [id, text] of [["a", "A1"], ["b", "B1"], ["a", "A2"], ["c", "This is a"]]) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": id, "message.content": text } })
+        }
+        await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("interleaved-messages"), {})
+    const observations = (await invocations.getByRunId("interleaved-messages"))!.observations
+    const beforeTool = observations.slice(0, observations.findIndex(entry => entry.name === "tool.call"))
+    expect(beforeTool.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]))
+      .toEqual(["A1", "B1", "A2", "This is "])
+  })
+
+  it.each([
+    ["Authorization: ", "ghp_sensitive", ";status=ok"],
+    ["Authorization: ", "ghp_sensitive status=private", "\nstatus=ok"],
+    ["Authorization: ", "x".repeat(300), "\nstatus=ok"],
+    ["Proxy-Authorization: ", "raw-token+/=", "\nstatus=ok"],
+    ['{"authorization":"', "sensitive-value", '", "status":"ok"}'],
+    ["Authorization: token ", "ghp_sensitive", ";status=ok"],
+    ["Authorization: ApiKey ", "sensitive-value", "\nstatus=ok"],
+    ["Proxy-Authorization: Digest ", 'username="private", realm="hidden", response="sensitive"', ";status=ok"],
+    ['{"authorization":"', "Custom-Auth sensitive-value", '", "status":"ok"}'],
+  ])("redacts bounded custom authorization headers: %s", async (prefix, credential, suffix) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      // Every character also emits a tool event. Keep the complete test trace.
+      observations: { maxCount: 1024 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const padding = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of [padding, ...(prefix + credential + suffix)]) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "custom-auth", "message.content": character } })
+          // Force each retained header fragment through an intervening-event flush.
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("custom-authorization"), {})
+    const observations = (await invocations.getByRunId("custom-authorization"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(padding + prefix + "[REDACTED]" + suffix)
+  })
+
+  it.each(["password", "secret"].flatMap(key => ["characters", "events"].map(boundary => ({ key, boundary }))))("redacts YAML list $key after a $boundary flush", async ({ key, boundary }) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxStringLength: 128 }, store: createMemoryAgentInvocationStore() })
+    const prefix = `${boundary === "characters" ? ".".repeat(512) + "\n" : ""}config:\n  - `
+    const agent = defineAgent({
+      driver: { async run(context) {
+        const chunks = [
+          ...(boundary === "events" ? Array.from({ length: 31 }, () => "") : []),
+          prefix,
+          `${key}: "sensitive-value"\n    status: ok\n`,
+        ]
+        for (const chunk of chunks) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "yaml-list", "message.content": chunk } })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("yaml-list"), {})
+    const observations = (await invocations.getByRunId("yaml-list"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(`${prefix}${key}: "[REDACTED]"\n    status: ok\n`)
+    expect(JSON.stringify(observations)).not.toContain("sensitive-value")
+  })
+
+  it.each(["api_token", "password", "secret"].flatMap(key => ["|", ">-", "|2-", "&credential |", "!!str >-", "&credential !!str |2-", "!<tag:yaml.org,2002:str> &credential >"].map(indicator => ({ key, indicator }))))("redacts YAML $key scalar $indicator across forced message flushes", async ({ key, indicator }) => {
+    const invocations = defineAgentInvocations({ content: "content", observations: { maxCount: 1024 }, store: createMemoryAgentInvocationStore() })
+    const text = `config:\n  ${key}: ${indicator}\n    sensitive-value\n    more-secret\n  status: ok\n`
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const character of text) {
+          await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.id": "yaml", "message.content": character } })
+          await context.traceLog?.append({ name: "tool.call", type: "run", attributes: {} })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("yaml-scalar"), {})
+    const observations = (await invocations.getByRunId("yaml-scalar"))!.observations
+    const content = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(content).toBe(`config:\n  ${key}:[REDACTED]\n  status: ok\n`)
+  })
+
   it.each([2, 100, 400])("rejects configuration updates when the marker cannot fit a %i-byte budget", (maxBytes) => {
     expect(() => byteBoundedObservations([
       {
@@ -165,6 +328,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "priority-outcomes-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: [...ordinary, streamError, runError],
       status: "running",
       traceId: "trace",
@@ -205,6 +369,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "cancelled-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: ordinary,
       status: "cancelled",
       traceId: "trace",
@@ -262,6 +427,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "delivery-overflow-lifecycle",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: [...lifecycle, ...deliveries],
       status: "completed",
       traceId: "trace",
@@ -299,6 +465,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "failure-evidence-at-capacity",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations: failures,
       status: "failed",
       traceId: "trace",
@@ -370,6 +537,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "full-journal-order",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations,
       status: "running",
       traceId: "trace",
@@ -407,6 +575,7 @@ describe("Agent Invocations", () => {
       createdAt,
       cursor: "1",
       id: "mixed-identity-order",
+      observationLimits: observationLimits({ maxCount: 256 }),
       observations,
       status: "running",
       traceId: "trace",
@@ -564,7 +733,7 @@ describe("Agent Invocations", () => {
     })
   })
 
-  it.each([" ", "\t", "\n", "\u00a0", "\u000b\u000c\r\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"])("filters invocation stores by the exact capability that was used with whitespace %j", async (whitespace) => {
+  it("filters invocation stores by the exact capability that was used", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-capability-filter-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
@@ -574,7 +743,6 @@ describe("Agent Invocations", () => {
         for (const [recordIndex, capabilityId] of ["papercuts", "usage", undefined].entries()) {
           await store.create({
             agentName: "chat",
-            annotations: recordIndex < 2 ? { triggeredBy: recordIndex === 0 ? `${whitespace}Ferdinand${whitespace}` : "Maxi" } : undefined,
             createdAt: timestamp,
             id: `${storeIndex}-${recordIndex}`,
             observations: capabilityId
@@ -597,40 +765,6 @@ describe("Agent Invocations", () => {
         })
         await expect(defineAgentInvocations({ store }).listCapabilityIds("chat"))
           .resolves.toEqual(["papercuts", "usage"])
-        await expect(Promise.resolve(store.list({ agentName: "chat", capabilityId: "papercuts", triggeredBy: "Ferdinand" }))).resolves.toMatchObject({
-          invocations: [{ id: `${storeIndex}-0` }],
-        })
-        await expect(Promise.resolve(store.list({ triggeredBy: "ferdinand" }))).resolves.toEqual({ invocations: [] })
-        await expect(defineAgentInvocations({ store }).listTriggeredBy("chat"))
-          .resolves.toEqual(["Ferdinand", "Maxi"])
-      }
-    }
-    finally {
-      client.close()
-      await rm(directory, { force: true, recursive: true })
-    }
-  })
-
-  it.each([123, true, false, null])("ignores non-string triggering-person annotations %j across stores", async (triggeredBy) => {
-    const directory = await mkdtemp(join(tmpdir(), "vitehub-person-filter-"))
-    const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
-    const stores = [createMemoryAgentInvocationStore(), createLibsqlAgentInvocationStore({ client })]
-    const timestamp = new Date().toISOString()
-    const filter = triggeredBy === true ? "1" : triggeredBy === false ? "0" : String(triggeredBy)
-    try {
-      for (const store of stores) {
-        for (const [id, value] of [["scalar", triggeredBy], ["text", filter]] as const) {
-          await store.create({
-            annotations: { triggeredBy: value },
-            createdAt: timestamp,
-            id,
-            observations: [],
-            status: "completed",
-            traceId: id,
-            updatedAt: timestamp,
-          })
-        }
-        expect((await store.list({ triggeredBy: filter })).invocations.map(item => item.id)).toEqual(["text"])
       }
     }
     finally {
@@ -646,13 +780,11 @@ describe("Agent Invocations", () => {
     try {
       for (const [index, store] of stores.entries()) {
         const runId = `truncated-capability-${index}`
-        // A small explicit journal exercises the same overflow without hundreds of disk writes.
-        const maxCount = 8
-        const invocations = defineAgentInvocations({ observations: { maxCount }, store })
+        const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, store })
         const journal = await bindAgentInvocations(invocations, runtime(runId))
         if (!journal) throw new Error("Expected the invocation journal to be configured.")
         await journal.running()
-        for (let observation = 0; observation < maxCount; observation++) {
+        for (let observation = 0; observation < 256; observation++) {
           await journal.context.traceLog?.append({ name: `ordinary-${observation}`, type: "run" })
         }
         await journal.context.traceLog?.append({
@@ -669,7 +801,7 @@ describe("Agent Invocations", () => {
         })
         const record = await invocations.getByRunId(runId)
         expect(record).toMatchObject({ observationsTruncated: true })
-        expect(record?.observations).toHaveLength(maxCount)
+        expect(record?.observations).toHaveLength(256)
         expect(record?.observations.some(observation => observation.attributes?.["capability.id"] === "late-capability"))
           .toBe(false)
         await journal.finish("completed")
@@ -701,6 +833,7 @@ describe("Agent Invocations", () => {
           reportTerminalObservationWriteStarted = resolve
         })
         const invocations = defineAgentInvocations({
+          observations: { maxCount: 256 },
           store: {
             ...memory,
             async update(id, input, claimId) {
@@ -822,30 +955,6 @@ describe("Agent Invocations", () => {
     await expect(defineAgentInvocations({ store: { ...fallback, list } }).listAgentNames())
       .resolves.toEqual(["alpha", "beta"])
     expect(list).toHaveBeenCalledTimes(2)
-  })
-
-  it("lists triggering people from summaries across every fallback page", async () => {
-    const memory = createMemoryAgentInvocationStore()
-    const timestamp = new Date().toISOString()
-    for (let index = 0; index < 101; index++) {
-      await memory.create({
-        annotations: index === 100 ? { triggeredBy: " Ferdinand " } : index === 0 ? { triggeredBy: "Maxi" } : undefined,
-        createdAt: timestamp,
-        id: `triggered-by-fallback-${index}`,
-        observations: [],
-        status: "completed",
-        traceId: `triggered-by-fallback-${index}-trace`,
-        updatedAt: timestamp,
-      })
-    }
-    const { listTriggeredBy: _listTriggeredBy, ...fallback } = memory
-    const list = vi.fn(fallback.list)
-    const get = vi.fn(() => { throw new Error("observation body read") })
-
-    await expect(defineAgentInvocations({ store: { ...fallback, get, list } }).listTriggeredBy())
-      .resolves.toEqual(["Ferdinand", "Maxi"])
-    expect(list).toHaveBeenCalledTimes(2)
-    expect(get).not.toHaveBeenCalled()
   })
 
   it("does not let a stalled store block Agent execution", async () => {
@@ -1173,7 +1282,7 @@ describe("Agent Invocations", () => {
   })
 
   it("retains late delivery outcomes when a completed journal is at capacity", async () => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("late-delivery-at-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     for (let index = 0; index < 255; index++) {
@@ -1209,7 +1318,7 @@ describe("Agent Invocations", () => {
   })
 
   it("retains delivery outcomes when a running journal is at capacity", async () => {
-    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, content: "content", store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-delivery-at-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.running()
@@ -1234,7 +1343,7 @@ describe("Agent Invocations", () => {
   })
 
   it("persists truncation when a running invocation reaches observation capacity", async () => {
-    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const invocations = defineAgentInvocations({ observations: { maxCount: 256 }, store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("running-observation-capacity"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")
     await journal.running()
@@ -1584,6 +1693,25 @@ describe("Agent Invocations", () => {
     const observation = (await invocations.getByRunId("optional-observation-metadata"))?.observations
       .find(entry => entry.name === "agent.invocation.finish")
     expect(observation?.attributes?.["usage.record"]).toEqual({ usage: { totalTokens: 42 } })
+    expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
+  })
+
+  it("preserves multi-response usage and nested cache evidence in the journal", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("response-usage-evidence"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const usage = {
+      model: "gpt-6-astra",
+      cost: { usd: "0.4", estimated: true, source: "models.dev" },
+      calls: Array.from({ length: 40 }, () => ({
+        usage: { inputTokens: 100, outputTokens: 10, totalTokens: 110, inputTokenDetails: { cacheReadTokens: 80 }, details: { reasoningOutputTokens: 2 } },
+        cost: { usd: "0.01", estimated: true, source: "models.dev" },
+      })),
+    }
+    await journal.context.traceLog?.append({ attributes: { "usage.record": usage }, name: "agent.invocation.finish", type: "run" })
+    await journal.finish("completed")
+    const observation = (await invocations.getByRunId("response-usage-evidence"))?.observations.find(entry => entry.name === "agent.invocation.finish")
+    expect(observation?.attributes?.["usage.record"]).toEqual(usage)
     expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
   })
 
@@ -2178,6 +2306,7 @@ describe("Agent Invocations", () => {
     try {
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           update(id, input, claimId) {
@@ -2215,6 +2344,7 @@ describe("Agent Invocations", () => {
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const terminalPersisted = new Promise<void>((resolve) => { reportTerminalPersisted = resolve })
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -2274,6 +2404,7 @@ describe("Agent Invocations", () => {
       let reportActiveStarted!: () => void
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -2761,6 +2892,7 @@ describe("Agent Invocations", () => {
       const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -2819,6 +2951,7 @@ describe("Agent Invocations", () => {
     const activeStarted = new Promise<void>((resolve) => { reportActiveStarted = resolve })
     const memory = createMemoryAgentInvocationStore()
     const invocations = defineAgentInvocations({
+      observations: { maxCount: 256 },
       store: {
         ...memory,
         async update(id, input, claimId) {
@@ -2883,6 +3016,7 @@ describe("Agent Invocations", () => {
       const fatalRetried = new Promise<void>((resolve) => { reportFatalRetried = resolve })
       const memory = createMemoryAgentInvocationStore()
       const invocations = defineAgentInvocations({
+        observations: { maxCount: 256 },
         store: {
           ...memory,
           async update(id, input, claimId) {
@@ -2988,7 +3122,7 @@ describe("Agent Invocations", () => {
       await journal.finish("failed", new Error("earliest fatal"))
 
       const record = await invocations.getByRunId("timed-out-earliest-fatal")
-      expect(record?.observations).toHaveLength(256)
+      expect(record?.observations).toHaveLength(258)
       expect(record?.observations.filter(observation => outcomeObservationNames.has(observation.name))).toMatchObject([
         { attributes: { "error.message": "earliest fatal" }, name: "agent.stream.error" },
         { attributes: { "error.message": "later fatal" }, name: "agent.stream.error" },
@@ -3341,6 +3475,16 @@ describe("Agent Invocations", () => {
   })
 
   it.each([
+    ...Array.from({ length: "postgres://alice:hunter2".length }, (_, split) => ({
+      head: "postgres://alice:hunter2".slice(0, split + 1),
+      tail: "postgres://alice:hunter2@db.example/app".slice(split + 1),
+      expected: "postgres://[REDACTED]@db.example/app",
+    })),
+    { head: "postgres://alice:" + "x".repeat(2048), tail: "more-secret@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
+    { head: "postgres://alice:hun", tail: "'ter2@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
+    { head: "postgres://alice:", tail: "hunter2@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
+    { head: "postgres:", tail: "//alice:hunter2@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
+    { head: "postgres:/", tail: "/alice:hunter2@db.example/app", expected: "postgres://[REDACTED]@db.example/app" },
     { head: '{"password":', tail: ' "sensitive-value","status":"ok"}', expected: '{"password":[REDACTED],"status":"ok"}' },
     { head: "password ", tail: '= "correct horse";status=ok', expected: 'password = "[REDACTED]";status=ok' },
   ])("redacts structured credentials after a bounded $head chunk", async ({ head, tail, expected }) => {
@@ -3421,7 +3565,93 @@ describe("Agent Invocations", () => {
     expect(text).toBe(`${prefix}apiToken=[REDACTED];status=ok`)
   })
 
-  it.each(['"', "'"])("redacts quoted passwords across bounded chunks with %s", async (quote) => {
+  it.each(["characters", "events"].flatMap(boundary => [
+    { boundary, first: "sshPassp", rest: "hrase" },
+    { boundary, first: "apiAu", rest: "th" },
+  ]))("redacts $first$rest split at a $boundary journal flush", async ({ boundary, first, rest }) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = boundary === "characters" ? ".".repeat(512) : ""
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${prefix}${first}`, `${rest}=sensitive-value;status=ok`]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+          if (boundary === "events") await context.traceLog?.append({ name: "agent.tool.start", type: "run", attributes: { "tool.name": "inspect" } })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("split-passphrase-credential"), {})
+    const observations = (await invocations.getByRunId("split-passphrase-credential"))?.observations ?? []
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${prefix}${first}${rest}=[REDACTED];status=ok`)
+  })
+
+  it("does not detach a closed marker-like credential from its assignment", async () => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const prefix = ".".repeat(512)
+    const agent = defineAgent({
+      driver: { async run(context) {
+        await context.traceLog?.append({
+          attributes: { "message.content": `${prefix}PASSWORD="secret"`, "message.id": "answer" },
+          name: "agent.message.delta",
+          type: "run",
+        })
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("closed-credential"), {})
+    const observations = (await invocations.getByRunId("closed-credential"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(`${prefix}PASSWORD="[REDACTED]"`)
+  })
+
+  it.each([0, 1, 2])("preserves evidence after a single-quoted backslash at split %s", async (split) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const ending = "\\';status=ok"
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`SECRET='${"private".repeat(100)}${ending.slice(0, split)}`, ending.slice(split)]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("single-quoted-backslash"), {})
+    const observations = (await invocations.getByRunId("single-quoted-backslash"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe("SECRET='[REDACTED]';status=ok")
+  })
+
+  it.each([false, true])("redacts adjacent shell segments across bounded chunks (quoted start: %s)", async (quotedStart) => {
     const invocations = defineAgentInvocations({
       content: "content",
       observations: { maxStringLength: 128 },
@@ -3429,7 +3659,38 @@ describe("Agent Invocations", () => {
     })
     const agent = defineAgent({
       driver: { async run(context) {
-        for (const value of [`PASSWORD=${quote}${"secret word ".repeat(50)}`, "more private words", `${quote};status=ok`]) {
+        const start = quotedStart ? '"' : ""
+        const chunks = [`PASSWORD=${start}${"private".repeat(100)}`, '"', "secret words", '"', "tail", ";status=ok"]
+        if (quotedStart) chunks.splice(1, 0, '"')
+        for (const value of chunks) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("shell-segments"), {})
+    const observations = (await invocations.getByRunId("shell-segments"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta")
+      .map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe(quotedStart ? 'PASSWORD="[REDACTED]";status=ok' : "PASSWORD=[REDACTED];status=ok")
+  })
+
+  it.each(["PASSWORD=", "Bearer ", "Authorization: basic "].flatMap(prefix => ['"', "'"].map(quote => [prefix, quote])))
+  ("redacts quoted credentials across bounded chunks with %s%s", async (credentialPrefix, quote) => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`${credentialPrefix}${quote}${"secret word ".repeat(50)}`, "more private words", `${quote};status=ok`]) {
           await context.traceLog?.append({
             attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
             name: "agent.message.delta",
@@ -3445,10 +3706,11 @@ describe("Agent Invocations", () => {
     const observations = (await invocations.getByRunId("quoted-password"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
-    expect(text).toBe(`PASSWORD=${quote}[REDACTED]${quote};status=ok`)
+    expect(text).toBe(`${credentialPrefix}${quote}[REDACTED]${quote};status=ok`)
   })
 
-  it.each(['"', "'"])("redacts a quoted password when its opening %s arrives after a flush", async (quote) => {
+  it.each(["PASSWORD=", "Bearer ", "Authorization: basic "].flatMap(prefix => ['"', "'"].map(quote => [prefix, quote])))
+  ("redacts a quoted credential when its opening %s%s arrives after a flush", async (credentialPrefix, quote) => {
     const invocations = defineAgentInvocations({
       content: "content",
       observations: { maxStringLength: 128 },
@@ -3457,7 +3719,7 @@ describe("Agent Invocations", () => {
     const prefix = ".".repeat(512)
     const agent = defineAgent({
       driver: { async run(context) {
-        for (const value of [`${prefix}PASSWORD=`, quote, "secret", "\\", quote, "private", "\\", "\\", quote, ";status=ok"]) {
+        for (const value of [`${prefix}${credentialPrefix}`, quote, "secret", quote, ";status=ok"]) {
           await context.traceLog?.append({
             attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
             name: "agent.message.delta",
@@ -3473,7 +3735,34 @@ describe("Agent Invocations", () => {
     const observations = (await invocations.getByRunId("split-quoted-password"))?.observations ?? []
     const text = observations.filter(entry => entry.name === "agent.message.delta")
       .map(entry => entry.attributes?.["message.content"]).join("")
-    expect(text).toBe(`${prefix}PASSWORD=[REDACTED];status=ok`)
+    expect(text).toBe(`${prefix}${credentialPrefix}[REDACTED];status=ok`)
+  })
+
+  it("redacts multiline YAML plain credentials across journal flushes", async () => {
+    const invocations = defineAgentInvocations({
+      content: "content",
+      observations: { maxStringLength: 128 },
+      store: createMemoryAgentInvocationStore(),
+    })
+    const agent = defineAgent({
+      driver: { async run(context) {
+        for (const value of [`password: ${"secret ".repeat(100)}`, "\n", "  battery staple", "\n", "status: ok"]) {
+          await context.traceLog?.append({
+            attributes: { "message.content": value, "message.id": "answer", "message.role": "assistant" },
+            name: "agent.message.delta",
+            type: "run",
+          })
+        }
+        return "done"
+      } },
+      invocations,
+      runtime: false,
+    })
+    await runAgent(agent, runtime("yaml-plain-continuation"), {})
+    const observations = (await invocations.getByRunId("yaml-plain-continuation"))!.observations
+    const text = observations.filter(entry => entry.name === "agent.message.delta").map(entry => entry.attributes?.["message.content"]).join("")
+    expect(text).toBe("password: [REDACTED]\nstatus: ok")
+    expect(JSON.stringify(observations)).not.toContain("battery staple")
   })
 
   it.each(["Bearer", "Basic", "Authorization: basic", "Authorization: BASIC"])("redacts %s credentials after a bounded scheme-only chunk", async (scheme) => {
@@ -3660,6 +3949,48 @@ describe("Agent Invocations", () => {
     expect(deltas[0]!.sequence).toBeLessThan(terminal!.sequence)
   })
 
+  it("preserves cancellation after journal finalization rejects", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const abort = new AbortController()
+    const failure = new Error("stopped")
+    const finishFailure = new Error("journal finish failed")
+    const traceLog = createTraceEventLog()
+    const originalBind = invocationModule.bindAgentInvocations
+    const bind = vi.spyOn(invocationModule, "bindAgentInvocations").mockImplementation(async (...args) => {
+      const journal = await originalBind(...args)
+      if (!journal) return journal
+      const originalFinish = journal.finish.bind(journal)
+      journal.finish = vi.fn(originalFinish).mockRejectedValueOnce(finishFailure)
+      return journal
+    })
+    try {
+      const agent = defineAgent({
+        driver: { run() {
+          abort.abort(failure)
+          throw failure
+        } },
+        invocations,
+        runtime: false,
+      })
+      await expect(runAgent(agent, { ...runtime("cancelled-finish-error"), traceLog }, {
+        abortSignal: abort.signal,
+      })).rejects.toThrow()
+
+      const terminals = traceLog.entries().filter(entry => [
+        "agent.invocation.cancelled", "agent.invocation.error",
+      ].includes(entry.name ?? ""))
+      const firstCancellation = terminals.findIndex(entry => entry.name === "agent.invocation.cancelled")
+      expect(firstCancellation).toBeGreaterThanOrEqual(0)
+      expect(terminals.slice(firstCancellation + 1).some(entry => entry.name === "agent.invocation.error")).toBe(true)
+      expect(terminals.at(-1)?.name).toBe("agent.invocation.cancelled")
+      expect(deriveTraceRuns(traceLog.entries())).toMatchObject([{ status: "cancelled" }])
+      expect(await invocations.getByRunId("cancelled-finish-error")).toMatchObject({ status: "cancelled" })
+    }
+    finally {
+      bind.mockRestore()
+    }
+  })
+
   it("persists bounded message chunks while an invocation is still running", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     let runningObservations: string[] = []
@@ -3808,14 +4139,11 @@ describe("Agent Invocations", () => {
     }, { timeout: 2_000 })
     const record = await invocations.getByRunId("bounded-observations")
     expect(record).toMatchObject({ status: "completed" })
-    expect(record?.observations).toHaveLength(256)
-    expect(record?.observations.at(-1)).toMatchObject({
-      attributes: { "vitehub.trace.truncated": true },
-      name: "agent.invocation.finish",
-    })
+    expect(record?.observations).toHaveLength(304)
+    expect(record?.observations.at(-1)).toMatchObject({ name: "agent.invocation.finish" })
     expect(record?.observations[1]?.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-    expect(updates).toBeLessThanOrEqual(261)
+    expect(updates).toBeLessThanOrEqual(307)
   })
 
   it("retains fatal stream evidence and the lifecycle terminal beyond the durable cap", async () => {
@@ -3839,17 +4167,15 @@ describe("Agent Invocations", () => {
     await runAgent(agent, runtime("bounded-fatal-observations"), {})
 
     const observations = (await invocations.getByRunId("bounded-fatal-observations"))?.observations || []
-    expect(observations).toHaveLength(256)
+    expect(observations).toHaveLength(304)
     expect(observations.slice(-2)).toMatchObject([
       {
         attributes: {
           "error.message": "provider stream failed",
-          "vitehub.trace.truncated": true,
         },
         name: "agent.stream.error",
       },
       {
-        attributes: { "vitehub.trace.truncated": true },
         name: "agent.invocation.finish",
       },
     ])

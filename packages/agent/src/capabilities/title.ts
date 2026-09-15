@@ -1,9 +1,11 @@
+import { recordAuxiliaryUsage } from "../internal/auxiliary-usage.ts"
 import { withProviderCallbackMetadata } from "../internal/provider-callback-metadata.ts"
 import { createTraceEventLog, resolveRuntimeValue } from "@vite-hub/runtime"
+import { safeAgentTelemetryMetadata } from "../internal/agent-telemetry.ts"
 import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
-import { streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
+import { resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
 import {
   claimMessageChannelTitleDelivery,
@@ -35,6 +37,7 @@ import type {
   AgentRunInput,
   AgentRunContext,
   AgentRuntimeConfig,
+  AgentUsageRecord,
   MaybePromise,
 } from "../types.ts"
 import type {
@@ -44,6 +47,7 @@ import type {
 import type { MessageChannelTitleDeliveryAttempt } from "../internal/channels.ts"
 import type { TraceEventLog } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { redactCredentialText } from "../internal/credential-redaction.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
 type TitleResolutionValue = string | typeof skippedTitleDelivery | undefined
@@ -132,6 +136,7 @@ export interface TitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   instructions?: string
   maxLength?: number
   model?: AgentModelResolver<TRuntimeConfig>
+  /** Reasoning effort override for an inherited Codex provider. */
   reasoningEffort?: string
   template?: TitleTemplate
   timeoutMs?: number
@@ -188,8 +193,8 @@ function markTitleApplied<T>(value: T): T {
   return value
 }
 
-function triggeringUserMessage(messages: Message[], input: AgentRunInput): Message | undefined {
-  const message = messages.findLast(message => message.role === "user")
+function firstUserMessage(messages: Message[], input: AgentRunInput): Message | undefined {
+  const message = messages.find(message => message.role === "user")
   if (message) return message
   return hasRuntimeType(input.prompt, "string") && stripChatEntityMarkup(input.prompt)
     ? createMessage({ role: "user", text: input.prompt })
@@ -201,12 +206,23 @@ function titleTraceLog(traceLog: TraceEventLog | undefined): TraceEventLog | und
   const local = createTraceEventLog({ content: "metadata" })
   return {
     async append(event) {
-      const tagged = { ...event, attributes: { ...event.attributes, [auxiliaryTraceKindAttribute]: "title" } }
+      const tagged = {
+        ...event,
+        attributes: {
+          ...(event.name === "agent.stream.error" ? safeAgentTelemetryMetadata(event.attributes) : event.attributes),
+          [auxiliaryTraceKindAttribute]: "title",
+        },
+      }
       const entry = await local.append(tagged)
-      if (event.name !== "run.error" && event.name !== "run.finish" && event.name !== "agent.invocation.finish"
-        && event.name !== "agent.message.delta"
-        && (event.name !== "agent.stream.error" || event.attributes?.["error.recoverable"] === true)
-        && event.name !== "agent.invocation.error" && event.name !== "agent.invocation.cancelled") {
+      if (event.name === "agent.stream.error") {
+        await traceLog.append({ ...tagged, name: "agent.title.error" })
+      }
+      if (event.name !== "run.error"
+        && event.name !== "run.finish"
+        && event.name !== "agent.invocation.finish"
+        && event.name !== "agent.stream.error"
+        && event.name !== "agent.invocation.error"
+        && event.name !== "agent.invocation.cancelled") {
         await traceLog.append(tagged)
       }
       return entry
@@ -374,11 +390,14 @@ function titleRunContext(
   }
 }
 
-async function titleResultText(result: unknown): Promise<string | undefined> {
+async function titleResultText(context: AgentCapabilityRuntimeContext, result: unknown): Promise<string | undefined> {
   let text = ""
+  let usage: AgentUsageRecord | undefined
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "text-delta") text += event.text
+    if (event.type === "usage") usage = event.usageRecord
   }
+  recordAuxiliaryUsage(context.context, usage ?? await resolveAgentUsageRecord(result))
   if (text) return text
   return toAgentRunResult(result).text
 }
@@ -395,17 +414,17 @@ async function generateTitleWithDriver(
   const driver = inheritedDriver ?? normalizeAgentDriver({ driver: options.driver } as never)
   if (driver.kind === "run") {
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
-    return await titleResultText(await driver.run(titleRunContext(context, input, prompt) as never))
+    return await titleResultText(context, await driver.run(titleRunContext(context, input, prompt) as never))
   }
   const runContext = titleAdapterRunContext(context, input, prompt)
   if (driver.kind === "provider") {
     const { createProviderAgentAdapter } = await import("../provider-agent.ts")
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
-    return await titleResultText(await createProviderAgentAdapter(driver).generate(runContext as never))
+    return await titleResultText(context, await createProviderAgentAdapter(driver).generate(runContext as never))
   }
   const { createAiSdkAdapter } = await import("../ai-sdk.ts")
   // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
-  return await titleResultText(await createAiSdkAdapter({
+  return await titleResultText(context, await createAiSdkAdapter({
     execution: driver.execution,
     instructions: options.instructions ?? driver.instructions,
     model: driver.model,
@@ -529,6 +548,7 @@ async function generateTitle(context: AgentCapabilityRuntimeContext, options: Ti
         ? { abortSignal, instructions: options.instructions, model: model as never, prompt }
         // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
         : { abortSignal, model: model as never, prompt }))
+      recordAuxiliaryUsage(context.context, await resolveAgentUsageRecord(result))
       return cleanGeneratedTitle(result.text, maxLength, fallback)
     }
   }
@@ -1002,15 +1022,86 @@ function titleUiMessageStreamOverride(
 export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: TitleOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
+  if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 2_147_483_647)) {
+    throw agentDiagnostics.AGENT_R0926({ message: "[vitehub] title({ timeoutMs }) must be an integer between 1 and 2147483647 milliseconds." })
+  }
+  if (hasRuntimeType(options.model, "string")) {
+    if (!options.model.trim()) {
+      throw agentDiagnostics.AGENT_R0925({ message: "[vitehub] title({ model }) must be a non-empty string." })
+    }
+    options = { ...options, model: options.model.trim() }
+  }
+  if (options.reasoningEffort !== undefined) {
+    if (!hasRuntimeType(options.reasoningEffort, "string") || !options.reasoningEffort.trim()) {
+      throw agentDiagnostics.AGENT_R0927({ message: "[vitehub] title({ reasoningEffort }) must be a non-empty model-advertised value." })
+    }
+    options = { ...options, reasoningEffort: options.reasoningEffort.trim() }
+  }
   const capabilityId = options.id || "title"
   const invocationStarts = new WeakMap<object, () => MaybePromise<void>>()
   const pendingTitles = new WeakMap<object, Promise<void>>()
+  const inspectionState = (status: string, value?: string) => ({
+    status,
+    title: value ?? null,
+    generation: options.execute ? "Custom execute" : options.driver ? "Driver" : "Model",
+    model: hasRuntimeType(options.model, "string") ? options.model : "Inherited or resolved at runtime",
+    maxLength: options.maxLength ?? 39,
+    timeoutMs: options.timeoutMs ?? 20_000,
+    trigger: options.trigger ?? "Any trigger",
+    channelDelivery: options.channelDelivery ?? "once-per-thread",
+  })
+  const inspectionStates = new WeakMap<object, ReturnType<typeof inspectionState>>()
+  const inspectionWrites = new WeakMap<object, Promise<void>[]>()
+  const publishInspection = (context: AgentCapabilityRuntimeContext<TRuntimeConfig>, status: string, value?: string) => {
+    const state = inspectionState(status, value)
+    inspectionStates.set(context.context, state)
+    const write = context.inspection.set(state)
+    let writes = inspectionWrites.get(context.context)
+    if (!writes) inspectionWrites.set(context.context, writes = [])
+    writes.push(write)
+    // Capture must not delay title generation or delivery. Cleanup joins these writes.
+    void write.catch(() => {})
+  }
   return Object.assign(defineCapability({
     id: capabilityId,
+    inspection: {
+      label: "Title",
+      view: {
+        root: "title",
+        elements: {
+          title: { type: "Stack", props: {}, children: ["status", "result", "generation", "model", "maxLength", "timeout", "trigger", "delivery"] },
+          status: { type: "KeyValue", props: { label: "Generation", value: { $state: "/status" } } },
+          result: { type: "KeyValue", props: { label: "Title", value: { $state: "/title" } } },
+          generation: { type: "KeyValue", props: { label: "Method", value: { $state: "/generation" } } },
+          model: { type: "KeyValue", props: { label: "Model", value: { $state: "/model" } } },
+          maxLength: { type: "KeyValue", props: { label: "Maximum characters", value: { $state: "/maxLength" } } },
+          timeout: { type: "KeyValue", props: { label: "Timeout (ms)", value: { $state: "/timeoutMs" } } },
+          trigger: { type: "KeyValue", props: { label: "Trigger", value: { $state: "/trigger" } } },
+          delivery: { type: "KeyValue", props: { label: "Channel delivery", value: { $state: "/channelDelivery" } } },
+        },
+      },
+    },
+    configure(context) {
+      publishInspection(context, "Waiting")
+    },
     async close(context) {
       await pendingTitles.get(context.context)
+      if (inspectionStates.get(context.context)?.status === "Waiting") publishInspection(context, "No title generated")
+      try {
+        await Promise.all(inspectionWrites.get(context.context) ?? [])
+      }
+      finally {
+        inspectionWrites.delete(context.context)
+        inspectionStates.delete(context.context)
+      }
     },
     output(context) {
+      // SAFETY: The invocation runtime supplies the normalized enclosing driver.
+      const driver = context.agentDriver as NormalizedAgentDriver | undefined
+      if (!options.execute && !options.driver && (options.model === undefined || hasRuntimeType(options.model, "string"))
+        && driver?.kind === "provider" && driver.provider !== "codex" && options.reasoningEffort !== undefined) {
+        throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] title({ reasoningEffort }) requires an inherited Codex provider." })
+      }
       let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
       const getChannelDeliveryAttempt = () => {
         const state = context.context.get(messageChannelStateContextKey)
@@ -1049,14 +1140,14 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           run: context.run,
           runtime: context.runtimeContext,
         }, {
-          attributes: { "vitehub.session.title": value.trim() },
+          attributes: { "vitehub.session.title": redactCredentialText(value.trim()) },
           name: "agent.title.recorded",
           type: "run",
         })
       }
       const titleInput = (source: TitleSource, text: string): TitleExecuteInput | undefined => {
         const messages = context.input.messages()
-        const message = triggeringUserMessage(messages, context.input.get())
+        const message = firstUserMessage(messages, context.input.get())
         if (!message || !stripChatEntityMarkup(text)) return
         return {
           input: context.input.get(),
@@ -1067,7 +1158,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         }
       }
       const preparedTitleInput = () => {
-        const message = triggeringUserMessage(context.input.messages(), context.input.get())
+        const message = firstUserMessage(context.input.messages(), context.input.get())
         return message ? titleInput("input", getMessageText(message)) : undefined
       }
       const getTitle = (responseText?: string): Promise<TitleResolutionValue> => {
@@ -1077,12 +1168,17 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         title = (async () => {
           const pendingAttempt = getChannelDeliveryAttempt()
           const attempt = pendingAttempt instanceof Promise ? await pendingAttempt : pendingAttempt
-          if (!attempt.deliver) return skippedTitleDelivery
+          if (!attempt.deliver) {
+            publishInspection(context, "Skipped: already delivered")
+            return skippedTitleDelivery
+          }
           titleClaimed = true
           try {
+            publishInspection(context, "Generating")
             // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
             const resolvedTitle = await generateTitle(context, options as TitleOptions, input)
             if (resolvedTitle === skippedTitleGeneration) {
+              publishInspection(context, "Skipped")
               titleSkipped = true
               await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
               return
@@ -1090,9 +1186,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             if (!resolvedTitle) {
               await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
             }
+            publishInspection(context, resolvedTitle ? "Completed" : "No title", resolvedTitle)
             return resolvedTitle
           }
           catch {
+            publishInspection(context, context.input.get().abortSignal?.aborted ? "Cancelled" : "Failed")
             await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
             return undefined
           }
@@ -1101,8 +1199,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
 
       const startTitle = async () => {
-        if (!triggeringUserMessage(context.input.messages(), context.input.get())) return
-        if (!shouldRunForTrigger(options.trigger, agentTriggerId(context))) return
+        if (!firstUserMessage(context.input.messages(), context.input.get())) return
+        if (!shouldRunForTrigger(options.trigger, agentTriggerId(context))) {
+          publishInspection(context, "Skipped: trigger")
+          return
+        }
         if (!preparedTitleInput()) {
           context.context.set(responseTitleFallbackContextKey, true)
           return
@@ -1131,11 +1232,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         ))
       }
       invocationStarts.set(context.context, () => {
+        if (supportsTitleDelivery(context)) return startTitle()
         pendingTitleStart = startTitle()
         pendingTitles.set(context.context, pendingTitleStart)
         // Invocation cleanup owns this work; observe rejection while the main answer runs.
         pendingTitleStart.catch(() => undefined)
-        return pendingTitleStart
       })
       context.finish.provide(async (finish: AgentFinishEvent) => {
         await pendingTitleStart
@@ -1176,7 +1277,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
       titleDeliveryEffect.active = finish =>
         Boolean(finish.channel)
-        && Boolean(triggeringUserMessage(context.input.messages(), context.input.get()))
+        && Boolean(firstUserMessage(context.input.messages(), context.input.get()))
         && finish.context.get(messageChannelTitleSupportContextKey) !== false
         && (Object.hasOwn(finish.event, "error")
           || finish.context.get(messageChannelTitleDeliveredContextKey) !== true)
@@ -1185,7 +1286,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       context.output.render((result) => {
         if (hasTitleApplied(result)) return result
         const messages = context.input.messages()
-        if (!triggeringUserMessage(messages, context.input.get())) return result
+        if (!firstUserMessage(messages, context.input.get())) return result
         const preparedInput = preparedTitleInput()
         const establishedTitle = createAgentChatData(messages.flatMap(message => message.parts)).get("title")
         const provisionalTitle = preparedInput

@@ -64,3 +64,17 @@ it.each([false, true])('keeps omitted files and generated instructions out of re
   expect(await git(target, 'show', 'HEAD:CLAUDE.md')).toBe('repository instructions')
   expect(await git(target, 'show', `${head}:file.txt`)).toBe('before')
 })
+
+it('keeps nested tracked instruction files out of repair staging', async () => {
+  const { source, target } = await fixture()
+  await mkdir(join(source, 'docs'))
+  await writeFile(join(source, 'docs', 'AGENTS.md'), 'repository instructions\n')
+  await git(source, 'add', '.')
+  await git(source, 'commit', '-m', 'nested instructions')
+  await mkdir(join(target, 'docs'))
+  await writeFile(join(target, 'docs', 'AGENTS.md'), 'generated override\n')
+  await prepareGitHubPullRequestWorkspace(source, target)
+  expect(await readFile(join(target, 'docs', 'AGENTS.md'), 'utf8')).toBe('generated override\n')
+  await git(target, 'add', '-A')
+  expect(await git(target, 'status', '--porcelain')).toBe('')
+})

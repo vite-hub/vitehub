@@ -24,7 +24,6 @@ afterEach(async () => {
   if (originalGitHubHost === undefined) delete process.env.GH_HOST
   else process.env.GH_HOST = originalGitHubHost
   delete process.env.VITEHUB_TEST_HEAD_SHA
-  delete process.env.VITEHUB_TEST_FETCH_DELAY
   delete process.env.VITEHUB_TEST_CLONE_DELAY
   delete process.env.VITEHUB_TEST_COMMAND_LOG
   delete process.env.VITEHUB_TEST_RATE_LIMIT
@@ -57,13 +56,13 @@ if [ "$1" = "api" ] && [ "$2" = "--hostname" ] && [ "$3" = "github.com" ] && [ "
 fi
 `, { mode: 0o755 }),
     writeFile(join(root, "git"), `#!/bin/sh
-if [ "$3" = "fetch" ] && [ -n "$VITEHUB_TEST_FETCH_DELAY" ]; then sleep "$VITEHUB_TEST_FETCH_DELAY"; fi
+if [ "$1" = "clone" ] && [ -n "$VITEHUB_TEST_CLONE_DELAY" ]; then sleep "$VITEHUB_TEST_CLONE_DELAY"; fi
 if [ -n "$VITEHUB_TEST_COMMAND_LOG" ]; then
   printf 'git %s|%s\n' "$*" "$GH_TOKEN" >> "$VITEHUB_TEST_COMMAND_LOG"
 fi
 case "$*" in
   *"rev-parse --show-toplevel"*) printf '%s\\n' "$2" ;;
-  *"rev-parse FETCH_HEAD"*|*"rev-parse HEAD"*) printf '%s\\n' "$VITEHUB_TEST_HEAD_SHA" ;;
+  *"rev-parse HEAD"*) printf '%s\\n' "$VITEHUB_TEST_HEAD_SHA" ;;
 esac
 `, { mode: 0o755 }),
   ])
@@ -899,7 +898,7 @@ describe("GitHub host", () => {
 
     await expect(access(checkout)).rejects.toMatchObject({ code: "ENOENT" })
     await expect(readFile(commandLog, "utf8")).resolves.toContain(
-      "git init --template=/dev/null --object-format=sha1 -- ",
+      "git clone --filter=blob:none --no-checkout -- https://github.com/vite-hub/vitehub.git",
     )
     await expect(readFile(commandLog, "utf8")).resolves.toContain(
       "fetch --no-tags -- https://github.com/contributor/vitehub.git refs/heads/feature|token",
@@ -919,27 +918,6 @@ describe("GitHub host", () => {
       throw new Error("callback failed")
     })).rejects.toThrow("callback failed")
     await expect(access(checkout)).rejects.toMatchObject({ code: "ENOENT" })
-  })
-
-  it("fetches the PR ref when the head branch has no repository metadata", async () => {
-    await installFakeGitHubCommands()
-    const commandLog = join(tmpdir(), `vitehub-agent-host-commands-${crypto.randomUUID()}`)
-    temporaryDirectories.add(commandLog)
-    process.env.VITEHUB_TEST_COMMAND_LOG = commandLog
-    process.env.VITEHUB_TEST_HEAD_SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
-
-    await host.withPullRequestCheckout({
-      headRef: "fork-only",
-      headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      number: 129,
-      repository: "vite-hub/vitehub",
-    }, async () => undefined)
-
-    const log = await readFile(commandLog, "utf8")
-    expect(log).toContain("fetch --no-tags -- origin refs/pull/129/head")
-    expect(log).not.toContain("fetch --no-tags -- origin aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-    expect(log).not.toContain("fetch --no-tags -- https://github.com/vite-hub/vitehub.git refs/heads/fork-only")
   })
 
   it("refreshes credentials for a host-owned pull-request push", async () => {
@@ -1002,7 +980,7 @@ describe("GitHub host", () => {
     })
 
     const log = await readFile(commandLog, "utf8")
-    expect(log).toContain("git init --template=/dev/null --object-format=sha1 -- ")
+    expect(log).toContain("git clone --filter=blob:none --no-checkout -- https://github.com/vite-hub/vitehub.git")
     expect(log).toContain("|base-token")
     expect(log).toContain("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/feature|head-token")
   })
@@ -1040,7 +1018,7 @@ describe("GitHub host", () => {
 
   it("cancels checkout commands and removes the temporary checkout", async () => {
     await installFakeGitHubCommands()
-    process.env.VITEHUB_TEST_FETCH_DELAY = "10"
+    process.env.VITEHUB_TEST_CLONE_DELAY = "10"
     const host = createGitHubHost({ credentials: () => ({ token: "token" }) })
     const controller = new AbortController()
     const prefix = "vitehub-vite-hub-vitehub-pr-125-"

@@ -24,12 +24,16 @@ it("infers schedule handler result types", () => {
 it("types the defineSchedule helper signature", () => {
   defineSchedule({
     cron: "0 9 * * *",
+    manual: true,
     handler: async (context) => {
       expectTypeOf(context.scheduledAt).toEqualTypeOf<Date>()
       expectTypeOf(context.waitUntil).toEqualTypeOf<(promise: PromiseLike<unknown>) => void>()
       context.waitUntil(Promise.resolve())
     },
   })
+
+  const positional = defineSchedule("0 9 * * *", async context => context.id, { manual: true })
+  expectTypeOf(positional.options).toEqualTypeOf<{ manual?: boolean, allowRuntimeSchedules?: boolean } | undefined>()
 
   // @ts-expect-error cron is required.
   defineSchedule({ handler: async () => {} })
