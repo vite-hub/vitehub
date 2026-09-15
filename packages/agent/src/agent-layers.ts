@@ -230,25 +230,34 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
-    if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) return (globalThis as { Buffer: typeof Buffer }).Buffer.from(value)
+    if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) {
+      const clone = (globalThis as { Buffer: typeof Buffer }).Buffer.from(value)
+      memo.set(value, clone)
+      return clone
+    }
     if (value instanceof DataView) {
       // SAFETY: DataView intrinsic accessors avoid shadowable instance properties.
       const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
       const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value)
       const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value)
-      return new DataView(buffer.slice(byteOffset, byteOffset + byteLength))
+      const clonedBuffer = clonePresetOption(buffer, memo) as ArrayBuffer
+      const clone = new DataView(clonedBuffer, byteOffset, byteLength)
+      memo.set(value, clone)
+      return clone
     }
     const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
     // SAFETY: %TypedArray% intrinsic accessors work for every typed-array view.
     const buffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer")!.get!.call(value) as ArrayBuffer
     const byteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")!.get!.call(value)
     const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")!.get!.call(value)
-    const copy = buffer.slice(byteOffset, byteOffset + byteLength)
+    const clonedBuffer = clonePresetOption(buffer, memo) as ArrayBuffer
     // SAFETY: Every entry is a built-in typed-array constructor; filtering removes unavailable BigInt variants.
     const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, "BigInt64Array" in globalThis ? BigInt64Array : undefined, "BigUint64Array" in globalThis ? BigUint64Array : undefined].filter(Boolean) as any[]
     const TypedArray = constructors.find((ctor) => value instanceof ctor)
     if (!TypedArray) throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
-    return new TypedArray(copy)
+    const clone = new TypedArray(clonedBuffer, byteOffset, byteLength / TypedArray.BYTES_PER_ELEMENT)
+    memo.set(value, clone)
+    return clone
   }
   if (value !== null && Object.prototype.toString.call(value) === "[object Object]") {
     const prototype = Object.getPrototypeOf(value)
