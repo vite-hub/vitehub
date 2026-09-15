@@ -172,10 +172,15 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
 }
 
 function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>): Record<string, unknown> {
-  if (child && memo.has(child)) return memo.get(child) as Record<string, unknown>
+  if (child && memo.has(child)) {
+    // SAFETY: Only record-shaped children are inserted into this memo.
+    return memo.get(child) as Record<string, unknown>
+  }
   const result: Record<string | symbol, unknown> = {}
   if (child) memo.set(child, result)
+  // SAFETY: Own keys are read from these record-shaped inputs, including symbols.
   const parentKeys = parent as Record<PropertyKey, unknown>
+  // SAFETY: `child` is narrowed by the optional guard at each use site.
   const childKeys = child as Record<PropertyKey, unknown> | undefined
   for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child ?? {})])) {
     const value = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined ? childKeys[key] : parentKeys[key]
@@ -189,10 +194,10 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
 }
 
 function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()): unknown {
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) return value
+  if (value === null || (!hasRuntimeType(value, "object") && !hasRuntimeType(value, "function"))) return value
   // Functions are atomic option values; preserve callback identity rather than
   // rejecting them as unsupported objects.
-  if (typeof value === "function") return value
+  if (hasRuntimeType(value, "function")) return value
   if (memo.has(value)) return memo.get(value)
   if (Array.isArray(value)) { const clone: unknown[] = []; memo.set(value, clone); for (const entry of value) clone.push(clonePresetOption(entry, memo)); return clone }
   if (value instanceof Date) { const clone = new Date(value.getTime()); memo.set(value, clone); return clone }
@@ -236,7 +241,10 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       if (!descriptor) continue
-      if ("value" in descriptor) descriptor.value = clonePresetOption(descriptor.value as unknown, memo)
+      if ("value" in descriptor) {
+        // SAFETY: Value descriptors expose an arbitrary option value for recursive cloning.
+        descriptor.value = clonePresetOption(descriptor.value as unknown, memo)
+      }
       Object.defineProperty(clone, key, descriptor)
     }
     return clone
