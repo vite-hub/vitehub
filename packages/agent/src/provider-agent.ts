@@ -2396,7 +2396,8 @@ async function* runProvider<
   let acceptingSteering = true
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
-  const generatedProviderFiles: GeneratedProviderFile[] = []
+    const generatedProviderFiles: GeneratedProviderFile[] = []
+    let claudePromptFile: string | undefined
   let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
   let deferredSessionConsume: Promise<void> | undefined
   let runtimeCleanupDeferred = false
@@ -2566,6 +2567,10 @@ async function* runProvider<
         generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${escapedProvenance}`
       }
       generatedProviderFiles.push(generated)
+      if (options.provider === "claude-code") {
+        claudePromptFile = join(root, ".claude", "vitehub-system-prompt.md")
+        generatedProviderFiles.push(await materializeGeneratedProviderFile(root, claudePromptFile, instructions))
+      }
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {
@@ -2700,6 +2705,7 @@ async function* runProvider<
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
+      ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       // Login profiles reset PATH and hide the invocation's managed browser CLI.
@@ -2710,7 +2716,7 @@ async function* runProvider<
       && materializeInstructions
       && typeof options.providerSettings?.launchArgs === "string"
       && options.providerSettings.launchArgs.includes("--append-system-prompt-file")) {
-      throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] Claude launchArgs cannot include --append-system-prompt-file when instructions are materialized." })
+      throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] Claude launchArgs cannot include --append-system-prompt-file when instructions are materialized. Compose the caller prompt file contents into driver.instructions and remove the flag." })
     }
     // The runtime chooses environment arguments over settings. Give auxiliary
     // overrides the complete argument list, including managed credential storage.
