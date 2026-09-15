@@ -1476,6 +1476,9 @@ importers:
 
   packages/markdown-template:
     dependencies:
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       character-entities-legacy:
         specifier: 3.0.0
         version: 3.0.0
@@ -1516,6 +1519,9 @@ importers:
       '@vercel/queue':
         specifier: catalog:vercel
         version: 0.5.1(@opentelemetry/api@1.9.1)
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1544,9 +1550,6 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.3
-      '@vite-hub/internal':
-        specifier: workspace:*
-        version: link:../internal
       nuxt:
         specifier: catalog:nuxt
         version: 4.5.2(f231fdd2428311d44865f31320a00252)
@@ -1759,6 +1762,9 @@ importers:
       '@vite-hub/box':
         specifier: workspace:*
         version: link:../box
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1790,9 +1796,6 @@ importers:
         specifier: catalog:tooling
         version: 2.9.0
     devDependencies:
-      '@vite-hub/internal':
-        specifier: workspace:*
-        version: link:../internal
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1
@@ -8641,11 +8644,17 @@ packages:
   '@types/picomatch@4.0.3':
     resolution: {integrity: sha512-iG0T6+nYJ9FAPmx9SsUlnwcq1ZVRuCXcVEvWnntoPlrOpwtSTKNDC9uVAxTsC3PUvJ+99n4RpAcNgBbHX3JSnQ==}
 
+  '@types/proper-lockfile@4.1.4':
+    resolution: {integrity: sha512-uo2ABllncSqg9F1D4nugVl9v93RmjxF6LJzQLMLDdPaXCUIDPeOJ21Gbqi43xNKzBi/WQ0Q0dICqufzQbMjipQ==}
+
   '@types/request@2.48.13':
     resolution: {integrity: sha512-FGJ6udDNUCjd19pp0Q3iTiDkwhYup7J8hpMW9c4k53NrccQFFWKRho6hvtPPEhnXWKvukfwAlB6DbDz4yhH5Gg==}
 
   '@types/resolve@1.20.2':
     resolution: {integrity: sha512-60BCwRFOZCQhDncwQdxxeOEEkbc5dIMccYLwbxsS4TUNeVECQ/pBJ0j09mrHOl/JJvpRPGwO9SvE4nR2Nb/a4Q==}
+
+  '@types/retry@0.12.5':
+    resolution: {integrity: sha512-3xSjTp3v03X/lSQLkczaN9UIEwJMoMCA1+Nb5HfbJEQWogdeQIyVtTvxPXDQjZ5zws8rFQfVfRdz03ARihPJgw==}
 
   '@types/semver@7.8.0':
     resolution: {integrity: sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ==}
@@ -16208,12 +16217,6 @@ packages:
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
-
-  '@types/proper-lockfile@4.1.4':
-    resolution: {integrity: sha512-uo2ABllncSqg9F1D4nugVl9v93RmjxF6LJzQLMLDdPaXCUIDPeOJ21Gbqi43xNKzBi/WQ0Q0dICqufzQbMjipQ==}
-
-  '@types/retry@0.12.5':
-    resolution: {integrity: sha512-3xSjTp3v03X/lSQLkczaN9UIEwJMoMCA1+Nb5HfbJEQWogdeQIyVtTvxPXDQjZ5zws8rFQfVfRdz03ARihPJgw==}
 
 snapshots:
 
@@ -24410,6 +24413,10 @@ snapshots:
 
   '@types/picomatch@4.0.3': {}
 
+  '@types/proper-lockfile@4.1.4':
+    dependencies:
+      '@types/retry': 0.12.5
+
   '@types/request@2.48.13':
     dependencies:
       '@types/caseless': 0.12.5
@@ -24418,6 +24425,8 @@ snapshots:
       form-data: 2.5.6
 
   '@types/resolve@1.20.2': {}
+
+  '@types/retry@0.12.5': {}
 
   '@types/semver@7.8.0': {}
 
@@ -36735,9 +36744,3 @@ snapshots:
   zod@4.5.4: {}
 
   zwitch@2.0.4: {}
-
-  '@types/proper-lockfile@4.1.4':
-    dependencies:
-      '@types/retry': 0.12.5
-
-  '@types/retry@0.12.5': {}

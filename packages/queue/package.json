@@ -48,6 +48,7 @@
     "@types/ws": "^8.18.1",
     "@vercel/functions": "catalog:vercel",
     "@vercel/queue": "catalog:vercel",
+    "@vite-hub/internal": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "esbuild": "catalog:esbuild-v27",
