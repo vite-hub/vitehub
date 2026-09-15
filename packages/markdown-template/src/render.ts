@@ -170,17 +170,24 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     entries.push([key, resolved])
     Object.defineProperty(copy, key, { enumerable: true, configurable: true, value: resolved, writable: true })
   }
-  for (const [key, resolved] of entries) if (key.includes(".")) defineDottedPath(copy as Record<string, unknown>, key, resolved)
+  const directKeys = new Set(entries.map(([key]) => key))
+  for (const [key, resolved] of entries) if (key.includes(".")) defineDottedPath(copy as Record<string, unknown>, key, resolved, directKeys)
   return copy as T
 }
 
-function defineDottedPath(target: Record<string, unknown>, key: string, value: unknown): void {
+function defineDottedPath(target: Record<string, unknown>, key: string, value: unknown, directKeys: Set<string>): void {
   const parts = key.split(".")
   let current = target
-  for (const part of parts.slice(0, -1)) {
+  for (let index = 0; index < parts.length - 1; index++) {
+    if (directKeys.has(parts.slice(0, index + 1).join("."))) return
+    const part = parts[index]
     const existing = current[part]
     if (existing && typeof existing === "object") current = existing as Record<string, unknown>
-    else return
+    else {
+      const nested = Object.setPrototypeOf({}, null) as Record<string, unknown>
+      Object.defineProperty(current, part, { enumerable: true, configurable: true, value: nested, writable: true })
+      current = nested
+    }
   }
   if (!Object.hasOwn(current, parts.at(-1)!)) {
     Object.defineProperty(current, parts.at(-1)!, { enumerable: true, configurable: true, value, writable: true })
