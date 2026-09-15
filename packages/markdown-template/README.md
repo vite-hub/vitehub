@@ -14,17 +14,17 @@ The package requires Node 24 or newer.
 
 ## Render a template string
 
-Pass the complete data object with the template. Double braces insert a scalar as escaped Markdown text. Triple braces insert a Markdown fragment that your application trusts.
+Pass the complete data object with the template. Double braces insert a scalar as escaped Markdown text. Use the `Insert` component for trusted Markdown fragments.
 
 ```ts
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
 
 const markdown = await renderMarkdownTemplate([
-  "# Review {{ number }}",
+  "# Review {{ data.number }}",
   "",
-  "Title: {{ title }}",
+  "Title: {{ data.title }}",
   "",
-  "{{{ files }}}",
+  ":insert{:markdown=\"data.files\"}",
 ].join("\n"), {
   data: {
     files: "## Files\n\n- `README.md`",
@@ -48,43 +48,43 @@ Title: \*Draft\*
 - `README.md`
 ```
 
-`title` cannot create emphasis because `{{ title }}` escapes its Markdown syntax. `files` keeps its heading and list because `{{{ files }}}` parses the value as Markdown.
+`title` cannot create emphasis because `{{ data.title }}` escapes its Markdown syntax. `files` keeps its heading and list because the `Insert` component parses the trusted value as Markdown.
 
 ## Choose the input form deliberately
 
 ### Escape scalar data
 
-Use `{{ path.to.value }}` for a string, number, or boolean. Paths read own properties only. A missing path, `null`, an array, or an object rejects the render instead of producing an empty string.
+Use `{{ data.path.to.value }}` for a string, number, or boolean. Paths read own properties only. A missing path, `null`, an array, or an object rejects the render instead of producing an empty string.
 
 Scalar bindings are Markdown text, not raw source. The renderer also HTML-escapes scalar bindings inside quoted XML-style attributes.
 
 ```md
-Customer: {{ customer.name }}
+Customer: {{ data.customer.name }}
 
-<policy audience="{{ audience }}">Review the change.</policy>
+<policy :audience="data.audience">Review the change.</policy>
 ```
 
 A scalar may occupy a complete inline link destination:
 
 ```md
-[Open review]({{ reviewUrl }})
+[Open review]({{ data.reviewUrl }})
 ```
 
 The renderer URI-encodes characters that would change the Markdown structure and rejects unsafe or ambiguous destinations, including `javascript:` and `data:` URLs, control characters, malformed percent escapes, and path backslashes in schemeless destinations or `file:`, `ftp:`, `http:`, `https:`, `ws:`, and `wss:` URLs.
 
-A binding inside only part of a destination does not create a link. For example, `[Open review](/reviews/{{ id }})` renders as literal, non-clickable text. Construct the complete URL in data and bind the whole destination instead:
+A binding inside only part of a destination does not create a link. For example, `[Open review](/reviews/{{ data.id }})` renders as literal, non-clickable text. Construct the complete URL in data and bind the whole destination instead:
 
 ```ts
 const data = { reviewUrl: `/reviews/${id}` }
 ```
 
 ```md
-[Open review]({{ reviewUrl }})
+[Open review]({{ data.reviewUrl }})
 ```
 
 ### Insert trusted Markdown
 
-Use `{{{ path.to.markdown }}}` only for a string that may add Markdown structure. A block fragment must occupy its own block; the renderer rejects block Markdown placed inside an inline sentence.
+Use `:insert{:markdown="data.path.to.markdown"}` only for a string that may add Markdown structure. A block fragment must occupy its own block; the renderer rejects block Markdown placed inside an inline sentence.
 
 The renderer does not evaluate template syntax inside a fragment again. Bindings, conditions, and imports in the fragment remain literal. This stops accidental recursive templating, but it does not make an untrusted fragment safe for an Agent or another model. Validate or construct fragments before passing them to the renderer.
 
@@ -93,9 +93,9 @@ The renderer does not evaluate template syntax inside a fragment again. Bindings
 Conditional sections read data paths and literals. They support `!`, parentheses, `&&`, `||`, and equality or inequality with `===`, `!==`, `==`, or `!=`. All four equality operators use strict JavaScript equality semantics.
 
 ```md
-::if{pullRequest.available && !pullRequest.draft}
-Review {{ pullRequest.title }}.
-::else-if{pullRequest.draft}
+::if{:condition="data.available"}
+Review {{ data.pullRequest.title }}.
+::else-if{:condition="data.draft"}
 Wait for the pull request to leave draft.
 ::else
 No pull request is available.
@@ -133,11 +133,11 @@ Imports resolve before conditions run. Your resolver must authorize an import ev
 Create `review.md`:
 
 ```md
-# Review {{ number }}
+# Review {{ data.number }}
 
 @./policy.md
 
-{{{ summary }}}
+:insert{:markdown="data.summary"}
 ```
 
 Create `policy.md` beside it:

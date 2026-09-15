@@ -1,164 +1,56 @@
+import { resolveAttributes } from "comark/render"
+import type { NodeRenderData } from "comark/render"
+
 import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
-type ConditionOperator = "!" | "!=" | "!==" | "&&" | "(" | ")" | "==" | "===" | "||"
-type ConditionToken =
-  | { type: "literal", value: unknown }
-  | { type: "op", value: ConditionOperator }
-  | { path: string, type: "path" }
 
-const templatePathSource = String.raw`[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*`
+type Ordered = number | string
+type Comparison = (value: unknown, expected: unknown) => boolean
+const ordered = (compare: (value: Ordered, expected: Ordered) => boolean): Comparison => (value, expected) =>
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Ordered comparisons accept only matching numeric or string representations, without coercion.
+  (typeof value === "number" && typeof expected === "number" || typeof value === "string" && typeof expected === "string")
+  && compare(value, expected)
 
-export function evaluateCondition(
-  expression: string,
-  data: Record<string, unknown>,
+const comparisons: Record<string, Comparison> = {
+  eq: (value, expected) => value === expected,
+  neq: (value, expected) => value !== expected,
+  gt: ordered((value, expected) => value > expected),
+  gte: ordered((value, expected) => value >= expected),
+  lt: ordered((value, expected) => value < expected),
+  lte: ordered((value, expected) => value <= expected),
+}
+const allowedProps = new Set(["condition", "value", ...Object.keys(comparisons)])
+
+export function matchesCondition(
+  attributes: Record<string, unknown>,
+  renderData: NodeRenderData,
   validatePath?: (path: string) => boolean,
 ): boolean {
-  const parser = createConditionParser(tokenizeCondition(expression, validatePath), expression, data)
-  const value = parser.parseOr()
-  parser.done()
-  return Boolean(value)
-}
-
-function tokenizeCondition(
-  expression: string,
-  validatePath?: (path: string) => boolean,
-): ConditionToken[] {
-  const tokens: ConditionToken[] = []
-  for (let index = 0; index < expression.length;) {
-    const rest = expression.slice(index)
-    if (/^\s/.test(rest)) {
-      index += 1
-      continue
+  for (const [key, value] of Object.entries(attributes)) {
+    if (key === "$") continue
+    if (!allowedProps.has(key.replace(/^:/, ""))) {
+      throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0024({ message: `[vitehub] Unsupported Markdown template condition prop "${key}". Use Comark-bound condition or value props.` })
     }
-    const op = rest.match(/^(===|!==|==|!=|&&|\|\||[!()])/)
-    if (op) {
-      tokens.push({ type: "op", value: op[1] as ConditionOperator })
-      index += op[1]!.length
-      continue
-    }
-    const string = rest.match(/^(['"])((?:\\.|(?!\1)[^\\])*)\1/)
-    if (string) {
-      tokens.push({ type: "literal", value: string[2]!.replace(/\\(['"\\])/g, "$1") })
-      index += string[0].length
-      continue
-    }
-    const number = rest.match(/^-?\d+(?:\.\d+)?/)
-    if (number) {
-      tokens.push({ type: "literal", value: Number(number[0]) })
-      index += number[0].length
-      continue
-    }
-    const literal = rest.match(/^(true|false|null)\b/)
-    if (literal) {
-      tokens.push({ type: "literal", value: literal[1] === "true" ? true : literal[1] === "false" ? false : null })
-      index += literal[0].length
-      continue
-    }
-    const path = rest.match(new RegExp(`^${templatePathSource}`))
-    if (path) {
-      if (/^\s*\(/.test(rest.slice(path[0].length)) || (validatePath && !validatePath(path[0]))) {
-        throw unsafeConditionError(expression)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only string attributes can contain a Comark binding path to validate.
+    if (validatePath && key.startsWith(":") && typeof value === "string") {
+      // Comark owns literal parsing and binding resolution; the consumer owns allowed data paths.
+      let literal = false
+      try { JSON.parse(value); literal = true }
+      catch { /* A non-JSON binding is a Comark data path. */ }
+      if (!literal && (!value.startsWith("data.") || !validatePath(value.slice(5)))) {
+        throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0002({ message: `[vitehub] Unsafe Markdown template condition "${value}".` })
       }
-      tokens.push({ path: path[0], type: "path" })
-      index += path[0].length
-      continue
-    }
-    throw unsafeConditionError(expression)
-  }
-  return tokens
-}
-
-function createConditionParser(
-  tokens: ConditionToken[],
-  expression: string,
-  data: Record<string, unknown>,
-) {
-  let index = 0
-  const error = () => markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0001({ message: `[vitehub] Invalid Markdown template condition "${expression}".` })
-  const peek = () => tokens[index]
-  const take = (value?: string) => {
-    const token = tokens[index]
-    if (value && (token?.type !== "op" || token.value !== value)) throw error()
-    index += 1
-    return token
-  }
-
-  function parsePrimary(): unknown {
-    const token = take()
-    if (!token) throw error()
-    if (token.type === "literal") return token.value
-    if (token.type === "path") return templatePathValue(data, token.path)
-    if (token.type === "op" && token.value === "(") {
-      const value = parseOr()
-      take(")")
-      return value
-    }
-    throw error()
-  }
-
-  function parseUnary(): unknown {
-    const token = peek()
-    if (token?.type === "op" && token.value === "!") {
-      take("!")
-      return !parseUnary()
-    }
-    return parsePrimary()
-  }
-
-  function parseEquality(): unknown {
-    let value = parseUnary()
-    const token = peek()
-    if (token?.type === "op" && ["==", "===", "!=", "!=="].includes(token.value)) {
-      take()
-      const right = parseUnary()
-      value = token.value === "!=" || token.value === "!==" ? value !== right : value === right
-    }
-    return value
-  }
-
-  function parseAnd(): unknown {
-    let value = parseEquality()
-    while (peek()?.type === "op" && (peek() as { value: string }).value === "&&") {
-      take("&&")
-      const right = parseEquality()
-      value = Boolean(value) && Boolean(right)
-    }
-    return value
-  }
-
-  function parseOr(): unknown {
-    let value = parseAnd()
-    while (peek()?.type === "op" && (peek() as { value: string }).value === "||") {
-      take("||")
-      const right = parseAnd()
-      value = Boolean(value) || Boolean(right)
-    }
-    return value
-  }
-
-  return {
-    done() {
-      if (index !== tokens.length) throw error()
-    },
-    parseOr,
-  }
-}
-
-export function templatePathValue(data: Record<string, unknown>, path: string): unknown {
-  return nestedPathValue(data, path.split("."))
-}
-
-function nestedPathValue(value: unknown, segments: string[]): unknown {
-  if (!segments.length) return value
-  if (!value || typeof value !== "object") return
-
-  for (let count = segments.length; count > 0; count -= 1) {
-    const key = segments.slice(0, count).join(".")
-    if (Object.hasOwn(value, key)) {
-      return nestedPathValue((value as Record<string, unknown>)[key], segments.slice(count))
     }
   }
-}
-
-function unsafeConditionError(expression: string): Error {
-  return markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0002({ message: `[vitehub] Unsafe Markdown template condition "${expression}". Conditions can only read data paths and use literals, ===, !==, &&, ||, !, and parentheses.` })
+  const props = resolveAttributes(attributes, renderData, { parseJson: true })
+  const has = (key: string) => Object.hasOwn(props, key)
+  const operators = Object.keys(comparisons).filter(has)
+  if (!has("condition") && !has("value")) {
+    throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0024({ message: "[vitehub] Markdown template if block requires a condition or value prop." })
+  }
+  if (has("condition") && !props.condition) return false
+  if (operators.length) {
+    return has("value") && props.value !== undefined
+      && operators.every(operator => props[operator] !== undefined && comparisons[operator]!(props.value, props[operator]))
+  }
+  return !has("value") || Boolean(props.value)
 }

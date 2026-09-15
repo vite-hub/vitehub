@@ -50,6 +50,14 @@
     "comark": "catalog:markdown",
     "nostics": "catalog:runtime"
   },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "publint": "catalog:tooling",

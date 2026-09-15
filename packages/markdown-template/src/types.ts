@@ -17,6 +17,7 @@ export interface RenderMarkdownTemplateOptions {
 export type RenderMarkdownFileOptions = Pick<RenderMarkdownTemplateOptions, "data" | "plugins">
 
 export interface RenderMarkdownTemplateInternalOptions extends RenderMarkdownTemplateOptions {
+  validateFragmentPath?: (path: string) => boolean
   validateConditionPath?: (path: string) => boolean
 }
 import type { parseMarkdown } from "comark"

@@ -575,7 +575,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["run", "build"], appDir)
       await mkdir(join(appDir, ".output/server/templates"), { recursive: true })
       await writeFile(join(appDir, ".output/server/templates/prompt.md"), "@./policy.md")
-      await writeFile(join(appDir, ".output/server/templates/policy.md"), "Hello {{ name }}.")
+      await writeFile(join(appDir, ".output/server/templates/policy.md"), "Hello {{ data.name }}.")
       await withNodeServer(join(appDir, ".output/server/index.mjs"), appDir, async (origin) => {
         const response = await fetch(`${origin}/api/markdown`)
         expect(response.status).toBe(200)
@@ -605,7 +605,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           const chat = useChat(useAgent("contract"))
           const title = computed(() => chat.data.value.get("title", "title"))
           </script>
-          <template><main>{{ title }}</main></template>
+          <template><main>{{ data.title }}</main></template>
         `, "utf8"),
         writeFile(join(appDir, "nuxt.config.ts"), `
           export default {

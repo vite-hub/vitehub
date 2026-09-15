@@ -8,7 +8,6 @@ const dynamicError = {
 export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
   codes: {
-    MARKDOWN_TEMPLATE_R0001: dynamicError,
     MARKDOWN_TEMPLATE_R0002: dynamicError,
     MARKDOWN_TEMPLATE_B0001: dynamicError,
     MARKDOWN_TEMPLATE_B0002: dynamicError,
@@ -17,10 +16,8 @@ export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics(
     MARKDOWN_TEMPLATE_R0013: dynamicError,
     MARKDOWN_TEMPLATE_R0014: dynamicError,
     MARKDOWN_TEMPLATE_R0015: dynamicError,
-    MARKDOWN_TEMPLATE_R0016: dynamicError,
     MARKDOWN_TEMPLATE_R0017: dynamicError,
     MARKDOWN_TEMPLATE_R0018: dynamicError,
-    MARKDOWN_TEMPLATE_R0019: dynamicError,
     MARKDOWN_TEMPLATE_R0020: dynamicError,
     MARKDOWN_TEMPLATE_R0021: dynamicError,
     MARKDOWN_TEMPLATE_R0022: dynamicError,
@@ -29,9 +26,6 @@ export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics(
     MARKDOWN_TEMPLATE_R0025: dynamicError,
     MARKDOWN_TEMPLATE_R0026: dynamicError,
     MARKDOWN_TEMPLATE_R0027: dynamicError,
-    MARKDOWN_TEMPLATE_R0028: dynamicError,
     MARKDOWN_TEMPLATE_R0029: dynamicError,
-    MARKDOWN_TEMPLATE_R0030: dynamicError,
-    MARKDOWN_TEMPLATE_R0031: dynamicError,
   },
 })

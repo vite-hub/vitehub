@@ -39,7 +39,7 @@ export const AgentMarkdown = defineComponent({
         class: [defaults.markdown.class, attrs.class],
         components: { img: ImagePreview, math: AgentMath, ...props.components },
         plugins: [markdownMath, ...(props.plugins ?? [])],
-        options: { ...props.options, html: false },
+        options: props.options,
         streaming: props.streaming,
         value: props.value,
       });

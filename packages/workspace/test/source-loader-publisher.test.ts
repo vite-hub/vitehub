@@ -756,7 +756,7 @@ describe("sources, loaders, and publishers", () => {
     const root = await createRoot()
     const directory = join(root, "server", "agents", "review")
     await mkdir(directory, { recursive: true })
-    await writeFile(join(directory, "prompt.template.md"), "Workspace {{ context.name }}\n@./missing.md\n@workspace.policy\n")
+    await writeFile(join(directory, "prompt.template.md"), "Workspace {{ data.context.name }}\n@./missing.md\n@workspace.policy\n")
     await writeFile(join(directory, "config.ts"), [
       `import prompt from "./prompt.template.md"`,
       `export default { rootDir: await prompt({ context: { name: "review" } }) }`,

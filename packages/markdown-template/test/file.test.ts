@@ -24,9 +24,9 @@ describe("renderMarkdownFile", () => {
     const root = await createRoot()
     await mkdir(join(root, "sections"))
     const path = join(root, "prompt with spaces.md")
-    await writeFile(path, "# Review {{ repository }}\n\n@./sections/policy.md")
+    await writeFile(path, "# Review {{ data.repository }}\n\n@./sections/policy.md")
     await writeFile(join(root, "sections/policy.md"), "@../rules.md")
-    await writeFile(join(root, "rules.md"), "Check {{ focus }}.")
+    await writeFile(join(root, "rules.md"), "Check {{ data.focus }}.")
     const options = { data: { repository: "*draft*", focus: "correctness" } }
 
     for (const input of [path, pathToFileURL(path), relative(process.cwd(), path)]) {
@@ -51,7 +51,7 @@ describe("renderMarkdownFile", () => {
     const source = join(root, "source")
     const deployed = join(root, "deployed")
     await mkdir(source)
-    await writeFile(join(source, "prompt.md"), "Review {{ number }}.\n\n@./policy.md")
+    await writeFile(join(source, "prompt.md"), "Review {{ data.number }}.\n\n@./policy.md")
     await cp(source, deployed, { recursive: true })
     await rm(source, { recursive: true })
     await expect(renderMarkdownFile(pathToFileURL(join(deployed, "prompt.md")), {
@@ -63,7 +63,7 @@ describe("renderMarkdownFile", () => {
     const root = await createRoot()
     const path = join(root, "prompt.md")
     await expect(renderMarkdownFile(path)).rejects.toMatchObject({ code: "ENOENT" })
-    await writeFile(path, "::if{enabled}\n@./missing.md\n::")
+    await writeFile(path, '::if{:value="data.enabled"}\n@./missing.md\n::')
     await expect(renderMarkdownFile(path, { data: { enabled: false } })).resolves.toBe("")
     await expect(renderMarkdownFile(path, { data: { enabled: true } })).resolves.toBe("@./missing.md")
   })

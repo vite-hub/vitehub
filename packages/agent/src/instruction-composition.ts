@@ -34,68 +34,22 @@ interface InstructionTemplateTags {
 }
 
 const contextConditionPathPattern = /^context(?:\.[A-Za-z_$][\w$-]*)+$/
-const instructionTripleBindingPattern = /\{\{\{\s*([A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 
 export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
   const state = { context: options.context || {}, workspace: options.workspace || {} }
-  await validateInstructionMarkdownBindings(content)
   const coverageMarker = createInstructionCoverageMarker()
   const marked = await markInstructionCoverage(content, coverageMarker)
 
   try {
     const rendered = await renderMarkdownTemplateInternal(marked, {
       data: state,
+      validateFragmentPath: path => path.startsWith("context.") || path.startsWith("workspace."),
       validateConditionPath: path => contextConditionPathPattern.test(path),
     })
     return await stripMarkedInstructionCoverage(rendered, coverageMarker, options.coverage)
   }
   catch (error) {
     rethrowInstructionCompositionError(error)
-  }
-}
-
-/** Insert trusted instruction Markdown without consuming other runtime bindings. */
-export async function fillInstructionSlot(template: string, content: string): Promise<string> {
-  const pattern = /\{\{\{\s*instructions\s*\}\}\}/g
-  const prefix = `VITEHUBINSTRUCTIONSLOT${crypto.randomUUID().replaceAll("-", "")}`
-  let index = 0
-  const masked = template.replace(pattern, () => `${prefix}${index++}END`)
-  const { tree } = await parseInstructionTemplate(masked)
-  const code = instructionTokensInCode(tree.nodes, prefix)
-  if (index - code.size !== 1) {
-    throw new TypeError("[vitehub] Instruction templates require exactly one {{{ instructions }}} slot outside code.")
-  }
-  index = 0
-  return template.replace(pattern, match => code.has(index++) ? match : content)
-}
-
-async function validateInstructionMarkdownBindings(content: string): Promise<void> {
-  if (!content.includes("{{{")) return
-  const { tags, tree } = await parseInstructionTemplate(content)
-  validateInstructionMarkdownBindingNodes(tree.nodes, tags)
-}
-
-function validateInstructionMarkdownBindingNodes(nodes: ComarkNode[], tags: InstructionTemplateTags): void {
-  for (const node of nodes) {
-    if (typeof node === "string") {
-      validateInstructionMarkdownBindingValue(node)
-      for (const match of node.matchAll(new RegExp(`${tags.prefix}(\\d+)END`, "g"))) {
-        const tag = tags.values[Number(match[1])]
-        if (tag) validateInstructionMarkdownBindingValue(tag)
-      }
-      continue
-    }
-    if (!isElement(node) || node[0] === "code") continue
-    validateInstructionMarkdownBindingNodes(node.slice(2) as ComarkNode[], tags)
-  }
-}
-
-function validateInstructionMarkdownBindingValue(value: string): void {
-  for (const match of value.matchAll(instructionTripleBindingPattern)) {
-    const path = match[1]!
-    if (!path.startsWith("context.") && !path.startsWith("workspace.")) {
-      throw agentDiagnostics.AGENT_R0445({ message: `[vitehub] Instruction markdown binding "{{{ ${path} }}}" must use a context.* or workspace.* path.` })
-    }
   }
 }
 
@@ -144,7 +98,7 @@ async function markInstructionCoverage(
     }
 
     const directive = line.match(/^\s*(:{2,})([A-Za-z][\w-]*)(?:\{.*\})?\s*$/)
-    if (!directive || directive[2] === "else" || directive[2] === "else-if") {
+    if (!directive) {
       lines.push(line)
       continue
     }
@@ -171,6 +125,21 @@ async function instructionDirectiveLinesInCode(content: string): Promise<Set<num
   if (!index) return new Set()
   const { tree } = await parseInstructionTemplate(masked)
   return instructionTokensInCode(tree.nodes, prefix)
+}
+
+/** Fill the single authored instruction slot while preserving code literals. */
+export async function fillInstructionSlot(template: string, content: string): Promise<string> {
+  const pattern = /\{\{\{\s*instructions\s*\}\}\}/g
+  const prefix = `VITEHUBINSTRUCTIONSLOT${crypto.randomUUID().replaceAll("-", "")}`
+  let count = 0
+  const masked = template.replace(pattern, () => `${prefix}${count++}END`)
+  const { tree } = await parseInstructionTemplate(masked)
+  const inCode = instructionTokensInCode(tree.nodes, prefix)
+  if (count - inCode.size !== 1) {
+    throw new TypeError("[vitehub] Instruction templates require exactly one {{{ instructions }}} slot outside code.")
+  }
+  let index = 0
+  return template.replace(pattern, match => inCode.has(index++) ? match : content)
 }
 
 function instructionTokensInCode(nodes: ComarkNode[], prefix: string, inCode = false): Set<number> {
