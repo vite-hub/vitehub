@@ -90,7 +90,7 @@ The renderer does not evaluate template syntax inside a fragment again. Bindings
 
 ### Select a condition
 
-Conditional sections read a data path and compare it with a literal using Comark's supported comparison props: `:eq`, `:neq`, `:gt`, `:gte`, `:lt`, and `:lte`. They do not parse JavaScript expressions.
+Conditional sections read a data path and compare it with a literal using Comark's supported comparison props: `eq`, `neq`, `gt`, `gte`, `lt`, and `lte`. Prefix a prop with `:` when its value is another binding or JSON value. They do not parse JavaScript expressions.
 
 ```md
 ::if{:condition="data.available"}
