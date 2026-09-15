@@ -526,7 +526,16 @@ async function removeStaleMaterializedSourceFiles(
         const digest = previousSnapshot.items[entry.path].materializedContentDigest
         if (!digest || await sha256(latest.content) !== digest) continue
       }
-      await control.mutate(() => store.rm(entry.path, { force: true }))
+      if (store.conditionalRemoval) {
+        await control.mutate(() => store.rm(entry.path, {
+          force: true,
+          ...(previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+            ? { ifDigest: previousSnapshot.items[entry.path].materializedContentDigest }
+            : {}),
+          ...(latestOwner ? { ifSource: latestOwner } : {}),
+        }))
+      }
+      else continue
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
   }
