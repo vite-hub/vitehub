@@ -63,7 +63,7 @@ describe("renderMarkdownFile", () => {
     const root = await createRoot()
     const path = join(root, "prompt.md")
     await expect(renderMarkdownFile(path)).rejects.toMatchObject({ code: "ENOENT" })
-    await writeFile(path, "::if{:value="data.enabled"}\n@./missing.md\n::")
+    await writeFile(path, '::if{:value="data.enabled"}\n@./missing.md\n::')
     await expect(renderMarkdownFile(path, { data: { enabled: false } })).resolves.toBe("")
     await expect(renderMarkdownFile(path, { data: { enabled: true } })).resolves.toBe("@./missing.md")
   })
