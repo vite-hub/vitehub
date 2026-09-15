@@ -63,8 +63,12 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const presetOptions = baseAgent.options;
   const github = options.github;
   const hostIdentity = github.identity()?.trim();
-  const activityAuthors = hostIdentity
-    ? [...options.activityAuthors, hostIdentity]
+  const normalizedActivityAuthors = options.activityAuthors.map((author) => author.trim().toLowerCase());
+  const verifiedHostIdentity = hostIdentity && normalizedActivityAuthors.includes(hostIdentity.toLowerCase())
+    ? hostIdentity
+    : undefined;
+  const activityAuthors = verifiedHostIdentity
+    ? [...options.activityAuthors, verifiedHostIdentity]
     : options.activityAuthors;
   const pullRequestInbox = new PullRequestInbox({
     path: options.inboxPath,
@@ -396,7 +400,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const workerDriver = driver as CodexDriverOptions<BabysitterPassResult> & {
                 kind: "codex";
               };
-              const activityEnabled = !!hostIdentity;
+              const activityEnabled = !!verifiedHostIdentity;
               const agent = defineAgent({
                 extends: baseAgent,
                 name: "babysitter-worker",
