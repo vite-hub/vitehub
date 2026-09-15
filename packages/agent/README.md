@@ -486,7 +486,7 @@ callback returns the verified commit SHA; subsequent operations follow that head
 and reject external changes.
 
 `requestAutoMerge()` is disabled by default. When enabled, it checks repository
-settings, required checks in active branch rules or classic protection, and
+settings, required checks or workflows in active branch rules or required checks in classic protection, and
 outstanding human change requests, then requests GitHub native auto-merge with
 an atomic expected-head check. It returns `enabled`, `already-enabled`, `merged`,
 or `blocked` with a reason. GitHub remains responsible for required checks and

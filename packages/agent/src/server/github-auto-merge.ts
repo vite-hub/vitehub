@@ -178,8 +178,10 @@ export function createGitHubPullRequestOperations(
     if (!current.autoMergeAllowed) return { status: "blocked", reason: "repository-disabled" }
     const rules = await github.command(["api", "--paginate", "--slurp", `/repos/${repository}/rules/branches/${encodeURIComponent(pullRequest.baseRefName)}?per_page=100`], commandOptions)
     const activeRules = v.parse(v.array(v.object({ type: v.string(), parameters: v.optional(v.unknown()) })), JSON.parse(rules.stdout).flat())
-    const requiredChecks = activeRules.some(rule => rule.type === "required_status_checks"
+    const requiredChecks = activeRules.some(rule => (rule.type === "required_status_checks"
       && v.safeParse(v.object({ required_status_checks: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success)
+      || (rule.type === "workflows"
+        && v.safeParse(v.object({ workflows: v.pipe(v.array(v.unknown()), v.minLength(1)) }), rule.parameters).success))
     // The branch rules endpoint includes active repository and organization rulesets.
     // Classic branch protection is read separately because it is not a ruleset.
     if (!requiredChecks) {

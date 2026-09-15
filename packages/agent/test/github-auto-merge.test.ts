@@ -115,6 +115,23 @@ describe("native auto-merge", () => {
     )
   })
 
+  it.each([false, true])("accepts required workflows with later-page rules: %s", async (laterPage) => {
+    const f = fixture({ autoMerge: true })
+    const rules = [{ type: "workflows", parameters: { workflows: [{ path: ".github/workflows/ci.yml", repository_id: 123 }] } }]
+    f.state.rules = laterPage ? [] : rules
+    f.state.additionalRulePages = laterPage ? [rules] : []
+    expect(await f.operations.requestAutoMerge()).toEqual({ status: "enabled" })
+    expect(f.mutations()).toHaveLength(1)
+    expect(f.command.mock.calls.some(([args]) => args.some(arg => arg.includes("branchProtectionRule")))).toBe(false)
+  })
+
+  it.each([undefined, {}, { workflows: [] }, { workflows: "ci" }])("rejects absent or invalid required workflows: %j", async (parameters) => {
+    const f = fixture({ autoMerge: true })
+    f.state.rules = [{ type: "workflows", parameters }]
+    expect(await f.operations.requestAutoMerge()).toEqual({ status: "blocked", reason: "required-checks-missing" })
+    expect(f.mutations()).toHaveLength(0)
+  })
+
   it("selects a method allowed by every active ruleset, including later pages", async () => {
     const f = fixture({ autoMerge: true })
     f.state.rules.push({ type: "pull_request", parameters: { allowed_merge_methods: ["squash", "rebase"] } })
