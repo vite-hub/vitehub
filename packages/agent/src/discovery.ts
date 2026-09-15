@@ -425,9 +425,14 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       let callbackDepth = 0
       for (let i = bodyStart; i < callbackEnd; i++) {
         const token = tokens[i]
-        if (token === "defineAgent" && callbackDepth < callbackDefinitionDepth) {
-          callbackDefinition = i
-          callbackDefinitionDepth = callbackDepth
+        if (token === "defineAgent") {
+          const returned = tokens[i - 1] === "return"
+          if (returned || callbackDepth < callbackDefinitionDepth) {
+            if (returned || callbackDepth === callbackDefinitionDepth || callbackDefinition < 0) {
+              callbackDefinition = i
+              callbackDefinitionDepth = callbackDepth
+            }
+          }
         }
         if (["{", "(", "["].includes(token)) callbackDepth++
         else if (["}", ")", "]"].includes(token)) callbackDepth--
