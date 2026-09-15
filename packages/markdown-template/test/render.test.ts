@@ -4,6 +4,26 @@ import { renderMarkdownTemplateInternal } from "../src/internal/composition.ts"
 import { renderMarkdownTemplate } from "../src/index.ts"
 
 describe("renderMarkdownTemplate", () => {
+  it("keeps colliding arrays separate without truncating nested elements", async () => {
+    const nested = ["nested", , "kept"]
+    const flat = ["flat"]
+    const data = { group: { items: nested }, "group.items": flat }
+    await expect(renderMarkdownTemplate("{{ data.group.items.0 }} {{ data.group.items.2 }} {{ data.group.items.length }}", { data }))
+      .resolves.toBe("flat kept 1")
+    expect(nested).toHaveLength(3)
+    expect(nested[2]).toBe("kept")
+    expect(flat).toEqual(["flat"])
+  })
+
+  it.each([false, true])("resolves overlapping scalar paths in insertion order %s", async (reverse) => {
+    const entries: [string, string][] = [["support.customer", "Acme"], ["support.customer.name", "Primary"]]
+    const data = Object.fromEntries(reverse ? entries.reverse() : entries)
+    await expect(renderMarkdownTemplate("{{ data.support.customer }} {{ data.support.customer.name }}", { data }))
+      .resolves.toBe("Acme Primary")
+    await expect(renderMarkdownTemplate('::if{:value="data.support.customer" eq="Acme"}\n[Customer](){:href="data.support.customer.name"}\n::', { data }))
+      .resolves.toBe("[Customer](Primary)")
+  })
+
   it("keeps unused dotted accessors lazy", async () => {
     let reads = 0
     const data = {
@@ -34,7 +54,7 @@ describe("renderMarkdownTemplate", () => {
     [{ "support.customer": "Acme", "support.customer.name": "Ada" }, "{{ data.support.customer.name }}", "Ada"],
     [{ customer: "explicit", "customer.name": "Ada" }, "{{ data.customer }}", "explicit"],
     // eslint-disable-next-line unicorn/no-new-array -- The regression requires sparse holes, not initialized elements.
-    [{ items: new Array(3), "items.length": 8 }, "{{ data.items.length }}", "3"],
+    [{ items: new Array(3), "items.length": 8 }, "{{ data.items.length }}", "8"],
     // eslint-disable-next-line unicorn/no-new-array -- The regression requires sparse holes, not initialized elements.
     [{ items: new Array(3), "items.0": "first" }, "{{ data.items.0 }} {{ data.items.length }}", "first 3"],
   ])("preserves dotted aliases and explicit data for %j", async (data, template, expected) => {

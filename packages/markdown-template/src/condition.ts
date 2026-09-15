@@ -1,6 +1,6 @@
-import { resolveAttributes } from "comark/render"
 import type { NodeRenderData } from "comark/render"
 
+import { resolveTemplateAttributes as resolveAttributes } from "./bindings.ts"
 import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 
 type Ordered = number | string

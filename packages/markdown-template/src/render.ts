@@ -1,10 +1,11 @@
 import { parseMarkdown } from "comark"
 import binding from "comark/plugins/binding"
-import { renderMarkdown, resolveAttributes } from "comark/render"
+import { renderMarkdown } from "comark/render"
 import { escapeHtml } from "comark/utils"
 import type { ElementNode, Node } from "comark"
 import type { NodeHandler, State } from "comark/render"
 
+import { resolveTemplateAttributes as resolveAttributes } from "./bindings.ts"
 import { matchesCondition } from "./condition.ts"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
 import { prepareTemplate } from "./prepare.ts"
@@ -166,8 +167,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     null,
   )
   seen.set(value, copy)
-  const explicitPaths = new Set(Object.keys(value))
-  for (const key of explicitPaths) {
+  for (const key of Object.keys(value)) {
     // SAFETY: callers provide object-like data; indexing by an own enumerable key yields its value.
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     let resolved: unknown
@@ -181,50 +181,6 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     }
     Object.defineProperty(copy, key, { enumerable: true, configurable: true, get: read })
   }
-  for (const key of [...explicitPaths]
-    .filter((key) => key.includes("."))
-    .sort((left, right) => right.split(".").length - left.split(".").length)) {
-    defineDottedPath(copy, key.split("."), () => Reflect.get(copy, key), explicitPaths.has(key.split(".")[0]))
-  }
   // SAFETY: `copy` mirrors the input's enumerable data shape and is returned as the same generic type.
   return copy as T
-}
-
-// doctor-disable-next-line typescript/evidence/no-object-parameters -- This helper owns property descriptors and accepts both cloned records and arrays.
-function defineDottedPath(target: object, parts: string[], read: () => unknown, preserveScalar: boolean): void {
-  const [part, ...rest] = parts
-  const descriptor = Object.getOwnPropertyDescriptor(target, part)
-  // Array length is intrinsic and cannot be replaced by an alias getter.
-  if (descriptor?.configurable === false) return
-  let loaded = false
-  let resolved: unknown
-  Object.defineProperty(target, part, {
-    enumerable: true,
-    configurable: true,
-    get() {
-      if (loaded) return resolved
-      const existing: unknown = descriptor?.get ? descriptor.get.call(target) : descriptor?.value
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Traverse only object-like cloned data nodes.
-      const object = existing !== null && typeof existing === "object" ? existing : undefined
-      if (rest.length) {
-        if (descriptor && !object && preserveScalar) resolved = existing
-        else {
-          const nested = object ?? Object.create(null)
-          defineDottedPath(nested, rest, read, false)
-          resolved = nested
-        }
-      }
-      else if (object) {
-        const value = read()
-        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Merge cloned objects without evaluating their property getters.
-        if (value !== null && typeof value === "object") {
-          Object.defineProperties(object, Object.getOwnPropertyDescriptors(value))
-        }
-        resolved = object
-      }
-      else resolved = descriptor ? existing : read()
-      loaded = true
-      return resolved
-    },
-  })
 }

@@ -56,6 +56,8 @@ Title: \*Draft\*
 
 Use `{{ data.path.to.value }}` for a string, number, or boolean. Paths read own enumerable properties only, plus array length. A missing path, `null`, an array, or an object rejects the render instead of producing an empty string.
 
+Dotted keys resolve by the longest matching own key before nested traversal. For `{ "support.customer": "Acme", "support.customer.name": "Primary" }`, both `data.support.customer` and `data.support.customer.name` remain addressable regardless of key insertion order. If a longer object prefix has no matching descendant, lookup continues through shorter prefixes without merging or mutating the objects. Exact dotted keys also take precedence over nested values, including array length.
+
 Scalar bindings are Markdown text, not raw source. The renderer also HTML-escapes scalar bindings inside quoted XML-style attributes.
 
 ```md
