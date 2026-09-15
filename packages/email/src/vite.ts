@@ -501,7 +501,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         return renderEmailDefinitionModule(definition)
       }
       if (id.endsWith("?markdown-template")) {
-        const file = id.slice(0, -"?markdown-template".length).replace(/^\/\@fs\//, "/")
+        const file = id.slice(0, -"?markdown-template".length).replace(/^\/\@fs\/([A-Za-z]:[\\/])/, "$1").replace(/^\/\@fs\//, "/")
         return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
           `import { renderMarkdownTemplate } from "@vite-hub/markdown-template"\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
         )
