@@ -249,12 +249,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             if (key !== undefined) result.set(key, tokens[close] === "(" ? close : close + 1)
             // Account for a computed method parameter list even though the
             // opener is consumed while locating the key.
-            if (tokens[close] === "(") {
-              depth++
-              i = close
-            } else {
-              i = close - 1
-            }
+            // Leave the opening delimiter for the normal depth accounting.
+            // Skipping it while starting at the following token makes the
+            // matching close delimiter decrement the enclosing object depth.
+            i = close - 1
             atProperty = false
           }
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
