@@ -336,7 +336,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         }
       }
       const tail = tokens.slice(start, end).join(" ")
-      if (/\bworkspace\s*:/.test(tail)) return true
+      // Configured callbacks may contribute Workspace through a capability or
+      // channel rather than returning an inline `workspace` object.
+      if (/\bworkspace\s*:|\bworkspace(?:Capability|Channel)\b|\bcapabilities\s*:/.test(tail)) return true
     }
     if (preset === undefined || registry === undefined) return false
     const selection = tokens[resolveReference(preset)]
