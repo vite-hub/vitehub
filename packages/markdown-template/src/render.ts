@@ -156,7 +156,9 @@ function conditionalBranches(node: ElementNode): { branches: ElementNode[], afte
 // Comark resolves inherited properties; expose only the explicit data for this render.
 function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Clone object properties recursively while preserving scalar values unchanged.
-  if (!value || typeof value !== "object") return value
+  // Functions can expose inherited properties (for example `constructor`), so
+  // treat them as object-like values and wrap their own enumerable properties.
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return value
   // SAFETY: The map stores only the corresponding clone for each input object during this traversal.
   if (seen.has(value)) return seen.get(value) as T
   const copy = Object.setPrototypeOf(Array.isArray(value) ? [] : {}, null)
