@@ -67,6 +67,7 @@ interface PromotedSourceSkillFile {
   digest: string
   source: string
   sourcePath: string
+  workspace?: string
 }
 
 function startupSourcesMetaKey(workspaceName?: string) {
@@ -259,7 +260,7 @@ async function reconcilePromotedSourceSkills(
     if (!sourceFile) continue
     const existing = await readPromotedFile(store, destination)
     const prior = previous[destination]
-    const ownsExisting = Boolean(prior && existing && await sha256(existing.content) === prior.digest)
+    const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await sha256(existing.content) === prior.digest)
     if (existing && !ownsExisting) continue
     const metadata = {
       ...sourceFile.metadata,
@@ -283,7 +284,7 @@ async function reconcilePromotedSourceSkills(
       conflictedDestinations.add(destination)
       continue
     }
-    next[destination] = { ...candidate, digest: await sha256(sourceFile.content) }
+    next[destination] = { ...candidate, digest: await sha256(sourceFile.content), workspace: workspaceName || "default" }
   }
   for (const [destination, prior] of Object.entries(previous)) {
     if (next[destination] || conflictedDestinations.has(destination)) continue
@@ -1127,7 +1128,7 @@ async function materializeWorkspaceSourcesInternal(
     const previousPromotion = promotionReconciliationByStore.get(store)
     const promotion = (async () => {
       await previousPromotion
-      await reconcilePromotedSourceSkills(store, definition.name, configuredSources, control)
+      await reconcilePromotedSourceSkills(store, configuredSources, control, definition.name)
     })()
     const tail = promotion.catch(() => {})
     promotionReconciliationByStore.set(store, tail)
