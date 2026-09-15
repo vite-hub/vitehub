@@ -352,7 +352,15 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (arrow < 0) {
         // Method or function callbacks have a parameter list followed by a
         // block body; skip the parameters and bound scanning to that block.
-        const body = tokens.indexOf("{", start)
+        let parameterEnd = start
+        if (tokens[parameterEnd] === "(") {
+          let depth = 0
+          for (; parameterEnd < tokens.length; parameterEnd++) {
+            if (tokens[parameterEnd] === "(") depth++
+            else if (tokens[parameterEnd] === ")" && --depth === 0) { parameterEnd++; break }
+          }
+        }
+        const body = tokens.indexOf("{", parameterEnd)
         if (body >= 0) {
           start = body
           bodyStart = body
