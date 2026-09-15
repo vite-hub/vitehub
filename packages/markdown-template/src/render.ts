@@ -159,7 +159,10 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Clone object properties recursively while preserving scalar values unchanged.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return value
   if (seen.has(value)) return seen.get(value) as T
-  const copy = Object.setPrototypeOf(Array.isArray(value) ? [] : {}, null)
+  const copy = Object.setPrototypeOf(
+    Array.isArray(value) ? new Array(value.length) : {},
+    null,
+  )
   seen.set(value, copy)
   for (const key of Object.keys(value)) {
     const resolved = ownData((value as Record<string, unknown>)[key], seen)
