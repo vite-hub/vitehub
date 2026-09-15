@@ -181,6 +181,9 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
 
 function clonePresetOption(value: unknown): unknown {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return value
+  // Functions are atomic option values; preserve callback identity rather than
+  // rejecting them as unsupported objects.
+  if (typeof value === "function") return value
   if (Array.isArray(value)) return value.map(clonePresetOption)
   if (value instanceof Date) return new Date(value.getTime())
   if (value instanceof Map) return new Map(Array.from(value, ([key, entry]) => [clonePresetOption(key), clonePresetOption(entry)]))
