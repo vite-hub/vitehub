@@ -956,7 +956,7 @@ describe("bundleEsmEntry", () => {
 
     // SAFETY: This bundle's entry module exports an async Markdown template renderer.
     const bundled = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n\n  ```\n      @./missing.md\n  ```\n- Fenced example\n  ```md\n  @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
+    await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n\n  ```\n  @./missing.md\n  ```\n- Fenced example\n  ```md\n    @./missing.md\n  ```\n- Context\n@./missing.md\n\n> Waiting")
   })
 
   it("keeps missing import text literal in bundled Markdown templates", async () => {
