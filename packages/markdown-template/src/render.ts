@@ -172,6 +172,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     entries.push([key, resolved])
     Object.defineProperty(copy, key, { enumerable: true, configurable: true, value: resolved, writable: true })
   }
+  const explicitPaths = new Set(entries.map(([key]) => key))
   for (const [key, resolved] of entries
     .filter(([key]) => key.includes("."))
     .sort(([left], [right]) => right.split(".").length - left.split(".").length)) {
@@ -190,6 +191,10 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
     // SAFETY: object values created by ownData have string-keyed records.
     if (existing && typeof existing === "object") current = existing as Record<string, unknown>
     else {
+      // Preserve an explicitly supplied path (including dotted parents) when
+      // materializing a descendant alias; explicit caller data wins.
+      const prefix = parts.slice(0, index + 1).join(".")
+      if (explicitPaths.has(prefix)) return
       const nested = Object.setPrototypeOf({}, null) as Record<string, unknown>
       Object.defineProperty(current, part, { enumerable: true, configurable: true, value: nested, writable: true })
       current = nested
