@@ -192,14 +192,16 @@ function clonePresetOption(value: unknown): unknown {
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
     if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) return (globalThis as { Buffer: typeof Buffer }).Buffer.from(value)
-    // SAFETY: DataView intrinsic accessor returns the view's backing buffer.
-    const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
     if (value instanceof DataView) {
+      // SAFETY: DataView intrinsic accessors avoid shadowable instance properties.
+      const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
       const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value)
       const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value)
       return new DataView(buffer.slice(byteOffset, byteOffset + byteLength))
     }
     const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+    // SAFETY: %TypedArray% intrinsic accessors work for every typed-array view.
+    const buffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer")!.get!.call(value) as ArrayBuffer
     const byteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")!.get!.call(value)
     const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")!.get!.call(value)
     const copy = buffer.slice(byteOffset, byteOffset + byteLength)
