@@ -63,7 +63,13 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
     async load(id) {
       const request = parseMarkdownTemplateRequest(id)
       if (!request) return
-      const path = request.path.startsWith("/@fs/") ? request.path.slice("/@fs".length) : request.path
+      let path = request.path
+      if (path.startsWith("/@fs/")) {
+        path = path.slice("/@fs".length)
+        // Vite prefixes Windows drive-letter paths with a separator (`/@fs/C:\\...`).
+        // Remove that separator so Node receives the native absolute path.
+        if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1)
+      }
       const template = await readFile(path, "utf8")
       this.addWatchFile(path)
       return {
