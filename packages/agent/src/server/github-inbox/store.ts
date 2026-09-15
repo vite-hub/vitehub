@@ -29,8 +29,8 @@ const stamp = (value: GitHubEvidence) => Date.parse(value.updated_at ?? value.up
 /** Normalize REST and discovery records once, before they enter the inbox. */
 export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 
-/** Activity comments have a transport marker; all other humans and bots are feedback. */
-export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item && !String(item.body ?? '').startsWith('<!-- vitehub-agent-activity:'))
+/** Evidence is feedback by default; callers suppress transport comments only after authenticating their author. */
+export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item)
 
 function parseSnapshot(value: unknown): Snapshot {
   if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
