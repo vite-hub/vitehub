@@ -182,10 +182,12 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     }
     Object.defineProperty(copy, key, { enumerable: true, configurable: true, get: read })
   }
-  const explicitPaths = new Set(entries.map(([key]) => key))
-  for (const [key, resolved] of entries
-    .filter(([key]) => key.includes("."))
-    .sort(([left], [right]) => right.split(".").length - left.split(".").length)) {
+  // Record all explicit keys without evaluating unrelated lazy properties.
+  const explicitPaths = new Set(Object.getOwnPropertyNames(value).filter((key) => !(Array.isArray(value) && key === "length")))
+  for (const key of [...explicitPaths]
+    .filter((key) => key.includes("."))
+    .sort((left, right) => right.split(".").length - left.split(".").length)) {
+    const resolved = (copy as Record<string, unknown>)[key]
     // SAFETY: `copy` is the null-prototype clone being populated as a string-keyed record.
     defineDottedPath(copy as Record<string, unknown>, key, resolved, explicitPaths)
   }
