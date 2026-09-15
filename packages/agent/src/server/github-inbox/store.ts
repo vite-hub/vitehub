@@ -235,7 +235,13 @@ export class PullRequestInbox {
           map[key] = next
           changed = true
         }
-        if (event === 'issue_comment') upsert(s.comments, payload.comment)
+        if (event === 'issue_comment') {
+          const feedback = isFeedback(payload.comment)
+          upsert(s.comments, payload.comment)
+          // Agent activity comments are self-generated transport records; they
+          // must not advance the repair generation or revoke the active claim.
+          if (!feedback) changed = false
+        }
         if (event === 'pull_request_review_comment') { upsert(s.reviewComments, payload.comment); if (changed) s.feedbackRefresh = true }
         if (event === 'pull_request_review') { upsert(s.reviews, payload.review); if (changed) s.feedbackRefresh = true }
         if (event === 'pull_request_review_thread' && payload.thread) {
