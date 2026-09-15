@@ -199,7 +199,7 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
       // Preserve an explicitly supplied path (including dotted parents) when
       // materializing a descendant alias; explicit caller data wins.
       const prefix = parts.slice(0, index + 1).join(".")
-      if (explicitPaths.has(prefix)) return
+      if (explicitPaths.has(prefix) && !prefix.includes(".")) return
       const nested = Object.setPrototypeOf({}, null) as Record<string, unknown>
       Object.defineProperty(current, part, { enumerable: true, configurable: true, value: nested, writable: true })
       current = nested
