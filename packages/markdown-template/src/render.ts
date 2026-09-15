@@ -158,6 +158,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   // Comark resolves inherited properties; expose a stable snapshot of explicit data.
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Clone object properties recursively while preserving scalar values unchanged.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return value
+  // SAFETY: `value` is an object tracked in this map, so the stored clone has type T.
   if (seen.has(value)) return seen.get(value) as T
   const copy = Object.setPrototypeOf(
     Array.isArray(value) ? new Array(value.length) : {},
@@ -166,6 +167,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   seen.set(value, copy)
   const entries: [string, unknown][] = []
   for (const key of Object.keys(value)) {
+    // SAFETY: callers provide object-like data; indexing by an own enumerable key yields its value.
     const resolved = ownData((value as Record<string, unknown>)[key], seen)
     entries.push([key, resolved])
     Object.defineProperty(copy, key, { enumerable: true, configurable: true, value: resolved, writable: true })
@@ -175,6 +177,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     .sort(([left], [right]) => right.split(".").length - left.split(".").length)) {
     defineDottedPath(copy as Record<string, unknown>, key, resolved)
   }
+  // SAFETY: `copy` mirrors the input's enumerable data shape and is returned as the same generic type.
   return copy as T
 }
 
@@ -184,6 +187,7 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
   for (let index = 0; index < parts.length - 1; index++) {
     const part = parts[index]
     const existing = current[part]
+    // SAFETY: object values created by ownData have string-keyed records.
     if (existing && typeof existing === "object") current = existing as Record<string, unknown>
     else {
       const nested = Object.setPrototypeOf({}, null) as Record<string, unknown>
@@ -191,6 +195,7 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
       current = nested
     }
   }
+  // SAFETY: split guarantees at least one segment, so the final segment is defined.
   if (!Object.hasOwn(current, parts.at(-1)!)) {
     Object.defineProperty(current, parts.at(-1)!, { enumerable: true, configurable: true, value, writable: true })
   }
