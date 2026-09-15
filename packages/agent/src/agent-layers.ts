@@ -186,6 +186,11 @@ function clonePresetOption(value: unknown): unknown {
   if (value instanceof Set) return new Set(Array.from(value, clonePresetOption))
   if (value instanceof RegExp) return new RegExp(value.source, value.flags)
   if (value instanceof URL) return new URL(value.href)
+  if (value instanceof ArrayBuffer) return value.slice(0)
+  if (ArrayBuffer.isView(value)) {
+    if (value instanceof DataView) return new DataView(value.buffer.slice(0), value.byteOffset, value.byteLength)
+    return new (value.constructor as { new (buffer: ArrayBuffer, byteOffset?: number, length?: number): typeof value })(value.buffer.slice(0), value.byteOffset, value.length)
+  }
   if (value !== null && typeof value === "object") {
     const prototype = Object.getPrototypeOf(value)
     if (prototype !== Object.prototype && prototype !== null) {
