@@ -172,7 +172,9 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
 }
 
 function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>): Record<string, unknown> {
+  if (child && memo.has(child)) return memo.get(child) as Record<string, unknown>
   const result: Record<string | symbol, unknown> = {}
+  if (child) memo.set(child, result)
   const parentKeys = parent as Record<PropertyKey, unknown>
   const childKeys = child as Record<PropertyKey, unknown> | undefined
   for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child ?? {})])) {
@@ -255,7 +257,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
   for (const key of Reflect.ownKeys(definition)) {
-    if (key === "options" || key === agentLayerMetadata || key === "resolve") continue
+    if (key === "options" || key === agentLayerMetadata || key === "resolve" || key === "run" || key === "health" || key === "status") continue
     const descriptor = Object.getOwnPropertyDescriptor(definition, key)
     if (descriptor) Object.defineProperty(configured, key, descriptor)
   }
