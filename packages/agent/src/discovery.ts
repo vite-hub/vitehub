@@ -369,7 +369,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // a Workspace contribution promotes the configured Agent at runtime.
       const capabilityNames = [...tail.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)].map((match) => match[1])
       for (const name of capabilityNames) {
-        const declaration = new RegExp(`(?:const|let|var)\\s+${name}\\s*=\\s*defineCapability\\s*\\([^)]*\\bworkspace\\s*:`, "s")
+        // Follow locally bound capabilities through their definition rather than
+        // relying on an identifier naming convention. Keep the scan bounded to
+        // the initializer so unrelated later declarations cannot affect it.
+        const declaration = new RegExp(`(?:const|let|var)\\s+${name}\\s*=\\s*defineCapability\\s*\\([^;]*?\\bworkspace\\s*:`, "m")
         if (declaration.test(source)) return true
       }
     }
