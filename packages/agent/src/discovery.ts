@@ -375,7 +375,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // Only declarations inside this callback can contribute to its
         // returned definition. Declarations elsewhere in the module may reuse
         // the same identifier and must not affect this Agent's classification.
-        for (let i = bodyStart; i < callbackEnd - 4; i++) {
+        // Aliases are commonly declared at module scope before the exported
+        // Agent. Include those declarations, while keeping the end bounded to
+        // this callback so later definitions cannot affect classification.
+        for (let i = 0; i < callbackEnd - 4; i++) {
           if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== name || tokens[i + 2] !== "=" || tokens[i + 3] !== "defineCapability") continue
           let cursor = i + 4
           if (tokens[cursor] !== "(") continue
