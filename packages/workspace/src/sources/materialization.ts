@@ -270,7 +270,9 @@ async function reconcilePromotedSourceSkills(
     const existing = await store.readFile(destination)
     if (existing && await sha256(existing.content) === prior.digest) {
       const latest = await store.readFile(destination)
-      if (latest && await sha256(latest.content) === prior.digest) await control.mutate(() => store.rm(destination, { force: true }))
+      if (latest && await sha256(latest.content) === prior.digest) {
+        await control.mutate(() => store.rm(destination, { force: true, ifDigest: prior.digest }))
+      }
     }
     else if (existing) next[destination] = prior
   }
@@ -460,7 +462,7 @@ async function removeStaleMaterializedSourceFiles(
       // Persisted ownership can survive a user edit made outside the Store.
       // Only remove indexed startup files while their materialized content matches.
       const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
-      if (!file || !recordedDigest || await sha256(file.content) !== recordedDigest) continue
+      if (!file || (recordedDigest && await sha256(file.content) !== recordedDigest) || (!recordedDigest && currentOwner !== source.key)) continue
     }
     const overlapsAnotherSource = sources.some(candidate =>
       candidate.key !== source.key
