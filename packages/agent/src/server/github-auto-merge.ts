@@ -212,7 +212,7 @@ export function createGitHubPullRequestOperations(
     if (finalState.pullRequest.isDraft) return { status: "blocked", reason: "draft" }
     if (finalState.pullRequest.reviewDecision === "CHANGES_REQUESTED"
       || finalState.pullRequest.latestOpinionatedReviews.nodes.some(review => review.state === "CHANGES_REQUESTED" && review.author?.__typename !== "Bot")) return { status: "blocked", reason: "changes-requested" }
-    const result = v.parse(v.object({ enablePullRequestAutoMerge: v.object({ pullRequest: v.object({ id: v.string(), state: v.string(), headRefOid: v.string(), autoMergeRequest: v.nullable(v.object({ enabledAt: v.string() })) }) }) }), await graphQL(`mutation($id:ID!,$head:GitObjectID!,$method:PullRequestMergeMethod!){enablePullRequestAutoMerge(input:{pullRequestId:$id,expectedHeadOid:$head,mergeMethod:$method}){pullRequest{id state headRefOid autoMergeRequest{enabledAt}}}}`, { id: pullRequest.id, head: pullRequest.headRefOid, method }))
+    const result = v.parse(v.object({ enablePullRequestAutoMerge: v.object({ pullRequest: v.object({ id: v.string(), state: v.string(), headRefOid: v.string(), autoMergeRequest: v.nullable(v.object({ enabledAt: v.string() })) }) }) }), await graphQL(`mutation($id:ID!,$method:PullRequestMergeMethod!){enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$method}){pullRequest{id state headRefOid autoMergeRequest{enabledAt}}}}`, { id: pullRequest.id, method }))
     const confirmed = result.enablePullRequestAutoMerge.pullRequest
     if (confirmed.id !== pullRequest.id || confirmed.headRefOid !== pullRequest.headRefOid) throw new Error("GitHub did not confirm the expected pull request head.")
     if (confirmed.state === "MERGED") return { status: "merged" }

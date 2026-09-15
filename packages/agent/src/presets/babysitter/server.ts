@@ -91,15 +91,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   async function readThreads(repository: string, number: number, signal?: AbortSignal) {
     return readPullRequestThreads(
       async (query, variables) => {
-        await github.ensureGraphQLBudget(repository, { cost: 1, signal });
+        const reservation = await github.ensureGraphQLBudget(repository, { cost: 1, signal });
+        reservation.submit();
         const args = ["api", "graphql", "-f", `query=${query}`];
         for (const [key, value] of Object.entries(variables)) {
           if (value === null) continue;
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Server capability inputs are untyped until this runtime boundary validates them.
           args.push(typeof value === "number" ? "-F" : "-f", `${key}=${value}`);
         }
-        const result = await github.command(args, { repository, timeout: 60_000, signal });
-        return JSON.parse(result.stdout);
+        try {
+          const result = await github.command(args, { repository, timeout: 60_000, signal });
+          return JSON.parse(result.stdout);
+        } finally {
+          reservation.settle(1);
+        }
       },
       repository,
       number,
