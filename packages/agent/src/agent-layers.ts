@@ -140,7 +140,7 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     // Preserve application-owned decorations from the configure result on every reconfiguration.
     // SAFETY: resolved is the freshly merged Agent definition settings object.
-    copyDefinitionDecorations(definition as unknown as DefinitionDecorationCarrier, resolved as unknown as DefinitionDecorationCarrier)
+    copyDefinitionDecorations(asMetadataTarget(definition), asMetadataTarget(resolved))
     return resolved
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
@@ -238,8 +238,8 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     if (value instanceof DataView) {
       // SAFETY: DataView intrinsic accessors avoid shadowable instance properties.
       const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
-      const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value)
-      const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value)
+      const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value) as number
+      const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value) as number
       const clonedBuffer = clonePresetOption(buffer, memo) as ArrayBuffer
       const clone = new DataView(clonedBuffer, byteOffset, byteLength)
       memo.set(value, clone)
