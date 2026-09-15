@@ -246,12 +246,24 @@ function isWorkspaceAgentDefinition(source: string): boolean {
               if (p + 1 < expression.length && expression[p + 1] !== "+") { valid = false; break }
             }
             if (valid && literalParts.length) key = literalParts.join("")
-            if (key !== undefined) result.set(key, tokens[close] === "(" ? close : close + 1)
+            let valueIndex = close + 1
+            if (tokens[close] === "(") {
+              // Skip the complete parameter list (including destructuring)
+              // and point directly at the method body so callback discovery
+              // cannot mistake a parameter object for the returned Agent.
+              let parameters = 1
+              while (valueIndex < tokens.length && parameters > 0) {
+                if (tokens[valueIndex] === "(") parameters++
+                else if (tokens[valueIndex] === ")") parameters--
+                valueIndex++
+              }
+              if (tokens[valueIndex] === "{") valueIndex
+            }
+            if (key !== undefined) result.set(key, valueIndex)
             // Account for a computed method parameter list explicitly. The
             // opener is consumed while locating the key, so seed depth before
             // continuing after it; otherwise the closing `)` would underflow
             // the enclosing object scan and hide following sibling fields.
-            if (tokens[close] === "(") depth++
             i = close
             atProperty = false
           }
