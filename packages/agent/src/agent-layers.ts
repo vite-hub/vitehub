@@ -188,8 +188,10 @@ function clonePresetOption(value: unknown): unknown {
   if (value instanceof URL) return new URL(value.href)
   if (value instanceof ArrayBuffer) return value.slice(0)
   if (ArrayBuffer.isView(value)) {
-    if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) return Buffer.from(value)
+    if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) return (globalThis as { Buffer: typeof Buffer }).Buffer.from(value)
+    // SAFETY: ArrayBuffer.isView above guarantees a valid built-in view.
     const view = value as ArrayBufferView
+    // SAFETY: DataView intrinsic accessor returns the view's backing buffer.
     const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
     if (value instanceof DataView) {
       const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value)
@@ -200,7 +202,7 @@ function clonePresetOption(value: unknown): unknown {
     const byteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")!.get!.call(value)
     const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")!.get!.call(value)
     const copy = buffer.slice(byteOffset, byteOffset + byteLength)
-    const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, typeof BigInt64Array !== "undefined" ? BigInt64Array : undefined, typeof BigUint64Array !== "undefined" ? BigUint64Array : undefined].filter(Boolean) as any[]
+    const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, "BigInt64Array" in globalThis ? BigInt64Array : undefined, "BigUint64Array" in globalThis ? BigUint64Array : undefined].filter(Boolean) as any[]
     const TypedArray = constructors.find((ctor) => value instanceof ctor)
     if (!TypedArray) throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
     return new TypedArray(copy)
