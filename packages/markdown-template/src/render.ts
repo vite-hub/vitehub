@@ -162,7 +162,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   // SAFETY: every value inserted into `seen` is the clone of the corresponding input object.
   if (seen.has(value)) return seen.get(value) as T
   const copy = Object.setPrototypeOf(
-    Array.isArray(value) ? new Array(value.length) : {},
+    Array.isArray(value) ? Array.from({ length: value.length }) : {},
     null,
   )
   seen.set(value, copy)
@@ -177,6 +177,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   for (const [key, resolved] of entries
     .filter(([key]) => key.includes("."))
     .sort(([left], [right]) => right.split(".").length - left.split(".").length)) {
+    // SAFETY: `copy` is the null-prototype clone being populated as a string-keyed record.
     defineDottedPath(copy as Record<string, unknown>, key, resolved, explicitPaths)
   }
   // SAFETY: `copy` mirrors the input's enumerable data shape and is returned as the same generic type.
@@ -209,7 +210,9 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
   // SAFETY: key.split(".") always yields at least one segment.
   const leaf = parts.at(-1)!
   const existing = current[leaf]
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Merge only object-like cloned nodes.
   if (existing && typeof existing === "object" && value && typeof value === "object") {
+    // SAFETY: the guard above establishes that `value` is object-like and Object.keys accepts it.
     for (const child of Object.keys(value as object)) {
       Object.defineProperty(existing, child, { enumerable: true, configurable: true,
         value: (value as Record<string, unknown>)[child], writable: true })
