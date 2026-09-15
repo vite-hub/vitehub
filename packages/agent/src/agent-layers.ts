@@ -140,7 +140,7 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     // Preserve application-owned decorations from the configure result on every reconfiguration.
     // SAFETY: resolved is the freshly merged Agent definition settings object.
-    copyDefinitionDecorations(definition, resolved)
+    copyDefinitionDecorations(definition as unknown as DefinitionDecorationCarrier, resolved as unknown as DefinitionDecorationCarrier)
     return resolved
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
@@ -151,7 +151,9 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
   return resolved
 }
 
-export function copyDefinitionDecorations(source: object, target: object): void {
+export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
+
+export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
   const frameworkSymbols = new Set<PropertyKey>([
     Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
     Symbol.for("vitehub.baseAgentCapabilitiesResolver"), Symbol.for("vitehub.baseAgentModel"),
@@ -284,7 +286,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   assertLayerDefinition(definition)
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
-  copyDefinitionDecorations(definition, configured)
+  copyDefinitionDecorations(definition as unknown as DefinitionDecorationCarrier, configured as unknown as DefinitionDecorationCarrier)
   inheritColocatedSkills(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritAgentLayerOptions(asMetadataTarget(definition), asMetadataTarget(configured))
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })

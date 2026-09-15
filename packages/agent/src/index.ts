@@ -1,7 +1,7 @@
 import type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
-import { agentLayerMetadata, copyDefinitionDecorations, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
+import { agentLayerMetadata, copyDefinitionDecorations, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions, type DefinitionDecorationCarrier } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
@@ -2533,7 +2533,7 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   // Reconfiguration carries callback-owned decorations through the settings object;
   // copy them onto the rebuilt Agent after defineBaseAgent has reconstructed it.
   if (agentOptions !== normalizedOptions) {
-    copyDefinitionDecorations(agentOptions, result)
+    copyDefinitionDecorations(agentOptions as unknown as DefinitionDecorationCarrier, result as unknown as DefinitionDecorationCarrier)
   }
   return result
 }) as DefineAgent
