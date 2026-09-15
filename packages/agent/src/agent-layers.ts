@@ -235,6 +235,7 @@ export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaul
   const childRecord = child as Record<string, unknown>
   rememberLayerMetadata(childRecord, {
     // SAFETY: merge preserves the AgentSettings shape from typed metadata and defaults.
+    // SAFETY: defaults and metadata.options are validated AgentSettings values; merge preserves that shape.
     options: merge(defaults, metadata.options, "") as AgentSettings,
     configured: metadata.configured,
     // SAFETY: merge preserves the optional partial settings shape.
