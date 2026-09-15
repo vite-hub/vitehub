@@ -161,7 +161,13 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   if (seen.has(value)) return seen.get(value) as T
   const copy = Object.setPrototypeOf(Array.isArray(value) ? [] : {}, null)
   seen.set(value, copy)
-  for (const [key, item] of Object.entries(value)) copy[key] = ownData(item, seen)
+  for (const key of Object.keys(value)) {
+    Object.defineProperty(copy, key, {
+      enumerable: true,
+      configurable: true,
+      get: () => ownData((value as Record<string, unknown>)[key], seen),
+    })
+  }
   // SAFETY: The clone preserves own enumerable data and array shape; Comark only reads those properties.
   return copy as T
 }
