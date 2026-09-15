@@ -459,7 +459,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         } while (refreshPending)
         if (refreshed) {
           for (const module of server.moduleGraph.idToModuleMap.values()) {
-            if (module.id && isInside(materializedRoot, module.id.split("?", 1)[0])) server.moduleGraph.invalidateModule(module)
+            if (module.id) {
+              const modulePath = module.id.split("?", 1)[0]
+              const queriedSource = modulePath.startsWith("/@fs/") ? modulePath.slice(4) : modulePath
+              if (isInside(materializedRoot, modulePath) || watchFiles.has(queriedSource) || watchFiles.has(modulePath)) {
+                server.moduleGraph.invalidateModule(module)
+              }
+            }
           }
           server.ws.send({ type: "full-reload" })
         }
