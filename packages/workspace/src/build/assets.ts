@@ -121,8 +121,9 @@ export function createWorkspaceDefinitionLoader(rootDir: string, alias: Record<s
     get(_target, id) {
       if (typeof id !== "string" || !id.startsWith(rawImportVirtualModulePrefix)) return
       const reference = id.slice(rawImportVirtualModulePrefix.length)
-      // SAFETY: virtual module references are encoded by this loader as a three-item tuple.
-      const [importer, path, kind = "raw"] = JSON.parse(Buffer.from(reference, "base64url").toString("utf8")) as [string, string, StaticTextImportKind?]
+      const decoded: unknown = JSON.parse(Buffer.from(reference, "base64url").toString("utf8"))
+      if (!Array.isArray(decoded) || typeof decoded[0] !== "string" || typeof decoded[1] !== "string" || (decoded[2] !== undefined && decoded[2] !== "raw" && decoded[2] !== "markdown-template")) return
+      const [importer, path, kind = "raw"] = decoded as [string, string, StaticTextImportKind?]
       const specifier = resolveWorkspaceRawSpecifier(path, rootDir)
       const resolved = loader.esmResolve(specifier, pathToFileURL(importer).href)
       const templatePath = fileURLToPath(resolved)
