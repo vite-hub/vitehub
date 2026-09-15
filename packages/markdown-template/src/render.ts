@@ -176,13 +176,13 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   for (const [key, resolved] of entries
     .filter(([key]) => key.includes("."))
     .sort(([left], [right]) => right.split(".").length - left.split(".").length)) {
-    defineDottedPath(copy as Record<string, unknown>, key, resolved)
+    defineDottedPath(copy as Record<string, unknown>, key, resolved, explicitPaths)
   }
   // SAFETY: `copy` mirrors the input's enumerable data shape and is returned as the same generic type.
   return copy as T
 }
 
-function defineDottedPath(target: Record<string, unknown>, key: string, value: unknown): void {
+function defineDottedPath(target: Record<string, unknown>, key: string, value: unknown, explicitPaths: Set<string>): void {
   const parts = key.split(".")
   let current = target
   for (let index = 0; index < parts.length - 1; index++) {
@@ -201,7 +201,15 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
     }
   }
   // SAFETY: split guarantees at least one segment, so the final segment is defined.
-  if (!Object.hasOwn(current, parts.at(-1)!)) {
-    Object.defineProperty(current, parts.at(-1)!, { enumerable: true, configurable: true, value, writable: true })
+  const leaf = parts.at(-1)!
+  const existing = current[leaf]
+  if (existing && typeof existing === "object" && value && typeof value === "object") {
+    for (const child of Object.keys(value as object)) {
+      Object.defineProperty(existing, child, { enumerable: true, configurable: true,
+        value: (value as Record<string, unknown>)[child], writable: true })
+    }
+  }
+  else if (!Object.hasOwn(current, leaf) || (key.includes(".") && explicitPaths.has(key))) {
+    Object.defineProperty(current, leaf, { enumerable: true, configurable: true, value, writable: true })
   }
 }
