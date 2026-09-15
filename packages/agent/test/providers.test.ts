@@ -1730,7 +1730,7 @@ describe("agent Vite plugin", () => {
         expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/agents/**:agent/discord/gateway" })]),
       )
       const gatewayPlugin = await readFile(join(root, ".vitehub/agent/discord-gateway-plugin.ts"), "utf8")
-      expect(gatewayPlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listenerCount(signal))")
+      expect(gatewayPlugin).toContain("const shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))")
       expect(gatewayPlugin).toContain("nodeProcess?.prependOnceListener(signal, stopDiscordGateways)")
       expect(gatewayPlugin).toContain("nitroApp.hooks.hook('close', stopDiscordGateways)")
       await expect(readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")).rejects.toThrow()
@@ -2642,10 +2642,10 @@ export default defineAgent({
         expect(queuePlugin).toContain('import { resumeWebhookQueues, waitUntilFromEvent } from "./chat-webhook-route"')
         expect(queuePlugin).toContain("nitroApp.hooks.hook('request', event => {")
         expect(queuePlugin).toContain("waitUntil ||= waitUntilFromEvent(event)")
-        expect(queuePlugin).toContain("stopping ||= stop?.()")
+        expect(queuePlugin).toContain("if (!stopping) stopping = stop?.()")
         expect(queuePlugin).toContain("if (stopping) waitUntil?.(stopping)")
         expect(queuePlugin).toContain("nitroApp.hooks.hook('close', shutdownWebhookQueues)")
-        expect(queuePlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listenerCount(signal))")
+        expect(queuePlugin).toContain("shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))")
         expect(queuePlugin).toContain("nodeProcess?.prependOnceListener(signal, shutdownWebhookQueues)")
         expect(queuePlugin).not.toContain("process.exit")
         expect(webhookRoute).toContain(

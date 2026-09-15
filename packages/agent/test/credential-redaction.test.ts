@@ -617,6 +617,22 @@ it.each(["Cookie", "Set-Cookie", "cookie", "SET-COOKIE"])("redacts %s headers an
   }
 })
 
+
+describe("structured credential redaction", () => {
+  it.each(["password", "secret", "api_key"])("redacts the complete YAML %s plain scalar across chunks", (key) => {
+    const prefix = `  ${key}: `
+    const scalar = "correct horse\tbattery"
+    const suffix = "\n  status: ok"
+    expect(redactCredentialText(prefix + scalar + suffix)).toBe(prefix + "[REDACTED]" + suffix)
+    for (let split = 1; split < scalar.length; split++) {
+      const state = pendingCredentialAssignmentState(prefix + scalar.slice(0, split))!
+      const rest = scalar.slice(split) + suffix
+      const boundary = consumeCredentialAssignment(rest, state)
+      expect((state.yamlPlain?.pending ?? "") + rest.slice(boundary)).toBe(suffix)
+    }
+  })
+})
+
 it("bounds streamed YAML plain credential whitespace while preserving dedents", () => {
   const state = pendingCredentialAssignmentState("config:\n  password: sensitive")!
   for (const chunk of ["\n", ...Array.from({ length: 100 }, () => " ".repeat(1000)), ...Array.from({ length: 100 }, () => "\r\n".repeat(1000))]) {
