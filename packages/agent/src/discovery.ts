@@ -324,7 +324,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     const registry = options.get("presets")
     const configure = options.get("configure")
     if (configure !== undefined) {
-      const start = resolveReference(configure)
+      let start = resolveReference(configure)
+      // Scan the Agent definition returned by the callback, rather than the
+      // callback's parameter list (which commonly contains parentheses).
+      const callbackDefinition = tokens.indexOf("defineAgent", start)
+      if (callbackDefinition >= 0) start = callbackDefinition
       let end = start
       let depth = 0
       for (; end < tokens.length; end++) {
@@ -338,7 +342,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       const tail = tokens.slice(start, end).join(" ")
       // Configured callbacks may contribute Workspace through a capability or
       // channel rather than returning an inline `workspace` object.
-      if (/\bworkspace\s*:|\bworkspace(?:Capability|Channel)\b|\bcapabilities\s*:/.test(tail)) return true
+      if (/\bworkspace\s*:|\bworkspace(?:Capability|Channel)\b/.test(tail)) return true
     }
     if (preset === undefined || registry === undefined) return false
     const selection = tokens[resolveReference(preset)]
