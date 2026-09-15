@@ -275,7 +275,14 @@ async function reconcilePromotedSourceSkills(
     if (existing && await sha256(existing.content) === prior.digest) {
       const latest = await store.readFile(destination)
       if (latest && await sha256(latest.content) === prior.digest) {
-        await control.mutate(() => store.rm(destination, { force: true, ifDigest: prior.digest }))
+        if (store.conditionalRemoval) {
+          await control.mutate(() => store.rm(destination, { force: true, ifDigest: prior.digest }))
+        }
+        else {
+          // Without atomic conditional removal, retain the entry rather than
+          // risking deletion of a concurrent user replacement.
+          next[destination] = prior
+        }
       }
     }
     else if (existing) next[destination] = prior
