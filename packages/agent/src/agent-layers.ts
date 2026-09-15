@@ -167,6 +167,11 @@ function assertLayerDefinition(value: unknown): asserts value is AgentDefinition
 
 // Options contain application data, so driver and capability merge rules do not apply.
 function mergePresetOptions(parent: Record<string, unknown>, child?: Record<string, unknown>): Record<string, unknown> {
+  const memo = new WeakMap<object, unknown>()
+  return mergePresetOptionsWithMemo(parent, child, memo)
+}
+
+function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>): Record<string, unknown> {
   const result: Record<string | symbol, unknown> = {}
   const parentKeys = parent as Record<PropertyKey, unknown>
   const childKeys = child as Record<PropertyKey, unknown> | undefined
@@ -174,21 +179,22 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
     const value = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined ? childKeys[key] : parentKeys[key]
     if (record(value)) {
       const parentValue = record(parentKeys[key]) ? parentKeys[key] : {}
-      Object.defineProperty(result, key, { value: mergePresetOptions(parentValue, value), enumerable: true, writable: true, configurable: true })
-    } else Object.defineProperty(result, key, { value: clonePresetOption(value), enumerable: true, writable: true, configurable: true })
+      Object.defineProperty(result, key, { value: mergePresetOptionsWithMemo(parentValue, value, memo), enumerable: true, writable: true, configurable: true })
+    } else Object.defineProperty(result, key, { value: clonePresetOption(value, memo), enumerable: true, writable: true, configurable: true })
   }
   return result
 }
 
-function clonePresetOption(value: unknown): unknown {
+function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()): unknown {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return value
   // Functions are atomic option values; preserve callback identity rather than
   // rejecting them as unsupported objects.
   if (typeof value === "function") return value
-  if (Array.isArray(value)) return value.map(clonePresetOption)
+  if (memo.has(value)) return memo.get(value)
+  if (Array.isArray(value)) { const clone: unknown[] = []; memo.set(value, clone); for (const entry of value) clone.push(clonePresetOption(entry, memo)); return clone }
   if (value instanceof Date) return new Date(value.getTime())
-  if (value instanceof Map) return new Map(Array.from(value, ([key, entry]) => [clonePresetOption(key), clonePresetOption(entry)]))
-  if (value instanceof Set) return new Set(Array.from(value, clonePresetOption))
+  if (value instanceof Map) { const clone = new Map(); memo.set(value, clone); for (const [key, entry] of value) clone.set(clonePresetOption(key, memo), clonePresetOption(entry, memo)); return clone }
+  if (value instanceof Set) { const clone = new Set(); memo.set(value, clone); for (const entry of value) clone.add(clonePresetOption(entry, memo)); return clone }
   if (value instanceof RegExp) return new RegExp(value.source, value.flags)
   if (value instanceof URL) return new URL(value.href)
   if (value instanceof URLSearchParams) return new URLSearchParams(value.toString())
@@ -223,10 +229,11 @@ function clonePresetOption(value: unknown): unknown {
     // SAFETY: Object values are cloned with their prototype and own descriptors.
     // SAFETY: The prototype is restricted to plain objects or null above.
     const clone = Object.create(prototype) as Record<string, unknown>
+    memo.set(value, clone)
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       if (!descriptor) continue
-      if ("value" in descriptor) descriptor.value = clonePresetOption(descriptor.value as unknown)
+      if ("value" in descriptor) descriptor.value = clonePresetOption(descriptor.value as unknown, memo)
       Object.defineProperty(clone, key, descriptor)
     }
     return clone
@@ -247,6 +254,11 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   assertLayerDefinition(definition)
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
+  for (const key of Reflect.ownKeys(definition)) {
+    if (key === "options" || key === agentLayerMetadata || key === "resolve") continue
+    const descriptor = Object.getOwnPropertyDescriptor(definition, key)
+    if (descriptor) Object.defineProperty(configured, key, descriptor)
+  }
   inheritColocatedSkills(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritAgentLayerOptions(asMetadataTarget(definition), asMetadataTarget(configured))
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })
