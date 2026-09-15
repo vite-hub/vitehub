@@ -41,3 +41,5 @@ export type {
   AgentDiscordGatewayRouteOptions,
   AgentTelegramPollingRouteOptions,
 } from "./routes.ts"
+
+export { inheritAgentLayerOptions } from "../agent-layers.ts"

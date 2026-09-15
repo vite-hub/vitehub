@@ -4,14 +4,6 @@ import { createHash } from 'node:crypto'
 import { isFeedback, type Claim, type PullRequestInbox } from './store.ts'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
-async function readAll(read: ReadGitHubSnapshot, path: string, projection?: string): Promise<unknown[]> {
-  const all: unknown[] = []
-  for (let page = 1; ; page++) {
-    const items = await read(`${path}${path.includes('?') ? '&' : '?'}page=${page}`, projection)
-    all.push(...items)
-    if (items.length < 100) return all
-  }
-}
 export type ReadThreads = (repository: string, number: number) => Promise<GitHubReviewThread[]>
 export type ReadGraphql = (query: string, variables: Record<string, string | number | null>) => Promise<unknown>
 const index = (items: GitHubEvidence[]) => Object.fromEntries(items.map(item => [String(item.id), item]))
@@ -50,7 +42,6 @@ export async function readPullRequestThreads(graphql: ReadGraphql, repository: s
     const connection = data.repository.pullRequest.reviewThreads
     after = nextCursor(connection, pages)
     for (const thread of connection.nodes) {
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate untyped GitHub response data.
       if (!thread.id || typeof thread.isResolved !== 'boolean') throw new Error('Incomplete review thread metadata')
       const firstComments = v.parse(commentConnection, thread.comments)
       const comments = [...firstComments.nodes]
@@ -78,20 +69,29 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   const pr = parsePullRequest(raw)
   if (!pr.head?.sha) throw new Error('GitHub returned no pull request head.')
   if (pr.state !== 'open') return { pr }
+  const readAll = async (path: string, projection?: string) => {
+    const items: unknown[] = []
+    for (let page = 1; ; page++) {
+      const batch = await read(`${path}&page=${page}`, projection)
+      items.push(...batch)
+      if (batch.length < 100) return items
+    }
+  }
   const [comments, reviews, reviewComments, checks, statuses, threads] = await Promise.all([
-    readAll(read, `${prefix}/issues/${number}/comments?per_page=100`),
-    readAll(read, `${prefix}/pulls/${number}/reviews?per_page=100`),
-    readAll(read, `${prefix}/pulls/${number}/comments?per_page=100`),
-    readAll(read, `${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`, '.check_runs[]'),
-    readAll(read, `${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
+    readAll(`${prefix}/issues/${number}/comments?per_page=100`),
+    readAll(`${prefix}/pulls/${number}/reviews?per_page=100`),
+    readAll(`${prefix}/pulls/${number}/comments?per_page=100`),
+    readAll(`${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`, '.check_runs[]'),
+    readAll(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
     readThreads?.(repository, number),
   ])
-  const patch: import('./store.ts').SnapshotPatch & { pr: GitHubPullRequestRecord } = { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
+  const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
     checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
-    statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true }
-  if (threads) Object.assign(patch, { threads, threadsHydrated: true, feedbackRefresh: false })
-  return patch
+    statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
+  }
+  if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })
+  return snapshot
 }
 
 export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads): Promise<boolean> {
@@ -110,15 +110,12 @@ export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGi
   // No more than one PR per minute, and no PR more often than every 15 minutes.
   // The first probe is delayed because bootstrap/claims already hydrate state.
   const globalKey = 'snapshot-reconcile-next'
-  // SAFETY: meta values are written by setMeta with this numeric schedule contract.
   const globalNext = inbox.meta(globalKey) as number | undefined
   if (globalNext === undefined) { inbox.setMeta(globalKey, now + 15 * 60_000); return }
   if (globalNext > now) return
   inbox.setMeta(globalKey, now + 60_000)
   const candidates = inbox.all().filter(s => !s.lease && s.status !== 'terminal')
-    // SAFETY: probe metadata is written as numeric timestamps by this reconciler.
     .sort((a, b) => ((inbox.meta(`snapshot-probe:${a.repository}:${a.number}`) as number | undefined) ?? 0) - ((inbox.meta(`snapshot-probe:${b.repository}:${b.number}`) as number | undefined) ?? 0))
-  // SAFETY: probe metadata is written as numeric timestamps by this reconciler.
   const s = candidates.find(s => ((inbox.meta(`snapshot-probe:${s.repository}:${s.number}`) as number | undefined) ?? 0) <= now)
   if (!s) return
   inbox.setMeta(`snapshot-probe:${s.repository}:${s.number}`, now + 15 * 60_000)

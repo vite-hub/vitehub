@@ -230,7 +230,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             else if (tokens[close] === "]") bracketDepth--
             close++
           }
-          if (bracketDepth === 0 && tokens[close] === ":") {
+          if (bracketDepth === 0 && (tokens[close] === ":" || tokens[close] === "(")) {
             const expression = tokens.slice(i + 1, close - 1).filter(token => token !== "(" && token !== ")")
             let key: string | undefined
             const literalParts: string[] = []
@@ -246,12 +246,16 @@ function isWorkspaceAgentDefinition(source: string): boolean {
               if (p + 1 < expression.length && expression[p + 1] !== "+") { valid = false; break }
             }
             if (valid && literalParts.length) key = literalParts.join("")
-            if (key !== undefined) result.set(key, close + 1)
+            if (key !== undefined) result.set(key, tokens[close] === "(" ? close : close + 1)
             i = close
             atProperty = false
           }
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
         else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
+        // Object method shorthand (e.g. `configure() { ... }`) has no colon;
+        // retain the method's opening parenthesis so callback discovery can
+        // inspect its body just like an arrow or function expression.
+        else if (tokens[i + 1] === "(") result.set(propertyName(token), i + 1)
         atProperty = false
       }
       if (depth === 0 && token === ",") atProperty = true
@@ -322,6 +326,138 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (inherited !== undefined && ownsWorkspace(inherited, seen)) return true
     const preset = options.get("preset")
     const registry = options.get("presets")
+    const configure = options.get("configure")
+    if (configure !== undefined) {
+      // A configure callback may return an existing Agent binding directly;
+      // follow that binding so its Workspace metadata is preserved.
+      const configuredReference = resolveReference(configure)
+      if (configuredReference !== configure && ownsWorkspace(configuredReference, new Set(seen))) return true
+      let start = resolveReference(configure)
+      // Scan the Agent definition returned by the callback, rather than the
+      // callback's parameter list (which commonly contains parentheses).
+      // Prefer the definition expression in the callback body. A callback's
+      // parameter list may itself contain parentheses, so starting the scan
+      // at the first token after `configure` can terminate before the body.
+      // Skip callback parameters and locate a definition in the callback body.
+      // Shorthand methods resolve to their parameter-list opening token;
+      // handle those bounds before searching for arrows elsewhere in the module.
+      let methodBodyStart = -1
+      if (tokens[start] === ")") {
+        // Method shorthand references resolve to the closing parameter token.
+        // Rewind to its opening delimiter before locating the method body.
+        let depth = 0
+        for (let i = start; i >= 0; i--) {
+          if (tokens[i] === ")") depth++
+          else if (tokens[i] === "(" && --depth === 0) {
+            start = i
+            break
+          }
+        }
+      }
+      if (tokens[start] === "(") {
+        let depth = 0
+        let parameterEnd = start
+        for (; parameterEnd < tokens.length; parameterEnd++) {
+          if (tokens[parameterEnd] === "(") depth++
+          else if (tokens[parameterEnd] === ")" && --depth === 0) { parameterEnd++; break }
+        }
+        if (tokens[parameterEnd] === "{") methodBodyStart = parameterEnd
+      }
+      const arrow = methodBodyStart < 0 ? (() => {
+        let depth = 0
+        for (let i = start; i + 1 < tokens.length; i++) {
+          const token = tokens[i]
+          if (["(", "[", "{"].includes(token)) depth++
+          else if ([")", "]", "}"].includes(token)) { if (depth === 0) break; depth-- }
+          else if ((token === ";" || token === ",") && depth === 0) break
+          if (tokens[i] === "=" && tokens[i + 1] === ">") return i
+        }
+        return -1
+      })() : -1
+      let bodyStart = arrow >= 0 ? arrow + 1 : (methodBodyStart >= 0 ? methodBodyStart : start)
+      // Limit the search to this callback's body so later module declarations
+      // cannot be mistaken for its returned definition.
+      let callbackEnd = tokens.length
+      if (arrow < 0) {
+        // Method or function callbacks have a parameter list followed by a
+        // block body; skip the parameters and bound scanning to that block.
+        let parameterEnd = start
+        if (tokens[parameterEnd] === "(") {
+          let depth = 0
+          for (; parameterEnd < tokens.length; parameterEnd++) {
+            if (tokens[parameterEnd] === "(") depth++
+            else if (tokens[parameterEnd] === ")" && --depth === 0) { parameterEnd++; break }
+          }
+        }
+        const body = tokens.indexOf("{", parameterEnd)
+        if (body >= 0) {
+          start = body
+          bodyStart = body
+          for (let i = body + 1, depth = 1; i < tokens.length; i++) {
+            if (tokens[i] === "{") depth++
+            else if (tokens[i] === "}" && --depth === 0) { callbackEnd = i + 1; break }
+          }
+        }
+      } else {
+        let bodyDepth = 0
+        for (let i = bodyStart; i < tokens.length; i++) {
+          const token = tokens[i]
+          if (["{", "(", "["].includes(token)) bodyDepth++
+          else if (["}", ")", "]"].includes(token)) {
+            if (bodyDepth === 0) { callbackEnd = i; break }
+            bodyDepth--
+            if (bodyDepth === 0) { callbackEnd = i + 1; break }
+          }
+        }
+      }
+      const callbackDefinition = tokens.findIndex((token, index) => index >= bodyStart && index < callbackEnd && token === "defineAgent")
+      if (callbackDefinition >= 0) start = callbackDefinition
+      let end = start
+      let depth = 0
+      for (; end < callbackEnd; end++) {
+        const token = tokens[end]
+        if (["{", "(", "["].includes(token)) depth++
+        else if (["}", ")", "]"].includes(token) && depth > 0) {
+          depth--
+          if (depth === 0) { end++; break }
+        }
+      }
+      const tail = tokens.slice(start, end).join(" ")
+      // Configured callbacks may contribute Workspace through a capability or
+      // channel rather than returning an inline `workspace` object.
+      if (/\bworkspace\s*:|\bworkspace(?:Capability|Channel)\b/.test(tail)) return true
+      // Resolve locally declared capability aliases instead of relying on
+      // identifier naming conventions. A capability whose definition carries
+      // a Workspace contribution promotes the configured Agent at runtime.
+      const capabilityNames = [...tail.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)].map((match) => match[1])
+      for (const name of capabilityNames) {
+        // Follow locally bound capabilities through their definition rather than
+        // relying on an identifier naming convention. Keep the scan bounded to
+        // the initializer so unrelated later declarations cannot affect it.
+        // Only declarations inside this callback can contribute to its
+        // returned definition. Declarations elsewhere in the module may reuse
+        // the same identifier and must not affect this Agent's classification.
+        // Aliases are commonly declared at module scope before the exported
+        // Agent. Include those declarations, while keeping the end bounded to
+        // this callback so later definitions cannot affect classification.
+        // Module-scope aliases declared before this callback are valid inputs;
+        // declarations after it must not influence this definition.
+        for (let i = start - 1; i >= 0; i--) {
+          // Only inspect the nearest binding; an earlier declaration is shadowed
+          // by any intervening declaration and must not influence this callback.
+          if (tokens[i] === "export" || tokens[i] === "defineAgent") break
+          if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== name || tokens[i + 2] !== "=" || !(tokens[i + 3] === "defineCapability" || tokens[i + 3] === "defineAgent")) continue
+          let cursor = i + 4
+          if (tokens[cursor] !== "(") continue
+          let depth = 0
+          for (; cursor < start; cursor++) {
+            if (["(", "{", "["].includes(tokens[cursor])) depth++
+            else if ([")", "}", "]"].includes(tokens[cursor]) && --depth === 0) break
+          }
+          if (cursor < start) return /\bworkspace\s*:/.test(tokens.slice(i, cursor + 1).join(" "))
+        }
+      }
+    }
     if (preset === undefined || registry === undefined) return false
     const selection = tokens[resolveReference(preset)]
     if (!/^["'`]/.test(selection)) {

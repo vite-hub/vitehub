@@ -1,3 +1,4 @@
+import { inheritAgentLayerOptions } from "./agent-layers.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
@@ -268,7 +269,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
 
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
   const sources = colocatedInstructions
-    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build", mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
+    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: "build" as const, mount: "", workspacePath: "AGENTS.md" }, ...ownedWorkspace.sources }
     : { ...ownedWorkspace.sources }
   const workspaceOptions = {
     ...options,
@@ -279,6 +280,10 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     },
   }
 
+  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
+  // SAFETY: The object is constructed with the required sourceRootDir and optional source defaults immediately below.
+  const decoratedWorkspace = { sourceRootDir: resolvedSourceRootDir } as { sourceRootDir: string; sources?: typeof sourceDefaults }
+  if (Object.keys(sourceDefaults).length) decoratedWorkspace.sources = sourceDefaults
   const decoratedAgent = {
     ...workspaceAgent,
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
@@ -286,6 +291,9 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     __vitehubWorkspaceAgentOptions: workspaceOptions,
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
+  inheritAgentLayerOptions(workspaceAgent, decoratedAgent, {
+    workspace: decoratedWorkspace,
+  })
   // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
   return decoratedAgent as Agent
 }
