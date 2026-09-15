@@ -325,7 +325,17 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     const configure = options.get("configure")
     if (configure !== undefined) {
       const start = resolveReference(configure)
-      const tail = tokens.slice(start).join(" ")
+      let end = start
+      let depth = 0
+      for (; end < tokens.length; end++) {
+        const token = tokens[end]
+        if (["{", "(", "["].includes(token)) depth++
+        else if (["}", ")", "]"].includes(token) && depth > 0) {
+          depth--
+          if (depth === 0) { end++; break }
+        }
+      }
+      const tail = tokens.slice(start, end).join(" ")
       if (/\bworkspace\s*:/.test(tail)) return true
     }
     if (preset === undefined || registry === undefined) return false

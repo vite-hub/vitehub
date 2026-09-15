@@ -197,7 +197,7 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
     // SAFETY: Only record-shaped children are inserted into this memo.
     return memo.get(child) as Record<string, unknown>
   }
-  const result: Record<string | symbol, unknown> = {}
+  const result: Record<string | symbol, unknown> = Object.create(Object.getPrototypeOf(parent)) as Record<string | symbol, unknown>
   if (child) memo.set(child, result)
   // SAFETY: Own keys are read from these record-shaped inputs, including symbols.
   const parentKeys = parent as Record<PropertyKey, unknown>
@@ -228,6 +228,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value instanceof URL) { const clone = new URL(value.href); memo.set(value, clone); return clone }
   if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
   if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
+  if (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer) { const clone = new SharedArrayBuffer(value.byteLength); new Uint8Array(clone).set(new Uint8Array(value)); memo.set(value, clone); return clone }
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
     if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) {
