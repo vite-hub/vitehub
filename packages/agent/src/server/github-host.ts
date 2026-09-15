@@ -727,6 +727,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           maxBuffer,
           signal,
         })
+        // Re-check custody immediately after the remote mutation. A lease can
+        // be reclaimed while Git is in flight; surface that loss so callers do
+        // not report the stale operation as successful or continue with merge.
+        signal.throwIfAborted()
+        options.beforePush?.()
         pushHead = head
         return head
       }
