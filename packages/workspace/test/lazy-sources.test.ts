@@ -87,6 +87,41 @@ describe("lazy sources", () => {
     })
   })
 
+  it.each([false, true])("preserves concurrent promotion writes (existing: %s)", async (existing) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/shared/SKILL.md"
+    let content = "# Original source"
+    const view = createWorkspaceSourceView({
+      name: "promotion-write-race",
+      sources: {
+        portal: custom({
+          materialize: "startup",
+          mount: "portal",
+          async getKeys() { return [destination] },
+          async getItem(key) { return { key, content } },
+        }),
+      },
+    }, store)
+    if (existing) await view.materializeSources()
+    content = "# Updated source"
+    const mkdir = store.mkdir.bind(store)
+    let raced = false
+    vi.spyOn(store, "mkdir").mockImplementation(async (path, options) => {
+      await mkdir(path, options)
+      if (path === ".agents/skills/shared" && !raced) {
+        raced = true
+        await store.writeFile(destination, { path: destination, content: "# Concurrent user edit" })
+      }
+    })
+
+    await view.materializeSources()
+
+    expect(raced).toBe(true)
+    await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Concurrent user edit" })
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Concurrent user edit" })
+  })
+
   it("keeps explicit and edited root skills during source refresh", async () => {
     const store = createMemoryWorkspaceStore()
     let files = [

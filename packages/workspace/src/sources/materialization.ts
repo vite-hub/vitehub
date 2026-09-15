@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 
-import { workspaceError } from "../core/errors.ts"
+import { isWorkspaceConflict, workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
@@ -237,6 +237,7 @@ async function reconcilePromotedSourceSkills(
     const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
     return destinationMatch && retainedSkills.has(destinationMatch[1])
   }))
+  const conflictedDestinations = new Set<string>()
   for (const [destination, candidate] of candidates) {
     const sourceFile = await store.readFile(candidate.sourcePath)
     if (!sourceFile) continue
@@ -248,14 +249,24 @@ async function reconcilePromotedSourceSkills(
       ...sourceFile.metadata,
       promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
     }
-    await control.mutate(async () => {
-      await store.mkdir(posix.dirname(destination), { recursive: true })
-      await store.writeFile(destination, { ...sourceFile, path: destination, metadata })
-    })
+    if (!store.writeFileConditional) throw workspaceError("[vitehub] Promoting Workspace Source skills requires conditional writes.")
+    const expectedDigest = existing ? existing.digest || await sha256(existing.content) : null
+    try {
+      await control.mutate(async () => {
+        await store.mkdir(posix.dirname(destination), { recursive: true })
+        await store.writeFileConditional!(destination, { ...sourceFile, path: destination, metadata }, expectedDigest)
+      })
+    }
+    catch (error) {
+      if (!isWorkspaceConflict(error)) throw error
+      // Leave the concurrent writer's file unowned, including during cleanup.
+      conflictedDestinations.add(destination)
+      continue
+    }
     next[destination] = { ...candidate, digest: await sha256(sourceFile.content) }
   }
   for (const [destination, prior] of Object.entries(previous)) {
-    if (next[destination]) continue
+    if (next[destination] || conflictedDestinations.has(destination)) continue
     const existing = await store.readFile(destination)
     if (existing && await sha256(existing.content) === prior.digest) {
       const latest = await store.readFile(destination)
