@@ -220,7 +220,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }
     }
     try {
-      await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads);
+      await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, options.activityAuthors);
     } catch (error) {
       schedulerError("babysitter.snapshot.reconcile.failed", error);
     }

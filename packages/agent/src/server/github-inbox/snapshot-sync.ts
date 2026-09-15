@@ -98,7 +98,7 @@ export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, rea
   return inbox.hydrate(claim, { ...snapshot, refresh: false })
 }
 
-export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads): Promise<void> {
+export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGitHubSnapshot, now: number = Date.now(), readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<void> {
   // No more than one PR per minute, and no PR more often than every 15 minutes.
   // The first probe is delayed because bootstrap/claims already hydrate state.
   const globalKey = 'snapshot-reconcile-next'
@@ -111,7 +111,7 @@ export async function reconcileOneSnapshot(inbox: PullRequestInbox, read: ReadGi
   const s = candidates.find(s => ((inbox.meta(`snapshot-probe:${s.repository}:${s.number}`) as number | undefined) ?? 0) <= now)
   if (!s) return
   inbox.setMeta(`snapshot-probe:${s.repository}:${s.number}`, now + 15 * 60_000)
-  const snapshot = await readSnapshot(read, s.repository, s.number, readThreads)
+  const snapshot = await readSnapshot(read, s.repository, s.number, readThreads, activityAuthors)
   // Apply only if no webhook or claim arrived while this targeted probe ran.
   // New resolution evidence wakes a waiting PR without repeated full queries
   // in every agent pass.
