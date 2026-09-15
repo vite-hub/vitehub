@@ -2148,13 +2148,15 @@ type ConfiguredChannelsWorkspace<TChannels> = TChannels extends object
 
 type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels> =
   TWorkspace extends WorkspaceAgentWorkspaceConfig
-    ? ConfiguredWorkspaceDefinition<TDefinition>
+    ? ConfiguredWorkspaceDefinition<TDefinition, TCapabilities>
     : true extends ConfiguredCapabilitiesWorkspace<TCapabilities> | ConfiguredChannelsWorkspace<TChannels>
-      ? ConfiguredWorkspaceDefinition<TDefinition>
+      ? ConfiguredWorkspaceDefinition<TDefinition, TCapabilities>
       : TDefinition
 
-type ConfiguredWorkspaceDefinition<TDefinition> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
-  ? WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, TCallOptions, TInvoker, TContext, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>
+type ConfiguredWorkspaceDefinition<TDefinition, TCapabilities = ConfiguredAgentSettings<TDefinition>["capabilities"]> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
+  ? WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, TCallOptions, TInvoker,
+      TContext & AgentCapabilitiesInvocationContextValues<TCapabilities>,
+      AgentCapabilitiesInput<TRuntimeConfig>, TOutput>
   : never
 
 export interface DefineAgent {
