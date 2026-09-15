@@ -2309,23 +2309,23 @@ export interface DefineAgent {
   }): ConfiguredAgentDefinition<TOptions, TDefinition>
 
   <
-    TPresets extends Record<string, ConfiguredAgentDefinition<object, AgentDefinition>>,
+    TPresets extends Record<string, AgentDefinition>,
     const TPreset extends keyof TPresets & string,
     const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
-    const TCapabilities extends ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>["capabilities"] = undefined,
-    const TChannels extends ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>["channels"] = undefined,
+    const TCapabilities extends ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>["capabilities"] = undefined,
+    const TChannels extends ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>["channels"] = undefined,
   >(options:
-    Omit<Partial<ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>>, "driver" | "workspace" | "capabilities" | "channels"> & {
+    Omit<Partial<ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>>, "driver" | "workspace" | "capabilities" | "channels"> & {
       preset: TPreset
       presets: TPresets & Record<TPreset, ConfiguredAgentDefinition<object, AgentDefinition>>
-      options?: AgentPresetOptions<NoInfer<ConfiguredAgentOptions<TPresets[TPreset]>>>
+      options?: AgentPresetOptions<NoInfer<ConfiguredAgentOptions<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>>
       extends?: never
-      driver?: Partial<ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>["driver"]>
+      driver?: Partial<ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>["driver"]>
       workspace?: TWorkspace
       capabilities?: TCapabilities
       channels?: TChannels
     }
-  ): ConfiguredAgentDefinition<ConfiguredAgentOptions<TPresets[TPreset]>, ConfiguredAgentWorkspace<TPresets[TPreset], TWorkspace, TCapabilities, TChannels>>
+  ): ConfiguredAgentDefinition<ConfiguredAgentOptions<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>, ConfiguredAgentWorkspace<TPresets[TPreset], TWorkspace, TCapabilities, TChannels>>
 
   <
     TDefinition extends ConfiguredAgentDefinition<object, AgentDefinitionLike>,
