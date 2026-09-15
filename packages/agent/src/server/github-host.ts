@@ -100,6 +100,8 @@ export interface GitHubGraphQLReservation extends GitHubGraphQLRateLimit {
 
 export interface GitHubHost {
   channel(options?: Omit<GitHubChannelOptions, 'app'>): AgentChannelDefinition
+  /** Return the verified login configured for this host, when available. */
+  identity(): string | undefined
   /** Resolve credentials and Git binding for the current checkout callback. */
   environment(): Promise<Record<string, string>>
   access(input?: GitHubHostAccessOptions): Promise<GitHubHostAccess>
@@ -193,6 +195,9 @@ function controlledOperation(options: GitHubHostCheckoutOptions): { close: () =>
   if (options.signal?.aborted) abort()
   else options.signal?.addEventListener("abort", abort, { once: true })
   return {
+    identity() {
+      return identity.login?.trim() || undefined
+    },
     close: () => {
       if (timeout !== undefined) clearTimeout(timeout)
       options.signal?.removeEventListener("abort", abort)

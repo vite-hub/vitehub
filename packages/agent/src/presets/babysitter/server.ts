@@ -392,14 +392,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const workerDriver = driver as CodexDriverOptions<BabysitterPassResult> & {
                 kind: "codex";
               };
-              let activityEnabled = false;
-              try {
-                const identity = await github.command(["api", "user", "--jq", ".login"], { repository, signal: abortSignal });
-                const login = identity.stdout.trim().toLowerCase();
-                activityEnabled = login.length > 0 && options.activityAuthors.some(author => author.trim().toLowerCase() === login);
-              } catch {
-                // Activity must stay off until the host identity is authenticated.
-              }
+              const login = github.identity()?.toLowerCase();
+              const activityEnabled = !!login && options.activityAuthors.some(author => author.trim().toLowerCase() === login);
               const agent = defineAgent({
                 extends: baseAgent,
                 name: "babysitter-worker",
