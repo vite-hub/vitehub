@@ -359,7 +359,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                       signal: abortSignal,
                       beforePush: assertLease,
                     });
-                    pushSucceeded = true;
+                    // A no-op push does not advance the remote head and emits
+                    // no synchronize webhook; do not park this generation as
+                    // though a repair created a wake-up event.
+                    pushSucceeded = result !== pullRequest.headRefOid;
                     return result;
                   } finally {
                     clearInterval(renew);
