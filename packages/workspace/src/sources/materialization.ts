@@ -548,7 +548,10 @@ async function removeStaleMaterializedSourceFiles(
           ...(latestOwner ? { ifSource: latestOwner } : {}),
         }))
       } else {
-        await control.mutate(() => store.rm(entry.path, { force: true }))
+        // Without an atomic conditional remove, the entry may have been
+        // replaced after the validation above. Leaving it in place is safer
+        // than deleting a concurrent user replacement.
+        continue
       }
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
