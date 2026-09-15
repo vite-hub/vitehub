@@ -167,7 +167,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   )
   seen.set(value, copy)
   const entries: [string, unknown][] = []
-  for (const key of Object.keys(value)) {
+  for (const key of Object.getOwnPropertyNames(value).filter((key) => !(Array.isArray(value) && key === "length"))) {
     // SAFETY: callers provide object-like data; indexing by an own enumerable key yields its value.
     const resolved = ownData((value as Record<string, unknown>)[key], seen)
     entries.push([key, resolved])
