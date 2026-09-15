@@ -2152,7 +2152,12 @@ type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels>
     : true extends ConfiguredCapabilitiesWorkspace<TCapabilities> | ConfiguredChannelsWorkspace<TChannels>
       ? ConfiguredWorkspaceDefinition<TDefinition, TCapabilities>
       : TChannels extends undefined
-        ? ConfiguredContextDefinition<TDefinition, TCapabilities>
+        ? TCapabilities extends undefined
+          ? ConfiguredContextDefinition<TDefinition, TCapabilities>
+          : ConfiguredContextDefinition<
+              TDefinition extends WorkspaceAgentDefinition<any, any, any, any, any, any, any> ? AgentDefinitionFromWorkspace<TDefinition> : TDefinition,
+              TCapabilities
+            >
         : ConfiguredContextDefinition<
             TDefinition extends WorkspaceAgentDefinition<any, any, any, any, any, any, any> ? AgentDefinitionFromWorkspace<TDefinition> : TDefinition,
             TCapabilities
@@ -2524,7 +2529,19 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
       })
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     : defineBaseAgent(normalizedOptions as never)
-  return rememberAgentLayerOptions(definition, normalizedOptions, agentOptions)
+  const result = rememberAgentLayerOptions(definition, normalizedOptions, agentOptions)
+  // Reconfiguration carries callback-owned decorations through the settings object;
+  // copy them onto the rebuilt Agent after defineBaseAgent has reconstructed it.
+  if (agentOptions !== normalizedOptions) {
+    const source = agentOptions as AgentDefinition
+    for (const key of Reflect.ownKeys(source)) {
+      if (key === "options" || key === "__vitehubAgentSettings" || key === "resolve" || key === "run" || key === "health" || key === "status") continue
+      if (Object.prototype.hasOwnProperty.call(result as object, key)) continue
+      const descriptor = Object.getOwnPropertyDescriptor(source, key)
+      if (descriptor) Object.defineProperty(result as object, key, descriptor)
+    }
+  }
+  return result
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {
