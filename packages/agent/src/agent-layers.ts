@@ -188,6 +188,7 @@ function clonePresetOption(value: unknown): unknown {
   if (value instanceof URL) return new URL(value.href)
   if (value instanceof ArrayBuffer) return value.slice(0)
   if (ArrayBuffer.isView(value)) {
+    if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) return Buffer.from(value)
     const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
     if (value instanceof DataView) return new DataView(buffer)
     const tag = Object.prototype.toString.call(value)
