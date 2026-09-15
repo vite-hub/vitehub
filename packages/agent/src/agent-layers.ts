@@ -222,7 +222,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value instanceof Date) { const clone = new Date(value.getTime()); memo.set(value, clone); return clone }
   if (value instanceof Map) { const clone = new Map(); memo.set(value, clone); for (const [key, entry] of value) clone.set(clonePresetOption(key, memo), clonePresetOption(entry, memo)); return clone }
   if (value instanceof Set) { const clone = new Set(); memo.set(value, clone); for (const entry of value) clone.add(clonePresetOption(entry, memo)); return clone }
-  if (value instanceof RegExp) { const clone = new RegExp(value.source, value.flags); memo.set(value, clone); return clone }
+  if (value instanceof RegExp) { const clone = new RegExp(value.source, value.flags); clone.lastIndex = value.lastIndex; memo.set(value, clone); return clone }
   if (value instanceof URL) { const clone = new URL(value.href); memo.set(value, clone); return clone }
   if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
   if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
