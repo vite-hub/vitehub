@@ -40,7 +40,7 @@ export interface BabysitterRuntimeOptions {
   error?: (name: string, error: unknown, properties: Record<string, unknown>) => void;
   wake?: () => void;
   /** GitHub logins whose marked comments are emitted by this host. */
-  activityAuthors?: readonly string[];
+  activityAuthors: readonly string[];
 }
 
 /** Own one durable PR inbox and its repair passes inside a process host. */

@@ -186,6 +186,7 @@ async function fixture(autoMerge = false) {
     inboxPath: join(root, "inbox.sqlite"),
     repositories: ["acme/app"],
     concurrency: 1,
+    activityAuthors: ["vitehub-agent"],
     error: errors,
   });
   const passes: Array<{ tools: string[]; prompt: string; session: string; instructions: string }> = [];
