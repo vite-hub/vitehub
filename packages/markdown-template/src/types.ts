@@ -14,7 +14,7 @@ export interface RenderMarkdownTemplateOptions {
   plugins?: NonNullable<Parameters<typeof parseMarkdown>[1]>["plugins"]
 }
 
-export type RenderMarkdownFileOptions = Pick<RenderMarkdownTemplateOptions, "data">
+export type RenderMarkdownFileOptions = Pick<RenderMarkdownTemplateOptions, "data" | "plugins">
 
 export interface RenderMarkdownTemplateInternalOptions extends RenderMarkdownTemplateOptions {
   validateConditionPath?: (path: string) => boolean

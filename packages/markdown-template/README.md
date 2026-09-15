@@ -160,7 +160,7 @@ The root export selects the filesystem API only under the `node` export conditio
 
 Use the `/file` subpath in server projects, including TypeScript projects using Bundler module resolution. It requires a local filesystem; the root string renderer remains portable.
 
-`renderMarkdownFile(path, options?)` accepts a filesystem path string or a `file:` URL and returns `Promise<string>`. Its `RenderMarkdownFileOptions` accepts `data` and `maxImportDepth`, which defaults to `4`. Relative path strings use the process working directory. File URLs constructed with `import.meta.url` use the executing module's directory. HTTP URLs are not supported.
+`renderMarkdownFile(path, options?)` accepts a filesystem path string or a `file:` URL and returns `Promise<string>`. Its `RenderMarkdownFileOptions` accepts `data` and `plugins`. Relative path strings use the process working directory. File URLs constructed with `import.meta.url` use the executing module's directory. HTTP URLs are not supported.
 
 Pass Comark plugins per render with `plugins`. Plugins run when the Markdown is parsed, so their options can use request or invocation data:
 
@@ -175,7 +175,7 @@ const markdown = await renderMarkdownFile("./instructions.md", {
 
 The plugin package is an application dependency. ViteHub does not install or enable Comark plugins globally.
 
-Each call reads the file and its relative fragments. Symlinks resolve to canonical paths; nested fragments resolve beside their canonical importer. Missing files reject with the filesystem error. Conditions, escaping, code literals, and import depth and cycle checks use the same renderer as template strings. Imports resolve before conditions, including imports in unselected branches.
+Each call reads only the requested file. Former `@...` references remain literal text; conditions, escaping, and code literals use the same renderer as template strings. Missing files reject with the filesystem error.
 
 File loading uses the host filesystem permissions. Trusted templates may import parent directories through `../` or symlinks. For a restricted file tree or application storage, use the string renderer with your own `resolveImport`.
 
@@ -185,7 +185,7 @@ Include the Markdown files and fragments in your deployed server files. ViteHub 
 
 ### Breaking migration
 
-Callable `*.template.md` imports, the `?markdown-template` query, and `hubMarkdownTemplate()` are removed. Rename files to `.md`, replace imports with `renderMarkdownFile(path, { data })`, and ship the files and fragments. Remove the template Vite plugin and obsolete `.vitehub/types/markdown-template.d.ts` declarations. File errors now occur when rendering. The string API is unchanged.
+Vite integrations support callable `*.template.md` imports and the `?markdown-template` query through `hubMarkdownTemplate()`. Use `renderMarkdownFile(path, { data })` for explicit filesystem rendering.
 
 ## Know what the renderer does not preserve
 
