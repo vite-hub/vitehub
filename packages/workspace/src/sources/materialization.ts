@@ -136,7 +136,17 @@ export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: Reso
   const snapshot = await readSourceSnapshotMetadata(store, source.key)
   if (!isSnapshotFresh(snapshot, source, configHash)) return false
   for (const path of Object.keys(snapshot?.items || {})) {
-    if (!await store.readFile(path)) return false
+    try {
+      if (!await store.readFile(path)) {
+        await invalidateSourceSnapshot(store, source.key)
+        return false
+      }
+    } catch {
+      // A replaced file/ancestor can surface as EISDIR/ENOTDIR on local stores.
+      // Treat it as stale evidence so normal materialization can reconcile it.
+      await invalidateSourceSnapshot(store, source.key)
+      return false
+    }
   }
   return true
 }
@@ -1115,6 +1125,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
         status: "error",
