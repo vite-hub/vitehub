@@ -190,8 +190,23 @@ function clonePresetOption(value: unknown): unknown {
   if (ArrayBuffer.isView(value)) {
     const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
     if (value instanceof DataView) return new DataView(buffer)
-    // SAFETY: Typed-array constructors accept an ArrayBuffer and preserve the view type.
-    return new (value.constructor as { new (buffer: ArrayBuffer, byteOffset?: number, length?: number): typeof value })(buffer)
+    const tag = Object.prototype.toString.call(value)
+    const constructors: Record<string, { new (buffer: ArrayBuffer): unknown }> = {
+      "[object Int8Array]": Int8Array,
+      "[object Uint8Array]": Uint8Array,
+      "[object Uint8ClampedArray]": Uint8ClampedArray,
+      "[object Int16Array]": Int16Array,
+      "[object Uint16Array]": Uint16Array,
+      "[object Int32Array]": Int32Array,
+      "[object Uint32Array]": Uint32Array,
+      "[object Float32Array]": Float32Array,
+      "[object Float64Array]": Float64Array,
+      "[object BigInt64Array]": BigInt64Array,
+      "[object BigUint64Array]": BigUint64Array,
+    }
+    const TypedArray = constructors[tag]
+    if (!TypedArray) throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
+    return new TypedArray(buffer)
   }
   if (value !== null && typeof value === "object") {
     const prototype = Object.getPrototypeOf(value)
