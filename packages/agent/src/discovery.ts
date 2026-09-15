@@ -339,13 +339,25 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // parameter list may itself contain parentheses, so starting the scan
       // at the first token after `configure` can terminate before the body.
       // Skip callback parameters and locate a definition in the callback body.
-      const arrow = (() => {
+      // Shorthand methods resolve to their parameter-list opening token;
+      // handle those bounds before searching for arrows elsewhere in the module.
+      let methodBodyStart = -1
+      if (tokens[start] === "(") {
+        let depth = 0
+        let parameterEnd = start
+        for (; parameterEnd < tokens.length; parameterEnd++) {
+          if (tokens[parameterEnd] === "(") depth++
+          else if (tokens[parameterEnd] === ")" && --depth === 0) { parameterEnd++; break }
+        }
+        if (tokens[parameterEnd] === "{") methodBodyStart = parameterEnd
+      }
+      const arrow = methodBodyStart < 0 ? (() => {
         for (let i = start; i + 1 < tokens.length; i++) {
           if (tokens[i] === "=" && tokens[i + 1] === ">") return i
         }
         return -1
-      })()
-      let bodyStart = arrow >= 0 ? arrow + 1 : start
+      })() : -1
+      let bodyStart = arrow >= 0 ? arrow + 1 : (methodBodyStart >= 0 ? methodBodyStart : start)
       // Limit the search to this callback's body so later module declarations
       // cannot be mistaken for its returned definition.
       let callbackEnd = tokens.length
