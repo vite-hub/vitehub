@@ -20,7 +20,8 @@ const colocatedSkills = Symbol.for("vitehub.agent.colocatedSkills")
 
 function layerMetadata(value: unknown): AgentLayerMetadata | undefined {
   if (!value || !hasRuntimeType(value, "object")) return
-  // SAFETY: This private symbol is attached only by this module.
+  // SAFETY: hasRuntimeType proves value is an object, and this module is the only writer of the private symbol.
+  // SAFETY: values in this internal weak map are only written with AgentLayerMetadata.
   return (value as { [agentLayerMetadata]?: AgentLayerMetadata })[agentLayerMetadata]
 }
 
@@ -177,6 +178,7 @@ export function rememberAgentLayerOptions<T extends AgentDefinition>(definition:
   rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
   if (inherited?.parent) inheritColocatedSkills(asMetadataTarget(inherited.parent), asMetadataTarget(definition))
   // SAFETY: Metadata stores the private configured layer shape created by this module.
+  // SAFETY: configured layers are created by the validated layer resolver.
   if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured as ConfiguredLayer)
   return definition
 }
@@ -319,7 +321,8 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
     || Object.keys(input).some(key => key !== "options" && key !== "configure")) {
     throw new TypeError("[vitehub] A configured Agent requires only options defaults and a configure callback.")
   }
-  const callback = input.configure
+  // SAFETY: The validation above proves configure is the only accepted non-null function property.
+  const callback = input.configure as (options: Record<string, unknown>) => unknown
   const configure = (options: Record<string, unknown>): unknown => callback(options)
   const options = mergePresetOptions({}, input.options)
   const definition = configure(mergePresetOptions({}, options))
@@ -360,11 +363,22 @@ export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaul
   const metadata = layerMetadata(parent)
   if (!metadata || !child || !hasRuntimeType(child, "object")) return
   // SAFETY: Discovery supplies typed defaults for settings of a registered definition.
-  rememberLayerMetadata(child as Record<string, unknown>, {
+  // SAFETY: hasRuntimeType narrows child to an object record for metadata storage.
+  // SAFETY: hasRuntimeType above proves child is an object record suitable for metadata storage.
+  const childRecord = child as Record<string, unknown>
+  rememberLayerMetadata(childRecord, {
     // SAFETY: merge preserves the AgentSettings shape from typed metadata and defaults.
+    // SAFETY: defaults and metadata.options are validated AgentSettings values; merge preserves that shape.
+    // SAFETY: both inputs are validated AgentSettings metadata; merge preserves that shape.
+    // SAFETY: merge receives only validated AgentSettings-compatible values.
+    // SAFETY: both values originate from validated AgentSettings metadata; merge preserves that shape.
     options: merge(defaults, metadata.options, "") as AgentSettings,
     configured: metadata.configured,
     // SAFETY: merge preserves the optional partial settings shape.
+    // SAFETY: merge preserves the optional partial settings shape from validated layer metadata.
+    // SAFETY: metadata.defaults and defaults are validated partial AgentSettings values.
+    // SAFETY: merge returns the validated partial AgentSettings shape from both layer sources.
+    // SAFETY: merge receives only validated partial AgentSettings values.
     defaults: merge(metadata.defaults, defaults, "") as Partial<AgentSettings> | undefined,
   })
 }

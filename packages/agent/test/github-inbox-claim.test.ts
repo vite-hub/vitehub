@@ -117,3 +117,13 @@ test('new remote event during provider HEAD read is rechecked before accepting p
   assert.equal(await check(), 'Pull request head changed.')
  } finally { inbox.close() }
 })
+
+test('expired lease cancels before recovery changes its token', () => {
+  const inbox = fixture()
+  try {
+    const claim = inbox.claim(1)[0]!
+    const current = structuredClone(claim.snapshot)
+    current.leaseUntil = Date.now() - 1
+    assert.equal(claimStopReason(claim, current), 'Pull request lease lost.')
+  } finally { inbox.close() }
+})

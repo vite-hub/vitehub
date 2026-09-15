@@ -61,7 +61,7 @@ export interface GitHubHostPullRequest {
 export interface GitHubHostCheckout extends GitHubHostAccess {
   path: string
   prepareWorkspace(target: string): Promise<void>
-  push(target?: string): Promise<string>
+  push(target?: string, options?: { signal?: AbortSignal, beforePush?: () => void }): Promise<string>
   signal: AbortSignal
 }
 
@@ -100,6 +100,8 @@ export interface GitHubGraphQLReservation extends GitHubGraphQLRateLimit {
 
 export interface GitHubHost {
   channel(options?: Omit<GitHubChannelOptions, 'app'>): AgentChannelDefinition
+  /** Return the verified login configured for this host, when available. */
+  identity(): string | undefined
   /** Resolve credentials and Git binding for the current checkout callback. */
   environment(): Promise<Record<string, string>>
   access(input?: GitHubHostAccessOptions): Promise<GitHubHostAccess>
@@ -690,7 +692,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       operation.signal.throwIfAborted()
       const prepareWorkspace = async (target: string) => await prepareGitHubPullRequestWorkspace(checkout, target, { signal: operation.signal })
       let pushHead = pullRequest.headSha
-      const push = async (target: string = checkout) => {
+      const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: () => void } = {}) => {
+        const signal = options.signal ? AbortSignal.any([operation.signal, options.signal]) : operation.signal
+        signal.throwIfAborted()
         const expectedHead = pushHead
         if (!pullRequest.headRepository || !pullRequest.headRef) throw agentDiagnostics.AGENT_R0766({ message: "Pull request source repository and branch are required to push." })
         const readEnv = { ...process.env }
@@ -703,7 +707,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         for (const key of Object.keys(readEnv)) if (key.startsWith("GIT_CONFIG_")) delete readEnv[key]
         readEnv.GIT_CONFIG_NOSYSTEM = "1"
         readEnv.GIT_CONFIG_GLOBAL = "/dev/null"
-        const readOptions = { env: readEnv, maxBuffer, signal: operation.signal }
+        const readOptions = { env: readEnv, maxBuffer, signal }
         const root = (await exec("git", ["-C", target, "rev-parse", "--show-toplevel"], readOptions)).stdout.trim()
         if (await realpath(root) !== await realpath(target)) throw agentDiagnostics.AGENT_R0766({ message: "Push target must be the root of its prepared Git checkout." })
         const head = (await exec("git", ["-C", target, "rev-parse", "HEAD"], readOptions)).stdout.trim()
@@ -712,17 +716,24 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           // Import without host credentials. Authenticated Git only reads our trusted clone's config.
           await exec("git", ["-C", checkout, "-c", "protocol.file.allow=always", "-c", "uploadpack.packObjectsHook=", "fetch", "--no-tags", "--", await realpath(target), head], readOptions)
         }
-        await exec("git", ["-C", checkout, "merge-base", "--is-ancestor", expectedHead, head], commandOptions)
+        await exec("git", ["-C", checkout, "merge-base", "--is-ancestor", expectedHead, head], { ...commandOptions, signal })
         const refreshed = await access({
           refresh: true,
           repository: pullRequest.headRepository,
-          signal: operation.signal,
+          signal,
         })
+        signal.throwIfAborted()
+        options.beforePush?.()
         await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "push", "--no-verify", `--force-with-lease=refs/heads/${pullRequest.headRef}:${expectedHead}`, "--", pushUrl, `${head}:refs/heads/${pullRequest.headRef}`], {
           env: { ...process.env, ...refreshed.env },
           maxBuffer,
-          signal: operation.signal,
+          signal,
         })
+        // Re-check custody immediately after the remote mutation. A lease can
+        // be reclaimed while Git is in flight; surface that loss so callers do
+        // not report the stale operation as successful or continue with merge.
+        signal.throwIfAborted()
+        options.beforePush?.()
         pushHead = head
         return head
       }
@@ -735,6 +746,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   return {
+    identity() {
+      return identity.login?.trim() || undefined
+    },
     channel(channelOptions = {}) {
       return github({ ...channelOptions, app: { token: async (_context, scope) => (await access({ repository: scope.repository })).token, ...(identity.login ? { identity: { login: identity.login } } : {}) } })
     },
