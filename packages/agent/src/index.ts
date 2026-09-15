@@ -2129,7 +2129,7 @@ type ConfiguredAgentSettings<TDefinition> = TDefinition extends AgentDefinition<
   : never
 
 type ConfiguredCapabilitiesWorkspace<TCapabilities> = TCapabilities extends readonly (infer TCapability)[]
-  ? TCapability extends { workspace: object }
+  ? TCapability extends { workspace: object | ((...args: any[]) => any) }
     ? true
     : TCapability extends { capabilities: infer TNested }
       ? ConfiguredCapabilitiesWorkspace<TNested>
