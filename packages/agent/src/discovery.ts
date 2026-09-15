@@ -344,6 +344,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           else if (["}", ")", "]"].includes(token)) {
             if (bodyDepth === 0) { callbackEnd = i; break }
             bodyDepth--
+            if (bodyDepth === 0) { callbackEnd = i + 1; break }
           }
         }
       }
