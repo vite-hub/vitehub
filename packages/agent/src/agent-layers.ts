@@ -238,6 +238,7 @@ export function inheritAgentLayerOptions(parent: unknown, child: unknown, defaul
     // SAFETY: defaults and metadata.options are validated AgentSettings values; merge preserves that shape.
     // SAFETY: both inputs are validated AgentSettings metadata; merge preserves that shape.
     // SAFETY: merge receives only validated AgentSettings-compatible values.
+    // SAFETY: both values originate from validated AgentSettings metadata; merge preserves that shape.
     options: merge(defaults, metadata.options, "") as AgentSettings,
     configured: metadata.configured,
     // SAFETY: merge preserves the optional partial settings shape.

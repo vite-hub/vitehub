@@ -247,7 +247,7 @@ export class PullRequestInbox {
         }
         if (event === 'issue_comment') {
           const feedback = !(marked && this.activityAuthors.has(commentAuthor))
-          upsert(s.comments, payload.comment)
+          if (feedback) upsert(s.comments, payload.comment)
           // Agent activity comments are self-generated transport records; they
           // must not advance the repair generation or revoke the active claim.
           if (!feedback) changed = false
