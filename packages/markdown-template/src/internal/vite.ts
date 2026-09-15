@@ -44,6 +44,10 @@ export function renderMarkdownTemplateTypes(): string {
     "  const render: (data?: Record<string, unknown>) => Promise<string>",
     "  export default render",
     "}",
+    `declare module "*" {`,
+    "  const render: (data?: Record<string, unknown>) => Promise<string>",
+    "  export default render",
+    "}",
     "",
   ].join("\n")
 }
