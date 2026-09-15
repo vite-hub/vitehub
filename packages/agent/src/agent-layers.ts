@@ -135,7 +135,6 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     if (!record(inheritedOverrides)) throw new TypeError("[vitehub] Invalid Agent layer overrides.")
     const { name: _parentName, ...defaults } = layerMetadata(definition)!.options
     const resolved = merge(merge(inherited.defaults, defaults, ""), inheritedOverrides, "")
-    copyDefinitionDecorations(definition, resolved as AgentDefinition)
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
