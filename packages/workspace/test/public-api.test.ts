@@ -597,7 +597,7 @@ describe("workspace public API", () => {
     await expect(readonly.getMeta?.("snapshot")).resolves.toEqual({ status: "ready" })
   })
 
-  it("lets read-only inspection reuse current startup snapshots", async () => {
+  it.each([undefined, "text/markdown"])("lets read-only inspection reuse current startup snapshots with mediaType=%s", async (mediaType) => {
     const existingKeys = vi.fn(async () => ["AGENTS.md"])
     const addedKeys = vi.fn(async () => ["SKILL.md"])
     const definition = {
@@ -608,7 +608,7 @@ describe("workspace public API", () => {
           materialize: "startup",
           mount: "",
           getKeys: existingKeys,
-          async getItem(key) { return { key, content: "# Existing\n" } },
+          async getItem(key) { return { key, content: "# Existing\n", mediaType } },
         }),
       } as Record<string, ReturnType<typeof custom>>,
     }

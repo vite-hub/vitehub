@@ -284,7 +284,7 @@ export async function materializedFileMatches(file: Awaited<ReturnType<Workspace
   if (!file || !item.materializedContentDigest) return false
   if (await sha256(file.content) !== item.materializedContentDigest) return false
   if (!item.materializedAttributes || fileAttributesUnavailable(file)) return true
-  if (file.mediaType === undefined || file.metadata === undefined) return false
+  if (file.metadata === undefined) return false
   return file.mediaType === item.materializedMediaType
     && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
 }
