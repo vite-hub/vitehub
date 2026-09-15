@@ -133,7 +133,12 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: Re
 
 export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
   const configHash = await sourceConfigHash(source)
-  return isSnapshotFresh(await readSourceSnapshotMetadata(store, source.key), source, configHash)
+  const snapshot = await readSourceSnapshotMetadata(store, source.key)
+  if (!isSnapshotFresh(snapshot, source, configHash)) return false
+  for (const path of Object.keys(snapshot?.items || {})) {
+    if (!await store.readFile(path)) return false
+  }
+  return true
 }
 
 export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, source: SourceConfiguration) {
@@ -592,7 +597,7 @@ async function reconcileRemovedStartupSourcesInternal(
     const invalidatedSnapshot = snapshot && snapshot.mountPath === undefined && snapshot.items === undefined
     if (snapshot?.mountPath !== source.mountPath && !invalidatedSnapshot) continue
     // Build synchronization can clear the index while owned files remain outside its mount.
-    const previousPaths = invalidatedSnapshot
+    const previousPaths = invalidatedSnapshot || !Object.keys(snapshot?.items || {}).length
       ? (await store.list(source.mountPath, { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)
       : Object.keys(snapshot?.items || {})
     const staleDirectories = new Set([...(snapshot?.ownedAncestors || []), ...(snapshot?.ownedDirectories || []).filter(path => sourceOwnsDirectory(source, path))])
@@ -611,7 +616,11 @@ async function reconcileRemovedStartupSourcesInternal(
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
-      await control.mutate(() => store.rm(path, { force: true }))
+      await control.mutate(() => store.rm(path, {
+        force: true,
+        ...(recordedDigest ? { ifDigest: recordedDigest } : {}),
+        ...(owner ? { ifSource: owner } : {}),
+      }))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       // A replaced ancestor can also make stat fail with ENOTDIR. Neither case
