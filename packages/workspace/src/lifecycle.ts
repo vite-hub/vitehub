@@ -121,7 +121,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const buildSources = sources
     .filter(source => source.materialize === "build")
   const startupSources = sources.filter(source => source.materialize === "startup")
-  await reconcileRemovedStartupSources(store, startupSources, undefined, materializationStore)
+  await reconcileRemovedStartupSources(store, startupSources, undefined, materializationStore, definition.name)
   abortSignal?.throwIfAborted()
   const startupBaseline = await captureStartupFiles(store, startupSources)
   const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)

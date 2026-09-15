@@ -69,7 +69,9 @@ interface PromotedSourceSkillFile {
   sourcePath: string
 }
 
-const startupSourcesMetaKey = "workspace:startup-sources"
+function startupSourcesMetaKey(workspaceName?: string) {
+  return `workspace:${workspaceName || "default"}:startup-sources`
+}
 const promotedSourceSkillsMetaKey = "workspace:promoted-source-skills"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Set<ResolvedWorkspaceSource>>()
@@ -190,6 +192,10 @@ async function reconcilePromotedSourceSkills(
     right.mountPath.length - left.mountPath.length || left.key.localeCompare(right.key))
   for (const source of sortedSources) {
     const snapshot = await readSourceSnapshotMetadata(store, source.key)
+    if (snapshot && snapshot.status === "ready") {
+      const currentHash = await sourceConfigHash(source)
+      if (snapshot.configHash !== currentHash) continue
+    }
     if (!snapshot || !["ready", "updating", "error"].includes(snapshot.status)) continue
     const pathsBySkill = new Map<string, Map<typeof sourceSkillRoots[number], string[]>>()
     for (const sourcePath of Object.keys(snapshot.items || {}).sort()) {
@@ -527,13 +533,14 @@ export async function reconcileRemovedStartupSources(
     async checkpoint(operation) { return await operation() },
   },
   materializationStore = store,
+  workspaceName?: string,
 ) {
   // Per-source materializations share removed owners, so finish their cleanup
   // before another source can observe and delete the same files.
   const previous = startupReconciliationByStore.get(materializationStore)
   const current = (async () => {
     await previous
-    await reconcileRemovedStartupSourcesInternal(store, currentSources, control, activeStartupSourcesByStore.get(materializationStore))
+    await reconcileRemovedStartupSourcesInternal(store, currentSources, control, activeStartupSourcesByStore.get(materializationStore), workspaceName)
   })()
   const tail = current.catch(() => {})
   startupReconciliationByStore.set(materializationStore, tail)
@@ -550,9 +557,10 @@ async function reconcileRemovedStartupSourcesInternal(
   currentSources: ResolvedWorkspaceSource[],
   control: MaterializationControl,
   activeSources: Set<ResolvedWorkspaceSource> = new Set(),
+  workspaceName?: string,
 ) {
   if (!store.getMeta || !store.setMeta) return
-  const value = await store.getMeta(startupSourcesMetaKey)
+  const value = await store.getMeta(startupSourcesMetaKey(workspaceName))
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
   const activeOwners = [...activeSources]
@@ -612,7 +620,7 @@ async function reconcileRemovedStartupSourcesInternal(
   // A newer definition must retain owners that can still write or checkpoint files.
   const trackedSources = [...currentSources, ...activeOwners, ...previousSources.filter(isActive)]
   const uniqueSources = trackedSources.filter((source, index) => trackedSources.findIndex(candidate => candidate.key === source.key && candidate.mountPath === source.mountPath) === index)
-  await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey, uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))))
+  await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey(workspaceName), uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))))
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
@@ -756,7 +764,7 @@ async function materializeWorkspaceSourcesInternal(
   const selectedStartupSource = sources.some(source => source.materialize === "startup")
   const reconcileStartupSources = selectedStartupSource || rootMaterialization && !options.sources?.length
   if (reconcileStartupSources) {
-    await reconcileRemovedStartupSources(store, startupSources, control)
+    await reconcileRemovedStartupSources(store, startupSources, control, store, definition.name)
   }
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
