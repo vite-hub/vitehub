@@ -229,6 +229,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (hasRuntimeType(value, "function")) return value
   if (memo.has(value)) return memo.get(value)
   if (Array.isArray(value)) {
+    // SAFETY: Array construction with the source length produces an indexed option container.
     const clone = new Array(value.length) as unknown[]
     memo.set(value, clone)
     for (const key of Reflect.ownKeys(value)) {
@@ -247,7 +248,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value instanceof URL) { const clone = new URL(value.href); memo.set(value, clone); return clone }
   if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
   if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
-  if (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer) { const clone = new SharedArrayBuffer(value.byteLength); new Uint8Array(clone).set(new Uint8Array(value)); memo.set(value, clone); return clone }
+  if (hasRuntimeType(SharedArrayBuffer, "function") && value instanceof SharedArrayBuffer) { const clone = new SharedArrayBuffer(value.byteLength); new Uint8Array(clone).set(new Uint8Array(value)); memo.set(value, clone); return clone }
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
     if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) {
@@ -270,6 +271,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
       const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value) as number
       const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value) as number
+      // SAFETY: buffer is obtained from the intrinsic DataView accessor and clonePresetOption preserves ArrayBuffer values.
       const clonedBuffer = clonePresetOption(buffer, memo) as ArrayBuffer
       const clone = new DataView(clonedBuffer, byteOffset, byteLength)
       memo.set(value, clone)
