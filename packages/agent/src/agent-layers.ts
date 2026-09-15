@@ -262,6 +262,10 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
     Symbol.for("vitehub.baseAgentDefinitionResolve"),
     Symbol.for("vitehub.baseAgentCapabilitiesResolver"),
     Symbol.for("vitehub.baseAgentModel"),
+    Symbol.for("vitehub.baseAgentDriverKind"),
+    Symbol.for("vitehub.baseAgentDriver"),
+    Symbol.for("vitehub.baseAgentOutput"),
+    Symbol.for("vitehub.syntheticWorkspaceRun"),
   ])
   for (const key of Reflect.ownKeys(definition)) {
     if (key === "options" || key === "__vitehubAgentSettings" || key === agentLayerMetadata || key === "resolve" || key === "run" || key === "health" || key === "status" || frameworkSymbols.has(key)) continue
