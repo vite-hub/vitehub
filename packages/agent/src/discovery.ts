@@ -337,7 +337,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // follow that binding so its Workspace metadata is preserved.
       const configuredReference = resolveReference(configure)
       if (configuredReference !== configure && ownsWorkspace(configuredReference, new Set(seen))) return true
-      let start = resolveReference(configure)
+      // Computed and shorthand methods record the parameter-list opening;
+      // do not resolve through it or destructured parameters can be mistaken for the body.
+      let start = tokens[configure] === "(" ? configure : resolveReference(configure)
       // Scan the Agent definition returned by the callback, rather than the
       // callback's parameter list (which commonly contains parentheses).
       // Prefer the definition expression in the callback body. A callback's
