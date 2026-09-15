@@ -4035,7 +4035,7 @@ cli_auth_credentials_store = "keyring"
       async onStartSession() {
         const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
         const promptFile = args.split("--append-system-prompt-file ")[1]!.replace(/^['\"]|['\"]$/g, "")
-        expect(await readFile(join(root, promptFile), "utf8")).toBe("workspace instructions")
+        expect(await readFile(promptFile, "utf8")).toBe("workspace instructions")
       },
     })
     let root = ""
@@ -4100,14 +4100,14 @@ cli_auth_credentials_store = "keyring"
         expect(args).toContain("--verbose --append-system-prompt-file ")
         expect(args).not.toContain(instructions)
         promptFile = args.split("--append-system-prompt-file ")[1]!.replace(/^['\"]|['\"]$/g, "")
-        expect(await readFile(join(root, promptFile), "utf8")).toBe(instructions)
+        expect(await readFile(promptFile, "utf8")).toBe(instructions)
         expect(await readFile(join(root, "CLAUDE.md"), "utf8")).toBe("")
       },
     })
     const session = {
       close: vi.fn(async () => {
         expect(await readFile(join(root, "CLAUDE.md"), "utf8")).toBe("original instructions")
-        await expect(access(join(root, promptFile))).rejects.toThrow()
+        await expect(access(promptFile)).rejects.toThrow()
       }),
       commit: vi.fn(async () => undefined),
       diff: vi.fn(async () => ({ entries: [] })),
