@@ -1047,7 +1047,7 @@ describe("bundleEsmEntry", () => {
     const entry = join(rootDir, "entry.mjs")
     const template = join(rootDir, "prompt.template.md")
     const outfile = join(rootDir, "bundle.mjs")
-    await writeFile(entry, 'import render from "./prompt.template.md"\nimport partial from "./partial.template.md"\nexport default async data => render({ partial: await partial({ data }) })\n', "utf8")
+    await writeFile(entry, 'import render from "./prompt.template.md"\nimport partial from "./partial.template.md"\nexport default async data => render({ partial: await partial(data) })\n', "utf8")
     await writeFile(template, "Hello {{ data.partial }}", "utf8")
     await writeFile(join(rootDir, "partial.template.md"), "{{ data.name }}!", "utf8")
 
