@@ -1,6 +1,6 @@
 # @vite-hub/markdown-template
 
-`@vite-hub/markdown-template` turns a Markdown template string and explicit data into Markdown. It supports escaped scalar values, trusted Markdown fragments, bounded conditions, and caller-resolved imports. The direct renderer does not evaluate JavaScript or read files and URLs on its own.
+`@vite-hub/markdown-template` turns a Markdown template string and explicit data into Markdown. It supports escaped scalar values, trusted Markdown fragments, and bounded conditions. The direct renderer does not evaluate JavaScript or read files and URLs on its own.
 
 Use `renderMarkdownFile()` for a local Markdown path. Use `renderMarkdownTemplate()` when your application already has the template string.
 

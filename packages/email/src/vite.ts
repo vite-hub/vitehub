@@ -26,8 +26,9 @@ const normalizeTemplateModulePath = (id: string) => {
   const file = path.slice(5)
   // Vite keeps a leading slash for POSIX paths, but prefixes Windows drive
   // paths with one as well; remove that extra separator before comparison.
-  return /^\/[A-Za-z]:[\\/]/.test(file) ? file.slice(1) : file
+  return (/^\/[A-Za-z]:[\\/]/.test(file) ? file.slice(1) : file).replaceAll("\\", "/")
 }
+const normalizeWatchedPath = (file: string) => file.replaceAll("\\", "/")
 export type EmailProvider = "cloudflare-email" | "resend"
 
 interface GeneratedEmailDefinition {
@@ -466,7 +467,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
             if (module.id) {
               const modulePath = module.id.split("?", 1)[0]
               const queriedSource = normalizeTemplateModulePath(module.id)
-              if (isInside(materializedRoot, modulePath) || watchFiles.has(queriedSource) || watchFiles.has(modulePath)) {
+              if (isInside(materializedRoot, modulePath) || watchFiles.has(queriedSource) || watchFiles.has(modulePath) || [...watchFiles].some(file => normalizeWatchedPath(file) === normalizeWatchedPath(queriedSource) || normalizeWatchedPath(file) === normalizeWatchedPath(modulePath))) {
                 server.moduleGraph.invalidateModule(module)
               }
             }
