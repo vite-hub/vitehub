@@ -2855,23 +2855,26 @@ export default defineAgent({
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain('import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
+      expect(denoServer).toContain('import { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
       expect(denoServer).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(agent0)")
       expect(denoServer).toContain('workspaceRegistryEntry("support", agent0')
+      expect(denoServer).toContain("workspaceDefinitionFromOptions((agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions)")
+      expect(denoServer).toContain("registerWorkspace(workspaceName, workspaceDefinition)")
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
       expect(denoServer).toContain("Symbol.for('vitehub.agent.colocatedSkills')")
       expect(denoServer).toContain("Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent))")
       expect(denoServer).toContain("Uint8Array.from(atob(content)")
-      expect(denoServer).toContain(JSON.stringify("__vitehubAgentSkill:skills/review/SKILL.md"))
+      expect(denoServer).toContain(JSON.stringify("__vitehubAgentSkill:.agents/skills/review/SKILL.md"))
       expect(denoServer).toContain(JSON.stringify(Buffer.from([0, 255, 42]).toString("base64")))
       expect(denoServer).toContain(
         "const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
       )
-      expect(denoServer).toContain(
-        "    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }",
-      )
+      expect(denoServer).toContain("materialize: 'startup'")
+      expect(denoServer).toContain("    ...skills,")
+      expect(denoServer).toContain("    ...workspace.sources,")
+      expect(denoServer).toContain("    ...existingSources,")
       expect(denoServer).toContain("workspaceDefinitionFromOptions")
       expect(denoServer).toContain(
         "const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }",

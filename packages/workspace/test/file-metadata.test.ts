@@ -58,6 +58,27 @@ describe("portable file metadata", () => {
     expect(await store.stat("file")).toBeUndefined()
   })
 
+  it.each(["ordinary", "conditional", "streamed"])("copies accepted metadata in %s writes, including unchanged content", async (mode) => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-metadata-"))
+    roots.push(root)
+    const store = createLocalWorkspaceStore(root)
+    for (const revision of [1, 2]) {
+      const metadata = { nested: { revision }, source: "docs" }
+      const file = { path: "file", content: "content", metadata }
+      if (mode === "streamed") {
+        async function* content() { yield new TextEncoder().encode(file.content) }
+        await store.writeFileStream!("file", { ...file, content: content() })
+      } else if (mode === "conditional") {
+        await store.writeFileConditional!("file", file, (await store.stat("file"))?.digest ?? null)
+      } else {
+        await store.writeFile("file", file)
+      }
+      metadata.nested.revision = 99
+      metadata.source = "changed"
+      expect((await store.readFile("file"))?.metadata).toEqual({ nested: { revision }, source: "docs" })
+    }
+  })
+
   it("preserves nested values after restart and accepts repeated noncyclic references", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-metadata-"))
     roots.push(root)

@@ -1,6 +1,6 @@
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
-import { normalizeWorkspacePath } from "../core/path.ts"
+import { normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
@@ -147,6 +147,10 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
     // Snapshot metadata falls back to this Store, so its format must match too.
     [workspaceStoreTarget]: async () => await resolveWorkspaceStoreTarget(workspace) ?? { provider: "memory" },
     isTombstoned,
+    // Overlay validation and tombstoning are separate operations. Do not
+    // advertise conditional removal without an atomic backing-store check.
+    // Reconciliation will conservatively skip conditional cleanup instead.
+    conditionalRemoval: false,
     async readFile(path) {
       return await memory.readFile(path) || await readBaseFile(path)
     },
@@ -168,6 +172,17 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       await memory.mkdir(path, options)
     },
     async rm(path, options) {
+      if (options?.ifDigest !== undefined || options?.ifSource !== undefined) {
+        // Validate the effective overlay entry first; the base layer may be
+        // shadowed by a replacement in memory.
+        const current = await memory.readFile(path) || await readBaseFile(path)
+        if (!current) return
+        if (options.ifSource !== undefined && (current.metadata?.source ?? null) !== options.ifSource) return
+        if (options.ifDigest !== undefined) {
+          const digest = await sha256(current.content)
+          if (digest !== options.ifDigest) return
+        }
+      }
       const removedBaseEntries = options?.recursive ? await baseEntries(path, { recursive: true }) : []
       await memory.rm(path, options)
       tombstones.add(path)

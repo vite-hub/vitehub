@@ -24,6 +24,7 @@ type MemoryNode = {
   mediaType?: string
   metadata?: Record<string, unknown>
   mtime: number
+  directoryIdentity?: string
 }
 
 function now() {
@@ -31,6 +32,7 @@ function now() {
 }
 
 class MemoryWorkspaceStore implements WorkspaceStore {
+  readonly conditionalRemoval = true;
   [workspaceStoreTarget]() {
     return { provider: "memory" }
   }
@@ -87,21 +89,34 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   async stat(path: string): Promise<WorkspaceStat | undefined> {
     const normalized = normalizeWorkspacePath(path)
     const node = this.#nodes.get(normalized)
-    return node ? await this.#entry(normalized, node) : undefined
+    return node ? { ...await this.#entry(normalized, node), directoryIdentity: node.directoryIdentity } : undefined
   }
 
-  async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
-    await this.#mutate(() => {
+  async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
+    await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
-      this.#ensureParents(normalized)
-      this.#nodes.set(normalized, { type: "directory", mtime: now() })
+      this.#ensureParents(normalized, options.onCreate)
+      const existing = this.#nodes.get(normalized)
+      if (existing && existing.type !== "directory") {
+        throw workspaceError(`[vitehub] Workspace path is not a directory: ${path}.`)
+      }
+      if (!existing) {
+        const directoryIdentity = crypto.randomUUID()
+        this.#nodes.set(normalized, { type: "directory", mtime: now(), directoryIdentity })
+        options.onCreate?.(normalized, directoryIdentity)
+      }
     })
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    await this.#mutate(() => {
+    await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
       const node = this.#nodes.get(normalized)
+      if (options.ifDigest !== undefined || options.ifSource !== undefined) {
+        if (node?.type !== "file") return
+        if (options.ifDigest !== undefined && (await this.#entry(normalized, node)).digest !== options.ifDigest) return
+        if (options.ifSource !== undefined && (node.metadata?.source ?? null) !== options.ifSource) return
+      }
       if (!node) {
         if (options.force) return
         throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
@@ -170,11 +185,15 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     return result
   }
 
-  #ensureParents(path: string) {
+  #ensureParents(path: string, onCreate?: (path: string, directoryIdentity?: string) => void) {
     const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
     for (let index = 1; index < parts.length; index++) {
       const dir = parts.slice(0, index).join("/")
-      if (!this.#nodes.has(dir)) this.#nodes.set(dir, { type: "directory", mtime: now() })
+      if (!this.#nodes.has(dir)) {
+        const directoryIdentity = crypto.randomUUID()
+        this.#nodes.set(dir, { type: "directory", mtime: now(), directoryIdentity })
+        onCreate?.(dir, directoryIdentity)
+      }
     }
   }
 
