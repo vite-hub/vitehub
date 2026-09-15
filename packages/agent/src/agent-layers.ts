@@ -20,7 +20,7 @@ const colocatedSkills = Symbol.for("vitehub.agent.colocatedSkills")
 
 function layerMetadata(value: unknown): AgentLayerMetadata | undefined {
   if (!value || !hasRuntimeType(value, "object")) return
-  // SAFETY: This private symbol is attached only by this module.
+  // SAFETY: hasRuntimeType proves value is an object, and this module is the only writer of the private symbol.
   return (value as { [agentLayerMetadata]?: AgentLayerMetadata })[agentLayerMetadata]
 }
 
