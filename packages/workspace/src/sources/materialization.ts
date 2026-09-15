@@ -284,7 +284,10 @@ async function reconcilePromotedSourceSkills(
       })
     }
     catch (error) {
-      if (!isWorkspaceConflict(error)) throw error
+      if (!isWorkspaceConflict(error)) {
+        const code = hasRuntimeType(error, "object") && error !== null ? Reflect.get(error, "code") : undefined
+        if (code !== "EISDIR" && code !== "ENOTDIR") throw error
+      }
       // Leave the concurrent writer's file unowned, including during cleanup.
       conflictedDestinations.add(destination)
       continue
@@ -304,6 +307,16 @@ async function reconcilePromotedSourceSkills(
           // Without atomic conditional removal, retain the entry rather than
           // risking deletion of a concurrent user replacement.
           next[destination] = prior
+        }
+        // Remove empty directories left behind by a promoted file. Only
+        // remove directories that are demonstrably empty, preserving user
+        // replacements and sibling skills.
+        let parent = posix.dirname(destination)
+        while (parent.startsWith(".agents/skills/") && parent !== ".agents/skills") {
+          const entries = await store.list(parent)
+          if (entries.length) break
+          await control.mutate(() => store.rm(parent, { force: true }))
+          parent = posix.dirname(parent)
         }
       }
     }
