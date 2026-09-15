@@ -135,6 +135,7 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     if (!record(inheritedOverrides)) throw new TypeError("[vitehub] Invalid Agent layer overrides.")
     const { name: _parentName, ...defaults } = layerMetadata(definition)!.options
     const resolved = merge(merge(inherited.defaults, defaults, ""), inheritedOverrides, "")
+    copyDefinitionDecorations(definition, resolved as AgentDefinition)
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
@@ -146,6 +147,20 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
   // SAFETY: Resolved settings merge a registered definition with its overrides.
   rememberLayerMetadata(resolved, { options: resolved as AgentSettings, defaults: inherited.defaults, parent })
   return resolved
+}
+
+function copyDefinitionDecorations(source: AgentDefinition, target: AgentDefinition): void {
+  const frameworkSymbols = new Set<PropertyKey>([
+    Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
+    Symbol.for("vitehub.baseAgentCapabilitiesResolver"), Symbol.for("vitehub.baseAgentModel"),
+    Symbol.for("vitehub.baseAgentDriverKind"), Symbol.for("vitehub.baseAgentDriver"),
+    Symbol.for("vitehub.baseAgentOutput"), Symbol.for("vitehub.syntheticWorkspaceRun"),
+  ])
+  for (const key of Reflect.ownKeys(source)) {
+    if (key === "options" || key === "__vitehubAgentSettings" || key === agentLayerMetadata || key === "resolve" || key === "run" || key === "health" || key === "status" || frameworkSymbols.has(key)) continue
+    const descriptor = Object.getOwnPropertyDescriptor(source, key)
+    if (descriptor) Object.defineProperty(target, key, descriptor)
+  }
 }
 
 export function rememberAgentLayerOptions<T extends AgentDefinition>(definition: T, options: AgentSettings, source: AgentSettings = options): T {
