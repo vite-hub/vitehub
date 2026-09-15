@@ -170,20 +170,18 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     entries.push([key, resolved])
     Object.defineProperty(copy, key, { enumerable: true, configurable: true, value: resolved, writable: true })
   }
-  const directKeys = new Set(entries.map(([key]) => key))
   for (const [key, resolved] of entries
     .filter(([key]) => key.includes("."))
     .sort(([left], [right]) => right.split(".").length - left.split(".").length)) {
-    defineDottedPath(copy as Record<string, unknown>, key, resolved, directKeys)
+    defineDottedPath(copy as Record<string, unknown>, key, resolved)
   }
   return copy as T
 }
 
-function defineDottedPath(target: Record<string, unknown>, key: string, value: unknown, directKeys: Set<string>): void {
+function defineDottedPath(target: Record<string, unknown>, key: string, value: unknown): void {
   const parts = key.split(".")
   let current = target
   for (let index = 0; index < parts.length - 1; index++) {
-    if (directKeys.has(parts.slice(0, index + 1).join("."))) return
     const part = parts[index]
     const existing = current[part]
     if (existing && typeof existing === "object") current = existing as Record<string, unknown>
