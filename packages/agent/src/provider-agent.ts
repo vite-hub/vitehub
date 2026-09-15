@@ -2547,8 +2547,11 @@ async function* runProvider<
           const nativePart = instructions.endsWith(provenanceInstructions)
             ? instructions.slice(0, -provenanceInstructions.length)
             : instructions
+          const generatedPart = preserveNativeInstructions
+            ? nativePart
+            : nativePart.replace(/(^|[^\\])@/g, "$1\\@")
           const escapedProvenance = provenanceInstructions.replace(/(^|[^\\])@/g, "$1\\@");
-          instructions = `${nativePart}${escapedProvenance}`
+          instructions = `${generatedPart}${escapedProvenance}`
         } else if (materializeInstructions && !preserveNativeInstructions) {
           instructions = instructions.replace(/(^|[^\\])@/g, "$1\\@");
         }
