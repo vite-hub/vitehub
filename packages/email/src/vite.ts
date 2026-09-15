@@ -23,7 +23,10 @@ const resolvePackageImport = createRequire(import.meta.url).resolve
 const normalizeTemplateModulePath = (id: string) => {
   const path = id.split("?", 1)[0]
   if (!path.startsWith("/@fs/")) return path
-  return path.slice(5)
+  const file = path.slice(5)
+  // Vite keeps a leading slash for POSIX paths, but prefixes Windows drive
+  // paths with one as well; remove that extra separator before comparison.
+  return /^\/[A-Za-z]:[\\/]/.test(file) ? file.slice(1) : file
 }
 export type EmailProvider = "cloudflare-email" | "resend"
 
