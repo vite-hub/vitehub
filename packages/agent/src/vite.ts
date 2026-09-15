@@ -3080,7 +3080,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       try {
         const normalized = normalizeAgentOptions(agent)
         const definitions = normalized && isNetlifyHosting(config)
-        ? discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(config.root, "server")] })
+        ? [
+            ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: config.root }),
+            ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(config.root, "server")] }),
+          ]
         : []
         artifactDir = definitions.length
           ? resolve(config.root, ".vitehub/agent-generations", randomUUID())
