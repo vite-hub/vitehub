@@ -1086,7 +1086,7 @@ async function materializeWorkspaceSourcesInternal(
     durationMs: Date.now() - started,
     files,
     path: normalizeWorkspacePath(options.path || ""),
-    sources: resultSources,
+    sources: resultSources.reverse(),
   }
 }
 
