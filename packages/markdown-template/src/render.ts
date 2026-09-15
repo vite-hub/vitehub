@@ -187,6 +187,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   for (const key of [...explicitPaths]
     .filter((key) => key.includes("."))
     .sort((left, right) => right.split(".").length - left.split(".").length)) {
+    // SAFETY: `copy` is the null-prototype clone populated with string keys.
     const resolved = (copy as Record<string, unknown>)[key]
     // SAFETY: `copy` is the null-prototype clone being populated as a string-keyed record.
     defineDottedPath(copy as Record<string, unknown>, key, resolved, explicitPaths)
