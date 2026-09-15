@@ -67,9 +67,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const verifiedHostIdentity = hostIdentity && normalizedActivityAuthors.includes(hostIdentity.toLowerCase())
     ? hostIdentity
     : undefined;
-  const activityAuthors = verifiedHostIdentity
-    ? [...options.activityAuthors, verifiedHostIdentity]
-    : options.activityAuthors;
+  // Only trust the host identity when it matches the configured allowlist;
+  // unverified names must never suppress activity feedback.
+  const activityAuthors = verifiedHostIdentity ? [verifiedHostIdentity] : [];
   const pullRequestInbox = new PullRequestInbox({
     path: options.inboxPath,
     repositories: options.repositories,
