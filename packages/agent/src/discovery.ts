@@ -372,8 +372,17 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // Follow locally bound capabilities through their definition rather than
         // relying on an identifier naming convention. Keep the scan bounded to
         // the initializer so unrelated later declarations cannot affect it.
-        const declaration = new RegExp(`(?:const|let|var)\\s+${name}\\s*=\\s*defineCapability\\s*\\([^;]*?\\bworkspace\\s*:`, "m")
-        if (declaration.test(source)) return true
+        for (let i = 0; i < tokens.length - 4; i++) {
+          if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== name || tokens[i + 2] !== "=" || tokens[i + 3] !== "defineCapability") continue
+          let cursor = i + 4
+          if (tokens[cursor] !== "(") continue
+          let depth = 0
+          for (; cursor < tokens.length; cursor++) {
+            if (["(", "{", "["].includes(tokens[cursor])) depth++
+            else if ([")", "}", "]"].includes(tokens[cursor]) && --depth === 0) break
+          }
+          if (/\bworkspace\s*:/.test(tokens.slice(i, cursor + 1).join(" "))) return true
+        }
       }
     }
     if (preset === undefined || registry === undefined) return false
