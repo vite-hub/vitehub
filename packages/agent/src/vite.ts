@@ -1638,6 +1638,13 @@ async function writeAgentRuntimeRegistry(
   definitions: DiscoveredAgentDefinition[],
   options: { agentImportBase: string, workspaceImportBase: string },
 ): Promise<void> {
+  const seen = new Set<string>()
+  for (const definition of definitions) {
+    if (seen.has(definition.name)) {
+      throw new Error(`Duplicate Agent name discovered: ${definition.name}`)
+    }
+    seen.add(definition.name)
+  }
   const registryPath = join(root, generatedAgentRegistry)
   const catalogPath = join(root, generatedAgentRegistryCatalog)
   const catalog = await generateAgentDeploymentCatalog(definitions, catalogPath, {
