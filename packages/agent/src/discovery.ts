@@ -349,7 +349,18 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // Limit the search to this callback's body so later module declarations
       // cannot be mistaken for its returned definition.
       let callbackEnd = tokens.length
-      if (arrow >= 0) {
+      if (arrow < 0) {
+        // Method or function callbacks have a parameter list followed by a
+        // block body; skip the parameters and bound scanning to that block.
+        const body = tokens.indexOf("{", start)
+        if (body >= 0) {
+          start = body
+          for (let i = body + 1, depth = 1; i < tokens.length; i++) {
+            if (tokens[i] === "{") depth++
+            else if (tokens[i] === "}" && --depth === 0) { callbackEnd = i + 1; break }
+          }
+        }
+      } else {
         let bodyDepth = 0
         for (let i = bodyStart; i < tokens.length; i++) {
           const token = tokens[i]
