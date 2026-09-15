@@ -15,7 +15,9 @@ export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
     baseRefOid: pr.base.sha ?? '',
     body: pr.body ?? '',
     reviewDecision: pr.reviewDecision ?? '',
-    statusCheckRollup: Object.values(snapshot.checks).map(check => ({ ...check, name: check.name ?? check.context, status: String(check.status ?? '').toUpperCase(), conclusion: String(check.conclusion ?? '').toUpperCase() })),
+    statusCheckRollup: Object.values(snapshot.checks)
+      .filter(check => !check.deleted && check.head_sha === pr.head?.sha)
+      .map(check => ({ ...check, name: check.name ?? check.context, status: String(check.status ?? '').toUpperCase(), conclusion: String(check.conclusion ?? '').toUpperCase() })),
     headRepository: pr.head.repo ? { nameWithOwner: pr.head.repo.full_name } : null,
         isDraft: Boolean(pr.draft),
     url: pr.html_url ?? '',
