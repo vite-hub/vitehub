@@ -3,7 +3,7 @@ import type { AgentDefinition } from "./types.ts"
 /** Partial option overrides. Arrays and callbacks are replaced as whole values. */
 export type AgentPresetOptions<T> = T extends (...args: never[]) => unknown ? T
   : T extends readonly unknown[] ? T
-    : T extends Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | ArrayBuffer | ArrayBufferView ? T
+    : T extends Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | URLSearchParams | ArrayBuffer | ArrayBufferView ? T
       : T extends object ? { [K in keyof T]?: AgentPresetOptions<T[K]> }
         : T
 

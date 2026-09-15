@@ -2303,7 +2303,7 @@ export interface DefineAgent {
     },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
 
-  <TOptions extends object, TDefinition extends AgentDefinition>(options: {
+  <TOptions extends Record<string, unknown>, TDefinition extends AgentDefinition>(options: {
     options: TOptions
     configure: (options: TOptions) => TDefinition
   }): ConfiguredAgentDefinition<TOptions, TDefinition>

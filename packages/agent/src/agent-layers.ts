@@ -167,14 +167,14 @@ function assertLayerDefinition(value: unknown): asserts value is AgentDefinition
 
 // Options contain application data, so driver and capability merge rules do not apply.
 function mergePresetOptions(parent: Record<string, unknown>, child?: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const key of new Set([...Object.keys(parent), ...Object.keys(child ?? {})])) {
-    if (key === "__proto__" || key === "constructor" || key === "prototype") continue
-    const value = child?.[key] === undefined ? parent[key] : child[key]
+  const result: Record<string | symbol, unknown> = {}
+  for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child ?? {})])) {
+    if (typeof key === "string" && (key === "__proto__" || key === "constructor" || key === "prototype")) continue
+    const value = child && Object.prototype.hasOwnProperty.call(child, key) && child[key as keyof typeof child] !== undefined ? child[key as keyof typeof child] : parent[key as keyof typeof parent]
     if (record(value)) {
       const parentValue = record(parent[key]) ? parent[key] : {}
       result[key] = mergePresetOptions(parentValue, value)
-    } else result[key] = clonePresetOption(value)
+    } else Object.defineProperty(result, key, { value: clonePresetOption(value), enumerable: true, writable: true, configurable: true })
   }
   return result
 }
