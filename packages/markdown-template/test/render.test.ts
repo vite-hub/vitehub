@@ -4,6 +4,18 @@ import { renderMarkdownTemplateInternal } from "../src/internal/composition.ts"
 import { renderMarkdownTemplate } from "../src/index.ts"
 
 describe("renderMarkdownTemplate", () => {
+  it.each([false, true])("preserves matched undefined dotted paths in insertion order %s", async (reverse) => {
+    let reads = 0
+    const entries: [string, unknown][] = [
+      ["support.customer", { name: undefined }],
+      ["support", { customer: { get name() { reads++; return "fallback" } } }],
+    ]
+    const data = Object.fromEntries(reverse ? entries.reverse() : entries)
+    await expect(renderMarkdownTemplate("{{ data.support.customer.name }}", { data }))
+      .rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0017" })
+    expect(reads).toBe(0)
+  })
+
   it("keeps colliding arrays separate without truncating nested elements", async () => {
     const nested = ["nested", , "kept"]
     const flat = ["flat"]

@@ -3,7 +3,7 @@ import binding from "comark/plugins/binding"
 import { renderMarkdown } from "comark/render"
 import { escapeHtml } from "comark/utils"
 import type { ElementNode, Node } from "comark"
-import type { NodeHandler, State } from "comark/render"
+import type { NodeHandler, NodeRenderData, State } from "comark/render"
 
 import { resolveTemplateAttributes as resolveAttributes } from "./bindings.ts"
 import { matchesCondition } from "./condition.ts"
@@ -26,14 +26,16 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   const prepared = await prepareTemplate(template)
   const parseOptions = { ...parserOptions, plugins: [...parserOptions.plugins, ...(options.plugins ?? [])] }
   const tree = await parseMarkdown(prepared.template, parseOptions)
+  const data = ownData(options.data ?? {})
+  // Comark resolves attributes before custom handlers; only our path resolver may read caller data.
+  const renderData = (state: State): NodeRenderData => ({ ...state.renderData, data })
   return prepared.restore((await renderMarkdown(tree, {
-    data: ownData(options.data ?? {}),
     components: {
-      Binding: async (node, state, parent) => state.one(scalarValue(node, state), state, parent, true),
+      Binding: async (node, state, parent) => state.one(scalarValue(node, renderData(state)), state, parent, true),
       If: async (node, state, parent) => {
         const { branches, after } = conditionalBranches(node)
         const selected = branches.find(branch => branch[0] === "else"
-          || matchesCondition(branch[1], state.renderData, options.validateConditionPath))
+          || matchesCondition(branch[1], renderData(state), options.validateConditionPath))
         // SAFETY: Branches are Comark element tuples; entries after tag and attributes are child nodes.
         return await renderNodes([...(selected?.slice(2) as Node[] ?? []), ...after], state, parent)
       },
@@ -47,7 +49,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         if (options.validateFragmentPath && (typeof path !== "string" || !path.startsWith("data.") || !options.validateFragmentPath(path.slice(5)))) {
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template fragment "${String(path)}" must use an allowed data path.` })
         }
-        const value = boundValue(node, state, "markdown")
+        const value = boundValue(node, renderData(state), "markdown")
         if (typeof value !== "string") {
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template Insert markdown prop "${String(path ?? "markdown")}" must resolve to a string.` })
         }
@@ -65,8 +67,8 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
       },
       A: async (node, state, parent) => {
         if (!Object.hasOwn(node[1], ":href")) return await state.handlers.a!(node, state, parent)
-        const props = resolveAttributes(node[1], state.renderData, { parseJson: true })
-        const bound = resolveAttributes({ ":value": node[1][":href"] }, state.renderData, { parseJson: true })
+        const props = resolveAttributes(node[1], renderData(state), { parseJson: true })
+        const bound = resolveAttributes({ ":value": node[1][":href"] }, renderData(state), { parseJson: true })
         const href = await safeLinkDestination(requireScalar(bound.value, String(node[1][":href"])), String(node[1][":href"]))
         // SAFETY: Preserve the element tag and children, replacing only its resolved attributes.
         return await state.handlers.a!([node[0], { ...props, href }, ...node.slice(2)] as ElementNode, state, parent)
@@ -75,7 +77,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         match: node => node[1].$?.html === 1 && !literalHtmlTags.has(node[0]),
         handler: async (node, state, parent) => {
           const [tag, attrs, ...children] = node
-          const props = resolveAttributes(attrs, state.renderData, { parseJson: true })
+          const props = resolveAttributes(attrs, renderData(state), { parseJson: true })
           for (const key of Object.keys(attrs)) {
             if (key.startsWith(":")) requireScalar(props[key.slice(1)], String(attrs[key]))
           }
@@ -93,16 +95,16 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   })).trim())
 }
 
-function boundValue(node: ElementNode, state: State, prop = "value"): unknown {
-  const props = resolveAttributes(node[1], state.renderData, { parseJson: true })
+function boundValue(node: ElementNode, renderData: NodeRenderData, prop = "value"): unknown {
+  const props = resolveAttributes(node[1], renderData, { parseJson: true })
   if (props[prop] === undefined || props[prop] === null) {
     throw diagnostics.MARKDOWN_TEMPLATE_R0017({ message: `[vitehub] Markdown template binding "${String(node[1][`:${prop}`] ?? prop)}" is not defined.` })
   }
   return props[prop]
 }
 
-function scalarValue(node: ElementNode, state: State): string {
-  return requireScalar(boundValue(node, state), String(node[1][":value"] ?? "value"))
+function scalarValue(node: ElementNode, renderData: NodeRenderData): string {
+  return requireScalar(boundValue(node, renderData), String(node[1][":value"] ?? "value"))
 }
 
 function requireScalar(value: unknown, path: string): string {
