@@ -23,7 +23,8 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     throw diagnostics.MARKDOWN_TEMPLATE_R0014({ message: "[vitehub] Markdown template must be a string." })
   }
   const prepared = await prepareTemplate(template)
-  const tree = await parseMarkdown(prepared.template, parserOptions)
+  const parseOptions = { ...parserOptions, plugins: [...parserOptions.plugins, ...(options.plugins ?? [])] }
+  const tree = await parseMarkdown(prepared.template, parseOptions)
   return prepared.restore((await renderMarkdown(tree, {
     data: ownData(options.data ?? {}),
     components: {
@@ -50,7 +51,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template Insert markdown prop "${String(path ?? "markdown")}" must resolve to a string.` })
         }
         // Fragments are parsed without bindings and rendered without template components.
-        const fragment = await parseMarkdown(value, { autoClose: false, autoUnwrap: false, linkify: false })
+        const fragment = await parseMarkdown(value, parseOptions)
         if (parent && (parent[0] === "p" || state.context.inline)) {
           if (!fragment.nodes.length) return ""
           if (fragment.nodes.length !== 1 || !Array.isArray(fragment.nodes[0]) || fragment.nodes[0][0] !== "p") {
@@ -82,7 +83,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
             [key, typeof value === "string" ? escapeHtml(value) : value]))
           // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Only raw text children of block HTML need Markdown parsing; parsed nodes are rendered directly.
           const content = attrs.$?.block === 1 && children.every(child => typeof child === "string")
-            ? (await parseMarkdown(children.join(""), parserOptions)).nodes
+            ? (await parseMarkdown(children.join(""), parseOptions)).nodes
             : children
           return await state.handlers.html!([tag, { ...escaped, $: attrs.$ }, ...content], state, parent)
         },
