@@ -378,12 +378,14 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // Aliases are commonly declared at module scope before the exported
         // Agent. Include those declarations, while keeping the end bounded to
         // this callback so later definitions cannot affect classification.
-        for (let i = 0; i < callbackEnd - 4; i++) {
+        // Module-scope aliases declared before this callback are valid inputs;
+        // declarations after it must not influence this definition.
+        for (let i = 0; i < start - 4; i++) {
           if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== name || tokens[i + 2] !== "=" || tokens[i + 3] !== "defineCapability") continue
           let cursor = i + 4
           if (tokens[cursor] !== "(") continue
           let depth = 0
-          for (; cursor < tokens.length; cursor++) {
+          for (; cursor < start; cursor++) {
             if (["(", "{", "["].includes(tokens[cursor])) depth++
             else if ([")", "}", "]"].includes(tokens[cursor]) && --depth === 0) break
           }
