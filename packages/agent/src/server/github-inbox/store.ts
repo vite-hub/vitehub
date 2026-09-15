@@ -44,7 +44,10 @@ function parseSnapshot(value: unknown): Snapshot {
     (input.lease !== null && Object.prototype.toString.call(input.lease) !== '[object String]') ||
     ![input.generation, input.handled, input.dirtyAt, input.nextAt, input.leaseUntil, input.attempts].every(n => Number.isFinite(n)) ||
     ![input.hydrated, input.refresh, input.feedbackRefresh].every(value => value === true || value === false) ||
-    !Array.isArray(input.threads) || !Array.isArray(input.reasons) || input.reasons.some(reason => Object.prototype.toString.call(reason) !== '[object String]')) {
+    !Array.isArray(input.threads) || !Array.isArray(input.reasons) || input.reasons.some(reason => Object.prototype.toString.call(reason) !== '[object String]') ||
+    ('revision' in input && !Number.isFinite(input.revision)) ||
+    ('threadsHydrated' in input && input.threadsHydrated !== true && input.threadsHydrated !== false) ||
+    ('lastResult' in input && Object.prototype.toString.call(input.lastResult) !== '[object String]')) {
     throw new TypeError('Invalid inbox snapshot')
   }
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {

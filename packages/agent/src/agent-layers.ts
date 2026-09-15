@@ -223,7 +223,7 @@ function clonePresetOption(value: unknown): unknown {
     }
     return clone
   }
-  return value
+  throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
 }
 
 export function createConfiguredAgentDefinition(input: unknown, create: (options: AgentSettings) => AgentDefinition): AgentDefinition | undefined {
