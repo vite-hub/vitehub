@@ -381,7 +381,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // Module-scope aliases declared before this callback are valid inputs;
         // declarations after it must not influence this definition.
         for (let i = start - 4; i >= 0; i--) {
-          if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== name || tokens[i + 2] !== "=" || tokens[i + 3] !== "defineCapability") continue
+          if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== name || tokens[i + 2] !== "=" || !(tokens[i + 3] === "defineCapability" || tokens[i + 3] === "defineAgent")) continue
           let cursor = i + 4
           if (tokens[cursor] !== "(") continue
           let depth = 0
