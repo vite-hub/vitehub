@@ -2533,8 +2533,7 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   // Reconfiguration carries callback-owned decorations through the settings object;
   // copy them onto the rebuilt Agent after defineBaseAgent has reconstructed it.
   if (agentOptions !== normalizedOptions) {
-    const source = agentOptions as unknown as AgentDefinition
-    copyDefinitionDecorations(source, result)
+    copyDefinitionDecorations(agentOptions, result)
   }
   return result
 }) as DefineAgent
