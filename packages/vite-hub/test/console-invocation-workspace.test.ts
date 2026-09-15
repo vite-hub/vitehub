@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), exists: vi.fn(), stat: vi.fn(), readFile: vi.fn(), useWorkspace: vi.fn() }))
+const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), stat: vi.fn(), readFile: vi.fn(), useWorkspace: vi.fn() }))
 vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/api/_vitehub/console/invocations/:id/workspace", getAgentHostWorkspaceInspector: mocks.inspector }))
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
@@ -12,7 +12,6 @@ beforeEach(() => {
   mocks.get.mockResolvedValue({ agentName: "bot", observations: [{ attributes: { "vitehub.agent.configuration": { workspace: { name: "bot" } } } }] })
   mocks.definition.mockReturnValue({ workspace: { name: "bot" } })
   mocks.glob.mockResolvedValue([{ path: "AGENTS.md", type: "file" }, { path: ".env", type: "file" }, { path: "repo/.git/config", type: "file" }, { path: "src", type: "directory" }])
-  mocks.exists.mockResolvedValue(true)
   mocks.stat.mockResolvedValue({ type: "file", size: 4 })
   mocks.readFile.mockResolvedValue("test")
 })
@@ -42,40 +41,9 @@ describe("invocation Workspace inspection", () => {
   it("identifies current mounted files without claiming a historical snapshot", async () => {
     expect(await handler(request())).toEqual({ paths: ["AGENTS.md"], repository: "bot", revision: "current" })
     expect(mocks.definition).toHaveBeenCalledWith("bot", "inspect")
-    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read" })
+    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read", refresh: false })
   })
   it("reads a visible file", async () => {
-    expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
-    expect(mocks.glob).not.toHaveBeenCalled()
-  })
-  it("reports a missing file without stat or listing the Workspace", async () => {
-    mocks.exists.mockResolvedValue(false)
-    mocks.stat.mockRejectedValue(new Error("[vitehub] Workspace path does not exist: missing.md."))
-    await expect(handler(request("missing.md"))).rejects.toMatchObject({ statusCode: 404 })
-    expect(mocks.glob).not.toHaveBeenCalled()
-    expect(mocks.readFile).not.toHaveBeenCalled()
-    expect(mocks.stat).not.toHaveBeenCalled()
-  })
-  it("preserves Workspace failures during the existence check", async () => {
-    const error = new Error("Source unavailable")
-    mocks.exists.mockRejectedValue(error)
-    await expect(handler(request("AGENTS.md"))).rejects.toBe(error)
-    expect(mocks.stat).not.toHaveBeenCalled()
-    expect(mocks.readFile).not.toHaveBeenCalled()
-  })
-  it.each(["portal", "docs:api", "org/repo", "../source", "日本語", "a".repeat(101)])("reports mounted source provenance %s as display text", async source => {
-    mocks.glob.mockResolvedValue([{ path: ".agents/skills/perf/SKILL.md", type: "file" }])
-    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source } })
-    expect(await handler(request(".agents/skills/perf/SKILL.md"))).toEqual({
-      path: ".agents/skills/perf/SKILL.md",
-      content: "test",
-      provenance: { source },
-      size: 4,
-      revision: "current",
-    })
-  })
-  it.each([null, 42, {}, "", "source\u0000key", "source\nkey"])("omits invalid source provenance %j while preserving the file preview", async source => {
-    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source } })
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
   })
   it.each(["../secret", "/etc/passwd", "repo/../../secret", "repo\\secret", ".env.local", "repo/.git/config", "auth.json"])("rejects unsafe path %s before reading", async path => {

@@ -4,7 +4,7 @@ import { files as filesLoader } from "./loaders/files.ts"
 import { normalizeWorkspacePath } from "./core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
-import { sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
+import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
@@ -118,6 +118,8 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const buildSources = sources
     .filter(source => source.materialize === "build")
   const startupSources = sources.filter(source => source.materialize === "startup")
+  await reconcileRemovedStartupSources(store, startupSources, undefined, materializationStore)
+  abortSignal?.throwIfAborted()
   const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
   const bundledBuildSources = !hasExplicitLoaders
@@ -125,6 +127,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
     : undefined
   abortSignal?.throwIfAborted()
   if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
+    await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources, buildSources)
     const snapshot = await store.snapshot({ name: "sync" })
     await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
     return
@@ -151,8 +154,24 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
     await loader.load(ctx)
   }
   abortSignal?.throwIfAborted()
+  await invalidateOverwrittenStartupSnapshots(definition, store, materializationStore, startupSources, buildSources)
   const snapshot = await store.snapshot({ name: "sync" })
   await publishWorkspaceSnapshot(definition, store, snapshot, true, abortSignal, trackOperation)
+}
+
+async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[], buildSources: ResolvedWorkspaceSource[]) {
+  for (const source of startupSources) {
+    const snapshot = await readCurrentSourceSnapshot(store, source)
+    if (snapshot?.status !== "ready") continue
+    for (const path of Object.keys(snapshot.items || {})) {
+      const file = await store.readFile(path)
+      if (!buildSources.some(buildSource => buildSource.key === file?.metadata?.source)) continue
+      await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
+      // Retain the item index so the next startup can still clean up its stale files.
+      await store.setMeta?.(sourceSnapshotMetaKey(source.key), { ...snapshot, status: "updating" })
+      break
+    }
+  }
 }
 
 async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
@@ -177,7 +196,9 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
-    for (const source of affected) await store.setMeta?.(sourceSnapshotMetaKey(source.key), {})
+    for (const source of affected) {
+      await invalidateSourceSnapshot(store, source.key)
+    }
     abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
     abortSignal?.throwIfAborted()
@@ -193,7 +214,9 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
-    for (const startup of affected) await store.setMeta?.(sourceSnapshotMetaKey(startup.key), {})
+    for (const startup of affected) {
+      await invalidateSourceSnapshot(store, startup.key)
+    }
     abortSignal?.throwIfAborted()
     await removeRootBuildSourceFiles(store, removedPaths)
     abortSignal?.throwIfAborted()

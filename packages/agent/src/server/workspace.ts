@@ -11,7 +11,7 @@ import type { AgentRuntimeConfig } from "../types.ts"
 import type { WorkspaceAgentDefinition } from "../workspace-agent.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
-export { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
+export { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 
 export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> {
   name?: string
