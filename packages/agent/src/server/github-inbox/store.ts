@@ -62,6 +62,7 @@ export interface PullRequestInboxOptions {
   repositories: readonly string[]
   filter?: GitHubPullRequestFilter
   clock?: () => number
+  activityAuthors?: readonly string[]
 }
 
 export function pullRequestFilterContext(repository: string, pr: GitHubPullRequestRecord | null): GitHubPullRequestFilterContext {
@@ -77,10 +78,12 @@ export class PullRequestInbox {
   private repositories: string[]
   private clock: () => number
   private filter?: GitHubPullRequestFilter
-  constructor({ path, repositories, filter, clock = Date.now }: PullRequestInboxOptions) {
+  private activityAuthors: Set<string>
+  constructor({ path, repositories, filter, clock = Date.now, activityAuthors = [] }: PullRequestInboxOptions) {
     this.repositories = repositories.map(repository => repository.toLowerCase())
     this.clock = clock
     this.filter = filter
+    this.activityAuthors = new Set(activityAuthors.map(author => author.toLowerCase()))
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = new DatabaseSync(path)
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
@@ -191,7 +194,10 @@ export class PullRequestInbox {
       if (!this.repositories.includes(repository)) return finish('repository not configured')
       // Activity suppression applies to issue comments only. Actual reviews
       // and inline review comments are evidence regardless of reviewer name.
-      if (event === 'issue_comment' && !isFeedback(payload.comment)) return finish('irrelevant comment')
+      const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').toLowerCase()
+      const marked = String(payload.comment?.body ?? '').startsWith('<!-- vitehub-agent-activity:')
+      const activity = marked && this.activityAuthors.has(commentAuthor)
+      if (event === 'issue_comment' && !activity && !isFeedback(payload.comment)) return finish('irrelevant comment')
       if (event === 'issue_comment' && !payload.issue?.pull_request) return finish('issue is not a PR')
       const supported = ['pull_request','issue_comment','pull_request_review','pull_request_review_comment','pull_request_review_thread','check_run','check_suite','workflow_run','status','push']
       if (!supported.includes(event)) return finish('irrelevant event')
@@ -236,7 +242,7 @@ export class PullRequestInbox {
           changed = true
         }
         if (event === 'issue_comment') {
-          const feedback = isFeedback(payload.comment)
+          const feedback = !(marked && this.activityAuthors.has(commentAuthor))
           upsert(s.comments, payload.comment)
           // Agent activity comments are self-generated transport records; they
           // must not advance the repair generation or revoke the active claim.
