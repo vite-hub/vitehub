@@ -67,19 +67,19 @@ Customer: {{ data.customer.name }}
 A scalar may occupy a complete inline link destination:
 
 ```md
-[Open review]({{ reviewUrl }})
+[Open review]({{ data.reviewUrl }})
 ```
 
 The renderer URI-encodes characters that would change the Markdown structure and rejects unsafe or ambiguous destinations, including `javascript:` and `data:` URLs, control characters, malformed percent escapes, and path backslashes in schemeless destinations or `file:`, `ftp:`, `http:`, `https:`, `ws:`, and `wss:` URLs.
 
-A binding inside only part of a destination does not create a link. For example, `[Open review](/reviews/{{ id }})` renders as literal, non-clickable text. Construct the complete URL in data and bind the whole destination instead:
+A binding inside only part of a destination does not create a link. For example, `[Open review](/reviews/{{ data.id }})` renders as literal, non-clickable text. Construct the complete URL in data and bind the whole destination instead:
 
 ```ts
 const data = { reviewUrl: `/reviews/${id}` }
 ```
 
 ```md
-[Open review]({{ reviewUrl }})
+[Open review]({{ data.reviewUrl }})
 ```
 
 ### Insert trusted Markdown
