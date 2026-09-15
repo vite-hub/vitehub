@@ -195,12 +195,15 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
 
 function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>): Record<string, unknown> {
   if (memo.has(parent)) {
+    // SAFETY: memo stores only merged record objects.
     return memo.get(parent) as Record<string, unknown>
   }
   if (child && memo.has(child)) {
     // SAFETY: Only record-shaped children are inserted into this memo.
+    // SAFETY: memo stores only merged record objects.
     return memo.get(child) as Record<string, unknown>
   }
+  // SAFETY: Object.create result is immediately populated as a property-key record.
   const result: Record<string | symbol, unknown> = Object.create(Object.getPrototypeOf(parent)) as Record<string | symbol, unknown>
   memo.set(parent, result)
   if (child) memo.set(child, result)
@@ -248,10 +251,15 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
     if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) {
+      // SAFETY: Buffer values are Uint8Array views by the preceding intrinsic check.
       const sourceBuffer = value as Uint8Array
+      // SAFETY: Uint8Array intrinsic accessor returns the backing ArrayBuffer.
       const sourceBacking = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "buffer")!.get!.call(sourceBuffer) as ArrayBuffer
+      // SAFETY: Uint8Array intrinsic accessor returns a numeric offset.
       const sourceOffset = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteOffset")!.get!.call(sourceBuffer) as number
+      // SAFETY: Uint8Array intrinsic accessor returns a numeric length.
       const sourceLength = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteLength")!.get!.call(sourceBuffer) as number
+      // SAFETY: cloning an ArrayBuffer yields an ArrayBuffer.
       const clonedBacking = clonePresetOption(sourceBacking, memo) as ArrayBuffer
       const clone = (globalThis as { Buffer: typeof Buffer }).Buffer.from(clonedBacking, sourceOffset, sourceLength)
       memo.set(value, clone)
