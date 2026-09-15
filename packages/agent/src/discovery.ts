@@ -230,7 +230,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             else if (tokens[close] === "]") bracketDepth--
             close++
           }
-          if (bracketDepth === 0 && tokens[close] === ":") {
+          if (bracketDepth === 0 && (tokens[close] === ":" || tokens[close] === "(")) {
             const expression = tokens.slice(i + 1, close - 1).filter(token => token !== "(" && token !== ")")
             let key: string | undefined
             const literalParts: string[] = []
@@ -246,7 +246,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
               if (p + 1 < expression.length && expression[p + 1] !== "+") { valid = false; break }
             }
             if (valid && literalParts.length) key = literalParts.join("")
-            if (key !== undefined) result.set(key, close + 1)
+            if (key !== undefined) result.set(key, tokens[close] === "(" ? close : close + 1)
             i = close
             atProperty = false
           }
