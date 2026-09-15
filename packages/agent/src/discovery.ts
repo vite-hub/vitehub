@@ -342,6 +342,18 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // Shorthand methods resolve to their parameter-list opening token;
       // handle those bounds before searching for arrows elsewhere in the module.
       let methodBodyStart = -1
+      if (tokens[start] === ")") {
+        // Method shorthand references resolve to the closing parameter token.
+        // Rewind to its opening delimiter before locating the method body.
+        let depth = 0
+        for (let i = start; i >= 0; i--) {
+          if (tokens[i] === ")") depth++
+          else if (tokens[i] === "(" && --depth === 0) {
+            start = i
+            break
+          }
+        }
+      }
       if (tokens[start] === "(") {
         let depth = 0
         let parameterEnd = start
