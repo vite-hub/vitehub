@@ -139,6 +139,7 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     // Preserve application-owned decorations from the configure result on every reconfiguration.
+    // SAFETY: resolved is the freshly merged Agent definition settings object.
     copyDefinitionDecorations(definition, resolved as AgentDefinition)
     return resolved
   }
