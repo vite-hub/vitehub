@@ -1661,6 +1661,13 @@ async function writeAgentRuntimeRegistry(
     await writeFile(definitionCatalogPath, [...catalog.imports, "", ...catalog.setup, "", "export { agents }", ""].join("\n"), "utf8")
     entries.push(`${JSON.stringify(definition.name)}: async () => (await import(${JSON.stringify(moduleImportSpecifier(registryPath, definitionCatalogPath))})).agents[${JSON.stringify(definition.name)}]`)
   }
+  // Keep the aggregate catalog for development refreshes and existing consumers.
+  const aggregateCatalog = await generateAgentDeploymentCatalog(definitions, catalogPath, {
+    ...options,
+    channelHandlers: false,
+    workspaceRegistry: false,
+  })
+  await writeFile(catalogPath, [...aggregateCatalog.imports, "", ...aggregateCatalog.setup, "", "export { agents }", ""].join("\n"), "utf8")
   await writeFile(registryPath, [
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
@@ -2756,9 +2763,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             if (!changes.some(Boolean)) continue
             await writeGeneratedAgentOutputs(resolved)
             const root = resolveViteHubGeneratedRoot(resolved)
-            for (const output of [generatedAgentRegistry, generatedAgentRegistryCatalog]) {
-              const module = server.moduleGraph.getModuleById(join(root, output))
-              if (module) server.moduleGraph.invalidateModule(module)
+            const registryPrefix = join(root, dirname(generatedAgentRegistryCatalog)).replace(/\\/g, "/") + "/"
+            for (const module of server.moduleGraph.idToModuleMap.values()) {
+              const id = module.id?.replace(/\\/g, "/")
+              if (id === join(root, generatedAgentRegistry).replace(/\\/g, "/") || id?.startsWith(registryPrefix)) {
+                server.moduleGraph.invalidateModule(module)
+              }
             }
           }
         })().catch(error => server.config.logger.error(`[vitehub] Failed to refresh Agent discovery: ${String(error)}`)).finally(() => { discoveryRefresh = undefined })
@@ -2802,7 +2812,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const moduleIds = [resolvedScheduleRegistryId, resolvedScheduleTargetsId].map(id => id.replace(/\\/g, "/"))
       if (resolved) {
         const root = resolveViteHubGeneratedRoot(resolved)
-        moduleIds.push(join(root, generatedAgentRegistry).replace(/\\/g, "/"), join(root, generatedAgentRegistryCatalog).replace(/\\/g, "/"))
+        moduleIds.push(join(root, generatedAgentRegistry).replace(/\\/g, "/"))
+        const registryPrefix = join(root, dirname(generatedAgentRegistryCatalog)).replace(/\\/g, "/") + "/"
+        for (const module of context.server.moduleGraph.idToModuleMap.values()) {
+          const id = module.id?.replace(/\\/g, "/")
+          if (id?.startsWith(registryPrefix)) moduleIds.push(id)
+        }
       }
       if (resolved?.root) {
         moduleIds.push(join(resolved.root, generatedScheduleRuntimeRegistrySuffix).replace(/\\/g, "/"))
