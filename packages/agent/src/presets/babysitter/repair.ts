@@ -60,7 +60,9 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           additionalProperties: false,
         },
         execute: async (input: unknown) => {
-          await operations.comment(stringField(input, "body"));
+          // Mark host-authored repair comments so inbox admission can correlate
+          // their webhook with this pass instead of treating it as feedback.
+          await operations.comment(`<!-- vitehub-agent-activity:repair -->\n${stringField(input, "body")}`);
           return { commented: true };
         },
       },
