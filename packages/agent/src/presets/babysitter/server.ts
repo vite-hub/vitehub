@@ -39,6 +39,8 @@ export interface BabysitterRuntimeOptions {
   event?: (name: string, properties: Record<string, unknown>) => void;
   error?: (name: string, error: unknown, properties: Record<string, unknown>) => void;
   wake?: () => void;
+  /** GitHub logins whose marked comments are emitted by this host. */
+  activityAuthors?: readonly string[];
 }
 
 /** Own one durable PR inbox and its repair passes inside a process host. */
@@ -64,6 +66,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     path: options.inboxPath,
     repositories: options.repositories,
     filter: presetOptions.filter,
+    activityAuthors: options.activityAuthors,
   });
   pullRequestInbox.recoverLeases();
   const schedulerEvent = (name: string, properties: Record<string, unknown> = {}) =>
