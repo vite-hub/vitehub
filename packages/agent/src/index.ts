@@ -2151,13 +2151,22 @@ type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels>
     ? ConfiguredWorkspaceDefinition<TDefinition, TCapabilities>
     : true extends ConfiguredCapabilitiesWorkspace<TCapabilities> | ConfiguredChannelsWorkspace<TChannels>
       ? ConfiguredWorkspaceDefinition<TDefinition, TCapabilities>
-      : ConfiguredContextDefinition<TDefinition, TCapabilities>
+      : TChannels extends undefined
+        ? ConfiguredContextDefinition<TDefinition, TCapabilities>
+        : ConfiguredContextDefinition<
+            TDefinition extends WorkspaceAgentDefinition<any, any, any, any, any, any, any> ? AgentDefinitionFromWorkspace<TDefinition> : TDefinition,
+            TCapabilities
+          >
 
 type ConfiguredContextDefinition<TDefinition, TCapabilities> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
   ? TDefinition & AgentDefinition<TRuntimeConfig, TCallOptions, TInvoker,
       TContext & AgentCapabilitiesInvocationContextValues<ConfiguredAgentSettings<TDefinition>["capabilities"] | TCapabilities>,
       TOutput>
   : never
+
+type AgentDefinitionFromWorkspace<TDefinition> = TDefinition extends WorkspaceAgentDefinition<infer TRuntimeConfig, any, infer TCallOptions, infer TInvoker, infer TContext, any, infer TOutput>
+  ? AgentDefinition<TRuntimeConfig, TCallOptions, TInvoker, TContext, TOutput>
+  : TDefinition
 
 type ConfiguredWorkspaceDefinition<TDefinition, TCapabilities = ConfiguredAgentSettings<TDefinition>["capabilities"]> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
   ? TDefinition & WorkspaceAgentDefinition<TRuntimeConfig, WorkspaceName, TCallOptions, TInvoker,
