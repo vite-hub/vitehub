@@ -321,6 +321,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) {
                   throw new DOMException("Pull request lease lost.", "AbortError");
                 }
+                // New feedback keeps the lease but invalidates the worker's evidence.
+                if (current.generation !== inboxClaim.generation) {
+                  throw new DOMException("Pull request evidence changed.", "AbortError");
+                }
               };
               const operationHost: Pick<GitHubHost, "command" | "ensureGraphQLBudget"> = {
                 command: (args, request) => {

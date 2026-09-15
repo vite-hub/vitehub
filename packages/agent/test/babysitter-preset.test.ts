@@ -316,6 +316,35 @@ describe("Babysitter preset runtime", () => {
     } finally { f.runtime.inbox.close(); }
   });
 
+  it.each(["pushRepair", "requestAutoMerge"] as const)("fences %s when feedback advances the claimed generation during admission", async (operation) => {
+    const f = await fixture(true);
+    f.choose(operation);
+    let generation: number | undefined;
+    f.onAdmission(() => {
+      if (generation !== undefined) return;
+      const current = f.runtime.inbox.get("acme/app", 12)!;
+      generation = current.generation;
+      f.runtime.inbox.ingest("new-inline-feedback", "pull_request_review_comment", {
+        repository: { full_name: "acme/app" },
+        action: "created",
+        pull_request: f.pr(),
+        comment: { id: 99, body: "Fix this regression before merging.", user: { login: "reviewer", type: "User" } },
+      });
+      const updated = f.runtime.inbox.get("acme/app", 12)!;
+      expect(updated.generation).toBeGreaterThan(generation);
+      expect(updated.lease).toBe(current.lease);
+    });
+    try {
+      await f.reconcile();
+      expect(generation).toBeDefined();
+      expect(f.push).not.toHaveBeenCalled();
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge"))).toBe(false);
+      const current = f.runtime.inbox.get("acme/app", 12)!;
+      expect(current.handled).toBeLessThan(current.generation);
+      expect(current.status).toBe("ready");
+    } finally { f.runtime.inbox.close(); }
+  });
+
   it.each(["pushRepair", "requestAutoMerge"] as const)("fences %s after lease expiry without waiting for recovery", async (operation) => {
     const f = await fixture(true);
     f.choose(operation);
