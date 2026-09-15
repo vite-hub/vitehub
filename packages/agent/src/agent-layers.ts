@@ -171,7 +171,6 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
   const parentKeys = parent as Record<PropertyKey, unknown>
   const childKeys = child as Record<PropertyKey, unknown> | undefined
   for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child ?? {})])) {
-    if (typeof key === "string" && (key === "__proto__" || key === "constructor" || key === "prototype")) continue
     const value = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined ? childKeys[key] : parentKeys[key]
     if (record(value)) {
       const parentValue = record(parentKeys[key]) ? parentKeys[key] : {}
