@@ -184,9 +184,15 @@ function clonePresetOption(value: unknown): unknown {
   if (value instanceof Date) return new Date(value.getTime())
   if (value instanceof Map) return new Map(Array.from(value, ([key, entry]) => [clonePresetOption(key), clonePresetOption(entry)]))
   if (value instanceof Set) return new Set(Array.from(value, clonePresetOption))
+  if (value instanceof RegExp) return new RegExp(value.source, value.flags)
+  if (value instanceof URL) return new URL(value.href)
   if (value !== null && typeof value === "object") {
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
+    }
     // SAFETY: Object values are cloned with their prototype and own descriptors.
-    const clone = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>
+    const clone = Object.create(prototype) as Record<string, unknown>
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       if (!descriptor) continue
