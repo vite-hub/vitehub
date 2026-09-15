@@ -2793,10 +2793,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (!instructionUpdate && !/\.agent\.(?:c|m)?[jt]s$/i.test(file) && !relativeAgentPath) return
       const colocatedResourceUpdate = instructionUpdate || Boolean(relativeAgentPath && /\/(?:home|skills)\/.*$/i.test(relativeAgentPath))
       if (resolved) await writeGeneratedAgentOutputs(resolved)
-      const moduleIds = [resolvedScheduleRegistryId, resolvedScheduleTargetsId]
+      const moduleIds = [resolvedScheduleRegistryId, resolvedScheduleTargetsId].map(id => id.replace(/\\/g, "/"))
       if (resolved) {
         const root = resolveViteHubGeneratedRoot(resolved)
-        moduleIds.push(join(root, generatedAgentRegistry), join(root, generatedAgentRegistryCatalog))
+        moduleIds.push(join(root, generatedAgentRegistry).replace(/\\/g, "/"), join(root, generatedAgentRegistryCatalog).replace(/\\/g, "/"))
       }
       if (resolved?.root) {
         moduleIds.push(join(resolved.root, generatedScheduleRuntimeRegistrySuffix).replace(/\\/g, "/"))
