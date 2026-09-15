@@ -364,7 +364,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         if (tokens[parameterEnd] === "{") methodBodyStart = parameterEnd
       }
       const arrow = methodBodyStart < 0 ? (() => {
+        let depth = 0
         for (let i = start; i + 1 < tokens.length; i++) {
+          const token = tokens[i]
+          if (["(", "[", "{"].includes(token)) depth++
+          else if ([")", "]", "}"].includes(token)) { if (depth === 0) break; depth-- }
+          else if ((token === ";" || token === ",") && depth === 0) break
           if (tokens[i] === "=" && tokens[i + 1] === ">") return i
         }
         return -1
