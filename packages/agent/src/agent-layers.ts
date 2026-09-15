@@ -258,7 +258,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
   for (const key of Reflect.ownKeys(definition)) {
-    if (key === "options" || key === agentLayerMetadata || key === "resolve" || key === "run" || key === "health" || key === "status") continue
+    if (key === "options" || key === "__vitehubAgentSettings" || key === agentLayerMetadata || key === "resolve" || key === "run" || key === "health" || key === "status") continue
     const descriptor = Object.getOwnPropertyDescriptor(definition, key)
     if (descriptor) Object.defineProperty(configured, key, descriptor)
   }
