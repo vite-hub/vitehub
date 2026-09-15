@@ -2538,7 +2538,9 @@ async function* runProvider<
       })
     }
     if (instructions && materializeInstructions) {
-      const promptFileInstructions = instructions
+      const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
+        ? provenanceInstructions
+        : instructions
       // Claude treats `@path` in CLAUDE.md as an instruction import. Escape
       // authored references so the non-recursive contract reaches the model
       // literally while retaining the generated instruction file boundary.

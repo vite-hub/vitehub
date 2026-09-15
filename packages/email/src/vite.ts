@@ -515,7 +515,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         const file = normalizeTemplateModulePath(id)
         if (![...watchFiles].some(watched => normalizeWatchedPath(watched) === normalizeWatchedPath(file))) return
         return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
-          `import { renderMarkdownTemplate } from "@vite-hub/markdown-template"\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
+          `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
         )
       }
     },
