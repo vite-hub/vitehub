@@ -21,12 +21,12 @@ const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
 const mergeNoExternal = createNoExternalMerger("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
 const normalizeTemplateModulePath = (id: string) => {
-  const path = id.split("?", 1)[0]
+  const path = id.split(/[?#]/, 1)[0]
   if (!path.startsWith("/@fs/")) return path
   const file = path.slice(5)
   // Vite keeps a leading slash for POSIX paths, but prefixes Windows drive
   // paths with one as well; remove that extra separator before comparison.
-  const normalized = (/^\/[A-Za-z]:[\\/]/.test(file) ? file.slice(1) : file).replaceAll("\\", "/")
+  const normalized = (/^\/?[A-Za-z]:[\\/]/.test(file) ? file.replace(/^\//, "") : file).replaceAll("\\", "/")
   // Drive-letter paths are already absolute after removing Vite's prefix;
   // adding a leading slash would turn `C:/...` into a root-relative path.
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/") ? normalized : `/${normalized}`
