@@ -942,7 +942,7 @@ describe("bundleEsmEntry", () => {
     await writeFile(entry, [
       `import prompt from "./prompt.template.md"`,
       `import detail from "./context.template.md"`,
-      `export default async () => prompt({ blocker: "> Waiting", detail: await detail({ number: 42 }) })`,
+      `export default async () => prompt({ blocker: "> Waiting", detail: await detail({ context: { number: 42 } }) })`,
       ``,
     ].join("\n"), "utf8")
 
