@@ -2706,6 +2706,12 @@ async function* runProvider<
       ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
+    if (options.provider === "claude-code"
+      && materializeInstructions
+      && typeof options.providerSettings?.launchArgs === "string"
+      && options.providerSettings.launchArgs.includes("--append-system-prompt-file")) {
+      throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] Claude launchArgs cannot include --append-system-prompt-file when instructions are materialized." })
+    }
     // The runtime chooses environment arguments over settings. Give auxiliary
     // overrides the complete argument list, including managed credential storage.
     if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
