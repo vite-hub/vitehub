@@ -190,6 +190,7 @@ function clonePresetOption(value: unknown): unknown {
   if (ArrayBuffer.isView(value)) {
     const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
     if (value instanceof DataView) return new DataView(buffer)
+    // SAFETY: Typed-array constructors accept an ArrayBuffer and preserve the view type.
     return new (value.constructor as { new (buffer: ArrayBuffer, byteOffset?: number, length?: number): typeof value })(buffer)
   }
   if (value !== null && typeof value === "object") {
@@ -198,6 +199,7 @@ function clonePresetOption(value: unknown): unknown {
       throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
     }
     // SAFETY: Object values are cloned with their prototype and own descriptors.
+    // SAFETY: The prototype is restricted to plain objects or null above.
     const clone = Object.create(prototype) as Record<string, unknown>
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
