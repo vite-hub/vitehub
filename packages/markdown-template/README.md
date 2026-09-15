@@ -67,7 +67,7 @@ Customer: {{ data.customer.name }}
 A scalar may occupy a complete inline link destination:
 
 ```md
-[Open review]({{ data.reviewUrl }})
+[Open review](){:href="data.reviewUrl"}
 ```
 
 The renderer URI-encodes characters that would change the Markdown structure and rejects unsafe or ambiguous destinations, including `javascript:` and `data:` URLs, control characters, malformed percent escapes, and path backslashes in schemeless destinations or `file:`, `ftp:`, `http:`, `https:`, `ws:`, and `wss:` URLs.
@@ -79,7 +79,7 @@ const data = { reviewUrl: `/reviews/${id}` }
 ```
 
 ```md
-[Open review]({{ data.reviewUrl }})
+[Open review](){:href="data.reviewUrl"}
 ```
 
 ### Insert trusted Markdown
@@ -100,108 +100,12 @@ Wait for the pull request to leave draft.
 ::else
 No pull request is available.
 ::
+::
+::
 ```
 
 Conditions cannot call functions, read globals, or traverse inherited properties. The renderer rejects malformed branches and unsafe expressions.
 
-### Authorize every import
+### Keep import references literal
 
-An import token such as `@./policy.md` stays literal unless you pass `resolveImport`. The resolver receives the relative specifier and the canonical ID of the importing template. It must return both the imported template and its canonical ID:
-
-```ts
-const markdown = await renderMarkdownTemplate("# Review\n\n@./policy.md", {
-  sourceId: "/templates/review.md",
-  async resolveImport(specifier, importer) {
-    if (specifier !== "./policy.md" || importer !== "/templates/review.md") {
-      throw new Error("Template import is not allowed")
-    }
-
-    return {
-      id: "/templates/policy.md",
-      template: "Use the repository review policy.",
-    }
-  },
-})
-```
-
-The renderer accepts relative imports only. It rejects absolute paths, URLs, globs, missing resolutions, cycles, and imports deeper than `maxImportDepth`, which defaults to `4`.
-
-Imports resolve before conditions run. Your resolver must authorize an import even when it appears inside a branch that the data will not select. The resolver also owns filesystem or network access, caching, and canonical path handling. The package performs none of that I/O implicitly.
-
-## Render a Markdown file
-
-Create `review.md`:
-
-```md
-# Review {{ data.number }}
-
-@./policy.md
-
-:insert{:markdown="data.summary"}
-```
-
-Create `policy.md` beside it:
-
-```md
-Check correctness and regression coverage.
-```
-
-```ts
-import { renderMarkdownFile } from "@vite-hub/markdown-template/file"
-
-const markdown = await renderMarkdownFile(new URL("./review.md", import.meta.url), {
-  data: { number: 42, summary: "Ready for review." },
-})
-```
-
-Applications can import the same function from `vite-hub/markdown-template/file`.
-
-The root export selects the filesystem API only under the `node` export condition. Browser, edge, and neutral consumers receive the portable string renderer without Node built-ins.
-
-Use the `/file` subpath in server projects, including TypeScript projects using Bundler module resolution. It requires a local filesystem; the root string renderer remains portable.
-
-`renderMarkdownFile(path, options?)` accepts a filesystem path string or a `file:` URL and returns `Promise<string>`. Its `RenderMarkdownFileOptions` accepts `data` and `plugins`. Relative path strings use the process working directory. File URLs constructed with `import.meta.url` use the executing module's directory. HTTP URLs are not supported.
-
-Pass Comark plugins per render with `plugins`. Plugins run when the Markdown is parsed, so their options can use request or invocation data:
-
-```ts
-import knap from "comark-knap"
-
-const markdown = await renderMarkdownFile("./instructions.md", {
-  data: { user: request.user },
-  plugins: [knap({ variables: { user: request.user } })],
-})
-```
-
-The plugin package is an application dependency. ViteHub does not install or enable Comark plugins globally.
-
-Each call reads only the requested file. Former `@...` references remain literal text; conditions, escaping, and code literals use the same renderer as template strings. Missing files reject with the filesystem error.
-
-File loading uses the host filesystem permissions. Trusted templates may import parent directories through `../` or symlinks. For a restricted file tree or application storage, use the string renderer with your own `resolveImport`.
-
-### Ship the file tree
-
-Include the Markdown files and fragments in your deployed server files. ViteHub does not automatically bundle or copy paths passed to `renderMarkdownFile()`. After a build, `import.meta.url` refers to the emitted module; place the files beside that module as specified by the URL, or pass a configured absolute path. A host without local files must supply content to the string renderer through application storage, a Workspace, or a Source.
-
-### Breaking migration
-
-Vite integrations support callable `*.template.md` imports and the `?markdown-template` query through `hubMarkdownTemplate()`. Use `renderMarkdownFile(path, { data })` for explicit filesystem rendering.
-
-## Know what the renderer does not preserve
-
-The renderer parses and serializes through Comark, then trims whitespace outside the document. It preserves Markdown structure, but it is not a byte-for-byte source formatter. Template syntax inside code spans, fenced code blocks, and indented code blocks stays literal.
-
-The direct renderer has no loops, helpers, macros, compile step, implicit filesystem access, HTML renderer, or public syntax-tree hooks. Build repeated content in application code and pass the completed text as a trusted fragment.
-
-## Public imports
-
-| Import | Purpose |
-| --- | --- |
-| `@vite-hub/markdown-template` | `renderMarkdownTemplate()` and its public option and import-resolver types. |
-| `@vite-hub/markdown-template/file` | `renderMarkdownFile()` and `RenderMarkdownFileOptions` for local filesystem rendering. |
-
-## Learn more
-
-- [Markdown templates](https://vitehub.dev/docs/reference/markdown-templates) documents every syntax form and render option.
-- [Import paths](https://vitehub.dev/docs/reference/import-paths) lists the public ViteHub package entrypoints.
-- [Agent Instructions](https://vitehub.dev/docs/agents/instructions) shows where rendered Markdown fits in an Agent Definition.
+References such as `@./policy.md` and `@workspace.policy` remain literal text. Render related Markdown explicitly with `renderMarkdownFile()` or pass trusted content through the `:insert` binding; this package does not recursively resolve template imports.
