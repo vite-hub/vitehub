@@ -384,6 +384,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
       // Missing or overwritten persisted files need recovery, bypassing completion
       // and refresh:false reuse. Unknown paths must not refresh a complete snapshot.
+      completedSources.delete(source.key)
+      reusedStartupSources.delete(source.key)
       const recovery = await materializeSerialized({ sources: [source.key] })
       if (recovery.sources.some(item => item.status === "error")) return false
       return Boolean(await store.stat(path))
