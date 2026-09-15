@@ -78,7 +78,6 @@
   },
   "dependencies": {
     "@vite-hub/box": "workspace:*",
-    "@vite-hub/internal": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:tooling",
     "local-pkg": "catalog:tooling",

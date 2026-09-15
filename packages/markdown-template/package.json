@@ -46,7 +46,6 @@
     "test": "vp run -t @vite-hub/markdown-template#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/internal": "workspace:*",
     "character-entities-legacy": "3.0.0",
     "comark": "catalog:markdown",
     "nostics": "catalog:runtime"
