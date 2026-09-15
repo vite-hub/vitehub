@@ -247,7 +247,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             }
             if (valid && literalParts.length) key = literalParts.join("")
             if (key !== undefined) result.set(key, tokens[close] === "(" ? close : close + 1)
-            i = close
+            // Leave the method's opening parenthesis for the normal depth
+            // accounting below. Skipping it would make the closing `)` drive
+            // the enclosing object depth negative and hide following props.
+            i = close - 1
             atProperty = false
           }
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
