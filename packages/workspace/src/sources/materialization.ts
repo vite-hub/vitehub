@@ -176,6 +176,14 @@ function isPromotedSourceSkillFile(value: unknown): value is PromotedSourceSkill
     && hasRuntimeType(Reflect.get(value, "sourcePath"), "string")
 }
 
+async function readPromotedFile(store: WorkspaceStore, path: string) {
+  try { return await store.readFile(path) }
+  catch (error) {
+    if (hasRuntimeType(error, "object") && error !== null && (Reflect.get(error, "code") === "EISDIR" || Reflect.get(error, "code") === "ENOTDIR")) return undefined
+    throw error
+  }
+}
+
 async function reconcilePromotedSourceSkills(
   store: WorkspaceStore,
   sources: readonly ResolvedWorkspaceSource[],
@@ -237,7 +245,7 @@ async function reconcilePromotedSourceSkills(
     if (!path.includes("/skills/")) continue
     const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
     if (!destinationMatch) continue
-    const existing = await store.readFile(path)
+    const existing = await readPromotedFile(store, path)
     if (existing && await sha256(existing.content) !== prior.digest) retainedSkills.add(destinationMatch[1])
   }
 
@@ -249,7 +257,7 @@ async function reconcilePromotedSourceSkills(
   for (const [destination, candidate] of candidates) {
     const sourceFile = await store.readFile(candidate.sourcePath)
     if (!sourceFile) continue
-    const existing = await store.readFile(destination)
+    const existing = await readPromotedFile(store, destination)
     const prior = previous[destination]
     const ownsExisting = Boolean(prior && existing && await sha256(existing.content) === prior.digest)
     if (existing && !ownsExisting) continue
@@ -279,9 +287,9 @@ async function reconcilePromotedSourceSkills(
   }
   for (const [destination, prior] of Object.entries(previous)) {
     if (next[destination] || conflictedDestinations.has(destination)) continue
-    const existing = await store.readFile(destination)
+    const existing = await readPromotedFile(store, destination)
     if (existing && await sha256(existing.content) === prior.digest) {
-      const latest = await store.readFile(destination)
+      const latest = await readPromotedFile(store, destination)
       if (latest && await sha256(latest.content) === prior.digest) {
         if (store.conditionalRemoval) {
           await control.mutate(() => store.rm(destination, { force: true, ifDigest: prior.digest }))
