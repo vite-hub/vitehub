@@ -184,7 +184,17 @@ function clonePresetOption(value: unknown): unknown {
   if (value instanceof Date) return new Date(value.getTime())
   if (value instanceof Map) return new Map(Array.from(value, ([key, entry]) => [clonePresetOption(key), clonePresetOption(entry)]))
   if (value instanceof Set) return new Set(Array.from(value, clonePresetOption))
-  return record(value) ? mergePresetOptions({}, value) : value
+  if (record(value)) {
+    const clone = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>
+    for (const key of Reflect.ownKeys(value)) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (!descriptor) continue
+      if ("value" in descriptor) descriptor.value = clonePresetOption(descriptor.value)
+      Object.defineProperty(clone, key, descriptor)
+    }
+    return clone
+  }
+  return value
 }
 
 export function createConfiguredAgentDefinition(input: unknown, create: (options: AgentSettings) => AgentDefinition): AgentDefinition | undefined {
