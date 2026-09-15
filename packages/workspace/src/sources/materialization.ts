@@ -301,9 +301,10 @@ function materializedItemMeta(
   configHash: string,
   path: string,
 ) {
-  // Retain indexed ownership evidence across configuration changes; the
-  // fingerprint controls reuse, while cleanup still needs the prior index.
   if (!snapshot) return undefined
+  // An indexed item from another configuration is cleanup evidence only. It
+  // must never satisfy a lazy read for the current definition.
+  if (snapshot.configHash !== configHash) return undefined
   if (snapshot.status !== "ready" && snapshot.status !== "updating" && snapshot.status !== "error") return undefined
   return snapshot.items?.[path]
 }
