@@ -215,7 +215,7 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
         value: (value as Record<string, unknown>)[child], writable: true })
     }
   }
-  else if (!Object.hasOwn(current, leaf) || (key.includes(".") && explicitPaths.has(key))) {
+  else if (!Object.hasOwn(current, leaf)) {
     Object.defineProperty(current, leaf, { enumerable: true, configurable: true, value, writable: true })
   }
 }
