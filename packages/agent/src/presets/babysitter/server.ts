@@ -313,7 +313,26 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 pullRequestUrl: pullRequest.url,
               };
               const abortSignal = AbortSignal.any([prepared.signal, passSignal]);
-              const operations = createGitHubPullRequestOperations(github, {
+              // Check durable ownership at dispatch, including after admission I/O.
+              // The cancellation watcher alone leaves a window for a reclaimed worker.
+              const assertLease = () => {
+                abortSignal.throwIfAborted();
+                const current = pullRequestInbox.get(repository, number);
+                if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) {
+                  throw new DOMException("Pull request lease lost.", "AbortError");
+                }
+              };
+              const operationHost: Pick<GitHubHost, "command" | "ensureGraphQLBudget"> = {
+                command: (args, request) => {
+                  assertLease();
+                  return github.command(args, request);
+                },
+                ensureGraphQLBudget: (...args) => {
+                  assertLease();
+                  return github.ensureGraphQLBudget(...args);
+                },
+              };
+              const operations = createGitHubPullRequestOperations(operationHost, {
                 repository,
                 number,
                 expectedHeadOid: pullRequest.headRefOid,
@@ -323,6 +342,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   pullRequestInbox.eligible(repository, normalizePullRequest(current)),
                 push: async () => {
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
+                  assertLease();
                   const result = await prepared.push(providerDirectory);
                   pushSucceeded = true;
                   return result;

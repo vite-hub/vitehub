@@ -35,6 +35,7 @@ async function fixture(autoMerge = false) {
   let checkoutFailure: Error | undefined;
   const checkoutController = new AbortController();
   let abortOperation = false;
+  let onAdmission: (() => void) | undefined;
   const pr = () => ({
     number: 12,
     state: "open",
@@ -93,6 +94,7 @@ async function fixture(autoMerge = false) {
       const data = text.includes("reviewThreads")
         ? { repository: { pullRequest: { reviewThreads: { nodes: [], pageInfo } } } }
         : graphSnapshot();
+      if (!text.includes("reviewThreads")) onAdmission?.();
       return { stdout: JSON.stringify({ data }), stderr: "" };
     }
     if (text.includes("/rules/branches/"))
@@ -187,7 +189,8 @@ async function fixture(autoMerge = false) {
     error: errors,
   });
   const passes: Array<{ tools: string[]; prompt: string; session: string; instructions: string }> = [];
-  let operation: "pushRepair" | "requestAutoMerge" | undefined;
+  let operation: "pushRepair" | "requestAutoMerge" | "updatePullRequest" | undefined;
+  let operationArguments: Record<string, unknown> = {};
   createProviderRuntime.mockImplementation(async () => {
     let threadId = `pass-${passes.length}`;
     let finishTurn!: () => void;
@@ -219,8 +222,9 @@ async function fixture(autoMerge = false) {
             instructions: await readFile(join(workerDirectory!, "AGENTS.md"), "utf8"),
           });
           if (operation) {
-            const result = await client.callTool({ name: operation, arguments: {} });
-            if (!checkoutController.signal.aborted) expect(result.isError, JSON.stringify(result)).not.toBe(true);
+            const result = await client.callTool({ name: operation, arguments: operationArguments });
+            if (onAdmission) expect(result.isError, JSON.stringify(result)).toBe(true);
+            else if (!checkoutController.signal.aborted) expect(result.isError, JSON.stringify(result)).not.toBe(true);
           }
         } finally {
           await client.close();
@@ -272,16 +276,63 @@ async function fixture(autoMerge = false) {
     push,
     prepare,
     command,
-    choose: (value: typeof operation) => {
+    choose: (value: typeof operation, args: Record<string, unknown> = {}) => {
       operation = value;
+      operationArguments = args;
     },
     pr,
     failCheckout: (error: Error) => { checkoutFailure = error },
     abortOnOperation: () => { abortOperation = true },
+    onAdmission: (callback: () => void) => { onAdmission = callback },
   };
 }
 
 describe("Babysitter preset runtime", () => {
+  it("allows the metadata tool to clear the pull request body", async () => {
+    const f = await fixture();
+    f.choose("updatePullRequest", { body: "" });
+    try {
+      await f.reconcile();
+      expect(f.command.mock.calls.some(([args]) => args.includes("PATCH") && args.includes("body="))).toBe(true);
+    } finally { f.runtime.inbox.close(); }
+  });
+
+  it.each(["pushRepair", "requestAutoMerge"] as const)("fences %s when another owner reclaims during admission", async (operation) => {
+    const f = await fixture(true);
+    f.choose(operation);
+    let replacementToken: string | undefined;
+    f.onAdmission(() => {
+      if (replacementToken) return;
+      const current = f.runtime.inbox.get("acme/app", 12)!;
+      f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
+      replacementToken = f.runtime.inbox.claim(1)[0]!.token;
+    });
+    try {
+      await f.reconcile();
+      expect(replacementToken).toBeDefined();
+      expect(f.push).not.toHaveBeenCalled();
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge"))).toBe(false);
+      expect(f.runtime.inbox.get("acme/app", 12)?.lease).toBe(replacementToken);
+    } finally { f.runtime.inbox.close(); }
+  });
+
+  it.each(["pushRepair", "requestAutoMerge"] as const)("fences %s after lease expiry without waiting for recovery", async (operation) => {
+    const f = await fixture(true);
+    f.choose(operation);
+    f.onAdmission(() => {
+      const current = f.runtime.inbox.get("acme/app", 12)!;
+      vi.spyOn(Date, "now").mockReturnValue(current.leaseUntil);
+    });
+    try {
+      await f.reconcile();
+      expect(f.push).not.toHaveBeenCalled();
+      expect(f.command.mock.calls.some(([args]) => args.join(" ").includes("enablePullRequestAutoMerge"))).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+      f.runtime.inbox.close();
+    }
+  });
+
   it.each([
     new DOMException("Checkout cancelled", "AbortError"),
     new Error("rate limited"),

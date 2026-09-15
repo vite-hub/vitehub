@@ -26,7 +26,7 @@ export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
 }
 
 export function claimStopReason(claim: Claim, current: Snapshot | undefined, acceptedSelfHead?: string): string | undefined {
-  if (!current || current.lease !== claim.token) return 'Pull request lease lost.'
+  if (!current || current.lease !== claim.token || current.leaseUntil <= Date.now()) return 'Pull request lease lost.'
   if (current.status === 'terminal' || current.pr?.state === 'closed') return 'Pull request is no longer open.'
   if (current.pr?.head?.sha !== (acceptedSelfHead ?? claim.snapshot.pr?.head?.sha)) return 'Pull request head changed.'
 }

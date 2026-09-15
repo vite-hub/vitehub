@@ -194,7 +194,14 @@ export function createGitHubPullRequestOperations(
       if (children.repository.pullRequests.totalCount > 0) return { status: "blocked", reason: "stacked-branch-cleanup" }
     }
     if (pullRequest.autoMergeRequest) return { status: "already-enabled" }
-    const method = current.squashMergeAllowed ? "SQUASH" : current.mergeCommitAllowed ? "MERGE" : current.rebaseMergeAllowed ? "REBASE" : undefined
+    const rulesetMethods = activeRules.filter(rule => rule.type === "pull_request").map(rule =>
+      v.parse(v.object({ allowed_merge_methods: v.optional(v.array(v.string())) }), rule.parameters ?? {}).allowed_merge_methods)
+    const method = ([
+      ["SQUASH", current.squashMergeAllowed],
+      ["MERGE", current.mergeCommitAllowed],
+      ["REBASE", current.rebaseMergeAllowed],
+    ] as const).find(([method, enabled]) => enabled
+      && rulesetMethods.every(allowed => allowed === undefined || allowed.includes(method.toLowerCase())))?.[0]
     if (!method) return { status: "blocked", reason: "merge-method-unavailable" }
     // Recheck admission after the paginated eligibility reads. GitHub compares the
     // expected head atomically with enabling auto-merge, including concurrent pushes.

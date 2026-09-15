@@ -115,6 +115,22 @@ describe("native auto-merge", () => {
     )
   })
 
+  it("selects a method allowed by every active ruleset, including later pages", async () => {
+    const f = fixture({ autoMerge: true })
+    f.state.rules.push({ type: "pull_request", parameters: { allowed_merge_methods: ["squash", "rebase"] } })
+    f.state.additionalRulePages = [[{ type: "pull_request", parameters: { allowed_merge_methods: ["merge", "rebase"] } }]]
+    expect(await f.operations.requestAutoMerge()).toEqual({ status: "enabled" })
+    expect(f.mutations()[0]![0]).toContain("method=REBASE")
+  })
+
+  it("blocks when repository and ruleset merge methods have no intersection", async () => {
+    const f = fixture({ autoMerge: true })
+    f.repository.rebaseMergeAllowed = false
+    f.state.rules.push({ type: "pull_request", parameters: { allowed_merge_methods: ["rebase"] } })
+    expect(await f.operations.requestAutoMerge()).toEqual({ status: "blocked", reason: "merge-method-unavailable" })
+    expect(f.mutations()).toHaveLength(0)
+  })
+
   it("accepts classic branch protection with required checks", async () => {
     const f = fixture({ autoMerge: true })
     f.state.rules = []
