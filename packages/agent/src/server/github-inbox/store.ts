@@ -202,7 +202,7 @@ export class PullRequestInbox {
       if (event === 'issue_comment' && !payload.issue?.pull_request) return finish('issue is not a PR')
       // Ordinary issue comments do not wake repair agents. Marker-prefixed
       // comments from untrusted authors remain actionable feedback.
-      if (event === 'issue_comment' && !activity && !marked) return finish('irrelevant comment')
+      if (event === 'issue_comment' && !activity && !isFeedback(payload.comment)) return finish('irrelevant comment')
       const supported = ['pull_request','issue_comment','pull_request_review','pull_request_review_comment','pull_request_review_thread','check_run','check_suite','workflow_run','status','push']
       if (!supported.includes(event)) return finish('irrelevant event')
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return finish('irrelevant PR action')
