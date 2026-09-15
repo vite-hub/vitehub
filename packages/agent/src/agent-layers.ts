@@ -231,7 +231,12 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
     if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) {
-      const clone = (globalThis as { Buffer: typeof Buffer }).Buffer.from(value)
+      const sourceBuffer = value as Uint8Array
+      const sourceBacking = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "buffer")!.get!.call(sourceBuffer) as ArrayBuffer
+      const sourceOffset = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteOffset")!.get!.call(sourceBuffer) as number
+      const sourceLength = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteLength")!.get!.call(sourceBuffer) as number
+      const clonedBacking = clonePresetOption(sourceBacking, memo) as ArrayBuffer
+      const clone = (globalThis as { Buffer: typeof Buffer }).Buffer.from(clonedBacking, sourceOffset, sourceLength)
       memo.set(value, clone)
       return clone
     }

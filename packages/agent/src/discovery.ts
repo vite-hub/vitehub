@@ -322,6 +322,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (inherited !== undefined && ownsWorkspace(inherited, seen)) return true
     const preset = options.get("preset")
     const registry = options.get("presets")
+    const configure = options.get("configure")
+    if (configure !== undefined) {
+      const start = resolveReference(configure)
+      const tail = tokens.slice(start, Math.min(tokens.length, start + 80)).join(" ")
+      if (/\bworkspace\s*:/.test(tail)) return true
+    }
     if (preset === undefined || registry === undefined) return false
     const selection = tokens[resolveReference(preset)]
     if (!/^["'`]/.test(selection)) {
