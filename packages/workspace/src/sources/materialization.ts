@@ -534,14 +534,18 @@ async function removeStaleMaterializedSourceFiles(
             : {}),
           ...(latestOwner ? { ifSource: latestOwner } : {}),
         }))
+      } else {
+        await control.mutate(() => store.rm(entry.path, { force: true }))
       }
-      else continue
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
   }
   for (const path of [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)) {
     try {
-      if ((await store.stat(path))?.type !== "directory") continue
+      const stat = await store.stat(path)
+      if (stat?.type !== "directory") continue
+      if (path === source.mountPath && previousSnapshot?.mountIdentity
+        && stat.directoryIdentity !== previousSnapshot.mountIdentity) continue
       await control.mutate(() => store.rm(path, { force: true }))
       removedDirectories.add(path)
     }
