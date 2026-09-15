@@ -1,176 +1,204 @@
 # @vite-hub/markdown-template
 
-Render Markdown with Comark bindings and ViteHub components for conditions and trusted fragments.
+`@vite-hub/markdown-template` turns a Markdown template string and explicit data into Markdown. It supports escaped scalar values, trusted Markdown fragments, bounded conditions, and caller-resolved imports. The direct renderer does not evaluate JavaScript or read files and URLs on its own.
+
+Use `renderMarkdownFile()` for a local Markdown path. Use `renderMarkdownTemplate()` when your application already has the template string.
+
+## Install
 
 ```sh
 pnpm add @vite-hub/markdown-template
 ```
 
-The package requires Node.js 24 or later.
+The package requires Node 24 or newer.
 
 ## Render a template string
 
-`renderMarkdownTemplate()` returns Markdown. Pass values through `data`; templates read them with Comark bindings such as `{{ data.title }}`.
+Pass the complete data object with the template. Double braces insert a scalar as escaped Markdown text. Triple braces insert a Markdown fragment that your application trusts.
 
 ```ts
-import { renderMarkdownTemplate } from '@vite-hub/markdown-template'
+import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
 
-const template = `# Review {{ data.number }}
-
-::if{:value="data.status" eq="ready"}
-Review {{ data.title }}.
-::else
-Wait for the author.
-::
-::
-
-:insert{:markdown="data.files"}`
-
-const markdown = await renderMarkdownTemplate(template, {
+const markdown = await renderMarkdownTemplate([
+  "# Review {{ number }}",
+  "",
+  "Title: {{ title }}",
+  "",
+  "{{{ files }}}",
+].join("\n"), {
   data: {
+    files: "## Files\n\n- `README.md`",
     number: 42,
-    status: 'ready',
-    title: '*Draft*',
-    files: '- README.md\n- package.json',
+    title: "*Draft*",
+  },
+})
+
+console.log(markdown)
+```
+
+The call returns this exact string:
+
+```md
+# Review 42
+
+Title: \*Draft\*
+
+## Files
+
+- `README.md`
+```
+
+`title` cannot create emphasis because `{{ title }}` escapes its Markdown syntax. `files` keeps its heading and list because `{{{ files }}}` parses the value as Markdown.
+
+## Choose the input form deliberately
+
+### Escape scalar data
+
+Use `{{ path.to.value }}` for a string, number, or boolean. Paths read own properties only. A missing path, `null`, an array, or an object rejects the render instead of producing an empty string.
+
+Scalar bindings are Markdown text, not raw source. The renderer also HTML-escapes scalar bindings inside quoted XML-style attributes.
+
+```md
+Customer: {{ customer.name }}
+
+<policy audience="{{ audience }}">Review the change.</policy>
+```
+
+A scalar may occupy a complete inline link destination:
+
+```md
+[Open review]({{ reviewUrl }})
+```
+
+The renderer URI-encodes characters that would change the Markdown structure and rejects unsafe or ambiguous destinations, including `javascript:` and `data:` URLs, control characters, malformed percent escapes, and path backslashes in schemeless destinations or `file:`, `ftp:`, `http:`, `https:`, `ws:`, and `wss:` URLs.
+
+A binding inside only part of a destination does not create a link. For example, `[Open review](/reviews/{{ id }})` renders as literal, non-clickable text. Construct the complete URL in data and bind the whole destination instead:
+
+```ts
+const data = { reviewUrl: `/reviews/${id}` }
+```
+
+```md
+[Open review]({{ reviewUrl }})
+```
+
+### Insert trusted Markdown
+
+Use `{{{ path.to.markdown }}}` only for a string that may add Markdown structure. A block fragment must occupy its own block; the renderer rejects block Markdown placed inside an inline sentence.
+
+The renderer does not evaluate template syntax inside a fragment again. Bindings, conditions, and imports in the fragment remain literal. This stops accidental recursive templating, but it does not make an untrusted fragment safe for an Agent or another model. Validate or construct fragments before passing them to the renderer.
+
+### Select a condition
+
+Conditional sections read data paths and literals. They support `!`, parentheses, `&&`, `||`, and equality or inequality with `===`, `!==`, `==`, or `!=`. All four equality operators use strict JavaScript equality semantics.
+
+```md
+::if{pullRequest.available && !pullRequest.draft}
+Review {{ pullRequest.title }}.
+::else-if{pullRequest.draft}
+Wait for the pull request to leave draft.
+::else
+No pull request is available.
+::
+```
+
+Conditions cannot call functions, read globals, or traverse inherited properties. The renderer rejects malformed branches and unsafe expressions.
+
+### Authorize every import
+
+An import token such as `@./policy.md` stays literal unless you pass `resolveImport`. The resolver receives the relative specifier and the canonical ID of the importing template. It must return both the imported template and its canonical ID:
+
+```ts
+const markdown = await renderMarkdownTemplate("# Review\n\n@./policy.md", {
+  sourceId: "/templates/review.md",
+  async resolveImport(specifier, importer) {
+    if (specifier !== "./policy.md" || importer !== "/templates/review.md") {
+      throw new Error("Template import is not allowed")
+    }
+
+    return {
+      id: "/templates/policy.md",
+      template: "Use the repository review policy.",
+    }
   },
 })
 ```
 
-The title renders as literal text, with its asterisks escaped. The `Insert` component inserts the file list as Markdown structure.
+The renderer accepts relative imports only. It rejects absolute paths, URLs, globs, missing resolutions, cycles, and imports deeper than `maxImportDepth`, which defaults to `4`.
 
-## Bind values and attributes
+Imports resolve before conditions run. Your resolver must authorize an import even when it appears inside a branch that the data will not select. The resolver also owns filesystem or network access, caching, and canonical path handling. The package performs none of that I/O implicitly.
 
-`{{ data.path }}` inserts a string, number, or boolean as escaped Markdown text. Missing, null, and non-scalar values reject the render. Data paths read own properties only. Use nested objects for dotted paths, such as `{ customer: { name: 'Acme' } }`.
+## Render a Markdown file
 
-Use Comark's colon-prefixed attributes for dynamic destinations and XML attributes:
-
-```md
-[Open review](){:href="data.reviewUrl"}
-
-<policy :audience="data.audience">Review {{ data.title }}.</policy>
-```
-
-Build the complete URL in TypeScript. ViteHub encodes characters that could change its Markdown structure and rejects unsafe or ambiguous destinations, including `javascript:`, `data:`, control characters, and malformed percent escapes. Bound XML attributes escape attribute characters. Template bindings and components also work inside multiline XML blocks.
-
-## Select conditional content
-
-Use `condition` for a truthy check, or `value` with comparison props. Prefix a prop with `:` to bind a data path or parse a JSON literal. Unprefixed props are literal strings.
+Create `review.md`:
 
 ```md
-::if{:condition="data.enabled" :value="data.count" :gte="2" :lt="5"}
-Show the small active batch.
-::else-if{:value="data.status" eq="paused"}
-The batch is paused.
-::else
-No active batch.
-::
-::
-::
+# Review {{ number }}
+
+@./policy.md
+
+{{{ summary }}}
 ```
 
-`eq` and `neq` use strict equality. `gt`, `gte`, `lt`, and `lte` compare two numbers or two strings of the same type. All supplied comparisons must match. A missing value or expected binding never satisfies a comparison, including `neq`. With no comparison, `value` is a truthy check. An explicit falsy `condition` always hides the branch.
-
-The renderer selects the first matching branch and does not evaluate values or fragments in other branches. Close each component with its own `::` line, including each `else-if` and `else` component. Nested chains use the same Comark container rules. An `else` has no props and must be last.
-
-Compute compound logic in TypeScript and pass its boolean result. Conditions do not evaluate JavaScript expressions, call functions, or read globals.
-
-## Insert trusted Markdown
-
-Use `{{ data.summary }}` for plain text and `:insert{:markdown="data.summary"}` to preserve Markdown formatting. For `summary: '**Ready**'`:
-
-| Template | Result |
-| --- | --- |
-| `{{ data.summary }}` | Literal text `**Ready**`, with the asterisks escaped. |
-| `:insert{:markdown="data.summary"}` | Markdown `**Ready**`, which displays as **Ready**. |
-
-`Insert` is a ViteHub component using Comark syntax. The `:markdown` prop reads a string from your data. Put it on its own line, separated by blank lines, to insert headings, lists, or multiple paragraphs:
+Create `policy.md` beside it:
 
 ```md
-:insert{:markdown="data.summary"}
-```
-
-The container form also works:
-
-```md
-::insert{:markdown="data.summary"}
-::
-```
-
-Use a paired component beside punctuation, where Comark's colon shorthand is not recognized:
-
-```md
-Use (<Insert :markdown="data.policy"></Insert>).
-```
-
-A fragment must be a string. An inline fragment must parse as inline content; block Markdown in an inline position rejects the render. Fragment content is parsed and serialized by Comark without template components or bindings, so its template syntax is not evaluated recursively. Comark may normalize the spelling of literal component attributes.
-
-Fragments are trusted input. This rendering boundary does not make untrusted instructions safe for an Agent. Construct or validate fragment content before rendering it.
-
-Text such as `@./policy.md` stays literal. Compose shared templates in TypeScript and pass their rendered Markdown as fragment data.
-
-## Rendering behavior
-
-Comark owns Markdown parsing, escaping, component rendering, and serialization. It may normalize whitespace, quote styles, or component syntax. This is not a byte-for-byte source formatter. Bindings and components inside code spans, fenced code, and indented code stay literal.
-
-The renderer performs no filesystem or network I/O. It has no loops, JavaScript expression evaluator, or public syntax-tree hooks. Prepare repeated content and compound conditions in TypeScript.
-
-## Migrate existing templates
-
-This is a breaking syntax change for direct render calls, imported template files, Email, Agent Instructions, and progress-summary templates.
-
-| Previous syntax | Comark syntax |
-| --- | --- |
-| `{{ name }}` | `{{ data.name }}` |
-| `{{{ summary }}}` | `:insert{:markdown="data.summary"}` |
-| `::if{enabled}` | `::if{:condition="data.enabled"}` |
-| `::if{status === 'ready'}` | `::if{:value="data.status" eq="ready"}` |
-| `::if{enabled && !draft}` | Compute `visible = enabled && !draft` in TypeScript, then use `::if{:condition="data.visible"}`. |
-| `[Open]({{ url }})` | `[Open](){:href="data.url"}` |
-| `<policy audience="{{ audience }}">` | `<policy :audience="data.audience">` |
-
-`else-if` uses the same props as `if`; `else` has no props. Add a closing `::` for every branch component, followed by the closing fence for the outer `if`. Old syntax is not translated. The render function and its `{ data }` option are unchanged.
-
-## Import template files with Vite
-
-The direct renderer above has no build-tool requirement. If the template is a source file, register `hubMarkdownTemplate()` and import it directly:
-
-```ts
-// vite.config.ts
-import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  plugins: [hubMarkdownTemplate()],
-})
-```
-
-Create `review.template.md`:
-
-```md
-# Review {{ data.number }}
-
-:insert{:markdown="data.summary"}
+Check correctness and regression coverage.
 ```
 
 ```ts
-import renderReview from "./review.template.md"
+import { renderMarkdownFile } from "@vite-hub/markdown-template/file"
 
-const markdown = await renderReview({
-  number: 42,
-  summary: "Ready for review.",
+const markdown = await renderMarkdownFile(new URL("./review.md", import.meta.url), {
+  data: { number: 42, summary: "Ready for review." },
 })
 ```
 
-Vite bundles each directly imported template before deployment. The generated application does not read those source files at runtime. The plugin also writes the `*.template.md` module declaration under `.vitehub/types`; include `.vitehub/types/**/*.d.ts` in the application TypeScript configuration.
+Applications can import the same function from `vite-hub/markdown-template/file`.
 
-The combined [`vite-hub`](https://www.npmjs.com/package/vite-hub) preset installs this integration already.
+The root export selects the filesystem API only under the `node` export condition. Browser, edge, and neutral consumers receive the portable string renderer without Node built-ins.
+
+Use the `/file` subpath in server projects, including TypeScript projects using Bundler module resolution. It requires a local filesystem; the root string renderer remains portable.
+
+`renderMarkdownFile(path, options?)` accepts a filesystem path string or a `file:` URL and returns `Promise<string>`. Its `RenderMarkdownFileOptions` accepts `data` and `plugins`. Relative path strings use the process working directory. File URLs constructed with `import.meta.url` use the executing module's directory. HTTP URLs are not supported.
+
+Pass Comark plugins per render with `plugins`. Plugins run when the Markdown is parsed, so their options can use request or invocation data:
+
+```ts
+import knap from "comark-knap"
+
+const markdown = await renderMarkdownFile("./instructions.md", {
+  data: { user: request.user },
+  plugins: [knap({ variables: { user: request.user } })],
+})
+```
+
+The plugin package is an application dependency. ViteHub does not install or enable Comark plugins globally.
+
+Each call reads only the requested file. Former `@...` references remain literal text; conditions, escaping, and code literals use the same renderer as template strings. Missing files reject with the filesystem error.
+
+File loading uses the host filesystem permissions. Trusted templates may import parent directories through `../` or symlinks. For a restricted file tree or application storage, use the string renderer with your own `resolveImport`.
+
+### Ship the file tree
+
+Include the Markdown files and fragments in your deployed server files. ViteHub does not automatically bundle or copy paths passed to `renderMarkdownFile()`. After a build, `import.meta.url` refers to the emitted module; place the files beside that module as specified by the URL, or pass a configured absolute path. A host without local files must supply content to the string renderer through application storage, a Workspace, or a Source.
+
+### Breaking migration
+
+Vite integrations support callable `*.template.md` imports and the `?markdown-template` query through `hubMarkdownTemplate()`. Use `renderMarkdownFile(path, { data })` for explicit filesystem rendering.
+
+## Know what the renderer does not preserve
+
+The renderer parses and serializes through Comark, then trims whitespace outside the document. It preserves Markdown structure, but it is not a byte-for-byte source formatter. Template syntax inside code spans, fenced code blocks, and indented code blocks stays literal.
+
+The direct renderer has no loops, helpers, macros, compile step, implicit filesystem access, HTML renderer, or public syntax-tree hooks. Build repeated content in application code and pass the completed text as a trusted fragment.
 
 ## Public imports
 
 | Import | Purpose |
 | --- | --- |
-| `@vite-hub/markdown-template` | `renderMarkdownTemplate()` and its public option type. |
-| `@vite-hub/markdown-template/vite` | `hubMarkdownTemplate()` and direct `*.template.md` imports. |
+| `@vite-hub/markdown-template` | `renderMarkdownTemplate()` and its public option and import-resolver types. |
+| `@vite-hub/markdown-template/file` | `renderMarkdownFile()` and `RenderMarkdownFileOptions` for local filesystem rendering. |
 
 ## Learn more
 
