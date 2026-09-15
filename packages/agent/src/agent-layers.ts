@@ -192,6 +192,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
     || Object.keys(input).some(key => key !== "options" && key !== "configure")) {
     throw new TypeError("[vitehub] A configured Agent requires only options defaults and a configure callback.")
   }
+  // SAFETY: The validation above proves configure is the only accepted non-null function property.
   const callback = input.configure as (options: Record<string, unknown>) => unknown
   const configure = (options: Record<string, unknown>): unknown => callback(options)
   const options = mergePresetOptions({}, input.options)
