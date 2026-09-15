@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
@@ -387,6 +387,42 @@ describe("hubEmail", () => {
         replacement: join(root, ".vitehub", "email", "templates", "welcome.mjs"),
       },
     ] } })
+  })
+
+  it("invalidates discovered source templates without materializing them", async () => {
+    const root = await createTempProject()
+    const template = join(root, "server", "emails", "welcome.md")
+    await mkdir(dirname(template), { recursive: true })
+    await writeFile(template, "Welcome")
+    const plugin = hubEmail({ driver: "resend" })
+    await plugin.api.prepareTypes({ projectRoot: root })
+
+    const handlers = new Map<string, (file: string) => void>()
+    const modules = [
+      { id: `/@fs/${template}?markdown-template` },
+      { id: `${template}?markdown-template` },
+    ]
+    const invalidateModule = vi.fn()
+    const add = vi.fn()
+    const send = vi.fn()
+    functionHook(plugin.configureServer, "configureServer")({
+      config: { logger: { error: vi.fn() } },
+      moduleGraph: {
+        idToModuleMap: new Map(modules.map(module => [module.id, module])),
+        invalidateModule,
+      },
+      watcher: {
+        add,
+        on: (event: string, handler: (file: string) => void) => handlers.set(event, handler),
+      },
+      ws: { send },
+    })
+    expect(add).toHaveBeenCalledWith([template])
+    await writeFile(template, "Updated welcome")
+    handlers.get("change")?.(template)
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
+    for (const module of modules) expect(invalidateModule).toHaveBeenCalledWith(module)
+    await expect(stat(join(root, ".vitehub", "email", "templates"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("serializes template refreshes and leaves relative references literal", async () => {

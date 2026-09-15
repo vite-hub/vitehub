@@ -341,14 +341,10 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     const files = templates.map(template => template.file)
     const names = templates.map(template => template.name)
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
+    const nextWatchFiles = new Set(files)
+    watchFiles = nextWatchFiles
     if (options.materialize) {
-      const nextWatchFiles = new Set(files)
-      try {
-        await materializeEmailTemplates(templates, materializedRoot, options.projectRoot)
-      }
-      finally {
-        watchFiles = nextWatchFiles
-      }
+      await materializeEmailTemplates(templates, materializedRoot, options.projectRoot)
       materialized = true
     }
     return Object.fromEntries(names
@@ -461,7 +457,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
           for (const module of server.moduleGraph.idToModuleMap.values()) {
             if (module.id) {
               const modulePath = module.id.split("?", 1)[0]
-              const queriedSource = modulePath.startsWith("/@fs/") ? modulePath.slice(4) : modulePath
+              const queriedSource = modulePath.startsWith("/@fs/") ? modulePath.slice(5) : modulePath
               if (isInside(materializedRoot, modulePath) || watchFiles.has(queriedSource) || watchFiles.has(modulePath)) {
                 server.moduleGraph.invalidateModule(module)
               }
