@@ -63,8 +63,9 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
     async load(id) {
       const request = parseMarkdownTemplateRequest(id)
       if (!request) return
-      const template = await readFile(request.path, "utf8")
-      this.addWatchFile(request.path)
+      const path = request.path.startsWith("/@fs/") ? request.path.slice("/@fs".length) : request.path
+      const template = await readFile(path, "utf8")
+      this.addWatchFile(path)
       return {
         code: renderMarkdownTemplateModule(template, runtimeImport),
         map: null,
