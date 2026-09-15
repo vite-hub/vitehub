@@ -180,11 +180,7 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
   for (const part of parts.slice(0, -1)) {
     const existing = current[part]
     if (existing && typeof existing === "object") current = existing as Record<string, unknown>
-    else {
-      const next = Object.setPrototypeOf({}, null) as Record<string, unknown>
-      Object.defineProperty(current, part, { enumerable: true, configurable: true, value: next, writable: true })
-      current = next
-    }
+    else return
   }
   if (!Object.hasOwn(current, parts.at(-1)!)) {
     Object.defineProperty(current, parts.at(-1)!, { enumerable: true, configurable: true, value, writable: true })
