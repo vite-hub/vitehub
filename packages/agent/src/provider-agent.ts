@@ -2538,6 +2538,7 @@ async function* runProvider<
       })
     }
     if (instructions && materializeInstructions) {
+      const promptFileInstructions = instructions
       // Claude treats `@path` in CLAUDE.md as an instruction import. Escape
       // authored references so the non-recursive contract reaches the model
       // literally while retaining the generated instruction file boundary.
@@ -2569,7 +2570,7 @@ async function* runProvider<
       generatedProviderFiles.push(generated)
       if (options.provider === "claude-code") {
         claudePromptFile = join(root, ".claude", "vitehub-system-prompt.md")
-        generatedProviderFiles.push(await materializeGeneratedProviderFile(root, claudePromptFile, instructions))
+        generatedProviderFiles.push(await materializeGeneratedProviderFile(root, claudePromptFile, promptFileInstructions))
       }
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
