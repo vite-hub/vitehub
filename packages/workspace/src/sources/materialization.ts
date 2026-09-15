@@ -541,20 +541,13 @@ async function removeStaleMaterializedSourceFiles(
         const digest = previousSnapshot.items[entry.path].materializedContentDigest
         if (!digest || await sha256(latest.content) !== digest) continue
       }
-      if (store.conditionalRemoval) {
-        await control.mutate(() => store.rm(entry.path, {
-          force: true,
-          ...(previousSnapshot?.items?.[entry.path]?.materializedContentDigest
-            ? { ifDigest: previousSnapshot.items[entry.path].materializedContentDigest }
-            : {}),
-          ...(latestOwner ? { ifSource: latestOwner } : {}),
-        }))
-      } else {
-        // Without an atomic conditional remove, the entry may have been
-        // replaced after the validation above. Leaving it in place is safer
-        // than deleting a concurrent user replacement.
-        continue
-      }
+      await control.mutate(() => store.rm(entry.path, {
+        force: true,
+        ...(store.conditionalRemoval && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+          ? { ifDigest: previousSnapshot.items[entry.path].materializedContentDigest }
+          : {}),
+        ...(store.conditionalRemoval && latestOwner ? { ifSource: latestOwner } : {}),
+      }))
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
   }
