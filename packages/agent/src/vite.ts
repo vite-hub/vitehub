@@ -3193,6 +3193,11 @@ export function discoverAgentDefinitionEntries(
     ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: root }),
     ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: resolvedServerDirs }),
   ]
+  const names = new Set<string>()
+  for (const entry of entries) {
+    if (names.has(entry.name)) throw new Error(`Duplicate Agent name "${entry.name}" discovered.`)
+    names.add(entry.name)
+  }
   return [...new Map(entries.map(definition => [definition.handler, {
     handler: definition.handler,
     name: definition.name,

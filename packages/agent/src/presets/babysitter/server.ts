@@ -91,6 +91,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   async function readThreads(repository: string, number: number, signal?: AbortSignal) {
     return readPullRequestThreads(
       async (query, variables) => {
+        await github.ensureGraphQLBudget(1, signal);
         const args = ["api", "graphql", "-f", `query=${query}`];
         for (const [key, value] of Object.entries(variables)) {
           if (value === null) continue;
