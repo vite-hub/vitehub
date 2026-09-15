@@ -3154,11 +3154,19 @@ async function* runProvider<
 
 function shellArgTokens(input: string): string[] {
   const tokens: string[] = []
-  const re = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s]+)/g
-  for (const match of input.matchAll(re)) {
-    const token = match[0]
-    tokens.push(token.length >= 2 && ((token[0] === '"' && token.at(-1) === '"') || (token[0] === "'" && token.at(-1) === "'")) ? token.slice(1, -1) : token)
+  let token = ""
+  let quote: '"' | "'" | undefined
+  let escaped = false
+  for (const char of input) {
+    if (escaped) { token += char; escaped = false; continue }
+    if (char === "\\" && quote !== "'") { escaped = true; continue }
+    if (quote) { if (char === quote) quote = undefined; else token += char; continue }
+    if (char === '"' || char === "'") { quote = char; continue }
+    if (/\s/.test(char)) { if (token) { tokens.push(token); token = "" }; continue }
+    token += char
   }
+  if (escaped) token += "\\"
+  if (token) tokens.push(token)
   return tokens
 }
 
