@@ -2540,7 +2540,19 @@ async function* runProvider<
       // Claude treats `@path` in CLAUDE.md as an instruction import. Escape
       // authored references so the non-recursive contract reaches the model
       // literally while retaining the generated instruction file boundary.
-      if (options.provider === "claude-code") instructions = instructions.replace(/(^|[^\\])@/g, "$1\\@");
+      if (options.provider === "claude-code") {
+        // Keep caller-authored CLAUDE.md bytes intact; only generated provenance
+        // must be escaped to prevent Claude's native import expansion.
+        if (provenanceInstructions) {
+          const nativePart = instructions.endsWith(provenanceInstructions)
+            ? instructions.slice(0, -provenanceInstructions.length)
+            : instructions
+          const escapedProvenance = provenanceInstructions.replace(/(^|[^\\])@/g, "$1\\@");
+          instructions = `${nativePart}${escapedProvenance}`
+        } else if (materializeInstructions && !preserveNativeInstructions) {
+          instructions = instructions.replace(/(^|[^\\])@/g, "$1\\@");
+        }
+      }
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
       if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
