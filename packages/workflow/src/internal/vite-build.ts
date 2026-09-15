@@ -755,38 +755,11 @@ function resolveAgentWorkspaceSourceRoot(file: string): string {
     : dirname(file)
 }
 
-function resolveInstructionFile(file: string, seen: Set<string>, dependencies?: Set<string>): string {
-  if (seen.has(file)) throw workflowErrorDiagnostics.WORKFLOW_R0007({ message: `[vitehub] Circular instruction import: ${file}.` })
-  seen.add(file)
-  dependencies?.add(file)
-  try {
-    const replaceImports = (content: string) => content.replace(/@(\.\.?\/\S+)/g, (_token, rawSpecifier: string) => {
-      const trailing = rawSpecifier.match(/[.,;:!?)]*$/)?.[0] || ""
-      const specifier = rawSpecifier.slice(0, rawSpecifier.length - trailing.length)
-      return `${resolveInstructionFile(resolve(dirname(file), specifier), seen, dependencies)}${trailing}`
-    })
-    let fence: string | undefined
-    return readFileSync(file, "utf8").split(/(?<=\n)/).map((line) => {
-      const marker = line.match(/^\s*(```|~~~)/)?.[1]
-      if (marker) {
-        fence = fence === marker ? undefined : fence || marker
-        return line
-      }
-      if (fence) return line
-      if (/^(?: {4}|\t)/.test(line)) return line
-      return line.split(/(`+[^`]*`+)/g).map((segment, index) => index % 2 ? segment : replaceImports(segment)).join("")
-    }).join("")
-  }
-  finally {
-    seen.delete(file)
-  }
-}
-
 function readAgentInstructions(file: string, dependencies?: Set<string>): string | undefined {
   const instructions = join(dirname(file), "instructions.md")
-  return existsSync(instructions) && statSync(instructions).isFile()
-    ? resolveInstructionFile(instructions, new Set(), dependencies)
-    : undefined
+  if (!existsSync(instructions) || !statSync(instructions).isFile()) return
+  dependencies?.add(instructions)
+  return readFileSync(instructions, "utf8")
 }
 
 function readAgentSkills(file: string): Record<string, { content: string, encoding: "base64", materialize: "build", mount: "", workspacePath: string }> | undefined {

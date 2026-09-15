@@ -2396,7 +2396,8 @@ async function* runProvider<
   let acceptingSteering = true
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
-  const generatedProviderFiles: GeneratedProviderFile[] = []
+    const generatedProviderFiles: GeneratedProviderFile[] = []
+    let claudePromptFile: string | undefined
   let pendingResumeCursor = preservesProviderSession && sessionKey ? resumeCursors.get(sessionKey) : undefined
   let deferredSessionConsume: Promise<void> | undefined
   let runtimeCleanupDeferred = false
@@ -2537,13 +2538,42 @@ async function* runProvider<
       })
     }
     if (instructions && materializeInstructions) {
+      const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
+        ? provenanceInstructions
+        : instructions
+      // Claude treats `@path` in CLAUDE.md as an instruction import. Escape
+      // authored references so the non-recursive contract reaches the model
+      // literally while retaining the generated instruction file boundary.
+      if (options.provider === "claude-code") {
+        // Keep caller-authored CLAUDE.md bytes intact; only generated provenance
+        // must be escaped to prevent Claude's native import expansion.
+        if (provenanceInstructions) {
+          const nativePart = instructions.endsWith(provenanceInstructions)
+            ? instructions.slice(0, -provenanceInstructions.length)
+            : instructions
+          const generatedPart = preserveNativeInstructions
+            ? nativePart
+            : nativePart.replace(/(^|[^\\])@/g, "$1\\@")
+          const escapedProvenance = provenanceInstructions.replace(/(^|[^\\])@/g, "$1\\@");
+          instructions = `${generatedPart}${escapedProvenance}`
+        } else if (materializeInstructions && !preserveNativeInstructions) {
+          instructions = instructions.replace(/(^|[^\\])@/g, "$1\\@");
+        }
+      }
       const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
       if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
         // Remove only the injected text so native instruction edits reach Workspace write-back.
-        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+        const escapedProvenance = options.provider === "claude-code"
+          ? provenanceInstructions.replace(/(^|[^\\])@/g, "$1\\@")
+          : provenanceInstructions
+        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${escapedProvenance}`
       }
       generatedProviderFiles.push(generated)
+      if (options.provider === "claude-code") {
+        claudePromptFile = join(root, ".claude", "vitehub-system-prompt.md")
+        generatedProviderFiles.push(await materializeGeneratedProviderFile(root, claudePromptFile, promptFileInstructions))
+      }
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
     for (const source of Object.values(colocatedSkills || {})) {
@@ -2678,12 +2708,19 @@ async function* runProvider<
     const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
+      ...(claudePromptFile ? [`--append-system-prompt-file ${JSON.stringify(claudePromptFile)}`] : []),
       auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
       // Login profiles reset PATH and hide the invocation's managed browser CLI.
       ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
+    if (options.provider === "claude-code"
+      && materializeInstructions
+      && hasRuntimeType(options.providerSettings?.launchArgs, "string")
+      && shellArgTokens(options.providerSettings.launchArgs).some(token => token === "--append-system-prompt-file" || token.startsWith("--append-system-prompt-file="))) {
+      throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] Claude launchArgs cannot include --append-system-prompt-file when instructions are materialized. Compose the caller prompt file contents into driver.instructions and remove the flag." })
+    }
     // The runtime chooses environment arguments over settings. Give auxiliary
     // overrides the complete argument list, including managed credential storage.
     if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
@@ -3115,6 +3152,24 @@ async function* runProvider<
       else throw cleanupError
     }
   }
+}
+
+function shellArgTokens(input: string): string[] {
+  const tokens: string[] = []
+  let token = ""
+  let quote: '"' | "'" | undefined
+  let escaped = false
+  for (const char of input) {
+    if (escaped) { token += char; escaped = false; continue }
+    if (char === "\\" && quote !== "'") { escaped = true; continue }
+    if (quote) { if (char === quote) quote = undefined; else token += char; continue }
+    if (char === '"' || char === "'") { quote = char; continue }
+    if (/\s/.test(char)) { if (token) { tokens.push(token); token = "" }; continue }
+    token += char
+  }
+  if (escaped) token += "\\"
+  if (token) tokens.push(token)
+  return tokens
 }
 
 async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntimeConfig>(

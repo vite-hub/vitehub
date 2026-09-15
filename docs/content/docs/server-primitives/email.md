@@ -154,11 +154,11 @@ import { email } from 'vite-hub/email/server'
 
 export async function sendWelcome(name: string, to: string) {
   const body = await renderEmailMarkdown([
-    '# Welcome {{ user.name }}',
+    '# Welcome {{ data.user.name }}',
     '',
     'Your **ViteHub** workspace is ready.',
     '',
-    '::if{user.trial}',
+    '::if{:condition="data.user.trial"}',
     'Your trial is active.',
     '::',
   ].join('\n'), {
@@ -182,7 +182,7 @@ Put reusable templates under `server/emails`. ViteHub discovers Markdown files
 recursively and creates a typed `#vitehub/emails/<name>` import from each path.
 
 ```md [server/emails/welcome.md]
-# Welcome {{ user.name }}
+# Welcome {{ data.user.name }}
 
 Your workspace is ready.
 ```
@@ -213,12 +213,9 @@ export async function sendWelcome(name: string, to: string) {
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |
 | `data` | `Record<string, unknown>` | `{}` | Supplies scalar bindings, Markdown fragments, and conditional values. |
-| `resolveImport` | `RenderEmailMarkdownOptions['resolveImport']` | None | Resolves relative imports synchronously or asynchronously. Return `{ id, template }`, or `undefined` when an import is unavailable. No files or URLs are read without it. |
-| `sourceId` | `string` | `'<template>'` | Identifies the root template to the import resolver and cycle detector. |
-| `maxImportDepth` | `number` | `4` | Limits nested imports. It must be a non-negative integer. |
 
 ::warning
-`renderEmailMarkdown()` does not sanitize authored HTML, trusted Markdown fragments, or imported templates, and it does not inline email CSS. Use scalar `{{ value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `{{{ fragment }}}` binding or an imported template.
+`renderEmailMarkdown()` does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `:insert{:markdown="data.fragment"}` binding.
 ::
 
 ## Provider behavior for Resend
