@@ -180,12 +180,14 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
 }
 
 function clonePresetOption(value: unknown): unknown {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return value
   if (Array.isArray(value)) return value.map(clonePresetOption)
   if (value instanceof Date) return new Date(value.getTime())
   if (value instanceof Map) return new Map(Array.from(value, ([key, entry]) => [clonePresetOption(key), clonePresetOption(entry)]))
   if (value instanceof Set) return new Set(Array.from(value, clonePresetOption))
   if (value instanceof RegExp) return new RegExp(value.source, value.flags)
   if (value instanceof URL) return new URL(value.href)
+  if (value instanceof URLSearchParams) return new URLSearchParams(value.toString())
   if (value instanceof ArrayBuffer) return value.slice(0)
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
