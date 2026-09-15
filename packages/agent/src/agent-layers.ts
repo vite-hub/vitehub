@@ -140,7 +140,7 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     // Preserve application-owned decorations from the configure result on every reconfiguration.
     // SAFETY: resolved is the freshly merged Agent definition settings object.
-    copyDefinitionDecorations(definition, resolved as AgentDefinition)
+    copyDefinitionDecorations(definition, resolved)
     return resolved
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
@@ -151,7 +151,7 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
   return resolved
 }
 
-function copyDefinitionDecorations(source: AgentDefinition, target: AgentDefinition): void {
+export function copyDefinitionDecorations(source: object, target: object): void {
   const frameworkSymbols = new Set<PropertyKey>([
     Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
     Symbol.for("vitehub.baseAgentCapabilitiesResolver"), Symbol.for("vitehub.baseAgentModel"),
