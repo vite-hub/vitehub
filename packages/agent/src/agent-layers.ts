@@ -159,6 +159,8 @@ function copyDefinitionDecorations(source: AgentDefinition, target: AgentDefinit
   ])
   for (const key of Reflect.ownKeys(source)) {
     if (key === "options" || key === "__vitehubAgentSettings" || key === agentLayerMetadata || key === "resolve" || key === "run" || key === "health" || key === "status" || frameworkSymbols.has(key)) continue
+    // Resolved settings and explicit overrides take precedence over callback decorations.
+    if (Object.prototype.hasOwnProperty.call(target, key)) continue
     const descriptor = Object.getOwnPropertyDescriptor(source, key)
     if (descriptor) Object.defineProperty(target, key, descriptor)
   }
