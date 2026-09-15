@@ -139,6 +139,8 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
+    // Preserve application-owned decorations from the configure result on every reconfiguration.
+    copyDefinitionDecorations(definition, resolved as AgentDefinition)
     return resolved
   }
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
