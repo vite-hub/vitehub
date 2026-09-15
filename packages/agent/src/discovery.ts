@@ -380,7 +380,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // this callback so later definitions cannot affect classification.
         // Module-scope aliases declared before this callback are valid inputs;
         // declarations after it must not influence this definition.
-        for (let i = start - 4; i >= 0; i--) {
+        for (let i = start - 1; i >= 0; i--) {
           if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== name || tokens[i + 2] !== "=" || !(tokens[i + 3] === "defineCapability" || tokens[i + 3] === "defineAgent")) continue
           let cursor = i + 4
           if (tokens[cursor] !== "(") continue
@@ -389,7 +389,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             if (["(", "{", "["].includes(tokens[cursor])) depth++
             else if ([")", "}", "]"].includes(tokens[cursor]) && --depth === 0) break
           }
-          return /\bworkspace\s*:/.test(tokens.slice(i, cursor + 1).join(" "))
+          if (cursor < start) return /\bworkspace\s*:/.test(tokens.slice(i, cursor + 1).join(" "))
         }
       }
     }
