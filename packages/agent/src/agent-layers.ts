@@ -284,21 +284,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   assertLayerDefinition(definition)
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
-  const frameworkSymbols = new Set<PropertyKey>([
-    Symbol.for("vitehub.baseAgentResolve"),
-    Symbol.for("vitehub.baseAgentDefinitionResolve"),
-    Symbol.for("vitehub.baseAgentCapabilitiesResolver"),
-    Symbol.for("vitehub.baseAgentModel"),
-    Symbol.for("vitehub.baseAgentDriverKind"),
-    Symbol.for("vitehub.baseAgentDriver"),
-    Symbol.for("vitehub.baseAgentOutput"),
-    Symbol.for("vitehub.syntheticWorkspaceRun"),
-  ])
-  for (const key of Reflect.ownKeys(definition)) {
-    if (key === "options" || key === "__vitehubAgentSettings" || key === agentLayerMetadata || key === "resolve" || key === "run" || key === "health" || key === "status" || frameworkSymbols.has(key)) continue
-    const descriptor = Object.getOwnPropertyDescriptor(definition, key)
-    if (descriptor) Object.defineProperty(configured, key, descriptor)
-  }
+  copyDefinitionDecorations(definition, configured)
   inheritColocatedSkills(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritAgentLayerOptions(asMetadataTarget(definition), asMetadataTarget(configured))
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })
