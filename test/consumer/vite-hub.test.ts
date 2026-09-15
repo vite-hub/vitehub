@@ -604,7 +604,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           const chat = useChat(useAgent("contract"))
           const title = computed(() => chat.data.value.get("title", "title"))
           </script>
-          <template><main>{{ data.title }}</main></template>
+          <template><main>{{ title }}</main></template>
         `, "utf8"),
         writeFile(join(appDir, "nuxt.config.ts"), `
           export default {
