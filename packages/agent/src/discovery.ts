@@ -415,7 +415,21 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           }
         }
       }
-      const callbackDefinition = tokens.findLastIndex((token, index) => index >= bodyStart && index < callbackEnd && token === "defineAgent")
+      // Select the returned definition call itself. Nested settings may contain
+      // helper `defineAgent` calls; choosing the last token would mistake those
+      // helpers for the callback result.
+      let callbackDefinition = -1
+      let callbackDefinitionDepth = Number.POSITIVE_INFINITY
+      let callbackDepth = 0
+      for (let i = bodyStart; i < callbackEnd; i++) {
+        const token = tokens[i]
+        if (token === "defineAgent" && callbackDepth < callbackDefinitionDepth) {
+          callbackDefinition = i
+          callbackDefinitionDepth = callbackDepth
+        }
+        if (["{", "(", "["].includes(token)) callbackDepth++
+        else if (["}", ")", "]"].includes(token)) callbackDepth--
+      }
       if (callbackDefinition >= 0) start = callbackDefinition
       let end = start
       let depth = 0
