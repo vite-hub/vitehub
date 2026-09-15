@@ -96,8 +96,11 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
       this.#ensureParents(normalized, options.onCreate)
-      const existed = this.#nodes.has(normalized)
-      if (!existed) {
+      const existing = this.#nodes.get(normalized)
+      if (existing && existing.type !== "directory") {
+        throw workspaceError(`[vitehub] Workspace path is not a directory: ${path}.`)
+      }
+      if (!existing) {
         const directoryIdentity = crypto.randomUUID()
         this.#nodes.set(normalized, { type: "directory", mtime: now(), directoryIdentity })
         options.onCreate?.(normalized, directoryIdentity)
