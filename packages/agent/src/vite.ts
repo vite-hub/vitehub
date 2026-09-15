@@ -2629,7 +2629,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     const hasHostedAgents = hasHostedAgentDefinitions(config.root, serverDirs)
     const generatedRoot = resolveViteHubGeneratedRoot(config)
     const definitionServerDirs = serverDirs ?? [join(config.root, "server")]
-    await writeAgentRuntimeRegistry(generatedRoot, normalized ? discoverAgentDefinitions({ mode: "server-agents", scanDirs: definitionServerDirs }) : [], {
+    const registryDefinitions = normalized
+      ? [
+          ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: config.root }),
+          ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: definitionServerDirs }),
+        ]
+      : []
+    await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentImportBase: getAgentImportBase(agent, frameworkOptions),
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
