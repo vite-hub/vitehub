@@ -62,11 +62,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   assertBabysitterAgent(baseAgent);
   const presetOptions = baseAgent.options;
   const github = options.github;
+  const hostIdentity = github.identity()?.trim();
+  const activityAuthors = hostIdentity
+    ? [...options.activityAuthors, hostIdentity]
+    : options.activityAuthors;
   const pullRequestInbox = new PullRequestInbox({
     path: options.inboxPath,
     repositories: options.repositories,
     filter: presetOptions.filter,
-    activityAuthors: options.activityAuthors,
+    activityAuthors,
   });
   pullRequestInbox.recoverLeases();
   const schedulerEvent = (name: string, properties: Record<string, unknown> = {}) =>
@@ -220,7 +224,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }
     }
     try {
-      await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, options.activityAuthors);
+      await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
     } catch (error) {
       schedulerError("babysitter.snapshot.reconcile.failed", error);
     }
@@ -281,7 +285,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               inboxClaim,
               (path, projection) => readRest(path, projection, passSignal),
               (repository, number) => readThreads(repository, number, passSignal),
-              options.activityAuthors,
+              activityAuthors,
             ))
           ) {
             pullRequestInbox.release(inboxClaim);
@@ -392,8 +396,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const workerDriver = driver as CodexDriverOptions<BabysitterPassResult> & {
                 kind: "codex";
               };
-              const login = github.identity()?.toLowerCase();
-              const activityEnabled = !!login && options.activityAuthors.some(author => author.trim().toLowerCase() === login);
+              const activityEnabled = !!hostIdentity;
               const agent = defineAgent({
                 extends: baseAgent,
                 name: "babysitter-worker",
