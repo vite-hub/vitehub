@@ -184,8 +184,8 @@ function clonePresetOption(value: unknown): unknown {
   if (value instanceof Date) return new Date(value.getTime())
   if (value instanceof Map) return new Map(Array.from(value, ([key, entry]) => [clonePresetOption(key), clonePresetOption(entry)]))
   if (value instanceof Set) return new Set(Array.from(value, clonePresetOption))
-  if (record(value)) {
-    // SAFETY: `record` guarantees an object with string-keyed properties, which is the clone target shape.
+  if (value !== null && typeof value === "object") {
+    // SAFETY: Object values are cloned with their prototype and own descriptors.
     const clone = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
