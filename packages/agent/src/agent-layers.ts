@@ -220,7 +220,7 @@ function clonePresetOption(value: unknown): unknown {
     for (const key of Reflect.ownKeys(value)) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       if (!descriptor) continue
-      if ("value" in descriptor) descriptor.value = clonePresetOption(descriptor.value)
+      if ("value" in descriptor) descriptor.value = clonePresetOption(descriptor.value as unknown)
       Object.defineProperty(clone, key, descriptor)
     }
     return clone
