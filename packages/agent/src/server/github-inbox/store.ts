@@ -195,7 +195,8 @@ export class PullRequestInbox {
       // Activity suppression applies to issue comments only. Actual reviews
       // and inline review comments are evidence regardless of reviewer name.
       const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
-      const marked = String(payload.comment?.body ?? '').startsWith('<!-- vitehub-agent-activity:')
+      const commentBody = String(payload.comment?.body ?? '')
+      const marked = commentBody.startsWith('<!-- vitehub-agent-activity:') || commentBody.startsWith('<!-- vitehub-babysitter-repair:')
       const activity = marked && this.activityAuthors.has(commentAuthor)
       // Only authenticated activity markers are transport records. A public
       // marker on an external comment must remain actionable feedback.
