@@ -189,25 +189,17 @@ function clonePresetOption(value: unknown): unknown {
   if (value instanceof ArrayBuffer) return value.slice(0)
   if (ArrayBuffer.isView(value)) {
     if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) return Buffer.from(value)
-    const buffer = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
-    if (value instanceof DataView) return new DataView(buffer)
-    const tag = Object.prototype.toString.call(value)
-    const constructors: Record<string, { new (buffer: ArrayBuffer): unknown }> = {
-      "[object Int8Array]": Int8Array,
-      "[object Uint8Array]": Uint8Array,
-      "[object Uint8ClampedArray]": Uint8ClampedArray,
-      "[object Int16Array]": Int16Array,
-      "[object Uint16Array]": Uint16Array,
-      "[object Int32Array]": Int32Array,
-      "[object Uint32Array]": Uint32Array,
-      "[object Float32Array]": Float32Array,
-      "[object Float64Array]": Float64Array,
-      "[object BigInt64Array]": BigInt64Array,
-      "[object BigUint64Array]": BigUint64Array,
-    }
-    const TypedArray = constructors[tag]
+    const view = value as ArrayBufferView
+    const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
+    const byteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")!.get!.call(value)
+    const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")!.get!.call(value)
+    const copy = buffer.slice(byteOffset, byteOffset + byteLength)
+    if (value instanceof DataView) return new DataView(copy)
+    const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, typeof BigInt64Array !== "undefined" ? BigInt64Array : undefined, typeof BigUint64Array !== "undefined" ? BigUint64Array : undefined].filter(Boolean) as any[]
+    const TypedArray = constructors.find((ctor) => value instanceof ctor)
     if (!TypedArray) throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
-    return new TypedArray(buffer)
+    return new TypedArray(copy)
   }
   if (value !== null && Object.prototype.toString.call(value) === "[object Object]") {
     const prototype = Object.getPrototypeOf(value)
