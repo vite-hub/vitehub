@@ -166,7 +166,7 @@ This is a breaking syntax change for direct render calls, imported template file
 
 | Previous syntax | Comark syntax |
 | --- | --- |
-| `{{ name }}` | `{{ data.name }}` |
+| `{{ data.name }}` | `{{ data.name }}` |
 | `{{{ summary }}}` | `:insert{:markdown="data.summary"}` |
 | `::if{enabled}` | `::if{:condition="data.enabled"}` |
 | `::if{status === 'ready'}` | `::if{:value="data.status" eq="ready"}` |

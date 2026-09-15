@@ -128,7 +128,7 @@ describe("hubMarkdownTemplate", () => {
     await mkdir(join(root, ".vitehub", "markdown-template"), { recursive: true })
     await mkdir(join(root, ".vitehub", "types"), { recursive: true })
     await writeFile(join(app, "package.json"), "{}", "utf8")
-    await writeFile(join(app, "prompt.template.md"), "Hello {{ name }}.", "utf8")
+    await writeFile(join(app, "prompt.template.md"), "Hello {{ data.name }}.", "utf8")
     await writeFile(join(root, ".vitehub", "markdown-template", "templates.mjs"), "stale catalog", "utf8")
     await writeFile(join(root, ".vitehub", "types", "templates.d.ts"), "stale catalog types", "utf8")
     await writeFile(join(app, "entry.ts"), [

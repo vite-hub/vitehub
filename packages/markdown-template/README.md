@@ -14,17 +14,17 @@ The package requires Node 24 or newer.
 
 ## Render a template string
 
-Pass the complete data object with the template. Double braces insert a scalar as escaped Markdown text. Triple braces insert a Markdown fragment that your application trusts.
+Pass the complete data object with the template. Double braces insert a scalar as escaped Markdown text. Use the `Insert` component for trusted Markdown fragments.
 
 ```ts
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
 
 const markdown = await renderMarkdownTemplate([
-  "# Review {{ number }}",
+  "# Review {{ data.number }}",
   "",
-  "Title: {{ title }}",
+  "Title: {{ data.title }}",
   "",
-  "{{{ files }}}",
+  ":insert{:markdown=\"data.files\"}",
 ].join("\n"), {
   data: {
     files: "## Files\n\n- `README.md`",
@@ -48,7 +48,7 @@ Title: \*Draft\*
 - `README.md`
 ```
 
-`title` cannot create emphasis because `{{ title }}` escapes its Markdown syntax. `files` keeps its heading and list because `{{{ files }}}` parses the value as Markdown.
+`title` cannot create emphasis because `{{ data.title }}` escapes its Markdown syntax. `files` keeps its heading and list because the `Insert` component parses the trusted value as Markdown.
 
 ## Choose the input form deliberately
 
@@ -133,11 +133,11 @@ Imports resolve before conditions run. Your resolver must authorize an import ev
 Create `review.md`:
 
 ```md
-# Review {{ number }}
+# Review {{ data.number }}
 
 @./policy.md
 
-{{{ summary }}}
+:insert{:markdown="data.summary"}
 ```
 
 Create `policy.md` beside it:
