@@ -36,6 +36,7 @@ function inheritColocatedSkills(parent: Record<string, unknown>, child: Record<s
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && hasRuntimeType(value, "object")
+    && !Array.isArray(value)
     && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
 }
 
