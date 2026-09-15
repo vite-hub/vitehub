@@ -349,6 +349,14 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // Configured callbacks may contribute Workspace through a capability or
       // channel rather than returning an inline `workspace` object.
       if (/\bworkspace\s*:|\bworkspace(?:Capability|Channel)\b/.test(tail)) return true
+      // Resolve locally declared capability aliases instead of relying on
+      // identifier naming conventions. A capability whose definition carries
+      // a Workspace contribution promotes the configured Agent at runtime.
+      const capabilityNames = [...tail.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)].map((match) => match[1])
+      for (const name of capabilityNames) {
+        const declaration = new RegExp(`(?:const|let|var)\\s+${name}\\s*=\\s*defineCapability\\s*\\([^)]*\\bworkspace\\s*:`, "s")
+        if (declaration.test(source)) return true
+      }
     }
     if (preset === undefined || registry === undefined) return false
     const selection = tokens[resolveReference(preset)]
