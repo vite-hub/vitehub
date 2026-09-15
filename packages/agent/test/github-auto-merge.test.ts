@@ -83,7 +83,7 @@ describe("native auto-merge", () => {
     const args = f.mutations()[0]![0]
     expect(args).toContain(`head=${head}`)
     expect(args).toContain("method=SQUASH")
-    expect(args.find(arg => arg.startsWith("query="))).not.toContain("expectedHeadOid")
+    expect(args.find(arg => arg.startsWith("query="))).toContain("expectedHeadOid")
     expect(eligible).toHaveBeenCalledWith(expect.objectContaining({ repository: "acme/app", labels: ["babysit"], author: { login: "author", __typename: "User" } }))
     expect(f.command.mock.calls.every(([command]) => !command.some(arg => /mergePullRequest\(|addPullRequestReview\(|deleteRef\(/.test(arg)))).toBe(true)
     expect(f.settle).toHaveBeenCalledTimes(f.ensureGraphQLBudget.mock.calls.length)
