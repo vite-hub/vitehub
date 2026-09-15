@@ -316,11 +316,11 @@ describe("hubEmail", () => {
     }
   })
 
-  it("renders Email fragments in development and materialized output without a Markdown import plugin", async () => {
+  it("renders Email templates in development and materialized output without a Markdown import plugin", async () => {
     const root = await createTempProject()
     await mkdir(join(root, "server/emails"), { recursive: true })
     await mkdir(join(root, "server/shared"), { recursive: true })
-    await writeFile(join(root, "server/emails/welcome.md"), "Hello {{name}}\n\n@../shared/policy.md")
+    await writeFile(join(root, "server/emails/welcome.md"), "Hello {{ data.name }}\n\n@../shared/policy.md")
     await writeFile(join(root, "server/shared/policy.md"), "::if{ready}\nReady for review.\n::else\nPending.\n::")
     const plugin = hubEmail({ driver: "resend" })
     const server = await createServer({
@@ -333,14 +333,14 @@ describe("hubEmail", () => {
     try {
       // SAFETY: Email template modules export a renderer with these explicit data inputs.
       const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<string> }
-      await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\nPending.")
+      await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\n@../shared/policy.md")
       // Stop development refreshes before removing the source tree to simulate deployment.
       await server.close()
       const paths = await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
       await rm(join(root, "server"), { recursive: true })
       // SAFETY: prepareTypes materializes the same Email renderer contract for deployment.
       const deployed = await import(pathToFileURL(paths.welcome!).href) as typeof development
-      await expect(deployed.default({ name: "Team", ready: true })).resolves.toBe("Hello Team\n\nReady for review.")
+      await expect(deployed.default({ name: "Team", ready: true })).resolves.toBe("Hello Team\n\n@../shared/policy.md")
     }
     finally {
       await server.close()
