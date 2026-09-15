@@ -194,11 +194,15 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
 }
 
 function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>): Record<string, unknown> {
+  if (memo.has(parent)) {
+    return memo.get(parent) as Record<string, unknown>
+  }
   if (child && memo.has(child)) {
     // SAFETY: Only record-shaped children are inserted into this memo.
     return memo.get(child) as Record<string, unknown>
   }
   const result: Record<string | symbol, unknown> = Object.create(Object.getPrototypeOf(parent)) as Record<string | symbol, unknown>
+  memo.set(parent, result)
   if (child) memo.set(child, result)
   // SAFETY: Own keys are read from these record-shaped inputs, including symbols.
   const parentKeys = parent as Record<PropertyKey, unknown>
