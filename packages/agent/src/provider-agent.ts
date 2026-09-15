@@ -2716,7 +2716,7 @@ async function* runProvider<
     if (options.provider === "claude-code"
       && materializeInstructions
       && hasRuntimeType(options.providerSettings?.launchArgs, "string")
-      && options.providerSettings.launchArgs.includes("--append-system-prompt-file")) {
+      && shellArgTokens(options.providerSettings.launchArgs).some(token => token === "--append-system-prompt-file" || token.startsWith("--append-system-prompt-file="))) {
       throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] Claude launchArgs cannot include --append-system-prompt-file when instructions are materialized. Compose the caller prompt file contents into driver.instructions and remove the flag." })
     }
     // The runtime chooses environment arguments over settings. Give auxiliary
@@ -3150,6 +3150,16 @@ async function* runProvider<
       else throw cleanupError
     }
   }
+}
+
+function shellArgTokens(input: string): string[] {
+  const tokens: string[] = []
+  const re = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s]+)/g
+  for (const match of input.matchAll(re)) {
+    const token = match[0]
+    tokens.push(token.length >= 2 && ((token[0] === '"' && token.at(-1) === '"') || (token[0] === "'" && token.at(-1) === "'")) ? token.slice(1, -1) : token)
+  }
+  return tokens
 }
 
 async function generateProvider<CALL_OPTIONS, TRuntimeConfig extends AgentRuntimeConfig>(

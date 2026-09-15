@@ -68,6 +68,9 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
       A: async (node, state, parent) => {
         if (!Object.hasOwn(node[1], ":href")) return await state.handlers.a!(node, state, parent)
         const props = resolveAttributes(node[1], renderData(state), { parseJson: true })
+        for (const key of Object.keys(node[1])) {
+          if (key.startsWith(":")) requireScalar(props[key.slice(1)], String(node[1][key]))
+        }
         const bound = resolveAttributes({ ":value": node[1][":href"] }, renderData(state), { parseJson: true })
         const href = await safeLinkDestination(requireScalar(bound.value, String(node[1][":href"])), String(node[1][":href"]))
         // SAFETY: Preserve the element tag and children, replacing only its resolved attributes.
