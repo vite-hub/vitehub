@@ -2,7 +2,7 @@ import { validateAgentStaticRoute } from "./internal/routes.ts"
 import { randomUUID } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
 import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve } from "node:path"
+import { basename, dirname, extname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
@@ -1647,14 +1647,19 @@ async function writeAgentRuntimeRegistry(
   }
   const registryPath = join(root, generatedAgentRegistry)
   const catalogPath = join(root, generatedAgentRegistryCatalog)
-  const catalog = await generateAgentDeploymentCatalog(definitions, catalogPath, {
-    ...options,
-    channelHandlers: false,
-    workspaceRegistry: false,
-  })
   await mkdir(dirname(registryPath), { recursive: true })
-  await writeFile(catalogPath, [...catalog.imports, "", ...catalog.setup, "", "export { agents }", ""].join("\n"), "utf8")
-  const entries = definitions.map(definition => `${JSON.stringify(definition.name)}: async () => (await import(${JSON.stringify(moduleImportSpecifier(registryPath, catalogPath))})).agents[${JSON.stringify(definition.name)}]`)
+  const entries = [] as string[]
+  for (let index = 0; index < definitions.length; index++) {
+    const definition = definitions[index]
+    const definitionCatalogPath = join(dirname(catalogPath), `${basename(catalogPath, extname(catalogPath))}-${index}${extname(catalogPath)}`)
+    const catalog = await generateAgentDeploymentCatalog([definition], definitionCatalogPath, {
+      ...options,
+      channelHandlers: false,
+      workspaceRegistry: false,
+    })
+    await writeFile(definitionCatalogPath, [...catalog.imports, "", ...catalog.setup, "", "export { agents }", ""].join("\n"), "utf8")
+    entries.push(`${JSON.stringify(definition.name)}: async () => (await import(${JSON.stringify(moduleImportSpecifier(registryPath, definitionCatalogPath))})).agents[${JSON.stringify(definition.name)}]`)
+  }
   await writeFile(registryPath, [
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
