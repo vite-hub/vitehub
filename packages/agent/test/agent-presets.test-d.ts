@@ -1,5 +1,5 @@
 import { expectTypeOf, it } from "vitest"
-import { codexDriver, defineAgent, runAgentInline } from "../src/index.ts"
+import { codexDriver, defineAgent, defineCapability, runAgentInline } from "../src/index.ts"
 import type { AgentRuntimeContext } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -69,4 +69,22 @@ it("exposes only the outer configuration when configure returns a configured Age
   void outer.options.inner
   // @ts-expect-error Inner options cannot be passed to the outer preset.
   defineAgent({ extends: outer, options: { inner: false } })
+})
+
+it("infers Workspace access contributed to configured presets", () => {
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const capability = defineCapability({ id: "workspace", workspace: {} })
+  const selected = defineAgent({ preset: "plain", presets: { plain }, capabilities: [capability] })
+  expectTypeOf(selected.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  expectTypeOf(selected.options.enabled).toEqualTypeOf<boolean>()
+  const extended = defineAgent({ extends: plain, capabilities: [capability] })
+  expectTypeOf(extended.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const channel = defineAgent({ preset: "plain", presets: { plain }, channels: { custom: { kind: "custom", capabilities: [capability] } } })
+  expectTypeOf(channel.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const child = defineAgent({ extends: channel, options: { enabled: false } })
+  expectTypeOf(child.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const noWorkspace = defineCapability({ id: "plain", metadata: {} })
+  const unchanged = defineAgent({ extends: plain, capabilities: [noWorkspace] })
+  // @ts-expect-error Capabilities without Workspace access do not promote the definition.
+  void unchanged.__vitehubWorkspaceAgent
 })

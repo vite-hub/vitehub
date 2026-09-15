@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { agentWithColocatedInstructions, defineAgent, runAgent } from "../src/index.ts"
+import { agentWithColocatedInstructions, defineAgent, defineCapability, runAgent } from "../src/index.ts"
 import { getAgentLayerOptions } from "../src/agent-layers.ts"
 import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
@@ -173,4 +173,16 @@ it("keeps discovery defaults below reconfigured workspace values", () => {
   const child = defineAgent({ extends: discovered, options: { mode: "write", sourceRootDir: "/configured" } })
   expect(getAgentLayerOptions(child)?.workspace).toMatchObject({ mode: "write", sourceRootDir: "/configured", sources: { __vitehubAgentInstructions: { content: "Repository context." } } })
   expect(getAgentLayerOptions(discovered)?.workspace).toMatchObject({ mode: "read", sourceRootDir: "/discovered" })
+})
+
+it("promotes configured presets when capabilities or channels contribute Workspace access", () => {
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const capability = defineCapability({ id: "workspace", workspace: {} })
+  const selected = defineAgent({ preset: "plain", presets: { plain }, capabilities: [capability] })
+  const extended = defineAgent({ extends: plain, capabilities: [capability] })
+  const channel = defineAgent({ preset: "plain", presets: { plain }, channels: { custom: { kind: "custom", capabilities: [capability] } } })
+  for (const agent of [selected, extended, channel, defineAgent({ extends: channel })]) {
+    expect(agent.__vitehubWorkspaceAgent).toBe(true)
+    expect(agent.options).toEqual({ enabled: true })
+  }
 })
