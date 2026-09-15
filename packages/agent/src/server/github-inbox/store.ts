@@ -197,7 +197,8 @@ export class PullRequestInbox {
       const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').toLowerCase()
       const marked = String(payload.comment?.body ?? '').startsWith('<!-- vitehub-agent-activity:')
       const activity = marked && this.activityAuthors.has(commentAuthor)
-      if (event === 'issue_comment' && !activity && !isFeedback(payload.comment)) return finish('irrelevant comment')
+      // Only authenticated activity markers are transport records. A public
+      // marker on an external comment must remain actionable feedback.
       if (event === 'issue_comment' && !payload.issue?.pull_request) return finish('issue is not a PR')
       const supported = ['pull_request','issue_comment','pull_request_review','pull_request_review_comment','pull_request_review_thread','check_run','check_suite','workflow_run','status','push']
       if (!supported.includes(event)) return finish('irrelevant event')
