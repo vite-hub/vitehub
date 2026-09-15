@@ -51,7 +51,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template Insert markdown prop "${String(path ?? "markdown")}" must resolve to a string.` })
         }
         // Fragments are parsed without bindings and rendered without template components.
-        const fragment = await parseMarkdown(value, parseOptions)
+        const fragment = await parseMarkdown(value, { ...parseOptions, plugins: options.plugins ?? [] })
         if (parent && (parent[0] === "p" || state.context.inline)) {
           if (!fragment.nodes.length) return ""
           if (fragment.nodes.length !== 1 || !Array.isArray(fragment.nodes[0]) || fragment.nodes[0][0] !== "p") {
@@ -166,8 +166,8 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     null,
   )
   seen.set(value, copy)
-  const entries: [string, unknown][] = []
-  for (const key of Object.getOwnPropertyNames(value).filter((key) => !(Array.isArray(value) && key === "length"))) {
+  const explicitPaths = new Set(Object.keys(value))
+  for (const key of explicitPaths) {
     // SAFETY: callers provide object-like data; indexing by an own enumerable key yields its value.
     const descriptor = Object.getOwnPropertyDescriptor(value, key)
     let resolved: unknown
@@ -176,62 +176,55 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
       if (!loaded) {
         resolved = ownData(descriptor && "value" in descriptor ? descriptor.value : Reflect.get(value, key), seen)
         loaded = true
-        entries.push([key, resolved])
       }
       return resolved
     }
     Object.defineProperty(copy, key, { enumerable: true, configurable: true, get: read })
   }
-  // Record all explicit keys without evaluating unrelated lazy properties.
-  const explicitPaths = new Set(Object.getOwnPropertyNames(value).filter((key) => !(Array.isArray(value) && key === "length")))
   for (const key of [...explicitPaths]
     .filter((key) => key.includes("."))
     .sort((left, right) => right.split(".").length - left.split(".").length)) {
-    // SAFETY: `copy` is the null-prototype clone populated with string keys.
-    const resolved = (copy as Record<string, unknown>)[key]
-    // SAFETY: `copy` is the null-prototype clone being populated as a string-keyed record.
-    defineDottedPath(copy as Record<string, unknown>, key, resolved, explicitPaths)
+    defineDottedPath(copy, key.split("."), () => Reflect.get(copy, key), explicitPaths.has(key.split(".")[0]))
   }
   // SAFETY: `copy` mirrors the input's enumerable data shape and is returned as the same generic type.
   return copy as T
 }
 
-function defineDottedPath(target: Record<string, unknown>, key: string, value: unknown, explicitPaths: Set<string>): void {
-  const parts = key.split(".")
-  let current = target
-  for (let index = 0; index < parts.length - 1; index++) {
-    const part = parts[index]
-    const existing = current[part]
-    // SAFETY: object values created by ownData have string-keyed records.
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the cloned path node before traversing it.
-    if (existing && typeof existing === "object") {
-      // SAFETY: ownData creates every traversed object as a string-keyed record.
-      current = existing as Record<string, unknown>
-    }
-    else {
-      // Preserve an explicitly supplied path (including dotted parents) when
-      // materializing a descendant alias; explicit caller data wins.
-      const prefix = parts.slice(0, index + 1).join(".")
-      if (explicitPaths.has(prefix) && !prefix.includes(".")) return
-      const nested = Object.setPrototypeOf({}, null) as Record<string, unknown>
-      Object.defineProperty(current, part, { enumerable: true, configurable: true, value: nested, writable: true })
-      current = nested
-    }
-  }
-  // SAFETY: split guarantees at least one segment, so the final segment is defined.
-  // SAFETY: key.split(".") always yields at least one segment.
-  const leaf = parts.at(-1)!
-  const existing = current[leaf]
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Merge only object-like cloned nodes.
-  if (existing && typeof existing === "object" && value && typeof value === "object") {
-    // SAFETY: the guard above establishes that `value` is object-like and Object.keys accepts it.
-    for (const child of Object.keys(value as object)) {
-      Object.defineProperty(existing, child, { enumerable: true, configurable: true,
-        // SAFETY: `child` comes from Object.keys(value), so it is an own property of the object.
-        value: Reflect.get(value, child), writable: true })
-    }
-  }
-  else if (!Object.hasOwn(current, leaf)) {
-    Object.defineProperty(current, leaf, { enumerable: true, configurable: true, value, writable: true })
-  }
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- This helper owns property descriptors and accepts both cloned records and arrays.
+function defineDottedPath(target: object, parts: string[], read: () => unknown, preserveScalar: boolean): void {
+  const [part, ...rest] = parts
+  const descriptor = Object.getOwnPropertyDescriptor(target, part)
+  // Array length is intrinsic and cannot be replaced by an alias getter.
+  if (descriptor?.configurable === false) return
+  let loaded = false
+  let resolved: unknown
+  Object.defineProperty(target, part, {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (loaded) return resolved
+      const existing: unknown = descriptor?.get ? descriptor.get.call(target) : descriptor?.value
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Traverse only object-like cloned data nodes.
+      const object = existing !== null && typeof existing === "object" ? existing : undefined
+      if (rest.length) {
+        if (descriptor && !object && preserveScalar) resolved = existing
+        else {
+          const nested = object ?? Object.create(null)
+          defineDottedPath(nested, rest, read, false)
+          resolved = nested
+        }
+      }
+      else if (object) {
+        const value = read()
+        // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Merge cloned objects without evaluating their property getters.
+        if (value !== null && typeof value === "object") {
+          Object.defineProperties(object, Object.getOwnPropertyDescriptors(value))
+        }
+        resolved = object
+      }
+      else resolved = descriptor ? existing : read()
+      loaded = true
+      return resolved
+    },
+  })
 }

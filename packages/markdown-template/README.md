@@ -54,7 +54,7 @@ Title: \*Draft\*
 
 ### Escape scalar data
 
-Use `{{ data.path.to.value }}` for a string, number, or boolean. Paths read own properties only. A missing path, `null`, an array, or an object rejects the render instead of producing an empty string.
+Use `{{ data.path.to.value }}` for a string, number, or boolean. Paths read own enumerable properties only, plus array length. A missing path, `null`, an array, or an object rejects the render instead of producing an empty string.
 
 Scalar bindings are Markdown text, not raw source. The renderer also HTML-escapes scalar bindings inside quoted XML-style attributes.
 

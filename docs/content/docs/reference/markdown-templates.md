@@ -86,7 +86,7 @@ The title renders as literal text, with its asterisks escaped. The `Insert` comp
 
 ## Bind values and attributes
 
-`{{ data.path }}` inserts a string, number, or boolean as escaped Markdown text. Missing, null, and non-scalar values reject the render. Data paths read own properties only. Use nested objects for dotted paths, such as `{ customer: { name: 'Acme' } }`.
+`{{ data.path }}` inserts a string, number, or boolean as escaped Markdown text. Missing, null, and non-scalar values reject the render. Data paths read own enumerable properties only, plus array length. Use nested objects for dotted paths, such as `{ customer: { name: 'Acme' } }`.
 
 Use Comark's colon-prefixed attributes for dynamic destinations and XML attributes:
 

@@ -4,6 +4,43 @@ import { renderMarkdownTemplateInternal } from "../src/internal/composition.ts"
 import { renderMarkdownTemplate } from "../src/index.ts"
 
 describe("renderMarkdownTemplate", () => {
+  it("keeps unused dotted accessors lazy", async () => {
+    let reads = 0
+    const data = {
+      enabled: false,
+      "customer.name": "Ada",
+      get "customer.unused"() { throw new Error("unused dotted getter") },
+      get "other.name"() { throw new Error("unselected dotted getter") },
+      get "customer.selected"() { reads++; return "selected" },
+    }
+    await expect(renderMarkdownTemplate('{{ data.customer.name }} {{ data.customer.selected }} {{ data.customer.selected }}\n\n::if{:condition="data.enabled"}\n{{ data.other.name }}\n::', { data }))
+      .resolves.toBe("Ada selected selected")
+    expect(reads).toBe(1)
+  })
+
+  it("excludes non-enumerable data without reading its getters", async () => {
+    const data = { name: "Ada" }
+    Object.defineProperty(data, "hidden.value", { get() { throw new Error("hidden getter") } })
+    Object.defineProperty(data, "token", { value: "secret" })
+    await expect(renderMarkdownTemplate("{{ data.name }}", { data })).resolves.toBe("Ada")
+    await expect(renderMarkdownTemplate("{{ data.token }}", { data })).rejects.toThrow()
+    await expect(renderMarkdownTemplate("{{ data.hidden.value }}", { data })).rejects.toThrow()
+  })
+
+  it.each([
+    [{ "customer.name": "Ada" }, "{{ data.customer.name }}", "Ada"],
+    [{ "support.customer": { tier: "gold" }, "support.customer.name": "Ada" }, "{{ data.support.customer.name }} {{ data.support.customer.tier }}", "Ada gold"],
+    [{ "support.customer.name": "Ada", "support.customer": { tier: "gold" } }, "{{ data.support.customer.name }} {{ data.support.customer.tier }}", "Ada gold"],
+    [{ "support.customer": "Acme", "support.customer.name": "Ada" }, "{{ data.support.customer.name }}", "Ada"],
+    [{ customer: "explicit", "customer.name": "Ada" }, "{{ data.customer }}", "explicit"],
+    // eslint-disable-next-line unicorn/no-new-array -- The regression requires sparse holes, not initialized elements.
+    [{ items: new Array(3), "items.length": 8 }, "{{ data.items.length }}", "3"],
+    // eslint-disable-next-line unicorn/no-new-array -- The regression requires sparse holes, not initialized elements.
+    [{ items: new Array(3), "items.0": "first" }, "{{ data.items.0 }} {{ data.items.length }}", "first 3"],
+  ])("preserves dotted aliases and explicit data for %j", async (data, template, expected) => {
+    await expect(renderMarkdownTemplate(template, { data })).resolves.toBe(expected)
+  })
+
   it("renders scalar data as Markdown text", async () => {
     expect(await renderMarkdownTemplate([
       "Hello {{ data.pullRequest.title }}.",
