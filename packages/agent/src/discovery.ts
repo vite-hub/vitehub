@@ -410,7 +410,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           }
         }
       }
-      const callbackDefinition = tokens.findIndex((token, index) => index >= bodyStart && index < callbackEnd && token === "defineAgent")
+      const callbackDefinition = tokens.findLastIndex((token, index) => index >= bodyStart && index < callbackEnd && token === "defineAgent")
       if (callbackDefinition >= 0) start = callbackDefinition
       let end = start
       let depth = 0
