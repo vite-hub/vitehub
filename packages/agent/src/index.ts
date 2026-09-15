@@ -2309,7 +2309,7 @@ export interface DefineAgent {
   }): ConfiguredAgentDefinition<TOptions, TDefinition>
 
   <
-    TPresets extends Record<string, AgentDefinitionLike>,
+    TPresets extends Record<string, ConfiguredAgentDefinition<object, AgentDefinition>>,
     const TPreset extends keyof TPresets & string,
     const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
     const TCapabilities extends ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>["capabilities"] = undefined,
@@ -2317,7 +2317,7 @@ export interface DefineAgent {
   >(options:
     Omit<Partial<ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>>, "driver" | "workspace" | "capabilities" | "channels"> & {
       preset: TPreset
-      presets: TPresets & Record<TPreset, ConfiguredAgentDefinition<object, AgentDefinitionLike>>
+      presets: TPresets & Record<TPreset, ConfiguredAgentDefinition<object, AgentDefinition>>
       options?: AgentPresetOptions<NoInfer<ConfiguredAgentOptions<TPresets[TPreset]>>>
       extends?: never
       driver?: Partial<ConfiguredAgentSettings<NoInfer<TPresets[TPreset]>>["driver"]>

@@ -174,7 +174,7 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
     const value = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined ? childKeys[key] : parentKeys[key]
     if (record(value)) {
       const parentValue = record(parentKeys[key]) ? parentKeys[key] : {}
-      result[key] = mergePresetOptions(parentValue, value)
+      Object.defineProperty(result, key, { value: mergePresetOptions(parentValue, value), enumerable: true, writable: true, configurable: true })
     } else Object.defineProperty(result, key, { value: clonePresetOption(value), enumerable: true, writable: true, configurable: true })
   }
   return result
