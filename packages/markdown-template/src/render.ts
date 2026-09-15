@@ -171,7 +171,11 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
     Object.defineProperty(copy, key, { enumerable: true, configurable: true, value: resolved, writable: true })
   }
   const directKeys = new Set(entries.map(([key]) => key))
-  for (const [key, resolved] of entries) if (key.includes(".")) defineDottedPath(copy as Record<string, unknown>, key, resolved, directKeys)
+  for (const [key, resolved] of entries
+    .filter(([key]) => key.includes("."))
+    .sort(([left], [right]) => right.split(".").length - left.split(".").length)) {
+    defineDottedPath(copy as Record<string, unknown>, key, resolved, directKeys)
+  }
   return copy as T
 }
 
