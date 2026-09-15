@@ -169,6 +169,23 @@ describe("hubEmail", () => {
     await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("requires a Cloudflare hosting provider")
   })
 
+  it("loads only discovered Email template modules", async () => {
+    const root = await createTempProject()
+    const template = join(root, "server", "emails", "welcome.md")
+    const unrelated = join(root, "prompt.template.md")
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(template, "Hello {{ data.name }}")
+    await writeFile(unrelated, "Other template")
+    const plugin = hubEmail({ driver: "resend" })
+    await plugin.api.prepareTypes({ projectRoot: root })
+    const load = functionHook(plugin.load, "load")
+
+    expect(await load(`${unrelated}?markdown-template`)).toBeUndefined()
+    expect(await load(`/@fs/${unrelated}?markdown-template`)).toBeUndefined()
+    const id = await functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/welcome")
+    expect(await load(id)).toContain("Hello {{ data.name }}")
+  })
+
   it("generates exact virtual module types for discovered Email templates", async () => {
     const root = await createTempProject()
     const template = join(root, "server", "emails", "monthly-recap.md")

@@ -416,7 +416,7 @@ function createViteRawPlugin(rootDir: string | undefined, frameworkRuntime: bool
           resolveDir: args.resolveDir,
         })
       })
-      build.onResolve({ filter: /\?|\.template\.md$/ }, async (args) => {
+      build.onResolve({ filter: /\?|\.template\.md(?:#|$)/ }, async (args) => {
         if (args.pluginData?.[skipMarkdownTemplateResolve]) return
         const markdownTemplate = parseMarkdownTemplateRequest(args.path)
         const raw = hasViteRawQuery(args.path)

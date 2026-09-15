@@ -959,12 +959,12 @@ describe("bundleEsmEntry", () => {
     await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n\n  @./missing.md\n- Fenced example\n  ```md\n    @./missing.md\n  ```\n- Context\n@./missing.md\n\n\\> Waiting")
   })
 
-  it("keeps missing import text literal in bundled Markdown templates", async () => {
+  it.each(["", "#revision"])("keeps missing import text literal in bundled Markdown templates%s", async (fragment) => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")
     const outfile = join(rootDir, "bundle.mjs")
     await writeFile(join(rootDir, "prompt.template.md"), "@./missing.md\n", "utf8")
-    await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default prompt\n', "utf8")
+    await writeFile(entry, `import prompt from "./prompt.template.md${fragment}"\nexport default prompt\n`, "utf8")
 
     const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
     await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
