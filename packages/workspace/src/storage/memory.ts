@@ -109,8 +109,9 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
       const node = this.#nodes.get(normalized)
-      if (options.ifDigest !== undefined) {
-        if (node?.type !== "file" || (await this.#entry(normalized, node)).digest !== options.ifDigest) return
+      if (options.ifDigest !== undefined || options.ifSource !== undefined) {
+        if (node?.type !== "file") return
+        if (options.ifDigest !== undefined && (await this.#entry(normalized, node)).digest !== options.ifDigest) return
         if (options.ifSource !== undefined && (node.metadata?.source ?? null) !== options.ifSource) return
       }
       if (!node) {
