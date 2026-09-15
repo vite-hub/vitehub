@@ -635,7 +635,12 @@ describe("lazy sources", () => {
     await expect(store.stat(path("created"))).resolves.toBeUndefined()
   })
 
-  it.each(["", "docs"])("removes unchanged startup files after a local Store restart at mount %s", async (mount) => {
+  it.each([
+    { mount: "", legacy: false },
+    { mount: "docs", legacy: false },
+    { mount: "", legacy: true },
+    { mount: "docs", legacy: true },
+  ])("removes unchanged startup files after a local Store restart at mount $mount legacy=$legacy", async ({ mount, legacy }) => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)
     const initial = {
@@ -655,9 +660,11 @@ describe("lazy sources", () => {
     }
     await createWorkspaceSourceView(initial, store).materializeSources()
     const path = (name: string) => mount ? `${mount}/${name}` : name
+    // Simulate snapshots written before Local Stores persisted per-file metadata.
+    if (legacy) await rm(join(root, ".vitehub/file-metadata"), { recursive: true, force: true })
     const restarted = createLocalWorkspaceStore(root)
-    await expect(restarted.readFile(path("AGENTS.md"))).resolves.toMatchObject({ metadata: undefined })
-    await restarted.writeFile(path("edited.md"), { path: path("edited.md"), content: "user edit" })
+    await expect(restarted.readFile(path("AGENTS.md"))).resolves.toMatchObject({ metadata: legacy ? undefined : expect.objectContaining({ source: "instructions" }) })
+    await writeFile(join(root, path("edited.md")), "user edit")
     await restarted.writeFile(path("claimed.md"), { path: path("claimed.md"), content: "original", metadata: { source: "other" } })
     await syncWorkspaceDefinition({ name: initial.name, sources: {} }, restarted)
 
@@ -738,6 +745,7 @@ describe("lazy sources", () => {
     })
     const retained = source()
     const initial = { name: "shared-empty-startup-mount", sources: { removed: source(), retained } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
     await createWorkspaceSourceView(initial, store).materializeSources()
     await expect(store.getMeta?.("source:removed:snapshot")).resolves.toMatchObject({ ownsMount: true })
     await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false, status: "ready" })
@@ -768,6 +776,7 @@ describe("lazy sources", () => {
     })
     const retained = source("retained.md")
     const initial = { name: "shared-nonempty-startup-mount", sources: { removed: source("removed.md"), retained } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
     await createWorkspaceSourceView(initial, store).materializeSources()
     await expect(store.getMeta?.("source:removed:snapshot")).resolves.toMatchObject({ ownsMount: true })
     await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false })
@@ -907,7 +916,7 @@ describe("lazy sources", () => {
       name: "concurrent-startup-removal",
       sources: { retained, other, removed: source("shared.md") },
     }, store).materializeSources()
-    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed" } })
+    await store.writeFile("shared.md", { path: "shared.md", content: "shared.md", metadata: { source: "removed" } })
     const remove = store.rm.bind(store)
     const removals = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
       // Let competing source materializations reach reconciliation before deletion.

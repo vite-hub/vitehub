@@ -445,9 +445,9 @@ async function removeStaleMaterializedSourceFiles(
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     const currentOwner = file?.metadata?.source
-    if (currentOwner === undefined && previousSnapshot?.items) {
-      // Local Stores lose file ownership metadata on restart. An indexed path
-      // still belongs to the source only while its materialized content matches.
+    if ((currentOwner === undefined || source.materialize === "startup") && previousSnapshot?.items) {
+      // Persisted ownership can survive a user edit made outside the Store.
+      // Only remove indexed startup files while their materialized content matches.
       const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
       if (!file || !recordedDigest || await sha256(file.content) !== recordedDigest) continue
     }
@@ -473,7 +473,7 @@ async function removeStaleMaterializedSourceFiles(
       if (!latest) continue
       const latestOwner = latest.metadata?.source
       if (latestOwner !== undefined && latestOwner !== source.key) continue
-      if (latestOwner === undefined && previousSnapshot?.items?.[entry.path]) {
+      if ((latestOwner === undefined || source.materialize === "startup") && previousSnapshot?.items?.[entry.path]) {
         const digest = previousSnapshot.items[entry.path].materializedContentDigest
         if (!digest || await sha256(latest.content) !== digest) continue
       }
@@ -546,8 +546,9 @@ async function reconcileRemovedStartupSourcesInternal(
       if (!file) continue
       const owner = file.metadata?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
-      // Local Stores lose per-file metadata across restarts. Only recover ownership
-      // from a persisted content digest, so edited user files remain untouched.
+      // Legacy Stores may lack per-file metadata; current Stores can retain it
+      // after external edits. In both cases, preserve changed content.
+      if (recordedDigest && await sha256(file.content) !== recordedDigest) continue
       if (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest)) continue
       for (const currentSource of currentSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
