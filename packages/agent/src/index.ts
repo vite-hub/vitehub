@@ -2323,7 +2323,7 @@ export interface DefineAgent {
   >(options:
     Omit<Partial<ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>>, "driver" | "workspace" | "capabilities" | "channels"> & {
       preset: TPreset
-      presets: TPresets & Record<TPreset, ConfiguredAgentDefinition<object, AgentDefinition>>
+      presets: TPresets & Record<TPreset, ConfiguredAgentDefinition<any, AgentDefinition>>
       options?: AgentPresetOptions<NoInfer<ConfiguredAgentOptions<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>>
       extends?: never
       driver?: Partial<ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>["driver"]>
