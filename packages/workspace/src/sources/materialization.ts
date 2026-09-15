@@ -308,15 +308,17 @@ async function reconcilePromotedSourceSkills(
           // risking deletion of a concurrent user replacement.
           next[destination] = prior
         }
-        // Remove empty directories left behind by a promoted file. Only
-        // remove directories that are demonstrably empty, preserving user
-        // replacements and sibling skills.
-        let parent = posix.dirname(destination)
-        while (parent.startsWith(".agents/skills/") && parent !== ".agents/skills") {
-          const entries = await store.list(parent)
-          if (entries.length) break
-          await control.mutate(() => store.rm(parent, { force: true }))
-          parent = posix.dirname(parent)
+        // Directory emptiness cannot be checked and removed atomically. Stores
+        // without conditional removal must retain the directory to avoid
+        // deleting a concurrent user replacement after the listing.
+        if (store.conditionalRemoval) {
+          let parent = posix.dirname(destination)
+          while (parent.startsWith(".agents/skills/") && parent !== ".agents/skills") {
+            const entries = await store.list(parent)
+            if (entries.length) break
+            await control.mutate(() => store.rm(parent, { force: true }))
+            parent = posix.dirname(parent)
+          }
         }
       }
     }
