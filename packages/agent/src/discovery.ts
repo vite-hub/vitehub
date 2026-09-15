@@ -252,6 +252,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           }
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
         else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
+        // Object method shorthand (e.g. `configure() { ... }`) has no colon;
+        // retain the method's opening parenthesis so callback discovery can
+        // inspect its body just like an arrow or function expression.
+        else if (tokens[i + 1] === "(") result.set(propertyName(token), i + 1)
         atProperty = false
       }
       if (depth === 0 && token === ",") atProperty = true
