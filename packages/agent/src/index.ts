@@ -2533,7 +2533,7 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   // Reconfiguration carries callback-owned decorations through the settings object;
   // copy them onto the rebuilt Agent after defineBaseAgent has reconstructed it.
   if (agentOptions !== normalizedOptions) {
-    const source = agentOptions as AgentDefinition
+    const source = agentOptions as unknown as AgentDefinition
     const frameworkSymbols = new Set<PropertyKey>([
       Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
       Symbol.for("vitehub.baseAgentCapabilitiesResolver"), Symbol.for("vitehub.baseAgentModel"),
