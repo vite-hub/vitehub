@@ -200,6 +200,7 @@ export class PullRequestInbox {
       // Only authenticated activity markers are transport records. A public
       // marker on an external comment must remain actionable feedback.
       if (event === 'issue_comment' && !payload.issue?.pull_request) return finish('issue is not a PR')
+      if (event === 'issue_comment' && !activity && !isFeedback(payload.comment)) return finish('irrelevant comment')
       const supported = ['pull_request','issue_comment','pull_request_review','pull_request_review_comment','pull_request_review_thread','check_run','check_suite','workflow_run','status','push']
       if (!supported.includes(event)) return finish('irrelevant event')
       if (event === 'pull_request' && !['opened','synchronize','reopened','closed','edited','ready_for_review','converted_to_draft','labeled','unlabeled','enqueued','dequeued'].includes(payload.action ?? '')) return finish('irrelevant PR action')
@@ -350,6 +351,15 @@ export class PullRequestInbox {
       s.lease = null; s.leaseUntil = 0
       if (s.status !== 'terminal') s.status = 'ready'
       this.put(s); return true
+    })
+  }
+  renew(claim: Claim, leaseUntil: number): boolean {
+    return this.transaction(() => {
+      const s = this.get(claim.snapshot.repository, claim.snapshot.number)
+      if (!s || s.lease !== claim.token || s.generation !== claim.generation || s.leaseUntil <= this.clock()) return false
+      s.leaseUntil = leaseUntil
+      this.put(s)
+      return true
     })
   }
   finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean }): boolean {
