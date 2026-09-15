@@ -9,6 +9,7 @@ import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   hasCurrentSourceSnapshot,
   hasFreshSourceSnapshot,
+  invalidateSourceSnapshot,
   materializesCompleteSource,
   materializedFileMatches,
   materializeWorkspaceSources,
@@ -350,6 +351,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (source.materialize === "startup"
         ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)
         : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
+      if (source.materialize !== "startup" && persistsSourceSnapshots) {
+        await invalidateSourceSnapshot(store, sourceKey)
+      }
       materializedSources.delete(sourceKey)
     }
     if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
