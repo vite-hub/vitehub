@@ -208,7 +208,7 @@ function clonePresetOption(value: unknown): unknown {
     if (!TypedArray) throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
     return new TypedArray(buffer)
   }
-  if (value !== null && typeof value === "object") {
+  if (value !== null && Object.prototype.toString.call(value) === "[object Object]") {
     const prototype = Object.getPrototypeOf(value)
     if (prototype !== Object.prototype && prototype !== null) {
       throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
