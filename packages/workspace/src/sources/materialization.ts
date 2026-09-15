@@ -72,6 +72,7 @@ interface PromotedSourceSkillFile {
 function startupSourcesMetaKey(workspaceName?: string) {
   return `workspace:${workspaceName || "default"}:startup-sources`
 }
+const legacyStartupSourcesMetaKey = "workspace:startup-sources"
 const promotedSourceSkillsMetaKey = "workspace:promoted-source-skills"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Set<ResolvedWorkspaceSource>>()
@@ -561,7 +562,17 @@ async function reconcileRemovedStartupSourcesInternal(
   workspaceName?: string,
 ) {
   if (!store.getMeta || !store.setMeta) return
-  const value = await store.getMeta(startupSourcesMetaKey(workspaceName))
+  let value = await store.getMeta(startupSourcesMetaKey(workspaceName))
+  // Older releases used an unscoped registry. It is safe to consider that
+  // history only for the default workspace; named workspaces must never
+  // inherit another workspace's ownership evidence.
+  if (value === undefined && workspaceName === undefined) {
+    value = await store.getMeta(legacyStartupSourcesMetaKey)
+    if (value !== undefined) {
+      await store.setMeta(startupSourcesMetaKey(workspaceName), value)
+      await store.setMeta(legacyStartupSourcesMetaKey, undefined)
+    }
+  }
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
   const activeOwners = [...activeSources]
