@@ -32,6 +32,7 @@ async function fixture(autoMerge = false) {
   await writeFile(join(checkout, "source.ts"), "export const value = 1\n");
   let head = "a".repeat(40);
   let pushed = false;
+  let checkoutFailure: Error | undefined;
   const checkoutController = new AbortController();
   let abortOperation = false;
   const pr = () => ({
@@ -156,16 +157,19 @@ async function fixture(autoMerge = false) {
       settle() {},
       submit() {},
     }),
-    isRateLimitError: () => false,
-    withPullRequestCheckout: async (_pr, run) =>
-      await run({
+    isRateLimitError: (error) => error instanceof Error && error.message === "rate limited",
+    withPullRequestCheckout: async (_pr, run) => {
+      const result = await run({
         path: checkout,
         prepareWorkspace: prepare,
         push,
         signal: checkoutController.signal,
         env: { GIT_AUTHOR_NAME: "Repair bot", GIT_AUTHOR_EMAIL: "repair@example.test", GIT_COMMITTER_NAME: "Repair bot", GIT_COMMITTER_EMAIL: "repair@example.test", GH_TOKEN: "host-secret" },
         token: "host-secret",
-      } as Parameters<Parameters<GitHubHost["withPullRequestCheckout"]>[1]>[0]),
+      } as Parameters<Parameters<GitHubHost["withPullRequestCheckout"]>[1]>[0]);
+      if (checkoutFailure) throw checkoutFailure;
+      return result;
+    },
   };
   const errors = vi.fn();
   const agent = agentWithColocatedInstructions(defineAgent({
@@ -257,7 +261,9 @@ async function fixture(autoMerge = false) {
       },
     } as Parameters<typeof runtime.reconcile>[1]);
     await Promise.all(tracked);
-    expect(errors.mock.calls).toEqual([]);
+    if (!checkoutFailure || checkoutFailure.name === "AbortError" || checkoutFailure.message === "rate limited")
+      expect(errors.mock.calls).toEqual([]);
+    else expect(errors).toHaveBeenCalledOnce();
   }
   return {
     runtime,
@@ -270,11 +276,45 @@ async function fixture(autoMerge = false) {
       operation = value;
     },
     pr,
+    failCheckout: (error: Error) => { checkoutFailure = error },
     abortOnOperation: () => { abortOperation = true },
   };
 }
 
 describe("Babysitter preset runtime", () => {
+  it.each([
+    new DOMException("Checkout cancelled", "AbortError"),
+    new Error("rate limited"),
+    new Error("Checkout cleanup failed"),
+  ])("parks a successful push after checkout failure: %s", async (error) => {
+    const f = await fixture();
+    f.choose("pushRepair");
+    f.failCheckout(error);
+    await f.reconcile();
+    expect(f.push).toHaveBeenCalledOnce();
+    const state = f.runtime.inbox.get("acme/app", 12)!;
+    expect(state.status).toBe("waiting");
+    expect(state.handled).toBe(state.generation);
+    expect(state.attempts).toBe(0);
+    f.runtime.inbox.ingest("head-pushed", "pull_request", {
+      repository: { full_name: "acme/app" },
+      action: "synchronize",
+      pull_request: f.pr(),
+    });
+    expect(f.runtime.inbox.get("acme/app", 12)?.status).toBe("ready");
+  });
+
+  it("retries checkout failure when no repair was pushed", async () => {
+    const f = await fixture();
+    f.failCheckout(new Error("Checkout cleanup failed"));
+    await f.reconcile();
+    expect(f.push).not.toHaveBeenCalled();
+    const state = f.runtime.inbox.get("acme/app", 12)!;
+    expect(state.status).toBe("ready");
+    expect(state.handled).toBeLessThan(state.generation);
+    expect(state.attempts).toBe(1);
+  });
+
   it("repairs through broker tools, parks without polling, and resumes on new evidence with merge disabled", async () => {
     const f = await fixture();
     f.choose("pushRepair");

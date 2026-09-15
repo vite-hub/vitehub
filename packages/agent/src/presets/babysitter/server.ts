@@ -249,6 +249,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         let outcome = "completed";
         let disposition: BabysitterPassResult["disposition"] | undefined;
         let resultText = "";
+        let pushSucceeded = false;
         schedulerEvent("babysitter.owner.started", { maxOwners: ownerLimit, ...owner });
         const passController = new AbortController();
         const passSignal = AbortSignal.any([
@@ -285,7 +286,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           }
           const pullRequest = snapshotPullRequest(inboxClaim.snapshot);
           const webhookSnapshot = inboxClaim.snapshot;
-          let pushSucceeded = false;
           await github.withPullRequestCheckout(
             {
               headRef: pullRequest.headRefName,
@@ -441,8 +441,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           if (isAbortError(error)) {
             outcome = "completed";
             pullRequestInbox.finish(inboxClaim, {
-              text: "Pass interrupted; current webhook state retained.",
-              retry: true,
+              text: pushSucceeded
+                ? "Repair pushed; waiting for new webhook evidence."
+                : "Pass interrupted; current webhook state retained.",
+              retry: !pushSucceeded,
               terminal: pullRequestInbox.get(repository, number)?.status === "terminal",
             });
             schedulerEvent("babysitter.owner.cancelled", {
@@ -452,8 +454,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           } else if (github.isRateLimitError(error)) {
             outcome = "deferred";
             pullRequestInbox.finish(inboxClaim, {
-              text: "GitHub rate limit; retrying after budget reset.",
-              retry: true,
+              text: pushSucceeded
+                ? "Repair pushed; waiting for new webhook evidence."
+                : "GitHub rate limit; retrying after budget reset.",
+              retry: !pushSucceeded,
             });
             schedulerEvent("babysitter.owner.deferred", { reason: "github-rate-limit", ...owner });
           } else {
@@ -463,7 +467,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             }
             pullRequestInbox.finish(inboxClaim, {
               text: error instanceof Error ? error.message : String(error),
-              retry: true,
+              retry: !pushSucceeded,
             });
             schedulerError("babysitter.owner.failed", error, owner);
           }
