@@ -627,8 +627,8 @@ async function reconcileRemovedStartupSourcesInternal(
       }
       await control.mutate(() => store.rm(path, {
         force: true,
-        ...(recordedDigest ? { ifDigest: recordedDigest } : {}),
-        ...(owner ? { ifSource: owner } : {}),
+        ...(store.conditionalRemoval && recordedDigest ? { ifDigest: recordedDigest } : {}),
+        ...(store.conditionalRemoval && owner ? { ifSource: owner } : {}),
       }))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
