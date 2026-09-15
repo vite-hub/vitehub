@@ -372,7 +372,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // Follow locally bound capabilities through their definition rather than
         // relying on an identifier naming convention. Keep the scan bounded to
         // the initializer so unrelated later declarations cannot affect it.
-        for (let i = 0; i < tokens.length - 4; i++) {
+        for (let i = 0; i < callbackEnd - 4; i++) {
           if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== name || tokens[i + 2] !== "=" || tokens[i + 3] !== "defineCapability") continue
           let cursor = i + 4
           if (tokens[cursor] !== "(") continue
