@@ -2560,7 +2560,10 @@ async function* runProvider<
       const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
       if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
         // Remove only the injected text so native instruction edits reach Workspace write-back.
-        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+        const escapedProvenance = options.provider === "claude-code"
+          ? provenanceInstructions.replace(/(^|[^\\])@/g, "$1\\@")
+          : provenanceInstructions
+        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${escapedProvenance}`
       }
       generatedProviderFiles.push(generated)
     }
