@@ -292,7 +292,8 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value !== null && Object.prototype.toString.call(value) === "[object Object]") {
     const prototype = Object.getPrototypeOf(value)
     if (prototype !== Object.prototype && prototype !== null) {
-      throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
+      // Unsupported branded objects are atomic option values.
+      return value
     }
     // SAFETY: Object values are cloned with their prototype and own descriptors.
     // SAFETY: The prototype is restricted to plain objects or null above.
