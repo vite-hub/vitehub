@@ -2997,7 +2997,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           ...replacement,
         }
       }
-      if (resolved) mergedNitro.alias = { ...(isRecord(mergedNitro.alias) ? mergedNitro.alias : {}), [agentRegistryId]: join(generatedRoot, generatedAgentRegistry) }
+      if (resolved) {
+        const alias = isRecord(mergedNitro.alias) ? { ...mergedNitro.alias } : {}
+        alias[agentRegistryId] = join(generatedRoot, generatedAgentRegistry)
+        mergedNitro.alias = alias
+      }
       const result: UserConfig & { nitro?: NitroConfig } = {
         define: {
           __VITEHUB_AGENT_APP_ROOT__: JSON.stringify(root),
