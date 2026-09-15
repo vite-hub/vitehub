@@ -1,7 +1,7 @@
 import type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
-import { agentLayerMetadata, copyDefinitionDecorations, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions, type DefinitionDecorationCarrier } from "./agent-layers.ts"
+import { agentLayerMetadata, asMetadataTarget, copyDefinitionDecorations, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions, type DefinitionDecorationCarrier } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
