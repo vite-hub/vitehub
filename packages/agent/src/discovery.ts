@@ -333,7 +333,21 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // Skip callback parameters and locate a definition in the callback body.
       const arrow = tokens.indexOf("=>", start)
       const bodyStart = arrow >= 0 ? arrow + 1 : start
-      const callbackDefinition = tokens.indexOf("defineAgent", bodyStart)
+      // Limit the search to this callback's body so later module declarations
+      // cannot be mistaken for its returned definition.
+      let callbackEnd = tokens.length
+      if (arrow >= 0) {
+        let bodyDepth = 0
+        for (let i = bodyStart; i < tokens.length; i++) {
+          const token = tokens[i]
+          if (["{", "(", "["].includes(token)) bodyDepth++
+          else if (["}", ")", "]"].includes(token)) {
+            if (bodyDepth === 0) { callbackEnd = i; break }
+            bodyDepth--
+          }
+        }
+      }
+      const callbackDefinition = tokens.findIndex((token, index) => index >= bodyStart && index < callbackEnd && token === "defineAgent")
       if (callbackDefinition >= 0) start = callbackDefinition
       let end = start
       let depth = 0
