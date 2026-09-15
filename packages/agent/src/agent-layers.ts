@@ -181,6 +181,9 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
 
 function clonePresetOption(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(clonePresetOption)
+  if (value instanceof Date) return new Date(value.getTime())
+  if (value instanceof Map) return new Map(Array.from(value, ([key, entry]) => [clonePresetOption(key), clonePresetOption(entry)]))
+  if (value instanceof Set) return new Set(Array.from(value, clonePresetOption))
   return record(value) ? mergePresetOptions({}, value) : value
 }
 

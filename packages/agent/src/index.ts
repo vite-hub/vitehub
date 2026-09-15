@@ -2137,9 +2137,13 @@ type ConfiguredCapabilitiesWorkspace<TCapabilities> = TCapabilities extends read
   : never
 
 type ConfiguredChannelsWorkspace<TChannels> = TChannels extends object
-  ? { [K in keyof TChannels]: TChannels[K] extends { capabilities: infer TCapabilities }
-    ? ConfiguredCapabilitiesWorkspace<TCapabilities>
-    : never }[keyof TChannels]
+  ? { [K in keyof TChannels]: TChannels[K] extends (...args: any[]) => infer TResult
+    ? ConfiguredChannelsWorkspace<{ value: TResult }>
+    : TChannels[K] extends { capabilities: infer TCapabilities }
+      ? ConfiguredCapabilitiesWorkspace<TCapabilities>
+      : TChannels[K] extends { workspace: object | ((...args: any[]) => any) }
+        ? true
+        : never }[keyof TChannels]
   : never
 
 type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels> =
