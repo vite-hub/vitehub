@@ -181,7 +181,8 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
     const value = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined ? childKeys[key] : parentKeys[key]
     if (record(value)) {
       const parentValue = record(parentKeys[key]) ? parentKeys[key] : {}
-      Object.defineProperty(result, key, { value: mergePresetOptionsWithMemo(parentValue, value, memo), enumerable: true, writable: true, configurable: true })
+      const merged = mergePresetOptionsWithMemo(parentValue, value, memo)
+      Object.defineProperty(result, key, { value: merged, enumerable: true, writable: true, configurable: true })
     } else Object.defineProperty(result, key, { value: clonePresetOption(value, memo), enumerable: true, writable: true, configurable: true })
   }
   return result
@@ -194,13 +195,13 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (typeof value === "function") return value
   if (memo.has(value)) return memo.get(value)
   if (Array.isArray(value)) { const clone: unknown[] = []; memo.set(value, clone); for (const entry of value) clone.push(clonePresetOption(entry, memo)); return clone }
-  if (value instanceof Date) return new Date(value.getTime())
+  if (value instanceof Date) { const clone = new Date(value.getTime()); memo.set(value, clone); return clone }
   if (value instanceof Map) { const clone = new Map(); memo.set(value, clone); for (const [key, entry] of value) clone.set(clonePresetOption(key, memo), clonePresetOption(entry, memo)); return clone }
   if (value instanceof Set) { const clone = new Set(); memo.set(value, clone); for (const entry of value) clone.add(clonePresetOption(entry, memo)); return clone }
-  if (value instanceof RegExp) return new RegExp(value.source, value.flags)
-  if (value instanceof URL) return new URL(value.href)
-  if (value instanceof URLSearchParams) return new URLSearchParams(value.toString())
-  if (value instanceof ArrayBuffer) return value.slice(0)
+  if (value instanceof RegExp) { const clone = new RegExp(value.source, value.flags); memo.set(value, clone); return clone }
+  if (value instanceof URL) { const clone = new URL(value.href); memo.set(value, clone); return clone }
+  if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
+  if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
     if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) return (globalThis as { Buffer: typeof Buffer }).Buffer.from(value)
