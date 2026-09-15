@@ -249,12 +249,16 @@ async function reconcilePromotedSourceSkills(
       ...sourceFile.metadata,
       promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
     }
-    if (!store.writeFileConditional) throw workspaceError("[vitehub] Promoting Workspace Source skills requires conditional writes.")
     const expectedDigest = existing ? existing.digest || await sha256(existing.content) : null
     try {
       await control.mutate(async () => {
         await store.mkdir(posix.dirname(destination), { recursive: true })
-        await store.writeFileConditional!(destination, { ...sourceFile, path: destination, metadata }, expectedDigest)
+        if (store.writeFileConditional) {
+          await store.writeFileConditional(destination, { ...sourceFile, path: destination, metadata }, expectedDigest)
+        }
+        else {
+          await store.writeFile(destination, { ...sourceFile, path: destination, metadata })
+        }
       })
     }
     catch (error) {
