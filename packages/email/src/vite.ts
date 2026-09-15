@@ -27,7 +27,9 @@ const normalizeTemplateModulePath = (id: string) => {
   // Vite keeps a leading slash for POSIX paths, but prefixes Windows drive
   // paths with one as well; remove that extra separator before comparison.
   const normalized = (/^\/[A-Za-z]:[\\/]/.test(file) ? file.slice(1) : file).replaceAll("\\", "/")
-  return normalized.startsWith("/") ? normalized : `/${normalized}`
+  // Drive-letter paths are already absolute after removing Vite's prefix;
+  // adding a leading slash would turn `C:/...` into a root-relative path.
+  return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/") ? normalized : `/${normalized}`
 }
 const normalizeWatchedPath = (file: string) => file.replaceAll("\\", "/")
 export type EmailProvider = "cloudflare-email" | "resend"
