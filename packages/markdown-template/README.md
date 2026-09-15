@@ -90,7 +90,7 @@ The renderer does not evaluate template syntax inside a fragment again. Bindings
 
 ### Select a condition
 
-Conditional sections read data paths and literals. They support `!`, parentheses, `&&`, `||`, and equality or inequality with `===`, `!==`, `==`, or `!=`. All four equality operators use strict JavaScript equality semantics.
+Conditional sections read a data path and compare it with a literal using the named comparison props supported by Comark (`:equals`, `:not-equals`, `:contains`, and `:matches`). They do not parse JavaScript expressions.
 
 ```md
 ::if{:condition="data.available"}
