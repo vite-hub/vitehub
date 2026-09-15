@@ -2715,7 +2715,7 @@ async function* runProvider<
     ].filter(Boolean).join(" ") || undefined
     if (options.provider === "claude-code"
       && materializeInstructions
-      && typeof options.providerSettings?.launchArgs === "string"
+      && hasRuntimeType(options.providerSettings?.launchArgs, "string")
       && options.providerSettings.launchArgs.includes("--append-system-prompt-file")) {
       throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] Claude launchArgs cannot include --append-system-prompt-file when instructions are materialized. Compose the caller prompt file contents into driver.instructions and remove the flag." })
     }
