@@ -191,11 +191,15 @@ function clonePresetOption(value: unknown): unknown {
     if (typeof Buffer !== "undefined" && Buffer.isBuffer(value)) return Buffer.from(value)
     const view = value as ArrayBufferView
     const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
+    if (value instanceof DataView) {
+      const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value)
+      const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value)
+      return new DataView(buffer.slice(byteOffset, byteOffset + byteLength))
+    }
     const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
     const byteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")!.get!.call(value)
     const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")!.get!.call(value)
     const copy = buffer.slice(byteOffset, byteOffset + byteLength)
-    if (value instanceof DataView) return new DataView(copy)
     const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, typeof BigInt64Array !== "undefined" ? BigInt64Array : undefined, typeof BigUint64Array !== "undefined" ? BigUint64Array : undefined].filter(Boolean) as any[]
     const TypedArray = constructors.find((ctor) => value instanceof ctor)
     if (!TypedArray) throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
