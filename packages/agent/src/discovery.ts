@@ -345,7 +345,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         }
         return -1
       })()
-      const bodyStart = arrow >= 0 ? arrow + 1 : start
+      let bodyStart = arrow >= 0 ? arrow + 1 : start
       // Limit the search to this callback's body so later module declarations
       // cannot be mistaken for its returned definition.
       let callbackEnd = tokens.length
@@ -355,6 +355,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const body = tokens.indexOf("{", start)
         if (body >= 0) {
           start = body
+          bodyStart = body
           for (let i = body + 1, depth = 1; i < tokens.length; i++) {
             if (tokens[i] === "{") depth++
             else if (tokens[i] === "}" && --depth === 0) { callbackEnd = i + 1; break }
