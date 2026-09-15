@@ -255,7 +255,7 @@ async function reconcilePromotedSourceSkills(
       ...sourceFile.metadata,
       promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
     }
-    const expectedDigest = existing ? existing.digest || await sha256(existing.content) : null
+    const expectedDigest = existing ? await sha256(existing.content) : null
     try {
       await control.mutate(async () => {
         await store.mkdir(posix.dirname(destination), { recursive: true })
