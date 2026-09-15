@@ -162,7 +162,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   // SAFETY: every value inserted into `seen` is the clone of the corresponding input object.
   if (seen.has(value)) return seen.get(value) as T
   const copy = Object.setPrototypeOf(
-    Array.isArray(value) ? Array.from({ length: value.length }) : {},
+    Array.isArray(value) ? new Array(value.length) : {},
     null,
   )
   seen.set(value, copy)
