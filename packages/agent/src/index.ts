@@ -2534,8 +2534,14 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   // copy them onto the rebuilt Agent after defineBaseAgent has reconstructed it.
   if (agentOptions !== normalizedOptions) {
     const source = agentOptions as AgentDefinition
+    const frameworkSymbols = new Set<PropertyKey>([
+      Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
+      Symbol.for("vitehub.baseAgentCapabilitiesResolver"), Symbol.for("vitehub.baseAgentModel"),
+      Symbol.for("vitehub.baseAgentDriverKind"), Symbol.for("vitehub.baseAgentDriver"),
+      Symbol.for("vitehub.baseAgentOutput"), Symbol.for("vitehub.syntheticWorkspaceRun"),
+    ])
     for (const key of Reflect.ownKeys(source)) {
-      if (key === "options" || key === "__vitehubAgentSettings" || key === "resolve" || key === "run" || key === "health" || key === "status") continue
+      if (key === "options" || key === "__vitehubAgentSettings" || key === "resolve" || key === "run" || key === "health" || key === "status" || frameworkSymbols.has(key)) continue
       if (Object.prototype.hasOwnProperty.call(result as object, key)) continue
       const descriptor = Object.getOwnPropertyDescriptor(source, key)
       if (descriptor) Object.defineProperty(result as object, key, descriptor)
