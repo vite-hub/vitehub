@@ -221,7 +221,18 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   // rejecting them as unsupported objects.
   if (hasRuntimeType(value, "function")) return value
   if (memo.has(value)) return memo.get(value)
-  if (Array.isArray(value)) { const clone: unknown[] = []; memo.set(value, clone); for (const entry of value) clone.push(clonePresetOption(entry, memo)); return clone }
+  if (Array.isArray(value)) {
+    const clone = new Array(value.length) as unknown[]
+    memo.set(value, clone)
+    for (const key of Reflect.ownKeys(value)) {
+      if (key === "length") continue
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (descriptor && "value" in descriptor) {
+        Object.defineProperty(clone, key, { ...descriptor, value: clonePresetOption(descriptor.value, memo) })
+      }
+    }
+    return clone
+  }
   if (value instanceof Date) { const clone = new Date(value.getTime()); memo.set(value, clone); return clone }
   if (value instanceof Map) { const clone = new Map(); memo.set(value, clone); for (const [key, entry] of value) clone.set(clonePresetOption(key, memo), clonePresetOption(entry, memo)); return clone }
   if (value instanceof Set) { const clone = new Set(); memo.set(value, clone); for (const entry of value) clone.add(clonePresetOption(entry, memo)); return clone }
