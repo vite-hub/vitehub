@@ -63,7 +63,7 @@ export async function readPullRequestThreads(graphql: ReadGraphql, repository: s
 }
 
 /** REST snapshots fill webhook gaps without asking an LLM to poll GitHub. */
-export async function readSnapshot(read: ReadGitHubSnapshot, repository: string, number: number, readThreads?: ReadThreads): Promise<import('./store.ts').SnapshotPatch & { pr: GitHubPullRequestRecord }> {
+export async function readSnapshot(read: ReadGitHubSnapshot, repository: string, number: number, readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<import('./store.ts').SnapshotPatch & { pr: GitHubPullRequestRecord }> {
   const prefix = `repos/${repository}`
   const [raw] = await read(`${prefix}/pulls/${number}`, '.')
   const pr = parsePullRequest(raw)
@@ -77,7 +77,7 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
     read(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
     readThreads?.(repository, number),
   ])
-  const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(isFeedback)), reviews: index(reviews.map(parseEvidence)),
+  const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !(activityAuthors.includes(String(comment.user?.login ?? comment.author?.login ?? '')) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
     checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
@@ -86,14 +86,14 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   return snapshot
 }
 
-export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads): Promise<boolean> {
+export async function hydrateSnapshot(inbox: PullRequestInbox, claim: Claim, read: ReadGitHubSnapshot, readThreads?: ReadThreads, activityAuthors: readonly string[] = []): Promise<boolean> {
   const { snapshot: current } = claim
   if (current.hydrated && !current.refresh) {
     if (!readThreads || current.threadsHydrated && !current.feedbackRefresh) return true
     const threads = await readThreads(current.repository, current.number)
     return inbox.hydrate(claim, { threads, threadsHydrated: true, feedbackRefresh: false })
   }
-  const snapshot = await readSnapshot(read, current.repository, current.number, readThreads)
+  const snapshot = await readSnapshot(read, current.repository, current.number, readThreads, activityAuthors)
   // CAS keeps an event received while REST requests ran from being overwritten.
   return inbox.hydrate(claim, { ...snapshot, refresh: false })
 }

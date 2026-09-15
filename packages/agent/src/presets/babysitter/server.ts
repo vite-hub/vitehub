@@ -281,6 +281,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               inboxClaim,
               (path, projection) => readRest(path, projection, passSignal),
               (repository, number) => readThreads(repository, number, passSignal),
+              options.activityAuthors,
             ))
           ) {
             pullRequestInbox.release(inboxClaim);
