@@ -349,7 +349,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     const files = templates.map(template => template.file)
     const names = templates.map(template => template.name)
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
-    const nextWatchFiles = new Set(files)
+    const nextWatchFiles = new Set([...watchFiles, ...files])
     watchFiles = nextWatchFiles
     if (options.materialize) {
       await materializeEmailTemplates(templates, materializedRoot, options.projectRoot)

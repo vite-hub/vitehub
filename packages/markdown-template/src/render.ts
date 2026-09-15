@@ -169,9 +169,18 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   const entries: [string, unknown][] = []
   for (const key of Object.getOwnPropertyNames(value).filter((key) => !(Array.isArray(value) && key === "length"))) {
     // SAFETY: callers provide object-like data; indexing by an own enumerable key yields its value.
-    const resolved = ownData((value as Record<string, unknown>)[key], seen)
-    entries.push([key, resolved])
-    Object.defineProperty(copy, key, { enumerable: true, configurable: true, value: resolved, writable: true })
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    let resolved: unknown
+    let loaded = false
+    const read = () => {
+      if (!loaded) {
+        resolved = ownData(descriptor && "value" in descriptor ? descriptor.value : Reflect.get(value, key), seen)
+        loaded = true
+        entries.push([key, resolved])
+      }
+      return resolved
+    }
+    Object.defineProperty(copy, key, { enumerable: true, configurable: true, get: read })
   }
   const explicitPaths = new Set(entries.map(([key]) => key))
   for (const [key, resolved] of entries
