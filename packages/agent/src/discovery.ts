@@ -327,7 +327,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       let start = resolveReference(configure)
       // Scan the Agent definition returned by the callback, rather than the
       // callback's parameter list (which commonly contains parentheses).
-      const callbackDefinition = tokens.indexOf("defineAgent", start)
+      // Prefer the definition expression in the callback body. A callback's
+      // parameter list may itself contain parentheses, so starting the scan
+      // at the first token after `configure` can terminate before the body.
+      const callbackDefinition = tokens.lastIndexOf("defineAgent")
+        >= start ? tokens.lastIndexOf("defineAgent") : tokens.indexOf("defineAgent", start)
       if (callbackDefinition >= 0) start = callbackDefinition
       let end = start
       let depth = 0
