@@ -3084,7 +3084,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             ...discoverAgentDefinitions({ mode: "vite-suffix", rootDir: config.root }),
             ...discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(config.root, "server")] }),
           ]
-        : []
+          : []
+        const hostedDefinitions = definitions.filter(definition => definition.source === "server-agents" || definition.source === "server-agent" || definition.source === "server-agent-workspace")
         artifactDir = definitions.length
           ? resolve(config.root, ".vitehub/agent-generations", randomUUID())
           : undefined
@@ -3143,7 +3144,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           rootDir: config.root,
           write: async ({ signal, write }) => {
           if (normalized && normalized.runtime === "deno") return
-          if (normalized && retainedDefinitions.length && isNetlifyHosting(config)) {
+          if (normalized && hostedDefinitions.length && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               agentImportBase: getAgentImportBase(agent, frameworkOptions),
               libsqlState: resolveLibsqlAgentState(normalized, config),
@@ -3155,7 +3156,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               workflowImportBase: getWorkflowImportBase(agent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
               workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
-            }, serverDirs, write, retainedDefinitions, contributionArtifactDir ? resolve(contributionArtifactDir, "sources") : undefined)
+            }, serverDirs, write, retainedDefinitions.filter(definition => definition.source === "server-agents" || definition.source === "server-agent" || definition.source === "server-agent-workspace"), contributionArtifactDir ? resolve(contributionArtifactDir, "sources") : undefined)
           }
           else if (isNetlifyHosting(config)) {
             await cleanupNetlifyAgentProviderOutput(config, write)
