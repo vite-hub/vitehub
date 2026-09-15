@@ -75,8 +75,8 @@ describe("hubMarkdownTemplate", () => {
     const template = join(root, "prompt.template.md")
     const partial = join(root, "context.template.md")
     const outfile = join(root, "dist", "schedule.mjs")
-    await writeFile(template, "# Babysitter\n\n{{{ detail }}}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n    @./missing.md\n\n- Fenced example\n  ```md\n    @./missing.md\n  ```\n\n- Context\n@./missing.md\n\n{{{ blocker }}}\n", "utf8")
-    await writeFile(partial, "Review PR {{ context.number }}.", "utf8")
+    await writeFile(template, "# Babysitter\n\n:insert{:markdown=\"data.detail\"}\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline\n@./missing.md\ncode`\n\n> ~~~md\n> @./missing.md\n> ~~~~\n\n    @./missing.md\n\n- Example\n\n    @./missing.md\n\n- Fenced example\n  ```md\n    @./missing.md\n  ```\n\n- Context\n@./missing.md\n\n{{ data.blocker }}\n", "utf8")
+    await writeFile(partial, "Review PR {{ data.context.number }}.", "utf8")
     await writeFile(entry, [
       `import prompt from "./prompt.template.md"`,
       `import detail from "./context.template.md"`,

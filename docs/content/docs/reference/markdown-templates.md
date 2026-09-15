@@ -178,7 +178,7 @@ This is a breaking syntax change for direct render calls, imported template file
 
 ## Render options
 
-`renderMarkdownTemplate(template, options?)` returns `Promise<string>`. Its only public option is `data?: Record<string, unknown>`, which defaults to an empty object.
+`renderMarkdownTemplate(template, options?)` returns `Promise<string>`. Its public options are `data?: Record<string, unknown>` and `plugins?: ComarkPlugin[]`, which adds Comark syntax handlers; `data` defaults to an empty object.
 
 ## Related pages
 

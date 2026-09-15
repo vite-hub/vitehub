@@ -54,14 +54,14 @@ Title: \*Draft\*
 
 ### Escape scalar data
 
-Use `{{ path.to.value }}` for a string, number, or boolean. Paths read own properties only. A missing path, `null`, an array, or an object rejects the render instead of producing an empty string.
+Use `{{ data.path.to.value }}` for a string, number, or boolean. Paths read own properties only. A missing path, `null`, an array, or an object rejects the render instead of producing an empty string.
 
 Scalar bindings are Markdown text, not raw source. The renderer also HTML-escapes scalar bindings inside quoted XML-style attributes.
 
 ```md
-Customer: {{ customer.name }}
+Customer: {{ data.customer.name }}
 
-<policy audience="{{ audience }}">Review the change.</policy>
+<policy :audience="data.audience">Review the change.</policy>
 ```
 
 A scalar may occupy a complete inline link destination:
@@ -84,7 +84,7 @@ const data = { reviewUrl: `/reviews/${id}` }
 
 ### Insert trusted Markdown
 
-Use `{{{ path.to.markdown }}}` only for a string that may add Markdown structure. A block fragment must occupy its own block; the renderer rejects block Markdown placed inside an inline sentence.
+Use `:insert{:markdown="data.path.to.markdown"}` only for a string that may add Markdown structure. A block fragment must occupy its own block; the renderer rejects block Markdown placed inside an inline sentence.
 
 The renderer does not evaluate template syntax inside a fragment again. Bindings, conditions, and imports in the fragment remain literal. This stops accidental recursive templating, but it does not make an untrusted fragment safe for an Agent or another model. Validate or construct fragments before passing them to the renderer.
 
@@ -93,9 +93,9 @@ The renderer does not evaluate template syntax inside a fragment again. Bindings
 Conditional sections read data paths and literals. They support `!`, parentheses, `&&`, `||`, and equality or inequality with `===`, `!==`, `==`, or `!=`. All four equality operators use strict JavaScript equality semantics.
 
 ```md
-::if{pullRequest.available && !pullRequest.draft}
-Review {{ pullRequest.title }}.
-::else-if{pullRequest.draft}
+::if{:condition="data.available"}
+Review {{ data.pullRequest.title }}.
+::else-if{:condition="data.draft"}
 Wait for the pull request to leave draft.
 ::else
 No pull request is available.
