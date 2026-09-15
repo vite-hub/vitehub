@@ -195,9 +195,6 @@ function controlledOperation(options: GitHubHostCheckoutOptions): { close: () =>
   if (options.signal?.aborted) abort()
   else options.signal?.addEventListener("abort", abort, { once: true })
   return {
-    identity() {
-      return identity.login?.trim() || undefined
-    },
     close: () => {
       if (timeout !== undefined) clearTimeout(timeout)
       options.signal?.removeEventListener("abort", abort)
@@ -749,6 +746,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   return {
+    identity() {
+      return identity.login?.trim() || undefined
+    },
     channel(channelOptions = {}) {
       return github({ ...channelOptions, app: { token: async (_context, scope) => (await access({ repository: scope.repository })).token, ...(identity.login ? { identity: { login: identity.login } } : {}) } })
     },

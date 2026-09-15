@@ -142,6 +142,7 @@ async function fixture(autoMerge = false) {
     return head;
   });
   const github: GitHubHost = {
+    identity: () => "repair-bot",
     command,
     channel: () => ({ kind: "github" }),
     environment: async () => {
