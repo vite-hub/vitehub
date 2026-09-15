@@ -215,7 +215,8 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
     // SAFETY: the guard above establishes that `value` is object-like and Object.keys accepts it.
     for (const child of Object.keys(value as object)) {
       Object.defineProperty(existing, child, { enumerable: true, configurable: true,
-        value: (value as Record<string, unknown>)[child], writable: true })
+        // SAFETY: `child` comes from Object.keys(value), so it is an own property of the object.
+        value: Reflect.get(value, child), writable: true })
     }
   }
   else if (!Object.hasOwn(current, leaf)) {
