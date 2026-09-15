@@ -8,7 +8,6 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
-import { renderMarkdownFile } from "@vite-hub/markdown-template"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -503,7 +502,9 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       }
       if (id.endsWith("?markdown-template")) {
         const file = id.slice(0, -"?markdown-template".length).replace(/^\/\@fs\//, "/")
-        return renderMarkdownFile(file).then(content => `export default () => ${JSON.stringify(content)}\n`)
+        return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
+          `import { renderMarkdownTemplate } from "@vite-hub/markdown-template"\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
+        )
       }
     },
   }
