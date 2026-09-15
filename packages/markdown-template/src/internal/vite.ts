@@ -4,10 +4,14 @@ export const markdownTemplateModuleQuery = "markdown-template"
 export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 export function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
+  // TypeScript ambient module patterns cannot represent arbitrary hash
+  // fragments. Keep the runtime contract aligned with the generated types by
+  // rejecting fragment-suffixed requests consistently.
+  if (id.includes("#")) return
   const queryIndex = id.indexOf("?")
-  const path = id.split(/[?#]/, 1)[0]!
+  const path = id.split("?", 1)[0]!
   if (queryIndex === -1) return path.endsWith(markdownTemplateFileSuffix) ? { path } : undefined
-  const query = id.slice(queryIndex + 1).split("#", 1)[0]!
+  const query = id.slice(queryIndex + 1)
   if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
   return { path }
 }
