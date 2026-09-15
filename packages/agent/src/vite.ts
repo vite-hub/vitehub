@@ -1648,6 +1648,7 @@ async function writeAgentRuntimeRegistry(
   const registryPath = join(root, generatedAgentRegistry)
   const catalogPath = join(root, generatedAgentRegistryCatalog)
   await mkdir(dirname(registryPath), { recursive: true })
+  // SAFETY: this accumulator is intentionally mutable while generating one lazy registry entry per definition.
   const entries = [] as string[]
   for (let index = 0; index < definitions.length; index++) {
     const definition = definitions[index]
