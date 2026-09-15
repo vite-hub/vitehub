@@ -295,7 +295,9 @@ function materializedItemMeta(
   configHash: string,
   path: string,
 ) {
-  if (!snapshot || snapshot.configHash !== configHash) return undefined
+  // Retain indexed ownership evidence across configuration changes; the
+  // fingerprint controls reuse, while cleanup still needs the prior index.
+  if (!snapshot) return undefined
   if (snapshot.status !== "ready" && snapshot.status !== "updating" && snapshot.status !== "error") return undefined
   return snapshot.items?.[path]
 }
@@ -988,6 +990,7 @@ async function materializeWorkspaceSourcesInternal(
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
+        mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
         status: "ready",
