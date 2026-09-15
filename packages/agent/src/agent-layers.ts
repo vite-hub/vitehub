@@ -21,6 +21,7 @@ const colocatedSkills = Symbol.for("vitehub.agent.colocatedSkills")
 function layerMetadata(value: unknown): AgentLayerMetadata | undefined {
   if (!value || !hasRuntimeType(value, "object")) return
   // SAFETY: hasRuntimeType proves value is an object, and this module is the only writer of the private symbol.
+  // SAFETY: values in this internal weak map are only written with AgentLayerMetadata.
   return (value as { [agentLayerMetadata]?: AgentLayerMetadata })[agentLayerMetadata]
 }
 
@@ -155,6 +156,7 @@ export function rememberAgentLayerOptions<T extends AgentDefinition>(definition:
   rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
   if (inherited?.parent) inheritColocatedSkills(asMetadataTarget(inherited.parent), asMetadataTarget(definition))
   // SAFETY: Metadata stores the private configured layer shape created by this module.
+  // SAFETY: configured layers are created by the validated layer resolver.
   if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured as ConfiguredLayer)
   return definition
 }
