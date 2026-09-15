@@ -313,7 +313,7 @@ export function createConfiguredAgentDefinition(input: unknown, create: (options
   assertLayerDefinition(definition)
   // A callback may return a shared definition. Keep its configuration and runtime private.
   const configured = create(layerMetadata(definition)!.options)
-  copyDefinitionDecorations(definition as unknown as DefinitionDecorationCarrier, configured as unknown as DefinitionDecorationCarrier)
+  copyDefinitionDecorations(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritColocatedSkills(asMetadataTarget(definition), asMetadataTarget(configured))
   inheritAgentLayerOptions(asMetadataTarget(definition), asMetadataTarget(configured))
   rememberConfiguredLayer(configured, { options, configure, overrides: {} })
