@@ -347,7 +347,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 push: async () => {
                   if (!providerDirectory) throw new Error("The repair workspace is not prepared.");
                   assertLease();
-                  const result = await prepared.push(providerDirectory);
+                  const result = await prepared.push(providerDirectory, {
+                    signal: AbortSignal.any([
+                      abortSignal,
+                      AbortSignal.timeout(Math.max(0, inboxClaim.snapshot.leaseUntil - Date.now())),
+                    ]),
+                    beforePush: assertLease,
+                  });
                   pushSucceeded = true;
                   return result;
                 },

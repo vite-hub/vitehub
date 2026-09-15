@@ -136,7 +136,7 @@ async function fixture(autoMerge = false) {
   });
   let workerDirectory: string | undefined;
   const prepare = vi.fn(async (directory: string) => { workerDirectory = directory });
-  const push = vi.fn(async () => {
+  const push = vi.fn(async (_target?: string, _options?: { signal?: AbortSignal, beforePush?: () => void }) => {
     pushed = true;
     head = "b".repeat(40);
     return head;
@@ -294,6 +294,52 @@ describe("Babysitter preset runtime", () => {
     try {
       await f.reconcile();
       expect(f.command.mock.calls.some(([args]) => args.includes("PATCH") && args.includes("body="))).toBe(true);
+    } finally { f.runtime.inbox.close(); }
+  });
+
+  it.each(["reclaimed", "expired"])("fences an admitted push when its lease is %s", async (loss) => {
+    const f = await fixture();
+    f.choose("pushRepair");
+    f.onAdmission(() => {});
+    let rejected = false;
+    f.push.mockImplementationOnce(async (_target, options) => {
+      const current = f.runtime.inbox.get("acme/app", 12)!;
+      if (loss === "reclaimed") {
+        f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
+        f.runtime.inbox.claim(1);
+      } else {
+        vi.spyOn(Date, "now").mockReturnValue(current.leaseUntil);
+      }
+      try { options?.beforePush?.(); }
+      catch (error) { rejected = true; throw error; }
+      return "b".repeat(40);
+    });
+    try {
+      await f.reconcile();
+      expect(f.push).toHaveBeenCalledOnce();
+      expect(rejected).toBe(true);
+    } finally { vi.restoreAllMocks(); f.runtime.inbox.close(); }
+  });
+
+  it("aborts an in-flight push when another owner reclaims the lease", async () => {
+    const f = await fixture();
+    f.choose("pushRepair");
+    let aborted = false;
+    f.push.mockImplementationOnce(async (_target, options) => {
+      if (!options?.signal) throw new Error("Missing push cancellation signal");
+      const current = f.runtime.inbox.get("acme/app", 12)!;
+      f.runtime.inbox.release({ token: current.lease!, generation: current.generation, snapshot: current });
+      f.runtime.inbox.claim(1);
+      return await new Promise<string>((_resolve, reject) => {
+        options.signal!.addEventListener("abort", () => {
+          aborted = true;
+          reject(options.signal!.reason);
+        }, { once: true });
+      });
+    });
+    try {
+      await f.reconcile();
+      expect(aborted).toBe(true);
     } finally { f.runtime.inbox.close(); }
   });
 
