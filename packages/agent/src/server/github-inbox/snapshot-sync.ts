@@ -77,8 +77,8 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
     read(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
     readThreads?.(repository, number),
   ])
-  const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.toLowerCase()))
-  const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !((normalizedActivityAuthors.has(String(comment.user?.login ?? comment.author?.login ?? '').toLowerCase())) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
+  const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
+  const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !((normalizedActivityAuthors.has(String(comment.user?.login ?? comment.author?.login ?? '').trim().toLowerCase())) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
     checks: Object.fromEntries(checks.map(parseEvidence).map(c => [`check_run:${c.id}`, c])),
     statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,

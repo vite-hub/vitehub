@@ -83,7 +83,7 @@ export class PullRequestInbox {
     this.repositories = repositories.map(repository => repository.toLowerCase())
     this.clock = clock
     this.filter = filter
-    this.activityAuthors = new Set(activityAuthors.map(author => author.toLowerCase()))
+    this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = new DatabaseSync(path)
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
@@ -194,7 +194,7 @@ export class PullRequestInbox {
       if (!this.repositories.includes(repository)) return finish('repository not configured')
       // Activity suppression applies to issue comments only. Actual reviews
       // and inline review comments are evidence regardless of reviewer name.
-      const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').toLowerCase()
+      const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
       const marked = String(payload.comment?.body ?? '').startsWith('<!-- vitehub-agent-activity:')
       const activity = marked && this.activityAuthors.has(commentAuthor)
       // Only authenticated activity markers are transport records. A public
