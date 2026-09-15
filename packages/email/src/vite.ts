@@ -20,6 +20,11 @@ export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
 const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
 const mergeNoExternal = createNoExternalMerger("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
+const normalizeTemplateModulePath = (id: string) => {
+  const path = id.split("?", 1)[0]
+  if (!path.startsWith("/@fs/")) return path
+  return path.slice(5)
+}
 export type EmailProvider = "cloudflare-email" | "resend"
 
 interface GeneratedEmailDefinition {
@@ -457,7 +462,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
           for (const module of server.moduleGraph.idToModuleMap.values()) {
             if (module.id) {
               const modulePath = module.id.split("?", 1)[0]
-              const queriedSource = modulePath.startsWith("/@fs/") ? modulePath.slice(5) : modulePath
+              const queriedSource = normalizeTemplateModulePath(module.id)
               if (isInside(materializedRoot, modulePath) || watchFiles.has(queriedSource) || watchFiles.has(modulePath)) {
                 server.moduleGraph.invalidateModule(module)
               }
