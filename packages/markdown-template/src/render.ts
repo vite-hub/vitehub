@@ -159,6 +159,7 @@ function ownData<T>(value: T, seen = new WeakMap<object, object>()): T {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Clone object properties recursively while preserving scalar values unchanged.
   if (!value || (typeof value !== "object" && typeof value !== "function")) return value
   // SAFETY: `value` is an object tracked in this map, so the stored clone has type T.
+  // SAFETY: every value inserted into `seen` is the clone of the corresponding input object.
   if (seen.has(value)) return seen.get(value) as T
   const copy = Object.setPrototypeOf(
     Array.isArray(value) ? new Array(value.length) : {},
@@ -189,7 +190,11 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
     const part = parts[index]
     const existing = current[part]
     // SAFETY: object values created by ownData have string-keyed records.
-    if (existing && typeof existing === "object") current = existing as Record<string, unknown>
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Narrow the cloned path node before traversing it.
+    if (existing && typeof existing === "object") {
+      // SAFETY: ownData creates every traversed object as a string-keyed record.
+      current = existing as Record<string, unknown>
+    }
     else {
       // Preserve an explicitly supplied path (including dotted parents) when
       // materializing a descendant alias; explicit caller data wins.
@@ -201,6 +206,7 @@ function defineDottedPath(target: Record<string, unknown>, key: string, value: u
     }
   }
   // SAFETY: split guarantees at least one segment, so the final segment is defined.
+  // SAFETY: key.split(".") always yields at least one segment.
   const leaf = parts.at(-1)!
   const existing = current[leaf]
   if (existing && typeof existing === "object" && value && typeof value === "object") {
