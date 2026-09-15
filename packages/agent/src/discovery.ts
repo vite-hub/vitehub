@@ -330,8 +330,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // Prefer the definition expression in the callback body. A callback's
       // parameter list may itself contain parentheses, so starting the scan
       // at the first token after `configure` can terminate before the body.
-      const callbackDefinition = tokens.lastIndexOf("defineAgent")
-        >= start ? tokens.lastIndexOf("defineAgent") : tokens.indexOf("defineAgent", start)
+      // Skip callback parameters and locate a definition in the callback body.
+      const arrow = tokens.indexOf("=>", start)
+      const bodyStart = arrow >= 0 ? arrow + 1 : start
+      const callbackDefinition = tokens.indexOf("defineAgent", bodyStart)
       if (callbackDefinition >= 0) start = callbackDefinition
       let end = start
       let depth = 0
