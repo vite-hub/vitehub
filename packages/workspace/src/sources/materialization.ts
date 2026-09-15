@@ -180,9 +180,10 @@ async function reconcilePromotedSourceSkills(
   store: WorkspaceStore,
   sources: readonly ResolvedWorkspaceSource[],
   control: MaterializationControl,
+  workspaceName?: string,
 ) {
   if (!store.getMeta || !store.setMeta) return
-  const previousValue = await store.getMeta(promotedSourceSkillsMetaKey)
+  const previousValue = await store.getMeta(`${promotedSourceSkillsMetaKey}:${workspaceName || "default"}`)
   const previous = hasRuntimeType(previousValue, "object") && previousValue !== null
     ? Object.fromEntries(Object.entries(previousValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
     : {}
@@ -294,7 +295,7 @@ async function reconcilePromotedSourceSkills(
     }
     else if (existing) next[destination] = prior
   }
-  await control.checkpoint(async () => await store.setMeta?.(promotedSourceSkillsMetaKey, next))
+  await control.checkpoint(async () => await store.setMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceName || "default"}`, next))
 }
 
 function materializedItemMeta(
@@ -1118,7 +1119,7 @@ async function materializeWorkspaceSourcesInternal(
     const previousPromotion = promotionReconciliationByStore.get(store)
     const promotion = (async () => {
       await previousPromotion
-      await reconcilePromotedSourceSkills(store, configuredSources, control)
+      await reconcilePromotedSourceSkills(store, definition.name, configuredSources, control)
     })()
     const tail = promotion.catch(() => {})
     promotionReconciliationByStore.set(store, tail)
