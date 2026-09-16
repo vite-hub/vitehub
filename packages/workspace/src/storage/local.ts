@@ -800,6 +800,15 @@ class LocalWorkspaceStore implements WorkspaceStore {
     await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
   }
 
+  async removeEmptyDirectory(path: string): Promise<void> {
+    await withWorkspacePathLock(this.root, path, async () => {
+      const { rmdir } = await import("node:fs/promises")
+      await rmdir(resolveInside(this.root, path)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error
+      })
+    })
+  }
+
   async rm(path: string, options: RmOptions = {}): Promise<void> {
     await withWorkspacePathLock(this.root, path, () => this.#rm(path, options))
   }

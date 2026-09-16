@@ -91,6 +91,7 @@ for (const mount of ["", "docs"]) {
       await syncWorkspaceDefinition({ name: "second", sources: {} }, store)
       await expect(store.stat(path("second.md"))).resolves.toBeUndefined()
       await expect(store.stat(path("shared.md"))).resolves.toBeUndefined()
+      if (mount) await expect(store.stat(mount)).resolves.toBeUndefined()
     })
   }
 }
@@ -284,4 +285,155 @@ it.each(["writeFile", "writeFileConditional", "writeFileStream"] as const)("chec
   await expect(store.readFile("docs/file.md")).resolves.toBeDefined()
   await syncWorkspaceDefinition({ name: definition.name, sources: {} }, store)
   await expect(store.stat("docs/file.md")).resolves.toBeUndefined()
+})
+
+it.each([false, true])("shares empty build mount ownership between Workspaces, volatile=%s", async (volatile) => {
+  const store: WorkspaceStore = createMemoryWorkspaceStore()
+  if (volatile) {
+    store.getMeta = undefined
+    store.setMeta = undefined
+  }
+  const definition = (name: string): WorkspaceDefinition => ({ name, sources: {
+    docs: custom({ materialize: "build", mount: "parent/docs", files: [] }),
+  } })
+  await syncWorkspaceDefinition(definition("first"), store)
+  await syncWorkspaceDefinition(definition("second"), store)
+  await syncWorkspaceDefinition({ name: "first", sources: {} }, store)
+  await expect(store.stat("parent/docs")).resolves.toMatchObject({ type: "directory" })
+  await syncWorkspaceDefinition({ name: "second", sources: {} }, store)
+  await expect(store.stat("parent")).resolves.toBeUndefined()
+})
+
+it.each(["writeFile", "writeFileConditional", "writeFileStream"] as const)("does not claim directories after failed %s", async (method) => {
+  const store: WorkspaceStore = createMemoryWorkspaceStore()
+  const failure = async () => { throw new Error("write failed") }
+  store[method] = failure
+  const definition: WorkspaceDefinition = {
+    name: "failed-build",
+    sources: { docs: custom({ materialize: "build", mount: "", files: [] }) },
+    loaders: [{ name: "fail", async load(ctx) {
+      const file = { path: "user/deep/file.md", content: "generated" }
+      if (method === "writeFileStream") await ctx.store.writeFileStream!(file.path, { ...file, content: (async function* () { yield new TextEncoder().encode(file.content) })() })
+      else if (method === "writeFileConditional") await ctx.store.writeFileConditional!(file.path, file, null)
+      else await ctx.store.writeFile(file.path, file)
+    } }],
+  }
+  await expect(syncWorkspaceDefinition(definition, store)).rejects.toThrow("write failed")
+  await store.mkdir("user/deep", { recursive: true })
+  await syncWorkspaceDefinition({ name: definition.name, sources: {} }, store)
+  await expect(store.stat("user/deep")).resolves.toMatchObject({ type: "directory" })
+})
+
+it("does not claim directories after failed mkdir", async () => {
+  const store = createMemoryWorkspaceStore()
+  const mkdir = store.mkdir.bind(store)
+  store.mkdir = async () => { throw new Error("mkdir failed") }
+  await expect(syncWorkspaceDefinition({ name: "failed-mount", sources: {
+    docs: custom({ materialize: "build", mount: "user/docs", files: [] }),
+  } }, store)).rejects.toThrow("mkdir failed")
+  store.mkdir = mkdir
+  await store.mkdir("user/docs", { recursive: true })
+  await syncWorkspaceDefinition({ name: "failed-mount", sources: {} }, store)
+  await expect(store.stat("user/docs")).resolves.toMatchObject({ type: "directory" })
+})
+
+it("checkpoints an accepted mkdir after cancellation", async () => {
+  const store = createMemoryWorkspaceStore()
+  const mkdir = store.mkdir.bind(store)
+  const controller = new AbortController()
+  store.mkdir = async (path, options) => {
+    await mkdir(path, options)
+    controller.abort(new Error("cancelled after mkdir"))
+  }
+  await expect(syncWorkspaceDefinition({ name: "cancelled-mount", sources: {
+    docs: custom({ materialize: "build", mount: "parent/docs", files: [] }),
+  } }, store, controller.signal)).rejects.toThrow("cancelled after mkdir")
+  await syncWorkspaceDefinition({ name: "cancelled-mount", sources: {} }, store)
+  await expect(store.stat("parent")).resolves.toBeUndefined()
+})
+
+it("retains directory cleanup authority after a removal failure", async () => {
+  const store = createMemoryWorkspaceStore()
+  const remove = store.removeEmptyDirectory!.bind(store)
+  await syncWorkspaceDefinition({ name: "retry-mount", sources: {
+    docs: custom({ materialize: "build", mount: "parent/docs", files: [] }),
+  } }, store)
+  store.removeEmptyDirectory = async () => { throw new Error("remove failed") }
+  await expect(syncWorkspaceDefinition({ name: "retry-mount", sources: {} }, store)).rejects.toThrow("remove failed")
+  store.removeEmptyDirectory = remove
+  await syncWorkspaceDefinition({ name: "retry-mount", sources: {} }, store)
+  await expect(store.stat("parent")).resolves.toBeUndefined()
+})
+
+it("rechecks a directory replaced during cleanup inspection", async () => {
+  const store = createMemoryWorkspaceStore()
+  await syncWorkspaceDefinition({ name: "replaced-mount", sources: {
+    docs: custom({ materialize: "build", mount: "docs", files: [] }),
+  } }, store)
+  const list = store.list.bind(store)
+  let replaced = false
+  store.list = async (path, options) => {
+    const entries = await list(path, options)
+    if (path === "docs" && !options?.recursive && !replaced) {
+      replaced = true
+      await store.rm("docs")
+      await store.writeFile("docs", { path: "docs", content: "user replacement" })
+    }
+    return entries
+  }
+  await syncWorkspaceDefinition({ name: "replaced-mount", sources: {} }, store, new AbortController().signal)
+  await expect(store.readFile("docs")).resolves.toMatchObject({ content: "user replacement" })
+})
+
+it("checkpoints accepted directory pruning after cancellation", async () => {
+  const store = createMemoryWorkspaceStore()
+  await syncWorkspaceDefinition({ name: "cancelled-prune", sources: {
+    docs: custom({ materialize: "build", mount: "docs", files: [] }),
+  } }, store)
+  const remove = store.removeEmptyDirectory!.bind(store)
+  const controller = new AbortController()
+  store.removeEmptyDirectory = async (path) => {
+    await remove(path)
+    controller.abort(new Error("cancelled after prune"))
+  }
+  await expect(syncWorkspaceDefinition({ name: "cancelled-prune", sources: {} }, store, controller.signal)).rejects.toThrow("cancelled after prune")
+  await store.mkdir("docs")
+  await syncWorkspaceDefinition({ name: "cancelled-prune", sources: {} }, store)
+  await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+})
+
+it("preserves a file replacement admitted immediately before directory removal", async () => {
+  const store = createMemoryWorkspaceStore()
+  await syncWorkspaceDefinition({ name: "late-replacement", sources: {
+    docs: custom({ materialize: "build", mount: "docs", files: [] }),
+  } }, store)
+  const remove = store.rm.bind(store)
+  const removeDirectory = store.removeEmptyDirectory!.bind(store)
+  let replaced = false
+  const replace = async () => {
+    if (replaced) return
+    replaced = true
+    await remove("docs")
+    await store.writeFile("docs", { path: "docs", content: "user replacement" })
+  }
+  store.rm = async (path, options) => {
+    await replace()
+    await remove(path, options)
+  }
+  store.removeEmptyDirectory = async (path) => {
+    await replace()
+    await removeDirectory(path)
+  }
+  await syncWorkspaceDefinition({ name: "late-replacement", sources: {} }, store)
+  await expect(store.readFile("docs")).resolves.toMatchObject({ content: "user replacement" })
+})
+
+it("retains generated directories for Stores without atomic directory removal", async () => {
+  const store: WorkspaceStore = createMemoryWorkspaceStore()
+  store.removeEmptyDirectory = undefined
+  await syncWorkspaceDefinition({ name: "custom-store", sources: {
+    docs: custom({ materialize: "build", mount: "docs", files: [] }),
+  } }, store)
+  await syncWorkspaceDefinition({ name: "custom-store", sources: {} }, store)
+  await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
 })

@@ -54,22 +54,63 @@ async function readBuildDirectories(store: WorkspaceStore, workspace: string): P
   return Array.isArray(value) ? value.filter((path): path is string => typeof path === "string" && !!path) : []
 }
 
-async function recordBuildDirectories(store: WorkspaceStore, workspace: string, paths: string[]): Promise<void> {
+const buildDirectoryUsersMetaKey = "workspace:build-directory-users"
+
+async function readBuildDirectoryUsers(store: WorkspaceStore): Promise<Record<string, string[]>> {
+  const value = await readBuildMetadata(store, buildDirectoryUsersMetaKey)
+  const users: Record<string, string[]> = Object.create(null)
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Shared directory claims are an untyped persistence boundary.
+  if (!value || typeof value !== "object" || Array.isArray(value)) return users
+  return Object.assign(users, Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string[]] =>
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted Workspace names before using shared claims.
+    Array.isArray(entry[1]) && entry[1].every(name => typeof name === "string"))))
+}
+
+async function missingBuildDirectories(store: WorkspaceStore, paths: string[]): Promise<Set<string>> {
+  const missing = new Set<string>()
+  for (const path of paths) if (!await store.stat(path)) missing.add(path)
+  return missing
+}
+
+async function recordBuildDirectories(store: WorkspaceStore, workspace: string, paths: string[], missing: Set<string>): Promise<void> {
   const owned = new Set(await readBuildDirectories(store, workspace))
+  const users = await readBuildDirectoryUsers(store)
   for (const path of paths) {
-    if (!await store.stat(path)) owned.add(path)
+    if (!missing.has(path) && !Object.hasOwn(users, path)) continue
+    if ((await store.stat(path))?.type !== "directory") continue
+    owned.add(path)
+    users[path] = [...new Set([...(Object.hasOwn(users, path) ? users[path]! : []), workspace])]
   }
+  await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
   await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), [...owned])
 }
 
 async function pruneBuildDirectories(store: WorkspaceStore, workspace: string): Promise<void> {
   const owned = await readBuildDirectories(store, workspace)
+  const users = await readBuildDirectoryUsers(store)
   const retained: string[] = []
   for (const path of owned.sort((a, b) => b.length - a.length)) {
-    if ((await store.stat(path))?.type !== "directory") continue
-    if ((await store.list(path)).length) retained.push(path)
-    else if ((await store.stat(path))?.type === "directory") await store.rm(path, { force: true })
+    const others = (Object.hasOwn(users, path) ? users[path]! : []).filter(name => name !== workspace)
+    if (others.length) {
+      users[path] = others
+      continue
+    }
+    if ((await store.stat(path))?.type !== "directory") {
+      delete users[path]
+      continue
+    }
+    if ((await store.list(path)).length) {
+      retained.push(path)
+      continue
+    }
+    if (!store.removeEmptyDirectory) {
+      retained.push(path)
+      continue
+    }
+    await store.removeEmptyDirectory(path)
+    delete users[path]
   }
+  await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
   await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), retained)
 }
 
@@ -112,14 +153,18 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
     get(target, property) {
       if (property === "writeFile") return async (path: string, file: WorkspaceFile) => await mutate(async () => {
         const tagged = tag(path, file)
-        await recordBuildDirectories(mutationStore, workspace, parentPaths(path))
+        const directories = parentPaths(path)
+        const missing = await missingBuildDirectories(mutationStore, directories)
         await mutationStore.writeFile(path, tagged)
+        await recordBuildDirectories(mutationStore, workspace, directories, missing)
         await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
       })
       if (property === "writeFileConditional" && target.writeFileConditional) return async (path: string, file: WorkspaceFile, digest: string | null) => await mutate(async () => {
         const tagged = tag(path, file)
-        await recordBuildDirectories(mutationStore, workspace, parentPaths(path))
+        const directories = parentPaths(path)
+        const missing = await missingBuildDirectories(mutationStore, directories)
         await mutationStore.writeFileConditional!(path, tagged, digest)
+        await recordBuildDirectories(mutationStore, workspace, directories, missing)
         await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
       })
       if (property === "writeFileStream" && target.writeFileStream) return async (path: string, file: WorkspaceStreamFile) => await mutate(async () => {
@@ -131,8 +176,10 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
             yield chunk
           }
         })()
-        await recordBuildDirectories(mutationStore, workspace, parentPaths(path))
+        const directories = parentPaths(path)
+        const missing = await missingBuildDirectories(mutationStore, directories)
         const written = await mutationStore.writeFileStream!(path, { ...tagged, content })
+        await recordBuildDirectories(mutationStore, workspace, directories, missing)
         await record(path, tagged.metadata?.workspaceBuildSource, hash.digest("hex"))
         return written
       })
@@ -174,7 +221,7 @@ export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, 
   }
 }
 
-const STORE_MUTATIONS = new Set(["mkdir", "rebase", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream"])
+const STORE_MUTATIONS = new Set(["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream"])
 
 function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal) {
   const active = new Set<Promise<unknown>>()
@@ -249,7 +296,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const startupSources = sources.filter(source => source.materialize === "startup")
   await reconcileRemovedStartupSources(definition.name, store, startupSources, undefined, materializationStore)
   abortSignal?.throwIfAborted()
-  const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)
+  const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal, trackOperation)
   abortSignal?.throwIfAborted()
   const buildStore = await createBuildLoaderStore(definition.name, store, buildSources, materializationStore, abortSignal, trackOperation)
   const bundledBuildSources = !hasExplicitLoaders
@@ -311,7 +358,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
   }
 }
 
-async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
+async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal, trackOperation?: TrackLifecycleOperation): Promise<boolean> {
   abortSignal?.throwIfAborted()
   const previousSources = await readSyncedBuildSources(store, definition.name)
   abortSignal?.throwIfAborted()
@@ -358,12 +405,21 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     abortSignal?.throwIfAborted()
   }
 
-  await pruneBuildDirectories(store, definition.name)
+  const mutate = async (operation: () => Promise<void>) => {
+    abortSignal?.throwIfAborted()
+    const pending = operation()
+    await (trackOperation ? trackOperation(pending) : pending)
+  }
+  await mutate(() => pruneBuildDirectories(materializationStore, definition.name))
 
   for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].filter(Boolean).sort((a, b) => a.length - b.length)) {
     abortSignal?.throwIfAborted()
-    await recordBuildDirectories(store, definition.name, [...parentPaths(mountPath), mountPath])
-    await store.mkdir(mountPath, { recursive: true })
+    await mutate(async () => {
+      const directories = [...parentPaths(mountPath), mountPath]
+      const missing = await missingBuildDirectories(materializationStore, directories)
+      await materializationStore.mkdir(mountPath, { recursive: true })
+      await recordBuildDirectories(materializationStore, definition.name, directories, missing)
+    })
     abortSignal?.throwIfAborted()
   }
 
