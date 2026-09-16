@@ -44,6 +44,19 @@ Authenticate the request before passing trusted identity or access facts. `conte
 
 The second argument is [Runtime Context](/docs/concepts/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
 
+### Run without a host context
+
+For a script or direct invocation, pass the invocation input as the second argument:
+
+```ts
+const [error, result] = await runAgent(support, { prompt: 'Summarize the support policy.' })
+if (error) throw error
+```
+
+This form creates a fresh memo cache and run ID, uses the `unknown` runtime, and returns `[null, result]` or `[Error, null]`. It drains background work registered before the call settles. A background failure returns an error tuple; an invocation failure takes precedence if both fail. Non-Error thrown values become an `Error` with the original value as its `cause`.
+
+Results follow the configured Agent runtime: inline output stays unchanged, and an explicit Workflow binding returns its Workflow Run. This form does not supply request metadata, runtime configuration, or a host background lifetime. Use the three-argument form when those are required, including streams that schedule work during later consumption. The tuple covers the call itself; errors from consuming a returned stream or Response body still occur during consumption.
+
 ## Stream an Agent
 
 Use `streamAgent()` when a chat UI or internal consumer needs incremental output.

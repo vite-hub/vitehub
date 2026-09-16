@@ -388,10 +388,12 @@ describe("agent public types", () => {
     const rawResult = runAgentInline(agent, {} as AgentRuntimeContext, {}, { output: "raw" })
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const workflowResult = runAgent(agent, {} as AgentRuntimeContext, {})
+    const standaloneResult = runAgent(agent, {})
     // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
     const controlled = startAgentInvocation(agent, {} as AgentRuntimeContext, {})
 
     expectTypeOf(result).toEqualTypeOf<Promise<Response | { summary: string, title: string }>>()
+    expectTypeOf(standaloneResult).toEqualTypeOf<Promise<[Error, null] | [null, Awaited<typeof workflowResult>]>>()
     expectTypeOf(rawResult).toEqualTypeOf<Promise<unknown>>()
     expectTypeOf<Extract<Awaited<typeof workflowResult>, { id: string }>["result"]>().toEqualTypeOf<AgentRunResult | { summary: string, title: string } | undefined>()
     expectTypeOf<Awaited<typeof controlled>["support"]>().toEqualTypeOf<{ followUp: boolean, respond: boolean, steer: boolean }>()
