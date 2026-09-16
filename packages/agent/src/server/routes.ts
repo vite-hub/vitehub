@@ -4779,7 +4779,7 @@ async function isChatMessageAuthorized(
   return invoker
 }
 
-function chatInvocationTimeout(timeout: number | undefined, maximum: number | undefined): number | undefined {
+function chatInvocationTimeout(timeout: number | undefined, maximum: number | undefined): number {
   const requested = timeout ?? defaultChatInvocationTimeoutMs
   return maximum === undefined ? requested : Math.min(requested, maximum)
 }
@@ -4959,7 +4959,7 @@ async function handleChatSdkMessage(
   let progress: ReturnType<typeof createManualDeliveryProgressUpdater> | undefined
   const manualDeliveryState: ManualChatDeliveryState = {}
   const toolResults: AgentToolStepItem[] = []
-  const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
+  let invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   let invocationStarted = false
   let invocationFailed = false
   let invocationError: unknown
@@ -5733,6 +5733,13 @@ async function handleChatSdkMessage(
       detachAgentChannelDelivery(delivery)
       return
     }
+    const awaitCommentaryDelivery = maximumInvocationDeadline !== undefined
+    const inlineStartedAt = Date.now()
+    maximumInvocationDeadline = inlineStartedAt + chatInvocationTimeout(
+      resolvedInvocationInput.timeout,
+      maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - inlineStartedAt),
+    )
+    invocationDeadlineAbort ??= new AbortController()
     const inlineRunContext = run?.runId ? withAgentInvocationResponseOwner(runContext, run.runId) : runContext
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && isRuntimeString(thinkingFallback)) {
@@ -5848,7 +5855,7 @@ async function handleChatSdkMessage(
                 )
               })
             } else {
-              const commentaryDeliveries: Promise<void>[] | undefined = maximumInvocationDeadline === undefined ? undefined : []
+              const commentaryDeliveries: Promise<void>[] | undefined = awaitCommentaryDelivery ? [] : undefined
               let finalDelivery: Promise<void> | undefined
               let finalDeliveryError: unknown
               const replies = streamAgentOutputToChatReplies(result, {
