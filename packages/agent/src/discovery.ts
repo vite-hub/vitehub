@@ -411,7 +411,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (tokens[end] === "!") { end++; continue }
       if (tokens[end] === "?" && tokens[end + 1] === ".") {
         end += 2
-        if (!["(", "["].includes(tokens[end])) end++
+        if (!["(", "[", "<"].includes(tokens[end])) end++
         continue
       }
       if (tokens[end] === ".") { end += 2; continue }

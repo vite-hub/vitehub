@@ -193,6 +193,9 @@ it("inspects local settings spreads and respects local import shadowing", async 
 it.each([
   'build!()',
   'build?.()',
+  'build?.<Agent>()',
+  'builders.workspace?.<Agent>()',
+  'builders?.["workspace"]?.<Agent>()',
   'builders?.["workspace"]()',
   '(build as Factory)()',
   '(build satisfies Factory)()',

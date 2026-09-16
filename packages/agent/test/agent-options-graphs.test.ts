@@ -149,3 +149,34 @@ it("replaces class option values with complete instances", () => {
   expect(configure.mock.calls.at(-1)![0].client).toBe(replacement)
   expect(extended.options.client.connect()).toBe("override")
 })
+
+it("preserves branded option values through configuration and extension", () => {
+  const key = {}
+  const initial = {
+    cache: new WeakMap([[key, "default"]]),
+    members: new WeakSet([key]),
+    error: new Error("default"),
+  }
+  const replacement = {
+    cache: new WeakMap([[key, "override"]]),
+    members: new WeakSet([key]),
+    error: new Error("override"),
+  }
+  const configure = vi.fn((_options: { nested: typeof initial }) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options: { nested: initial }, configure })
+  const inherited = defineAgent({ extends: preset, options: {} })
+  const extended = defineAgent({ extends: preset, options: { nested: replacement } })
+  for (const [options, expected] of [
+    [preset.options, initial],
+    [inherited.options, initial],
+    [extended.options, replacement],
+    ...configure.mock.calls.map(([options], index) => [options, index === 2 ? replacement : initial] as const),
+  ] as const) {
+    expect(options.nested).not.toBe(expected)
+    expect(options.nested.cache).toBe(expected.cache)
+    expect(options.nested.cache.get(key)).toBe(expected.error.message)
+    expect(options.nested.members).toBe(expected.members)
+    expect(options.nested.members.has(key)).toBe(true)
+    expect(options.nested.error).toBe(expected.error)
+  }
+})

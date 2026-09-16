@@ -15,7 +15,7 @@ import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, portableWorkflowCapabilityMask, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
-import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
+import { agentErrorDetails, agentErrorMessage, isError, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
 import {
   createBackedAgentInvocationController,
@@ -28,7 +28,7 @@ import {
   createReplyDeliveryEffectIntent,
   createStatusDeliveryEffectIntent,
 } from "./delivery-effects.ts"
-import { createExecutionContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { agentTelemetryTask } from "./internal/telemetry-task.ts"
 import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -2159,7 +2159,14 @@ type ConfiguredWorkspaceState<TDefinition> = TDefinition extends { [configuredAg
 
 type ConfiguredCapabilityMembers<TCapabilities> = TCapabilities extends readonly (infer TCapability)[] ? TCapability : never
 
-type MergeConfiguredCapabilityMembers<TParent, TChild> = Exclude<TParent, { id: TChild extends { id: infer TId } ? TId : never }> | TChild
+type RetainedConfiguredCapabilityMembers<TParent, TChildId> = TParent extends { id: infer TParentId }
+  ? [TParentId & TChildId] extends [never]
+    ? TParent
+    : never
+  : TParent
+
+// Widened IDs can overlap literal replacements, so only retain provably distinct IDs.
+type MergeConfiguredCapabilityMembers<TParent, TChild> = RetainedConfiguredCapabilityMembers<TParent, TChild extends { id: infer TId } ? TId : never> | TChild
 
 type MergeConfiguredCapabilities<TParent, TChild> = TChild extends undefined
   ? TParent
@@ -7422,7 +7429,61 @@ export async function startAgentInvocation<
   return createInlineAgentInvocationController(agent, invocationContext, input, options.runId)
 }
 
+export function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  input: AgentRunInput<CALL_OPTIONS>,
+): Promise<[Error, null] | [null, TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>]>
+export function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
 export async function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  TOutput = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput>,
+  contextOrInput: AgentRuntimeContext<TRuntimeConfig> | AgentRunInput<CALL_OPTIONS>,
+  input?: AgentRunInput<CALL_OPTIONS>,
+): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>> | [Error, null] | [null, TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>]> {
+  if (input !== undefined) {
+    // SAFETY: The three-argument overload requires a Runtime Context as its second argument.
+    return runAgentWithContext(agent, contextOrInput as AgentRuntimeContext<TRuntimeConfig>, input)
+  }
+  const runtime = createRuntimeContext({ runtime: "unknown", run: { runId: createTraceId() } })
+  const context: AgentRuntimeContext<TRuntimeConfig> = {
+    memo: runtime.memo,
+    run: runtime.run,
+    runtime: runtime.runtime,
+    waitUntil: runtime.waitUntil,
+  }
+  try {
+    const binding = resolveAgentWorkflowRuntimeBinding(agent)
+    if (binding && "discoveryDefault" in binding) {
+      throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Standalone runAgent() cannot discover an Agent Workflow without a host context. Set runtime: false for inline execution, configure an explicit workflow(\"name\") binding, or use runAgent(agent, runtimeContext, input)." })
+    }
+    // SAFETY: The two-argument overload requires invocation input as its second argument.
+    const result = await runAgentWithContext(agent, context, contextOrInput as AgentRunInput<CALL_OPTIONS>)
+    await runtime.flushWaitUntil()
+    return [null, result]
+  }
+  catch (error) {
+    // Finish owned background work without replacing the invocation's original failure.
+    await runtime.flushWaitUntil().catch(() => {})
+    return [isError(error) ? error : new Error(agentErrorMessage(error), { cause: error }), null]
+  }
+}
+
+async function runAgentWithContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TOutput = unknown,

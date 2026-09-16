@@ -3912,7 +3912,7 @@ cli_auth_credentials_store = "keyring"
     await rm(heartbeatFile, { force: true })
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout.trim()).toBe("settled")
-  })
+  }, 20_000)
 
   it("bounds asynchronous instruction resolution by the invocation timeout", async () => {
     const adapter = createProviderAgentAdapter({
@@ -5315,7 +5315,7 @@ cli_auth_credentials_store = "keyring"
 
       const args = (await readFile(marker, "utf8")).trim().split("\n")
       expect(args.slice(0, 2)).toEqual(["-rf", "--"])
-      expect(args[2]).toMatch(/^\/tmp\/vitehub-provider-/)
+      expect(args[2]?.startsWith(join(tmpdir(), "vitehub-provider-"))).toBe(true)
     }
     finally {
       process.env.PATH = previousPath

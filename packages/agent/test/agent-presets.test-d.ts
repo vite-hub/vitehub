@@ -246,3 +246,30 @@ it("requires complete method-bearing option values", () => {
   // @ts-expect-error Named preset selection uses the same complete instance contract.
   defineAgent({ preset: "client", presets: { client: preset }, options: { client: { endpoint: "override" } } })
 })
+
+it("does not retain Workspace access when widened Capability IDs can overlap", () => {
+  const id: string = "workspace"
+  const workspace = defineCapability({ id, workspace: {} })
+  const plain = defineCapability({ id: "workspace", metadata: {} })
+  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [workspace] }) })
+  expectTypeOf(preset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const replaced = defineAgent({ extends: preset, capabilities: [plain] })
+  // @ts-expect-error The literal child ID can replace the widened parent ID.
+  void replaced.__vitehubWorkspaceAgent
+  const named = defineAgent({ preset: "base", presets: { base: preset }, capabilities: [plain] })
+  // @ts-expect-error Named selection uses the same conservative replacement rule.
+  void named.__vitehubWorkspaceAgent
+  const retained = defineAgent({ extends: preset, capabilities: [] })
+  expectTypeOf(retained.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const explicit = defineAgent({ extends: preset, workspace: {}, capabilities: [plain] })
+  expectTypeOf(explicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+
+  const unionWorkspace = defineCapability({ id: id as "workspace" | "other", workspace: {} })
+  const unionPreset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [unionWorkspace] }) })
+  const unionReplaced = defineAgent({ extends: unionPreset, capabilities: [plain] })
+  // @ts-expect-error A partially overlapping ID union cannot guarantee Workspace access.
+  void unionReplaced.__vitehubWorkspaceAgent
+  const unrelated = defineCapability({ id: "unrelated", metadata: {} })
+  const disjoint = defineAgent({ extends: unionPreset, capabilities: [unrelated] })
+  expectTypeOf(disjoint.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+})
