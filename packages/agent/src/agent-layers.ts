@@ -263,8 +263,17 @@ function clonePresetDescriptors(source: object, target: object, memo: WeakMap<ob
   }
 }
 
+function variablePresetBacking(value: ArrayBufferLike): boolean {
+  const prototype = value instanceof ArrayBuffer ? ArrayBuffer.prototype : SharedArrayBuffer.prototype
+  const property = value instanceof ArrayBuffer ? "resizable" : "growable"
+  return Object.getOwnPropertyDescriptor(prototype, property)?.get?.call(value) === true
+}
+
 function clonePresetBacking(value: ArrayBufferLike): ArrayBufferLike {
-  const clone = value instanceof ArrayBuffer ? new ArrayBuffer(value.byteLength) : new SharedArrayBuffer(value.byteLength)
+  const prototype = value instanceof ArrayBuffer ? ArrayBuffer.prototype : SharedArrayBuffer.prototype
+  // SAFETY: The intrinsic accessor returns the backing store size without invoking application properties.
+  const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value) as number
+  const clone = value instanceof ArrayBuffer ? new ArrayBuffer(byteLength) : new SharedArrayBuffer(byteLength)
   new Uint8Array(clone).set(new Uint8Array(value))
   return clone
 }
@@ -315,10 +324,12 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   }
   if (value instanceof ArrayBuffer) {
     if (Object.getPrototypeOf(value) !== ArrayBuffer.prototype) return value
+    if (variablePresetBacking(value)) return value
     return finish(clonePresetBacking(value))
   }
   if (globalThis.SharedArrayBuffer && value instanceof SharedArrayBuffer) {
     if (Object.getPrototypeOf(value) !== SharedArrayBuffer.prototype) return value
+    if (variablePresetBacking(value)) return value
     return finish(clonePresetBacking(value))
   }
   if (ArrayBuffer.isView(value)) {
@@ -335,6 +346,9 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const prototype = isDataView ? DataView.prototype : typedArrayPrototype
     // SAFETY: Intrinsic view accessors return the backing buffer and numeric range without invoking application properties.
     const buffer = Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value) as ArrayBufferLike
+    // The platform cannot report whether a view tracks buffer length. Preserve these
+    // views atomically, including out-of-bounds views whose range accessors throw.
+    if (variablePresetBacking(buffer)) return value
     // SAFETY: The intrinsic byteOffset accessor returns a number.
     const byteOffset = Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value) as number
     // SAFETY: The intrinsic byteLength accessor returns a number.

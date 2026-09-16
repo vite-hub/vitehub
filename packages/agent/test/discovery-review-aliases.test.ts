@@ -89,8 +89,8 @@ it.each(["@vite-hub/agent/channels", "vite-hub/agent/channels"])("inspects local
 it.each([
   'defineChannel => defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } })',
   '() => { const defineChannel = () => ({}); return defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } }) }',
-])("honors shadowed Channel factories: %s", async (configure) => {
-  await expect(workspaceFor(`import { defineChannel } from "@vite-hub/agent/channels"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: ${configure} })`)).resolves.toBeUndefined()
+])("requires explicit ownership for shadowed Channel factories: %s", async (configure) => {
+  await expect(workspaceFor(`import { defineChannel } from "@vite-hub/agent/channels"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: ${configure} })`)).rejects.toThrow("opaque Channel")
 })
 
 it.each([
@@ -104,7 +104,7 @@ it.each([
 })
 
 it("does not trust another package's Channel constructor", async () => {
-  await expect(workspaceFor('import { defineChannel } from "other-package"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } }) })')).resolves.toBeUndefined()
+  await expect(workspaceFor('import { defineChannel } from "other-package"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } }) })')).rejects.toThrow("opaque Channel")
 })
 
 it.each([

@@ -294,3 +294,27 @@ it.each(["custom", '["custom"]'])("requires a Workspace marker for Channel metho
   const definitions = await discover(`${declaration} export default defineAgent({ workspace: {}, ${settings} })`)
   expect(definitions[0]?.workspace).toBe("notes")
 })
+
+
+it.each([
+  ['import { github } from "vite-hub/agent/channels"', 'github({ pullRequest: true })'],
+  ['import { github as gh } from "@vite-hub/agent/channels"', 'gh({ pullRequest: true })'],
+  ['import * as channels from "vite-hub/agent/channels"', 'channels.github({ pullRequest: true })'],
+  ['import { github } from "vite-hub/agent/channels"; const factory = github', 'factory({ pullRequest: true })'],
+  ['import { defineChannel } from "vite-hub/agent/channels"; const options = () => ({ capabilities: [defineCapability({ workspace: {} })] })', 'defineChannel("custom", options())'],
+  ['const factory = () => ({ kind: "custom", capabilities: [defineCapability({ workspace: {} })] })', 'factory()'],
+])("requires a Workspace marker for opaque Channel calls: %s", async (imports, value) => {
+  for (const channel of [value, "custom"]) {
+    const settings = `options: {}, configure: () => defineAgent({ channels: { custom: ${channel} } })`
+    const source = `${imports}; const custom = ${value};`
+    await expect(discover(`${source} export default defineAgent({ ${settings} })`)).rejects.toThrow(/cannot inspect .*Channel/)
+    const definitions = await discover(`${source} export default defineAgent({ workspace: {}, ${settings} })`)
+    expect(definitions[0]?.workspace).toBe("notes")
+  }
+})
+
+
+it.each(['defineChannel("custom")', 'defineChannel("custom", undefined)', 'defineChannel("custom", {})', 'defineChannel("custom", options)'])("inspects supported Channel constructor options: %s", async (channel) => {
+  const definitions = await discover(`import { defineChannel } from "vite-hub/agent/channels"; const options = {}; export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: ${channel} } }) })`)
+  expect(definitions[0]?.workspace).toBeUndefined()
+})

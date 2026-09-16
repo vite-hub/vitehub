@@ -323,3 +323,86 @@ it.each([false, true])("preserves cycles between view properties and backing sto
     expect(Object.getOwnPropertyDescriptor(clone.data, "view")?.value).toBe(clone.view)
   }
 })
+
+interface ResizableOptionBuffer extends ArrayBuffer {
+  readonly maxByteLength: number
+  resize(byteLength: number): void
+}
+interface GrowableOptionBuffer extends SharedArrayBuffer {
+  readonly maxByteLength: number
+  grow(byteLength: number): void
+}
+// SAFETY: Node 24 implements these ES2024 constructors; the repository targets older TypeScript library declarations.
+const ResizableOptionBuffer = ArrayBuffer as unknown as { new (byteLength: number, options: { maxByteLength: number }): ResizableOptionBuffer }
+// SAFETY: Node 24 implements growable SharedArrayBuffer with this constructor contract.
+const GrowableOptionBuffer = SharedArrayBuffer as unknown as { new (byteLength: number, options: { maxByteLength: number }): GrowableOptionBuffer }
+
+it.each(["resizable", "growable"] as const)("preserves %s buffers and view length behavior atomically", kind => {
+  const buffer = kind === "resizable" ? new ResizableOptionBuffer(8, { maxByteLength: 16 }) : new GrowableOptionBuffer(8, { maxByteLength: 16 })
+  const tracking = new Uint8Array(buffer, 2)
+  const fixed = new Uint8Array(buffer, 2, 6)
+  const trackingData = new DataView(buffer, 2)
+  const fixedData = new DataView(buffer, 2, 6)
+  Object.defineProperty(buffer, "view", { value: tracking })
+  Object.defineProperty(tracking, "self", { value: tracking })
+  // Application properties must not hide the backing store's actual resizing behavior.
+  Object.defineProperty(buffer, kind, { value: false })
+  const options = { buffer, tracking, fixed, trackingData, fixedData }
+  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options, configure })
+  const inherited = defineAgent({ extends: preset })
+  for (const result of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
+    expect(result).not.toBe(options)
+    for (const key of Object.keys(options) as (keyof typeof options)[]) expect(result[key]).toBe(options[key])
+    expect(result.buffer.maxByteLength).toBe(16)
+    expect(Object.getOwnPropertyDescriptor(result.buffer, "view")?.value).toBe(result.tracking)
+    expect(Object.getOwnPropertyDescriptor(result.tracking, "self")?.value).toBe(result.tracking)
+  }
+  if (buffer instanceof ArrayBuffer) buffer.resize(12)
+  else buffer.grow(12)
+  expect(inherited.options.tracking.length).toBe(10)
+  expect(inherited.options.fixed.length).toBe(6)
+  expect(inherited.options.trackingData.byteLength).toBe(10)
+  expect(inherited.options.fixedData.byteLength).toBe(6)
+})
+
+it("preserves out-of-bounds resizable buffer views until their ranges become valid again", () => {
+  const buffer = new ResizableOptionBuffer(8, { maxByteLength: 16 })
+  const fixed = new Uint8Array(buffer, 2, 6)
+  const tracking = new Uint8Array(buffer, 2)
+  const fixedData = new DataView(buffer, 2, 6)
+  const trackingData = new DataView(buffer, 2)
+  buffer.resize(1)
+  const options = { fixed, tracking, fixedData, trackingData, buffer }
+  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options, configure })
+  const inherited = defineAgent({ extends: preset })
+  for (const result of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
+    for (const key of Object.keys(options) as (keyof typeof options)[]) expect(result[key]).toBe(options[key])
+    expect(result.fixed.length).toBe(0)
+    expect(result.tracking.length).toBe(0)
+    expect(() => result.fixedData.byteLength).toThrow(TypeError)
+    expect(() => result.trackingData.byteLength).toThrow(TypeError)
+  }
+  buffer.resize(12)
+  expect(inherited.options.fixed.length).toBe(6)
+  expect(inherited.options.tracking.length).toBe(10)
+  expect(inherited.options.fixedData.byteLength).toBe(6)
+  expect(inherited.options.trackingData.byteLength).toBe(10)
+})
+
+it.each([ArrayBuffer, SharedArrayBuffer])("copies fixed buffer bytes without reading a shadowed byteLength: %s", BufferType => {
+  const buffer = new BufferType(8)
+  new Uint8Array(buffer).set([1, 2, 3])
+  const getter = vi.fn(() => 0)
+  Object.defineProperty(buffer, "byteLength", { get: getter })
+  const configure = vi.fn((_options: { buffer: typeof buffer }) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options: { buffer }, configure })
+  const inherited = defineAgent({ extends: preset })
+  for (const options of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
+    expect(options.buffer).not.toBe(buffer)
+    expect([...new Uint8Array(options.buffer)]).toEqual([1, 2, 3, 0, 0, 0, 0, 0])
+    expect(Object.getOwnPropertyDescriptor(options.buffer, "byteLength")?.get).toBe(getter)
+  }
+  expect(getter).not.toHaveBeenCalled()
+})

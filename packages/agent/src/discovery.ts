@@ -691,16 +691,19 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         if (channelCall !== undefined) {
           // defineChannel(kind, options) contributes the options of this invocation.
           let depth = 0
+          let hasOptions = false
           for (let i = channelCall + 1; i < tokens.length; i++) {
             if (depth === 0 && tokens[i] === ")") break
-            if (depth === 0 && tokens[i] === ",") { channelOptions = i + 1; break }
+            if (depth === 0 && tokens[i] === ",") { channelOptions = i + 1; hasOptions = true; break }
             if (["{", "(", "["].includes(tokens[i])) depth++
             else if (["}", ")", "]"].includes(tokens[i])) depth--
           }
+          if (!hasOptions || undefinedValue(channelOptions) || tokens[channelOptions] === ")") continue
         }
+        channelOptions = resolveReference(channelOptions, new Set(), true)
         const channelProperties = properties(channelOptions, true)
-        if (channelCall === undefined && ((tokens[channelOptions] !== "{" && tokens[memberCallEnd(channelOptions)] !== "(") || (tokens[channelOptions] === "{" && tokens[channelOptions - 1] === ")"))) {
-          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Channel factory or opaque Channel value. Use a local Channel object, or add workspace: {} to the Agent definition when the Channel owns a Workspace.")
+        if (tokens[channelOptions] !== "{" || tokens[channelOptions - 1] === ")") {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Channel factory or opaque Channel value or call. Use a local Channel object, or add workspace: {} to the Agent definition when the Channel owns a Workspace.")
         }
         const capabilities = channelProperties.get("capabilities")
         if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
