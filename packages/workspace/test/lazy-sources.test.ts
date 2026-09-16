@@ -486,6 +486,45 @@ describe("lazy sources", () => {
     expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(expectedSkill)
   })
 
+  it.each([false, true].flatMap(existing => ["mediaType", "metadata"].map(attribute => ({ existing, attribute }))))("preserves same-content replacements during promotion compensation (existing: $existing, attribute: $attribute)", async ({ existing, attribute }) => {
+    const store = createMemoryWorkspaceStore()
+    const root = ".agents/skills/review"
+    const destination = `${root}/SKILL.md`
+    let version = "Original"
+    const view = createWorkspaceSourceView({ name: "compensation-attributes", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [destination, `${root}/checks.md`] },
+        async getItem(key) { return { key, content: `${version}: ${key}` } },
+      }),
+    } }, store)
+    if (existing) await view.materializeSources()
+    version = "Updated"
+    const write = store.writeFileConditional!.bind(store)
+    vi.spyOn(store, "writeFileConditional").mockImplementation(async (path, file, digest) => {
+      if (path === `${root}/checks.md`) await store.writeFile(path, { path, content: "User checks" })
+      await write(path, file, digest)
+    })
+    const compensate = store.compareAndSwapFile!.bind(store)
+    let replaced = false
+    vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, replacement) => {
+      if (path === destination) {
+        replaced = true
+        await store.writeFile(path, { ...expected, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }) })
+      }
+      await compensate(path, expected, replacement)
+    })
+    await view.materializeSources()
+    expect(replaced).toBe(true)
+    await expect(store.readFile(destination)).resolves.toMatchObject({
+      content: `Updated: ${destination}`, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }),
+    })
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject({
+      content: `Updated: ${destination}`, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }),
+    })
+  })
+
   it("retains multi-file Skills when the Store cannot roll back new companions", async () => {
     const store = createLocalWorkspaceStore(await createRoot())
     const root = ".agents/skills/review"
@@ -1151,7 +1190,8 @@ describe("lazy sources", () => {
     if (userFile) await expect(store.readFile("docs/generated/user.md")).resolves.toMatchObject({ content: "keep" })
     if (preexisting || userFile) await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
     else await expect(store.stat("docs/generated")).resolves.toBeUndefined()
-    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    if (preexisting || userFile || moved) await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat("docs")).resolves.toBeUndefined()
     if (moved) await expect(store.stat("docs/moved")).resolves.toMatchObject({ type: "directory" })
   })
 
@@ -1212,7 +1252,7 @@ describe("lazy sources", () => {
 
     await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
     await expectRetiredDirectory(store, "docs/generated")
-    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    await expectRetiredDirectory(store, "docs")
   })
 
   it.each([

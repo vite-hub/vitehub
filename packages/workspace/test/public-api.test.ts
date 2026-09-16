@@ -243,6 +243,40 @@ describe("workspace public API", () => {
     await expect(first.fs.readFile("docs/page.md")).resolves.toBe("second")
   })
 
+  it.each([false, undefined])("rejects conditional removal when Store support is %s", async (conditionalRemoval) => {
+    const store = createMemoryWorkspaceStore()
+    Object.defineProperty(store, "conditionalRemoval", { value: conditionalRemoval })
+    const remove = vi.spyOn(store, "rm")
+    registerWorkspace("conditional-removal", defineWorkspace({ store }))
+    const workspace = useWorkspace("conditional-removal", { mode: "write" })
+    await workspace.fs.writeFile("page.md", "preserve")
+
+    for (const options of [{ ifDigest: "stale" }, { ifSource: "docs" }, { ifSource: null }, { ifWorkspace: "other" }, { ifWorkspace: null }]) {
+      await expect(workspace.fs.rm("page.md", options)).rejects.toThrow("does not support conditional removal")
+    }
+    expect(remove).not.toHaveBeenCalled()
+    await expect(workspace.fs.readFile("page.md")).resolves.toBe("preserve")
+
+    await workspace.fs.rm("page.md")
+    expect(remove).toHaveBeenCalledOnce()
+    await expect(workspace.fs.exists("page.md")).resolves.toBe(false)
+  })
+
+  it("preserves a replacement during supported conditional removal", async () => {
+    registerWorkspace("conditional-removal", defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace("conditional-removal", { mode: "write" })
+    await workspace.fs.writeFile("page.md", "first")
+    const baseline = await workspace.fs.stat("page.md")
+    await workspace.fs.writeFile("page.md", "second")
+
+    await workspace.fs.rm("page.md", { ifDigest: baseline.digest! })
+    await expect(workspace.fs.readFile("page.md")).resolves.toBe("second")
+
+    const current = await workspace.fs.stat("page.md")
+    await workspace.fs.rm("page.md", { ifDigest: current.digest! })
+    await expect(workspace.fs.exists("page.md")).resolves.toBe(false)
+  })
+
   it("rejects validator path rewrites before mutating a preserved path", async () => {
     registerWorkspace("preserved-path", defineWorkspace({
       rules: {

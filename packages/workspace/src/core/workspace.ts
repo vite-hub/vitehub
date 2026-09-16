@@ -3,7 +3,7 @@ import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { normalizeWorkspaceSources } from "../sources/config.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
-import { materializedFileMatches, readCurrentSourceSnapshot, removedStartupPathMetaKey } from "../sources/materialization.ts"
+import { materializedFileMatches, readCurrentSourceSnapshot, removedStartupFileMatches } from "../sources/materialization.ts"
 import { fileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
@@ -68,7 +68,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     if (entry.type === "removed" && entry.before?.type === "file"
       && entry.before.metadata?.sourceMaterialize === "startup"
       && hasRuntimeType(entry.before.metadata.source, "string")
-      && await store.getMeta?.(removedStartupPathMetaKey(definition.name, entry.path)) === entry.before.metadata.source) continue
+      && await removedStartupFileMatches(store, definition.name, entry.path, entry.before.metadata.source)) continue
     if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
     if (entry.type === "added" && entry.after?.type === "directory" && generatedDirectories.has(entry.path)) {
       const descendants = await store.list(entry.path, { recursive: true })

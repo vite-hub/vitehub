@@ -14,7 +14,6 @@ import {
   materializesCompleteSource,
   materializedFileMatches,
   materializeWorkspaceSources,
-  removedStartupPathMetaKey,
   readCurrentSourceSnapshot,
   readResolvedSourceFile,
   searchMaterializedStore,
@@ -792,7 +791,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           await store.writeFileConditional(input.path, file, options.ifDigest)
         }
         else await store.writeFile(input.path, file)
-        await store.setMeta?.(removedStartupPathMetaKey(definition.name, input.path), undefined)
         await invalidateStartupDirectoryRemoval(store, input.path)
         await writePolicy.after(input)
         return input.path
@@ -913,6 +911,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     },
     async rm(path, options) {
+      if (!store.conditionalRemoval && (options?.ifDigest !== undefined || options?.ifSource !== undefined || options?.ifWorkspace !== undefined)) {
+        throw workspaceError("[vitehub] This Workspace Store does not support conditional removal.")
+      }
       const resolution = await assertWritablePath(path)
       const input = await writePolicy.before({
         operation: "rm",

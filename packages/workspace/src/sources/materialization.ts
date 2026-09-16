@@ -6,7 +6,7 @@ import { isWorkspaceConflict, workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
-import { captureStartupDirectoryRemoval, removedStartupDirectoryMetaKey } from "./startup-directory-evidence.ts"
+import { captureStartupPathMutations, captureStartupDirectoryRemoval, removedStartupDirectoryMetaKey } from "./startup-directory-evidence.ts"
 import { normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
@@ -82,6 +82,12 @@ function startupSourcesMetaKey(workspaceName?: string) {
 }
 export function removedStartupPathMetaKey(workspaceName: string | undefined, path: string) {
   return `workspace:${workspaceName || "default"}:removed-startup-path:${JSON.stringify(path)}`
+}
+async function captureStartupFileRemoval(store: WorkspaceStore, path: string, source: string) {
+  return { source, mutations: await captureStartupPathMutations(store, path) }
+}
+export async function removedStartupFileMatches(store: WorkspaceStore, workspaceName: string | undefined, path: string, source: string) {
+  return isDeepStrictEqual(await store.getMeta?.(removedStartupPathMetaKey(workspaceName, path)), await captureStartupFileRemoval(store, path, source))
 }
 export { removedStartupDirectoryMetaKey } from "./startup-directory-evidence.ts"
 const legacyStartupSourcesMetaKey = "workspace:startup-sources"
@@ -347,20 +353,15 @@ async function reconcilePromotedSourceSkills(
     const writes: { destination: string, existing: WorkspaceFile | undefined, promoted: PromotedSourceSkillFile }[] = []
     let conflicted = false
     let failure: unknown
-    // A new companion needs conditional removal to undo a later conflict.
-    // Stores without that capability can still refresh complete existing Skills.
-    if (entries.length > 1 && !store.conditionalRemoval) {
-      for (const [destination] of entries) {
-        if (!await readSourceFile(store, destination)) { conflicted = true; break }
-      }
-    }
+    // Multiple writes require compensation that also checks file attributes.
+    if (entries.length > 1 && !store.compareAndSwapFile) conflicted = true
     for (const [destination, candidate] of entries) {
       if (conflicted) break
       const sourceFile = verifiedSkillFiles.get(candidate.sourcePath)
       const existing = await readSourceFile(store, destination)
       const prior = previous[destination]
       const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await promotedFileMatches(existing, prior))
-      if (!sourceFile || (existing && !ownsExisting) || (!existing && entries.length > 1 && !store.conditionalRemoval) || await hasNonFilePromotionDestination(store, destination)) {
+      if (!sourceFile || (existing && !ownsExisting) || (entries.length > 1 && !store.compareAndSwapFile) || await hasNonFilePromotionDestination(store, destination)) {
         conflicted = true
         break
       }
@@ -391,9 +392,8 @@ async function reconcilePromotedSourceSkills(
         if (!current || !await promotedFileMatches(current, promoted)) continue
         try {
           // Compensate committed writes even after cancellation or supersession.
-          // Digest conditions still protect concurrent replacements.
-          if (existing) await writeFileConditional(destination, existing, promoted.digest)
-          else await store.rm(destination, { force: true, ifDigest: promoted.digest })
+          // Bind the mutation to the complete file read above, including ownership.
+          await store.compareAndSwapFile?.(destination, current, existing)
         }
         catch (error) {
           if (!isWorkspaceConflict(error)) throw error
@@ -663,6 +663,7 @@ async function removeStaleMaterializedSourceFiles(
         if (!await materializedFileMatches(latest, recorded)
           || (recorded.materializedAttributes && latestOwner === undefined && !fileAttributesUnavailable(latest))) continue
       }
+      const removalEvidence = await captureStartupFileRemoval(store, entry.path, source.key)
       await control.mutate(() => store.rm(entry.path, {
         force: true,
         ...(store.conditionalRemoval && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
@@ -673,7 +674,7 @@ async function removeStaleMaterializedSourceFiles(
       }))
       if (source.materialize === "startup") {
         const removed = !await store.stat(entry.path)
-        await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), removed ? source.key : undefined))
+        await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), removed ? removalEvidence : undefined))
       }
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
@@ -792,6 +793,7 @@ async function reconcileRemovedStartupSourcesInternal(
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
+      const removalEvidence = await captureStartupFileRemoval(store, path, source.key)
       await control.mutate(() => store.rm(path, {
         force: true,
         ...(store.conditionalRemoval && recordedDigest ? { ifDigest: recordedDigest } : {}),
@@ -801,7 +803,7 @@ async function reconcileRemovedStartupSourcesInternal(
       // Preserve cleanup evidence after the Source snapshot is retired. A
       // conditional removal can leave a concurrent replacement untouched.
       const removed = !await store.stat(path)
-      await control.checkpoint(async () => await store.setMeta?.(removalKey, removed ? source.key : undefined))
+      await control.checkpoint(async () => await store.setMeta?.(removalKey, removed ? removalEvidence : undefined))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       const baseline = await (cleanupBaseline ??= store.diff().then(diff => diff.from))
@@ -1071,7 +1073,7 @@ async function materializeWorkspaceSourcesInternal(
       && existing?.mountPath === source.mountPath && existing.ownsMount === true
       && Boolean(await store.stat(source.mountPath))
     let mountIdentity = existing?.mountPath === source.mountPath ? existing.mountIdentity : undefined
-    const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
+    const ownedAncestors = new Set(existing?.mountPath === source.mountPath ? existing.ownedAncestors : [])
     const directoryIdentities = { ...(existing?.mountPath === source.mountPath ? existing.directoryIdentities : undefined) }
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let pendingDirectories = existing?.pendingDirectories
@@ -1090,7 +1092,7 @@ async function materializeWorkspaceSourcesInternal(
         mountPath: source.mountPath,
         ownsMount,
         mountIdentity,
-        ownedAncestors,
+        ownedAncestors: [...ownedAncestors],
         ownedDirectories: [...ownedDirectories],
         directoryIdentities,
         status: "updating",
@@ -1114,9 +1116,14 @@ async function materializeWorkspaceSourcesInternal(
       if (source.mountPath) {
         await control.mutate(async () => {
           await store.mkdir(source.mountPath, { recursive: true, onCreate: (path, identity) => {
-            if (path !== source.mountPath) return
-            ownsMount = true
-            mountIdentity = identity
+            if (path === source.mountPath) {
+              ownsMount = true
+              mountIdentity = identity
+            }
+            else {
+              ownedAncestors.add(path)
+              if (identity) directoryIdentities[path] = identity
+            }
           } })
         })
       }
@@ -1250,7 +1257,7 @@ async function materializeWorkspaceSourcesInternal(
         mountPath: source.mountPath,
         ownsMount,
         mountIdentity,
-        ownedAncestors,
+        ownedAncestors: [...ownedAncestors],
         ownedDirectories: [...ownedDirectories],
         directoryIdentities,
         status: "ready",
@@ -1267,6 +1274,8 @@ async function materializeWorkspaceSourcesInternal(
         await control.mutate(() => writeSourceSnapshotMetadata(store, {
           ...existing,
           ownsMount,
+          mountIdentity,
+          ownedAncestors: [...ownedAncestors],
           ownedDirectories: [...ownedDirectories],
           directoryIdentities,
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
@@ -1316,7 +1325,7 @@ async function materializeWorkspaceSourcesInternal(
         mountPath: source.mountPath,
         ownsMount,
         mountIdentity,
-        ownedAncestors,
+        ownedAncestors: [...ownedAncestors],
         ownedDirectories: [...ownedDirectories],
         directoryIdentities,
         status: "error",
@@ -1331,7 +1340,7 @@ async function materializeWorkspaceSourcesInternal(
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? { ...existing, pendingDirectories, ownedDirectories: [...ownedDirectories], directoryIdentities, items: checkpointItemsMetadata }
+            ? { ...existing, pendingDirectories, ownsMount, mountIdentity, ownedAncestors: [...ownedAncestors], ownedDirectories: [...ownedDirectories], directoryIdentities, items: checkpointItemsMetadata }
             : source.materialize === "startup" ? { ...failed, status: "updating" as const, error: undefined } : undefined
         : failed
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))

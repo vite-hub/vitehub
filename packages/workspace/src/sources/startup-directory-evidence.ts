@@ -20,8 +20,12 @@ function ancestors(path: string) {
 // Capture before removal. A checkpoint may run after a user has recreated and
 // removed the directory, so its time of publication cannot prove ownership.
 export async function captureStartupDirectoryRemoval(store: WorkspaceStore, path: string, baseline: string | undefined) {
+  return { baseline, mutations: await captureStartupPathMutations(store, path) }
+}
+
+export async function captureStartupPathMutations(store: WorkspaceStore, path: string) {
   const keys = [mutationKey(path, "path"), ...ancestors(path).map(parent => mutationKey(parent, "tree"))]
-  return { baseline, mutations: await Promise.all(keys.map(async key => await store.getMeta?.(key) ?? null)) }
+  return await Promise.all(keys.map(async key => await store.getMeta?.(key) ?? null))
 }
 
 export async function removedStartupDirectoryMatches(store: WorkspaceStore, workspaceName: string | undefined, path: string, baseline: string) {

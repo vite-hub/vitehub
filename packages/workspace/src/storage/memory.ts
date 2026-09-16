@@ -1,4 +1,6 @@
-import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
+import { isDeepStrictEqual } from "node:util"
+
+import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
@@ -65,6 +67,21 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       const current = this.#nodes.get(normalized)
       assertWorkspaceDigest(normalized, ifDigest, current?.type === "file" ? (await this.#entry(normalized, current)).digest : undefined)
       this.#writeFile(normalized, file)
+    })
+  }
+
+  async compareAndSwapFile(path: string, expected: WorkspaceFile, replacement: WorkspaceFile | undefined): Promise<void> {
+    await this.#mutate(async () => {
+      const normalized = normalizeWorkspacePath(path)
+      const current = this.#nodes.get(normalized)
+      if (current?.type !== "file"
+        || await sha256(current.content || "") !== await sha256(expected.content)
+        || current.mediaType !== expected.mediaType
+        || !isDeepStrictEqual(current.metadata, expected.metadata)) {
+        throw workspaceConflict(`[vitehub] Workspace file changed before compensation: ${normalized}.`)
+      }
+      if (replacement) this.#writeFile(normalized, replacement)
+      else this.#nodes.delete(normalized)
     })
   }
 
