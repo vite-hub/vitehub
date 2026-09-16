@@ -390,10 +390,10 @@ async function reconcilePromotedSourceSkills(
         const current = await readSourceFile(store, destination)
         if (!current || !await promotedFileMatches(current, promoted)) continue
         try {
-          await control.mutate(async () => {
-            if (existing) await writeFileConditional(destination, existing, promoted.digest)
-            else await store.rm(destination, { force: true, ifDigest: promoted.digest })
-          })
+          // Compensate committed writes even after cancellation or supersession.
+          // Digest conditions still protect concurrent replacements.
+          if (existing) await writeFileConditional(destination, existing, promoted.digest)
+          else await store.rm(destination, { force: true, ifDigest: promoted.digest })
         }
         catch (error) {
           if (!isWorkspaceConflict(error)) throw error

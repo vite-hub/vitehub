@@ -447,17 +447,19 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${root}/other.md`)).resolves.toBeUndefined()
   })
 
-  it.each([false, true].flatMap(existing => [false, true].map(replaceEarlier => ({ existing, replaceEarlier }))))("rolls back companion promotion races (existing: $existing, replace earlier: $replaceEarlier)", async ({ existing, replaceEarlier }) => {
+  it.each([false, true].flatMap(existing => [false, true].flatMap(replaceEarlier => ["none", "abort", "supersede"].map(cancellation => ({ existing, replaceEarlier, cancellation })))))("rolls back companion promotion races (existing: $existing, replace earlier: $replaceEarlier, cancellation: $cancellation)", async ({ existing, replaceEarlier, cancellation }) => {
     const store = createMemoryWorkspaceStore()
     const root = ".agents/skills/review"
     let version = "Original"
-    const view = createWorkspaceSourceView({ name: "companion-write-race", sources: {
+    const abort = new AbortController()
+    const definition = { name: "companion-write-race", sources: {
       portal: custom({
         materialize: "startup",
         async getKeys() { return [`${root}/SKILL.md`, `${root}/checks.md`, `${root}/other.md`] },
         async getItem(key) { return { key, content: `${version}: ${key}` } },
       }),
-    } }, store)
+    } }
+    const view = createWorkspaceSourceView(definition, store)
     if (existing) await view.materializeSources()
     version = "Updated"
     const write = store.writeFileConditional!.bind(store)
@@ -467,13 +469,17 @@ describe("lazy sources", () => {
         raced = true
         await store.writeFile(path, { path, content: "User checks" })
         if (replaceEarlier) await store.writeFile(`${root}/SKILL.md`, { path: `${root}/SKILL.md`, content: "User Skill" })
+        if (cancellation === "abort") abort.abort(new Error("promotion canceled"))
+        if (cancellation === "supersede") void invalidateWorkspaceSourceMaterialization(definition, store, ["portal"])
       }
       await write(path, file, digest)
     })
-    await view.materializeSources()
+    const result = view.materializeSources({ abortSignal: abort.signal })
+    if (cancellation === "none") await result
+    else await expect(result).rejects.toThrow(cancellation === "abort" ? "promotion canceled" : "superseded")
     expect(raced).toBe(true)
     const expectedSkill = replaceEarlier ? "User Skill" : existing ? `Original: ${root}/SKILL.md` : undefined
-    expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(expectedSkill)
+    await vi.waitFor(async () => expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(expectedSkill))
     expect((await store.readFile(`${root}/checks.md`))?.content).toBe("User checks")
     expect((await store.readFile(`${root}/other.md`))?.content).toBe(existing ? `Original: ${root}/other.md` : undefined)
     await view.materializeSources()

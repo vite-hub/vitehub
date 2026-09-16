@@ -498,7 +498,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
               const item = refreshedSnapshot?.items?.[file.path]
               if (!item?.materializedContentDigest) continue
               const current = await store.readFile(file.path)
-              if (current?.metadata?.source !== source.key || !await materializedFileMatches(current, item)) continue
+              const currentOwner = current?.metadata?.source
+              if (currentOwner !== undefined && currentOwner !== source.key || !await materializedFileMatches(current, item)) continue
               try {
                 if (store.writeFileConditional) await store.writeFileConditional(file.path, file, item.materializedContentDigest)
                 else recoveryError = workspaceError("[vitehub] Restoring a Workspace Source snapshot requires conditional writes.")
