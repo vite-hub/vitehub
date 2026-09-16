@@ -62,10 +62,11 @@ describe("lazy sources", () => {
       },
     }, store)
 
-    const path = ".agents/skills/review/SKILL.md"
-    if (operation === "readFile") await expect(view.readFile(path)).resolves.toBe("review skill")
+    const path = "AGENTS.md"
+    if (operation === "readFile") await expect(view.readFile(path)).resolves.toBe("instructions")
     else if (operation === "stat") await expect(view.stat(path)).resolves.toMatchObject({ type: "file" })
     else await expect(view.exists(path)).resolves.toBe(true)
+    await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({ content: "review skill" })
     await expect(view.readFile("shared.md")).resolves.toBe("first")
     await expect(view.exists("missing.md")).resolves.toBe(false)
   })
