@@ -67,3 +67,39 @@ it.each([
 it("excludes a Workspace alias used only in returned Agent settings", async () => {
   await expect(workspaceFor('const workspaceAgent = defineAgent({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ presets: { helper: workspaceAgent } }) })')).resolves.toBeUndefined()
 })
+
+it.each(["@vite-hub/agent/channels", "vite-hub/agent/channels"])("inspects local Channel constructors from %s", async (module) => {
+  for (const [imports, factory] of [
+    [`import { defineChannel } from "${module}"`, "defineChannel"],
+    [`import { defineChannel as channel } from "${module}"`, "channel"],
+    [`import * as channels from "${module}"`, "channels.defineChannel<Runtime>"],
+    [`import { defineChannel as channel } from "${module}"; const factory = channel`, "factory"],
+  ]) {
+    for (const inline of [true, false]) {
+      const value = `${factory}("custom", { capabilities: [storage] })`
+      const declaration = inline ? "" : `const custom = ${value};`
+      await expect(workspaceFor(`${imports}; const storage = defineCapability({ workspace: {} }); ${declaration} export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: ${inline ? value : "custom"} } }) })`)).resolves.toBe("support")
+    }
+  }
+})
+
+it.each([
+  'defineChannel => defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } })',
+  '() => { const defineChannel = () => ({}); return defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } }) }',
+])("honors shadowed Channel factories: %s", async (configure) => {
+  await expect(workspaceFor(`import { defineChannel } from "@vite-hub/agent/channels"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: ${configure} })`)).resolves.toBeUndefined()
+})
+
+it.each([
+  ["[...list]", true],
+  ["[plain, ...list]", true],
+  ["[...([...list])]", true],
+  ["[...empty]", false],
+  ["[...cycle]", false],
+])("follows spread Capability lists: %s", async (capabilities, workspace) => {
+  await expect(workspaceFor(`const storage = defineCapability({ workspace: {} }); const plain = defineCapability({ id: "plain" }); const list = [storage]; const empty = [plain]; const cycle = [...cycle]; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ${capabilities} }) })`)).resolves.toBe(workspace ? "support" : undefined)
+})
+
+it("does not trust another package's Channel constructor", async () => {
+  await expect(workspaceFor('import { defineChannel } from "other-package"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } }) })')).resolves.toBeUndefined()
+})

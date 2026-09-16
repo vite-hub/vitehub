@@ -86,6 +86,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   const importedNamespaces = new Set<string>()
   const importedAgentBindings = new Set<string>()
   const importedCapabilityBindings = new Set<string>()
+  const importedChannelBindings = new Set<string>()
+  const importedChannelNamespaces = new Set<string>()
   let exported: number | undefined
   let depth = 0
   for (let i = 0; i < tokens.length; i++) {
@@ -131,6 +133,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             }
             const moduleName = moduleToken?.slice(1, -1)
             if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") importedNamespaces.add(tokens[j + 1])
+            if (moduleName === "@vite-hub/agent/channels" || moduleName === "vite-hub/agent/channels") importedChannelNamespaces.add(tokens[j + 1])
             continue
           }
           if (!sawFrom && /^['"`]/.test(token)) { i = j; break }
@@ -144,11 +147,17 @@ function isWorkspaceAgentDefinition(source: string): boolean {
                   if (bindings[b] === "defineCapability") importedCapabilityBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
                 }
               }
+              if (moduleName === "@vite-hub/agent/channels" || moduleName === "vite-hub/agent/channels") {
+                const bindings = tokens.slice(i + 1, j)
+                for (let b = 0; b < bindings.length; b++) {
+                  if (bindings[b] === "defineChannel") importedChannelBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
+                }
+              }
               i = j; break
             }
             continue
           }
-          if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token)) imported.add(token)
+          if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token) && tokens[j + 1] !== "as") imported.add(token)
         }
       }
       if (["const", "let", "var"].includes(tokens[i])) {
@@ -287,6 +296,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   }
 
   function capabilityOwnsWorkspace(index: number, seen = new Set<number>()): boolean {
+    if (tokens[index] === "." && tokens[index + 1] === "." && tokens[index + 2] === ".") index += 3
     while (tokens[index] === "(") index++
     if (seen.has(index)) return false
     seen.add(index)
@@ -460,7 +470,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return result
   }
 
-  function agentCall(index: number): number | undefined {
+  function factoryCall(index: number, name: "defineAgent" | "defineChannel" = "defineAgent"): number | undefined {
     const reference = resolveReference(index)
     if (visibleDeclaration(reference) !== undefined || callbackParameters.some(scope =>
       reference >= scope.start && reference < scope.end && scope.names.has(tokens[reference]))) return undefined
@@ -481,8 +491,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       scope = scopeParents.get(scope)
     }
     const factory = tokens[reference]
-    if (factory !== "defineAgent" && !importedAgentBindings.has(factory) &&
-        !(importedNamespaces.has(factory) && tokens[reference + 1] === "." && tokens[reference + 2] === "defineAgent")) return undefined
+    const bindings = name === "defineAgent" ? importedAgentBindings : importedChannelBindings
+    const namespaces = name === "defineAgent" ? importedNamespaces : importedChannelNamespaces
+    if (!(factory === name && !imported.has(factory)) && !bindings.has(factory) &&
+        !(namespaces.has(factory) && tokens[reference + 1] === "." && tokens[reference + 2] === name)) return undefined
     let call = index + 1
     while (tokens[call] === ".") call += 2
     if (tokens[call] === "<") call = skipTypeArguments(call)
@@ -513,7 +525,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (["{", "(", "["].includes(token)) expressionDepth++
       if (["}", ")", "]"].includes(token)) expressionDepth--
     }
-    const call = agentCall(index)
+    const call = factoryCall(index)
     if (call === undefined) return false
     const options = properties(call + 1)
     const workspace = options.get("workspace")
@@ -546,7 +558,19 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     const channels = options.get("channels")
     if (channels !== undefined) {
       for (const channel of properties(channels).values()) {
-        const capabilities = properties(channel).get("capabilities")
+        let channelOptions = resolveReference(channel, new Set(), true)
+        const channelCall = factoryCall(channelOptions, "defineChannel")
+        if (channelCall !== undefined) {
+          // defineChannel(kind, options) contributes the options of this invocation.
+          let depth = 0
+          for (let i = channelCall + 1; i < tokens.length; i++) {
+            if (depth === 0 && tokens[i] === ")") break
+            if (depth === 0 && tokens[i] === ",") { channelOptions = i + 1; break }
+            if (["{", "(", "["].includes(tokens[i])) depth++
+            else if (["}", ")", "]"].includes(tokens[i])) depth--
+          }
+        }
+        const capabilities = properties(channelOptions).get("capabilities")
         if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
       }
     }
@@ -684,7 +708,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const token = tokens[i]
         const inCallbackScope = variableScope(i) === callbackScope
         const reference = resolveReference(i, new Set(), true)
-        if (inCallbackScope && agentCall(reference) !== undefined) {
+        if (inCallbackScope && factoryCall(reference) !== undefined) {
           let expressionStart = i
           while (tokens[expressionStart - 1] === "(") expressionStart--
           const expressionDepth = callbackDepth - (i - expressionStart)
