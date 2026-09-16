@@ -207,7 +207,7 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
     return memo.get(parent) as Record<string, unknown>
   }
   // SAFETY: activeChildren contains only partially built merged record objects.
-  if (child && activeChildren.has(child)) return activeChildren.get(child) as Record<string, unknown>
+  if (child && activeChildren.has(child) && Reflect.ownKeys(parent).length === 0) return activeChildren.get(child) as Record<string, unknown>
   // SAFETY: Object.create result is immediately populated as a property-key record.
   const result: Record<string | symbol, unknown> = Object.create(Object.getPrototypeOf(parent)) as Record<string | symbol, unknown>
   memo.set(parent, result)
