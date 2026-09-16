@@ -481,9 +481,18 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // expression (for example `return ok ? defineAgent(...) : ...`).
         // Property values in the returned definition are deeper still; even
         // when preceded by `:`, they are nested settings rather than results.
-        return depth === returnedDefinitionDepth ||
-          ((tokens[index - 1] === "?" || tokens[index - 1] === ":") &&
-            depth === returnedDefinitionDepth + 1)
+        if (depth === returnedDefinitionDepth) return true
+        if (depth !== returnedDefinitionDepth + 1 || tokens[index - 1] !== ":") return false
+        // A colon inside the returned Agent's settings is not a conditional
+        // branch. Only retain it when a matching top-level `?` precedes it.
+        let nested = 0
+        for (let j = index - 2; j >= bodyStart; j--) {
+          if (["}", ")", "]"].includes(tokens[j])) nested++
+          else if (["{", "(", "["].includes(tokens[j])) { if (nested > 0) nested--; else break }
+          else if (tokens[j] === "?" && nested === 0) return true
+          else if (tokens[j] === ";" && nested === 0) break
+        }
+        return false
       })
       returnedDefinitions.splice(0, returnedDefinitions.length, ...returnedCandidates)
       if (returnedDefinition >= 0) callbackDefinition = returnedDefinition
