@@ -196,7 +196,7 @@ export class PullRequestInbox {
       // and inline review comments are evidence regardless of reviewer name.
       const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
       const commentBody = String(payload.comment?.body ?? '')
-      const marked = commentBody.startsWith('<!-- vitehub-agent-activity:') || commentBody.startsWith('<!-- vitehub-babysitter-repair:')
+      const marked = commentBody.startsWith('<!-- vitehub-agent-activity:')
       const activity = marked && this.activityAuthors.has(commentAuthor)
       // Only authenticated activity markers are transport records. A public
       // marker on an external comment must remain actionable feedback.
