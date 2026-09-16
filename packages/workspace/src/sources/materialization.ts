@@ -128,6 +128,7 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
   const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source)
   if (meta?.status !== "ready" || meta.configHash !== configHash) return false
   if (verifyOwnership) {
+    if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
     for (const path of Object.keys(meta.items || {})) {
       const stat = await store.stat(path)
       if (stat?.type !== "file") return false
@@ -424,8 +425,9 @@ async function reconcileRemovedStartupSourcesInternal(
     for (const path of previousPaths) {
       const file = await store.readFile(path)
       if (!file) continue
-      if (file.metadata?.workspaceSourceOwner !== workspace) continue
-      const owner = file.metadata?.source
+      const durableOwner = await readWorkspaceFileOwner(store, path)
+      if (file.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) continue
+      const owner = file.metadata?.source ?? durableOwner?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
       // Persisted metadata does not prove that externally edited content is ours.
       if ((await resolveWorkspaceStoreTarget(store))?.provider === "local" && snapshot?.items
