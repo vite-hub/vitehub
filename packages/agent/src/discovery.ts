@@ -542,8 +542,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       // Resolve locally declared capability aliases instead of relying on
       // identifier naming conventions. A capability whose definition carries
       // a Workspace contribution promotes the configured Agent at runtime.
-      const capabilityNames = [...tail.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)].map((match) => match[1])
-      for (const name of capabilityNames) {
+      const capabilityNames = tokens.slice(start, end).filter((token) => /^[A-Za-z_$][\w$]*$/.test(token))
+      for (const name of new Set(capabilityNames)) {
         // Follow locally bound capabilities through their definition rather than
         // relying on an identifier naming convention. Keep the scan bounded to
         // the initializer so unrelated later declarations cannot affect it.
@@ -567,7 +567,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             if (["(", "{", "["].includes(tokens[cursor])) depth++
             else if ([")", "}", "]"].includes(tokens[cursor]) && --depth === 0) break
           }
-          if (cursor < start) return /\bworkspace\s*:/.test(tokens.slice(i, cursor + 1).join(" "))
+          if (cursor < start && /\bworkspace\s*:/.test(tokens.slice(i, cursor + 1).join(" "))) return true
         }
       }
     }
