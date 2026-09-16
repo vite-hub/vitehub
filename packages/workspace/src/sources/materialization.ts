@@ -142,6 +142,10 @@ export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: Reso
 }
 
 async function sourceSnapshotFilesMatch(store: WorkspaceStore, snapshot: SourceSnapshotMetadata | undefined) {
+  if (snapshot?.ownsMount && snapshot.mountPath) {
+    const mount = await store.stat(snapshot.mountPath)
+    if (mount?.type !== "directory" || (snapshot.mountIdentity && mount.directoryIdentity !== snapshot.mountIdentity)) return false
+  }
   for (const [path, item] of Object.entries(snapshot?.items || {})) {
     let file
     try {
@@ -212,11 +216,13 @@ async function reconcilePromotedSourceSkills(
   control: MaterializationControl,
   workspaceName?: string,
 ) {
-  if (!store.getMeta || !store.setMeta) return
+  if (!store.getMeta || !store.setMeta || !store.writeFileConditional) return
+  const writeFileConditional = store.writeFileConditional.bind(store)
   const previousValue = await store.getMeta(`${promotedSourceSkillsMetaKey}:${workspaceName || "default"}`)
   const previous = hasRuntimeType(previousValue, "object") && previousValue !== null
     ? Object.fromEntries(Object.entries(previousValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
     : {}
+  const incompleteSources = new Set<string>()
   const selectedSkills = new Map<string, { paths: string[], source: string }>()
   // Keep promotion aligned with Workspace source precedence: more-specific
   // mounts win, with the source key only breaking ties.
@@ -228,7 +234,10 @@ async function reconcilePromotedSourceSkills(
       const currentHash = await sourceConfigHash(source)
       if (snapshot.configHash !== currentHash) continue
     }
-    if (!snapshot || !["ready", "updating", "error"].includes(snapshot.status)) continue
+    if (!snapshot || snapshot.status !== "ready") {
+      incompleteSources.add(source.key)
+      continue
+    }
     const pathsBySkill = new Map<string, Map<typeof sourceSkillRoots[number], string[]>>()
     for (const sourcePath of Object.keys(snapshot.items || {}).sort()) {
       const promotion = sourceSkillPromotion(sourcePath, source.mountPath)
@@ -271,9 +280,9 @@ async function reconcilePromotedSourceSkills(
     if (existing && await sha256(existing.content) !== prior.digest) retainedSkills.add(destinationMatch[1])
   }
 
-  const next: Record<string, PromotedSourceSkillFile> = Object.fromEntries(Object.entries(previous).filter(([path]) => {
+  const next: Record<string, PromotedSourceSkillFile> = Object.fromEntries(Object.entries(previous).filter(([path, prior]) => {
     const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
-    return destinationMatch && retainedSkills.has(destinationMatch[1])
+    return incompleteSources.has(prior.source) || (destinationMatch && retainedSkills.has(destinationMatch[1]))
   }))
   const conflictedDestinations = new Set<string>()
   for (const [destination, candidate] of candidates) {
@@ -291,12 +300,7 @@ async function reconcilePromotedSourceSkills(
     try {
       await control.mutate(async () => {
         await store.mkdir(posix.dirname(destination), { recursive: true })
-        if (store.writeFileConditional) {
-          await store.writeFileConditional(destination, { ...sourceFile, path: destination, metadata }, expectedDigest)
-        }
-        else {
-          await store.writeFile(destination, { ...sourceFile, path: destination, metadata })
-        }
+        await writeFileConditional(destination, { ...sourceFile, path: destination, metadata }, expectedDigest)
       })
     }
     catch (error) {
@@ -1004,6 +1008,7 @@ async function materializeWorkspaceSourcesInternal(
           ...metadata,
           ...entry.metadata,
           source: source.key,
+          sourceMaterialize: source.materialize,
         })
         const missingDirectories: string[] = []
         for (const directory of parentDirectoryPaths(path)) {
