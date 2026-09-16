@@ -75,6 +75,7 @@ it.each([
   ["parameter shadows imported factory", 'configure: make => make({ workspace: {} })', false],
   ["local shadows imported factory", 'configure: () => { const make = options => options; return make({ workspace: {} }) }', false],
   ["function shadows imported factory", 'configure: () => { function make(options) { return options }; return make({ workspace: {} }) }', false],
+  ["named function expression does not shadow factory", 'configure: () => { const unused = function make() {}; return make({ workspace: {} }) }', true],
   ["Agent value is not a factory alias", 'configure: () => { const factory = make({}); return factory({ workspace: {} }) }', false],
   ["local factory alias", 'configure: () => { const factory = make; return factory({ workspace: {} }) }', true],
   ["nested factory aliases", 'configure: () => { const factory = make; const create = factory; return create({ workspace: {} }) }', true],

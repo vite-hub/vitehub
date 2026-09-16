@@ -471,8 +471,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (reference !== index && tokens[identityEnd] === "(") return undefined
     let scope = tokenScopes[reference]
     while (true) {
-      if (tokens.some((token, declaration) => (token === "function" || token === "class") &&
-          tokens[declaration + 1] === tokens[reference] && tokenScopes[declaration] === scope)) return undefined
+      if (tokens.some((token, declaration) => {
+        if (token !== "function" && token !== "class") return false
+        const preceding = tokens[declaration - 1] === "async" ? declaration - 2 : declaration - 1
+        if (["=", "(", "return", ":", ",", ">"].includes(tokens[preceding])) return false
+        return tokens[declaration + 1] === tokens[reference] && tokenScopes[declaration] === scope
+      })) return undefined
       if (scope === undefined) break
       scope = scopeParents.get(scope)
     }
