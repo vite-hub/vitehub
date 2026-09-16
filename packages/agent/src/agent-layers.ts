@@ -194,7 +194,9 @@ function mergePresetOptions(parent: Record<string, unknown>, child?: Record<stri
 }
 
 function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>): Record<string, unknown> {
-  if (memo.has(parent)) {
+  // A parent may be merged with multiple distinct child overrides. Reusing a
+  // parent-only memo entry would apply the first child to every occurrence.
+  if (!child && memo.has(parent)) {
     // SAFETY: memo stores only merged record objects.
     return memo.get(parent) as Record<string, unknown>
   }
