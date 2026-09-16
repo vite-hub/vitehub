@@ -264,9 +264,12 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     for (const key of Reflect.ownKeys(value)) {
       if (key === "length") continue
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
-      if (descriptor && "value" in descriptor) {
-        Object.defineProperty(clone, key, { ...descriptor, value: clonePresetOption(descriptor.value, memo, active) })
+      if (!descriptor) continue
+      if ("value" in descriptor) {
+        // SAFETY: Data descriptors contain arbitrary option values.
+        descriptor.value = clonePresetOption(descriptor.value as unknown, memo, active)
       }
+      Object.defineProperty(clone, key, descriptor)
     }
     return clone
   }

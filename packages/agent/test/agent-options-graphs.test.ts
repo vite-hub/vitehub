@@ -95,3 +95,22 @@ it("preserves option descriptors without invoking accessors during extension", (
   expect(extended.options.nested.value).toBe(2)
   expect(extended.options.sibling).toBe(2)
 })
+
+it("preserves array accessors in callback and public option copies", () => {
+  const getter = vi.fn(() => 7)
+  const setter = vi.fn((_value: number) => {})
+  const entries = [1, 2]
+  Object.defineProperty(entries, "0", { get: getter, set: setter, enumerable: true, configurable: true })
+  Object.defineProperty(entries, "hidden", { get: getter, enumerable: false })
+  const configure = vi.fn((_options: { entries: number[] }) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options: { entries }, configure })
+  const extended = defineAgent({ extends: preset, options: {} })
+  expect(getter).not.toHaveBeenCalled()
+  expect(setter).not.toHaveBeenCalled()
+  for (const options of [preset.options, extended.options, ...configure.mock.calls.map(([options]) => options)]) {
+    expect(options.entries).not.toBe(entries)
+    expect(Object.getOwnPropertyDescriptor(options.entries, "0")).toMatchObject({ get: getter, set: setter, enumerable: true })
+    expect(Object.getOwnPropertyDescriptor(options.entries, "hidden")).toMatchObject({ get: getter, enumerable: false })
+    expect(options.entries[1]).toBe(2)
+  }
+})
