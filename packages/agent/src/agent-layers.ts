@@ -263,6 +263,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       // SAFETY: cloning an ArrayBuffer yields an ArrayBuffer.
       // SAFETY: clonePresetOption returns the same built-in type for ArrayBuffer inputs.
       const clonedBacking = clonePresetOption(sourceBacking, memo) as ArrayBuffer
+      // SAFETY: Node's Buffer binding is present in this branch and accepts the cloned backing range.
       const clone = (globalThis as { Buffer: typeof Buffer }).Buffer.from(clonedBacking, sourceOffset, sourceLength)
       memo.set(value, clone)
       return clone
