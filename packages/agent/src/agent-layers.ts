@@ -271,6 +271,8 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       }
       Object.defineProperty(clone, key, descriptor)
     }
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length")
+    if (lengthDescriptor) Object.defineProperty(clone, "length", lengthDescriptor)
     return clone
   }
   if (value instanceof Date) { const clone = new Date(value.getTime()); memo.set(value, clone); return clone }

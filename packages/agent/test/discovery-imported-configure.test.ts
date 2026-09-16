@@ -125,11 +125,7 @@ it("preserves local parent shadowing and ignores unselected imported parents", a
 })
 
 it.each([
-  ["parameter shadows imported factory", 'configure: make => make({ workspace: {} })', false],
-  ["local shadows imported factory", 'configure: () => { const make = options => options; return make({ workspace: {} }) }', false],
-  ["function shadows imported factory", 'configure: () => { function make(options) { return options }; return make({ workspace: {} }) }', false],
   ["named function expression does not shadow factory", 'configure: () => { const unused = function make() {}; return make({ workspace: {} }) }', true],
-  ["Agent value is not a factory alias", 'configure: () => { const factory = make({}); return factory({ workspace: {} }) }', false],
   ["local factory alias", 'configure: () => { const factory = make; return factory({ workspace: {} }) }', true],
   ["nested factory aliases", 'configure: () => { const factory = make; const create = factory; return create({ workspace: {} }) }', true],
   ["nested unused helper", 'configure: () => { function unused() { return make({ workspace: {} }) } const plain = make({}); return plain }', false],
@@ -138,4 +134,23 @@ it.each([
 ])("discovers returned Agent factories: %s", async (_name, settings, workspace) => {
   const definitions = await discover(`import { defineAgent as make } from "@vite-hub/agent"; export default defineAgent({ options: {}, ${settings} })`)
   expect(definitions[0]?.workspace).toBe(workspace ? "notes" : undefined)
+})
+
+it.each([
+  'configure: () => { const build = () => defineAgent({ workspace: {} }); return build() }',
+  'configure: () => { function build() { return defineAgent({ workspace: {} }) }; return build() }',
+  'configure: () => { const build = () => defineAgent({ workspace: {} }); return flag ? defineAgent({}) : build() }',
+  'configure: make => make({ workspace: {} })',
+  'configure: () => { const make = options => options; return make({ workspace: {} }) }',
+  'configure: () => { function make(options) { return options }; return make({ workspace: {} }) }',
+  'configure: () => { const factory = make({}); return factory({ workspace: {} }) }',
+])("rejects opaque configure result factories: %s", async (settings) => {
+  const source = `import { defineAgent as make } from "@vite-hub/agent"; export default defineAgent({ options: {}, ${settings} })`
+  await expect(discover(source)).rejects.toThrow("Agent Workspace discovery cannot inspect a configure result factory")
+  const definitions = await discover(source.replace("options: {}", "options: {}, workspace: {}"))
+  expect(definitions[0]?.workspace).toBe("notes")
+})
+
+it("rejects a module-local helper returned by an expression callback", async () => {
+  await expect(discover('const build = () => defineAgent({ workspace: {} }); export default defineAgent({ options: {}, configure: () => build() })')).rejects.toThrow("Agent Workspace discovery cannot inspect a configure result factory")
 })

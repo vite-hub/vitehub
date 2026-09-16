@@ -368,7 +368,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (tokens[capabilityCall] === "<") capabilityCall = skipTypeArguments(capabilityCall)
     if (tokens[capabilityCall] === "(") {
       const options = properties(capabilityCall + 1)
-      if (options.has("workspace")) return true
+      const workspace = options.get("workspace")
+      if (workspace !== undefined && tokens[resolveReference(workspace)] !== "undefined") return true
       const nested = options.get("capabilities")
       return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
     }
@@ -578,25 +579,21 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     const options = properties(call + 1)
     const workspace = options.get("workspace")
     if (workspace !== undefined && tokens[resolveReference(workspace)] !== "undefined") {
-      const value = resolveReference(workspace)
-      if (tokens[value] === "{") {
-        // Named Workspace objects are references. The name can come from
-        // configure options, so discovery must not require a string literal.
-        const workspaceProperties = properties(value)
-        if (workspaceProperties.has("name")) return false
+      function workspaceOwnsDefinition(index: number): boolean {
+        const value = resolveReference(index)
+        const branches = conditionalBranches(value)
+        if (branches) return branches.some(workspaceOwnsDefinition)
+        if (tokens[value] === "{") {
+          // Named Workspace objects are references, including option-derived names.
+          return !properties(value).has("name")
+        }
+        if (tokens[value] === "undefined" || /^["'`]/.test(tokens[value] ?? "")) return false
+        // Workspace definitions and unresolved configuration bindings own storage.
         return true
       }
-      if (tokens[value] === "defineWorkspace") return true
-      // Imported Workspace configurations cannot be resolved to a local
-      // declaration, but they are valid runtime values and therefore imply
-      // that this Agent owns a Workspace.
-      if (imported.has(tokens[value])) return true
-      if (/^["'`]/.test(tokens[value] ?? "")) return false
-      // An explicit Workspace value (including a string reference or an
-      // unresolved imported binding) overrides any preset Workspace. Do not
-      // fall through to preset lookup when the child supplied `workspace`.
-      return true
+      return workspaceOwnsDefinition(workspace)
     }
+
     const capabilities = options.get("capabilities")
     if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
     const channels = options.get("channels")
@@ -752,7 +749,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const token = tokens[i]
         const inCallbackScope = variableScope(i) === callbackScope
         const reference = resolveReference(i, new Set(), true)
-        if (inCallbackScope && factoryCall(reference) !== undefined) {
+        let callEnd = reference + 1
+        while (tokens[callEnd] === ".") callEnd += 2
+        if (tokens[callEnd] === "<") callEnd = skipTypeArguments(callEnd)
+        const opaqueCall = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "") && tokens[callEnd] === "("
+          && conditionalBranches(reference) === undefined
+        if (inCallbackScope && (factoryCall(reference) !== undefined || opaqueCall)) {
           let expressionStart = i
           while (tokens[expressionStart - 1] === "(") expressionStart--
           const expressionDepth = callbackDepth - (i - expressionStart)
@@ -844,6 +846,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       }
       // Only callback results contribute ownership. Inspect their Capability
       // values structurally, never property keys or unrelated settings.
+      for (const index of returnedDefinitions) {
+        if (factoryCall(resolveReference(index, new Set(), true)) === undefined) {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a configure result factory. Return a discoverable defineAgent() call, or add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
+        }
+      }
       if (returnedDefinitions.some((index) => ownsWorkspace(index, new Set(seen)))) return true
     }
     if (preset === undefined || registry === undefined) return false

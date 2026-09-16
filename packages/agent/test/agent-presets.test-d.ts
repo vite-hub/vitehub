@@ -221,3 +221,26 @@ it("replaces the whole Capability value when either layer uses a resolver", () =
   const explicit = defineAgent({ extends: preset, workspace: {}, capabilities: () => [plain] })
   expectTypeOf(explicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
 })
+
+it("requires complete method-bearing option values", () => {
+  class Client {
+    constructor(public endpoint: string) {}
+    connect() { return this.endpoint }
+  }
+  const preset = defineAgent({
+    options: { client: new Client("default"), nested: { client: new Client("nested"), enabled: true }, callback: (): boolean => true },
+    configure: options => {
+      expectTypeOf(options.client.connect()).toEqualTypeOf<string>()
+      return defineAgent({ driver: "codex" })
+    },
+  })
+  defineAgent({ extends: preset, options: { client: new Client("override") } })
+  defineAgent({ extends: preset, options: { nested: { client: new Client("override") } } })
+  defineAgent({ extends: preset, options: { callback: () => false } })
+  // @ts-expect-error Class replacements must include their methods.
+  defineAgent({ extends: preset, options: { client: { endpoint: "override" } } })
+  // @ts-expect-error Nested class replacements must include their methods.
+  defineAgent({ extends: preset, options: { nested: { client: { endpoint: "override" } } } })
+  // @ts-expect-error Named preset selection uses the same complete instance contract.
+  defineAgent({ preset: "client", presets: { client: preset }, options: { client: { endpoint: "override" } } })
+})

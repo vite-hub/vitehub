@@ -8,6 +8,8 @@ it.each([
   "{ name: options.workspaceName }",
   "{ name: getWorkspaceName(options) }",
   "{ name: 'shared' }",
+  "options.prod ? { name: 'prod' } : { name: 'dev' }",
+  "options.prod ? 'prod' : 'dev'",
 ])("keeps configured Workspace references separate from owned storage: %s", async (workspace) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-discovery-reference-"))
   try {
@@ -28,6 +30,11 @@ it.each([
 })
 
 it.each([
+  ["condition helper is not a callback result", "return enabled() ? defineAgent({}) : defineAgent({})", false],
+  ["undefined Capability Workspace stays plain", "const plain = defineCapability({ id: 'plain', workspace: undefined }); return defineAgent({ capabilities: [plain] })", false],
+  ["aliased undefined Capability Workspace stays plain", "const omitted = undefined; const plain = defineCapability({ id: 'plain', workspace: omitted }); return defineAgent({ capabilities: [plain] })", false],
+  ["undefined Capability preserves nested ownership", "const wrapper = defineCapability({ id: 'wrapper', workspace: undefined, capabilities: [storage] }); return defineAgent({ capabilities: [wrapper] })", true],
+  ["conditional owned Workspace remains owned", "return defineAgent({ workspace: options.prod ? { name: 'prod' } : {} })", true],
   ["undefined Workspace stays plain", "return defineAgent({ driver: 'codex', workspace: undefined })", false],
   ["undefined Workspace keeps Capability ownership", "return defineAgent({ workspace: undefined, capabilities: [storage] })", true],
   ["later var shadows module", "return defineAgent({ capabilities: [storage] }); var storage = defineCapability({ id: 'plain' })", false],

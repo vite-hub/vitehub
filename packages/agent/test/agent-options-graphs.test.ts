@@ -114,3 +114,38 @@ it("preserves array accessors in callback and public option copies", () => {
     expect(options.entries[1]).toBe(2)
   }
 })
+
+it("preserves non-writable array length in callback and public option copies", () => {
+  const entries = [1, , 3]
+  Object.defineProperty(entries, "length", { writable: false })
+  const configure = vi.fn((_options: { entries: (number | undefined)[] }) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options: { entries }, configure })
+  const extended = defineAgent({ extends: preset, options: {} })
+  const replaced = defineAgent({ extends: preset, options: { entries } })
+  for (const options of [preset.options, extended.options, replaced.options, ...configure.mock.calls.map(([options]) => options)]) {
+    expect(options.entries).not.toBe(entries)
+    expect(options.entries).toEqual(entries)
+    expect(1 in options.entries).toBe(false)
+    expect(Object.getOwnPropertyDescriptor(options.entries, "length")).toEqual(Object.getOwnPropertyDescriptor(entries, "length"))
+    expect(() => options.entries.push(4)).toThrow(TypeError)
+  }
+})
+
+it("replaces class option values with complete instances", () => {
+  class Client {
+    constructor(public endpoint: string) {}
+    connect() { return this.endpoint }
+  }
+  const initial = new Client("default")
+  const replacement = new Client("override")
+  const configure = vi.fn((options: { client: Client }) => {
+    expect(options.client.connect()).toBe(options.client.endpoint)
+    return defineAgent({ driver: "codex" })
+  })
+  const preset = defineAgent({ options: { client: initial }, configure })
+  const extended = defineAgent({ extends: preset, options: { client: replacement } })
+  expect(preset.options.client).toBe(initial)
+  expect(extended.options.client).toBe(replacement)
+  expect(configure.mock.calls.at(-1)![0].client).toBe(replacement)
+  expect(extended.options.client.connect()).toBe("override")
+})
