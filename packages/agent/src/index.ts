@@ -2155,17 +2155,25 @@ declare const configuredAgentWorkspace: unique symbol
 
 type ConfiguredWorkspaceState<TDefinition> = TDefinition extends { [configuredAgentWorkspace]: infer TState }
   ? TState
-  : { workspace: TDefinition extends { __vitehubWorkspaceAgent: true } ? true : false, capabilities: never, channels: {} }
+  : { workspace: TDefinition extends { __vitehubWorkspaceAgent: true } ? true : false, capabilities: undefined, channels: {} }
 
 type ConfiguredCapabilityMembers<TCapabilities> = TCapabilities extends readonly (infer TCapability)[] ? TCapability : never
 
-type MergeConfiguredCapabilities<TParent, TChild> = Exclude<TParent, { id: TChild extends { id: infer TId } ? TId : never }> | TChild
+type MergeConfiguredCapabilityMembers<TParent, TChild> = Exclude<TParent, { id: TChild extends { id: infer TId } ? TId : never }> | TChild
+
+type MergeConfiguredCapabilities<TParent, TChild> = TChild extends undefined
+  ? TParent
+  : TParent extends readonly unknown[]
+    ? TChild extends readonly unknown[]
+      ? readonly MergeConfiguredCapabilityMembers<ConfiguredCapabilityMembers<TParent>, ConfiguredCapabilityMembers<TChild>>[]
+      : TChild
+    : TChild
 
 type MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChannels> =
   ConfiguredWorkspaceState<TDefinition> extends { workspace: infer TExplicit, capabilities: infer TParentCapabilities, channels: infer TParentChannels }
     ? {
         workspace: TWorkspace extends WorkspaceAgentWorkspaceConfig ? true : TExplicit
-        capabilities: MergeConfiguredCapabilities<TParentCapabilities, ConfiguredCapabilityMembers<TCapabilities>>
+        capabilities: MergeConfiguredCapabilities<TParentCapabilities, TCapabilities>
         channels: TChannels extends object ? Omit<TParentChannels, keyof TChannels> & TChannels : TParentChannels
       }
     : never
@@ -2173,7 +2181,7 @@ type MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChan
 type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels,
   TState = MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChannels>> =
   TState extends { workspace: infer TExplicit, capabilities: infer TMergedCapabilities, channels: infer TMergedChannels }
-    ? (true extends TExplicit | ConfiguredCapabilitiesWorkspace<readonly TMergedCapabilities[]> | ConfiguredChannelsWorkspace<TMergedChannels>
+    ? (true extends TExplicit | ConfiguredCapabilitiesWorkspace<TMergedCapabilities> | ConfiguredChannelsWorkspace<TMergedChannels>
         ? ConfiguredWorkspaceDefinition<Omit<TExplicit extends true ? TDefinition : AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>
         : ConfiguredContextDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>)
       & { [configuredAgentWorkspace]: TState }

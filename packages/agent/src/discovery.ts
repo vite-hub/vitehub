@@ -300,7 +300,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       }
       return false
     }
-    let capabilityCall = tokens[index] === "defineCapability" || importedCapabilityBindings.has(tokens[index])
+    const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
+    const binding = visibleDeclaration(index)
+    let capabilityCall = binding !== undefined || parameterScope ? -1 : tokens[index] === "defineCapability" || importedCapabilityBindings.has(tokens[index])
       ? index + 1
       : importedNamespaces.has(tokens[index]) && tokens[index + 1] === "." && tokens[index + 2] === "defineCapability"
         ? index + 3
@@ -313,8 +315,6 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
     }
     if (!/^[A-Za-z_$][\w$]*$/.test(tokens[index] ?? "")) return false
-    const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
-    const binding = visibleDeclaration(index)
     if (binding !== undefined) {
       // Later declarations shadow outer bindings before their initializer runs.
       if (binding > index) return false
@@ -650,8 +650,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       let returnExpression = false
       for (let i = bodyStart; i < callbackEnd; i++) {
         const token = tokens[i]
-        const isDefineAgent = token === "defineAgent" || importedAgentBindings.has(token) ||
-          (tokens[i + 1] === "." && tokens[i + 2] === "defineAgent" && importedNamespaces.has(token))
+        const reference = resolveReference(i)
+        const definition = tokens[reference]
+        const isDefineAgent = definition === "defineAgent" || importedAgentBindings.has(definition) ||
+          (tokens[reference + 1] === "." && tokens[reference + 2] === "defineAgent" && importedNamespaces.has(definition))
         if (isDefineAgent) {
           let expressionStart = i
           while (tokens[expressionStart - 1] === "(") expressionStart--

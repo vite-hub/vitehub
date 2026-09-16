@@ -45,3 +45,25 @@ it.each(["options", "(options)"])("preserves module Capabilities when the %s par
 it("preserves an unparenthesized callback parameter through callback aliases", async () => {
   await expect(workspaceFor('const options = {}; const storage = defineCapability({ workspace: {} }); const configure = options => defineAgent({ capabilities: [storage] }); const callback = configure; export default defineAgent({ options: {}, configure: callback })')).resolves.toBe("support")
 })
+
+it.each([
+  ['import { defineCapability as capability } from "@vite-hub/agent"', 'capability => defineAgent({ capabilities: [capability({ workspace: {} })] })'],
+  ['import * as hub from "@vite-hub/agent"', 'hub => defineAgent({ channels: { custom: { capabilities: [hub.defineCapability({ workspace: {} })] } } })'],
+  ['import { defineCapability as capability } from "@vite-hub/agent"', '() => { const capability = () => ({}); return defineAgent({ capabilities: [capability({ workspace: {} })] }) }'],
+  ['import * as hub from "@vite-hub/agent"', '() => { const hub = {}; return defineAgent({ capabilities: [hub.defineCapability({ workspace: {} })] }) }'],
+])("honors shadowed Capability factories: %s", async (imports, configure) => {
+  await expect(workspaceFor(`${imports}; export default defineAgent({ options: {}, configure: ${configure} })`)).resolves.toBeUndefined()
+})
+
+it.each([
+  '() => workspaceAgent',
+  '() => (workspaceAgent)',
+  '() => { return workspaceAgent }',
+  '() => { const local = workspaceAgent; return local }',
+])("follows returned Agent aliases: %s", async (configure) => {
+  await expect(workspaceFor(`const workspaceAgent = defineAgent({ workspace: {} }); export default defineAgent({ options: {}, configure: ${configure} })`)).resolves.toBe("support")
+})
+
+it("excludes a Workspace alias used only in returned Agent settings", async () => {
+  await expect(workspaceFor('const workspaceAgent = defineAgent({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ presets: { helper: workspaceAgent } }) })')).resolves.toBeUndefined()
+})

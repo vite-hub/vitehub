@@ -174,3 +174,28 @@ it("recomputes Workspace contributions returned directly by configure", () => {
   const explicit = defineAgent({ extends: explicitPreset, capabilities: [replacement] })
   expectTypeOf(explicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
 })
+
+it("replaces the whole Capability value when either layer uses a resolver", () => {
+  const workspace = defineCapability({ id: "workspace", workspace: {} })
+  const plain = defineCapability({ id: "plain", metadata: {} })
+  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [workspace] }) })
+  const retained = defineAgent({ extends: preset, capabilities: [] })
+  expectTypeOf(retained.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const replaced = defineAgent({ extends: preset, capabilities: () => [plain] })
+  // @ts-expect-error A resolver replaces all inherited Capabilities regardless of ID.
+  void replaced.__vitehubWorkspaceAgent
+  const asyncReplaced = defineAgent({ preset: "base", presets: { base: preset }, capabilities: async () => [plain] })
+  // @ts-expect-error Async resolvers use the same whole-value replacement.
+  void asyncReplaced.__vitehubWorkspaceAgent
+  const resolver = defineAgent({ extends: preset, capabilities: () => [workspace] })
+  // @ts-expect-error Resolver results do not statically promote the definition.
+  void resolver.__vitehubWorkspaceAgent
+  const unchanged = defineAgent({ extends: resolver })
+  // @ts-expect-error Preserving a resolver does not restore removed Workspace access.
+  void unchanged.__vitehubWorkspaceAgent
+  const array = defineAgent({ extends: unchanged, capabilities: [plain] })
+  // @ts-expect-error A static list replaces an inherited resolver instead of merging IDs.
+  void array.__vitehubWorkspaceAgent
+  const explicit = defineAgent({ extends: preset, workspace: {}, capabilities: () => [plain] })
+  expectTypeOf(explicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+})
