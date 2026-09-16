@@ -5,6 +5,29 @@ import { expect, it } from "vitest"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 
 it.each([
+  "{ name: options.workspaceName }",
+  "{ name: getWorkspaceName(options) }",
+  "{ name: 'shared' }",
+])("keeps configured Workspace references separate from owned storage: %s", async (workspace) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-discovery-reference-"))
+  try {
+    const folder = join(root, "server", "agents", "support")
+    await mkdir(join(folder, "workspace"), { recursive: true })
+    await writeFile(join(folder, "agent.ts"), `export default defineAgent({
+      options: { workspaceName: 'shared' },
+      configure: options => defineAgent({ workspace: ${workspace} }),
+    })`)
+    await writeFile(join(folder, "workspace", "agent.ts"), "export default defineAgent({ workspace: {} })")
+    expect(discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] })).toEqual([
+      expect.objectContaining({ name: "support", source: "server-agents", workspace: undefined }),
+      expect.objectContaining({ name: "support/workspace", source: "server-agent-workspace", workspace: "support/workspace" }),
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each([
   ["undefined Workspace stays plain", "return defineAgent({ driver: 'codex', workspace: undefined })", false],
   ["undefined Workspace keeps Capability ownership", "return defineAgent({ workspace: undefined, capabilities: [storage] })", true],
   ["later var shadows module", "return defineAgent({ capabilities: [storage] }); var storage = defineCapability({ id: 'plain' })", false],

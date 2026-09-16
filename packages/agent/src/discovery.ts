@@ -580,14 +580,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (workspace !== undefined && tokens[resolveReference(workspace)] !== "undefined") {
       const value = resolveReference(workspace)
       if (tokens[value] === "{") {
-        // A `{ name: "shared" }` value is a Workspace reference, not an
-        // owned Workspace definition. Runtime applies the same distinction.
+        // Named Workspace objects are references. The name can come from
+        // configure options, so discovery must not require a string literal.
         const workspaceProperties = properties(value)
-        const name = workspaceProperties.get("name")
-        if (name !== undefined) {
-          const nameValue = resolveReference(name)
-          if (/^(["\'`])/.test(tokens[nameValue] ?? "")) return false
-        }
+        if (workspaceProperties.has("name")) return false
         return true
       }
       if (tokens[value] === "defineWorkspace") return true
