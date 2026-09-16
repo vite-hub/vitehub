@@ -152,6 +152,27 @@ it("preserves custom array instances through configuration and extension", () =>
   expect(configure.mock.calls.at(-1)![0].nested.entries).toBe(replacement)
 })
 
+it("preserves custom Map instances through configuration and extension", () => {
+  class Entries extends Map<string, string> {
+    #key = "value"
+    summary() { return this.get(this.#key) }
+  }
+  const initial = new Entries([["value", "default"]])
+  const replacement = new Entries([["value", "override"]])
+  const configure = vi.fn((options: { nested: { entries: Entries } }) => {
+    expect(options.nested.entries.summary()).toBe(options.nested.entries.get("value"))
+    return defineAgent({ driver: "codex" })
+  })
+  const preset = defineAgent({ options: { nested: { entries: initial } }, configure })
+  const inherited = defineAgent({ extends: preset })
+  const extended = defineAgent({ extends: preset, options: { nested: { entries: replacement } } })
+  expect(preset.options.nested.entries).toBe(initial)
+  expect(inherited.options.nested.entries).toBe(initial)
+  expect(extended.options.nested.entries).toBe(replacement)
+  expect(configure.mock.calls.map(([options]) => options.nested.entries)).toEqual([initial, initial, replacement])
+  expect(configure.mock.calls.at(-1)![0].nested.entries).toBe(replacement)
+})
+
 it("replaces class option values with complete instances", () => {
   class Client {
     constructor(public endpoint: string) {}

@@ -378,6 +378,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (destructuredBindings.has(binding)) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect a destructured Capability binding. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
       }
+      if (tokens[memberCallEnd(index)] !== "(" && ([".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === "."))) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Capability member. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
+      }
       // Later declarations shadow outer bindings before their initializer runs.
       if (binding > index) return false
       let initializer = binding + 2
