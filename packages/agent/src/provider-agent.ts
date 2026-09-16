@@ -102,6 +102,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
+  root: string
   appendedContent?: string
   content?: Uint8Array
   directories: string[]
@@ -133,6 +134,7 @@ async function inspectGeneratedProviderFilePath(root: string, path: string) {
 async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
   const { directories, entry } = await inspectGeneratedProviderFilePath(root, path)
   const generated = {
+    root,
     content: entry?.isFile() ? await readFile(path) : undefined,
     directories,
     existed: entry !== undefined,
@@ -156,6 +158,8 @@ const providerSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"]
 
 async function hasSafeProviderPath(root: string, path: string): Promise<boolean> {
   let current = root
+  const rootEntry = await lstat(root).catch(() => undefined)
+  if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return false
   for (const segment of relative(root, path).split(/[\\/]/).filter(Boolean)) {
     current = join(current, segment)
     const entry = await lstat(current).catch(() => undefined)
@@ -198,7 +202,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
   const link = relative(dirname(target), source)
   try {
     await symlink(link, target, "dir")
-    return { directories, existed: false, ownedLink: link, path: target }
+    return { root, directories, existed: false, ownedLink: link, path: target }
   }
   catch (error) {
     // Windows may deny directory symlinks without Developer Mode or elevation.
@@ -206,7 +210,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
     if (isRuntimeRecord(error) && (error.code === "EPERM" || error.code === "EACCES")) {
       try {
         await cp(source, target, { recursive: true })
-        return { directories, existed: false, path: target, copiedBridgeSource: source }
+        return { root, directories, existed: false, path: target, copiedBridgeSource: source }
       }
       catch (copyError) {
         for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
@@ -242,6 +246,10 @@ async function materializeProviderSkillCompatibility(root: string): Promise<Gene
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  // The provider can replace parents after materialization. Leave redirected paths untouched.
+  if (!await hasSafeProviderPath(generated.root, dirname(generated.path))) return
+  if (generated.copiedBridgeSource !== undefined
+    && !await hasSafeProviderPath(generated.root, dirname(generated.copiedBridgeSource))) return
   if (generated.appendedContent !== undefined) {
     const entry = await lstat(generated.path).catch(() => undefined)
     if (entry?.isFile()) {

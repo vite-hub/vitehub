@@ -4652,6 +4652,59 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
+  it.each([false, true])("does not restore a Skill through a replaced parent with external file %s", async (existingTarget) => {
+    const threadId = "thread-workspace-symlinked-skill-file"
+    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-target-"))
+    const externalFile = join(external, "SKILL.md")
+    if (existingTarget) await writeFile(externalFile, "# External\n")
+    let root = ""
+    const skillPath = ".agents/skills/review/SKILL.md"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect((await lstat(join(root, skillPath))).isSymbolicLink()).toBe(false)
+        await rm(join(root, ".agents/skills/review"), { recursive: true })
+        await symlink(external, join(root, ".agents/skills/review"), "dir")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => {
+        expect(await readlink(join(root, ".agents/skills/review"))).toBe(external)
+        if (existingTarget) {
+          expect((await lstat(externalFile)).isFile()).toBe(true)
+          await expect(readFile(externalFile, "utf8")).resolves.toBe("# External\n")
+        }
+        else await expect(lstat(externalFile)).rejects.toMatchObject({ code: "ENOENT" })
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(join(root, skillPath, ".."), { recursive: true })
+        await symlink(externalFile, join(root, skillPath))
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, { workspace })
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "# Review\n", workspacePath: skillPath },
+    })
+
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+      expect(session.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      await rm(external, { force: true, recursive: true })
+    }
+  })
+
   it.each([false, true])("rejects colocated Skill materialization through Workspace symlinks with existing target %s", async (existingTarget) => {
     const threadId = "thread-workspace-symlinked-skills"
     const runtimeCount = createProviderRuntime.mock.calls.length
