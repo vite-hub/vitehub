@@ -2960,6 +2960,7 @@ async function* runProvider<
         ])
         if (timeout) clearTimeout(timeout)
         if (stopped) runtimeCleanupSettled = true
+        else cleanupTimedOut = true
         await releaseCodexCredentialHome(stopped
           ? deferredRuntimeFailure
           : agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver deferred runtime cleanup timed out." }))
