@@ -46,6 +46,30 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["readFile", "stat", "exists"] as const)("materializes sibling root startup Sources before the first %s", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "sibling-startup-point-read",
+      sources: {
+        instructions: custom({ materialize: "startup", mount: "", files: [
+          { path: "AGENTS.md", content: "instructions" },
+          { path: "shared.md", content: "first" },
+        ] }),
+        skills: custom({ materialize: "startup", mount: "", files: [
+          { path: ".agents/skills/review/SKILL.md", content: "review skill" },
+          { path: "shared.md", content: "second" },
+        ] }),
+      },
+    }, store)
+
+    const path = ".agents/skills/review/SKILL.md"
+    if (operation === "readFile") await expect(view.readFile(path)).resolves.toBe("review skill")
+    else if (operation === "stat") await expect(view.stat(path)).resolves.toMatchObject({ type: "file" })
+    else await expect(view.exists(path)).resolves.toBe(true)
+    await expect(view.readFile("shared.md")).resolves.toBe("first")
+    await expect(view.exists("missing.md")).resolves.toBe(false)
+  })
+
   it.each(["update", "remove"])("preserves legacy promoted skill ownership during source %s", async (action) => {
     const store = createMemoryWorkspaceStore()
     const destination = ".agents/skills/review/SKILL.md"

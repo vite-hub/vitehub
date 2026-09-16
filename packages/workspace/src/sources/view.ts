@@ -661,14 +661,17 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => !source.mountPath && source.materialize === "startup"))
   }
 
-  async function materializeRootSourceForPath(path: string) {
+  async function materializeRootSourceForPath(path: string, orderedStartup = false) {
     const rootSources = sources.filter(source => !source.mountPath)
-    // Reconcile removed startup Sources before probing any remaining lazy roots.
-    // Otherwise an unrelated lazy Source can mask stale files from a prior startup definition.
-    await materializeStartupSourcesInPrecedenceOrder([])
+    // Materialize startup roots together so a point read preserves their precedence.
+    // This also reconciles removed owners before probing remaining lazy roots.
+    if (orderedStartup) await materializeRootStartupSources()
+    else await materializeStartupSourcesInPrecedenceOrder([])
     for (const source of rootSources) {
-      await ensurePrepared(source.key)
-      await ensureMaterialized(source.key)
+      if (!orderedStartup || source.materialize !== "startup") {
+        await ensurePrepared(source.key)
+        await ensureMaterialized(source.key)
+      }
       const file = await store.stat(path)
       if (file?.metadata?.source === source.key) return source
     }
@@ -760,7 +763,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
-      await materializeRootSourceForPath(resolution.workspacePath)
+      await materializeRootSourceForPath(resolution.workspacePath, true)
       const file = await store.readFile(resolution.workspacePath)
       if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)
