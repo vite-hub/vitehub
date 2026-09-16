@@ -448,11 +448,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           const returned = returnExpression || tokens[i - 1] === "return"
           if (returned) {
             if (callbackDepth < returnedDefinitionDepth) {
-              returnedDefinitions.length = 0
               returnedDefinitionDepth = callbackDepth
               returnedDefinition = i
             }
-            if (callbackDepth === returnedDefinitionDepth) returnedDefinitions.push(i)
+            // Keep every call in the returned expression. Conditional branches
+            // may be nested in parentheses and therefore have different token
+            // depths, but each remains a possible callback result.
+            returnedDefinitions.push(i)
           } else if (!returned && returnedDefinition < 0 && callbackDepth < callbackDefinitionDepth) {
             callbackDefinition = i
             callbackDefinitionDepth = callbackDepth
