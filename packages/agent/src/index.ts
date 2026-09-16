@@ -2498,6 +2498,8 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   delete decorations.__vitehubAgentSettings
   // The rebuilt workspace definition owns the newly filled instruction template.
   delete decorations.__vitehubWorkspaceAgentOptions
+  const originalRun: unknown = decorations.run?.value
+  if (hasRuntimeType(originalRun, "function") && syntheticWorkspaceRun in originalRun) delete decorations.run
   delete decorations.options
   Reflect.deleteProperty(decorations, baseAgentResolve)
   Reflect.deleteProperty(decorations, baseAgentModel)
@@ -2551,7 +2553,7 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   registry: AgentRegistry<TContext> = agentRegistry as AgentRegistry<TContext>,
 ): Promise<AgentInput<TContext>> {
-  const loader = registry[name]
+  const loader = Object.hasOwn(registry, name) ? registry[name] : undefined
   if (!loader) {
     throw agentDiagnostics.AGENT_R0001({ name, available: Object.keys(registry).sort() })
   }

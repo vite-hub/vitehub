@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url"
+import { EventEmitter } from "node:events"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -96,7 +97,7 @@ describe("Eve extension capabilities", () => {
       file: id,
       server: {
         config: { root },
-        moduleGraph: { getModuleById: () => undefined },
+        moduleGraph: { idToModuleMap: new Map(), getModuleById: () => undefined },
       },
     })
     await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
@@ -105,20 +106,27 @@ describe("Eve extension capabilities", () => {
       join(root, "server", "agents", "other.ts"),
     )).resolves.toContain(`from "@vite-hub/agent/eve"`)
 
-    const watcherHandlers = new Map<string, (file: string) => void>()
+    const watcher = new EventEmitter()
     ;(plugin.config as unknown as (config: { agent: boolean }) => void)({ agent: false })
     await (plugin.configureServer as (server: unknown) => Promise<void>)({
+      config: { root, logger: { error: vi.fn() } },
       middlewares: { use: () => {} },
-      watcher: { on: (event: string, handler: (file: string) => void) => watcherHandlers.set(event, handler) },
+      moduleGraph: { idToModuleMap: new Map(), invalidateModule: vi.fn() },
+      watcher,
     })
     ;(plugin.config as unknown as (config: { agent: Record<string, never> }) => void)({ agent: {} })
     const otherId = join(root, "server", "agents", "other.ts")
-    watcherHandlers.get("unlink")?.(otherId)
-    await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
-      { parse: parseAst },
-      source,
-      id,
-    )).resolves.toContain(`from "@vite-hub/agent/eve"`)
+    watcher.emit("unlink", otherId)
+    try {
+      await expect((plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+        { parse: parseAst },
+        source,
+        id,
+      )).resolves.toContain(`from "@vite-hub/agent/eve"`)
+    }
+    finally {
+      await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+    }
   })
 
   it("detects Eve extensions in a factored static capabilities array", async () => {
@@ -1033,7 +1041,7 @@ describe("Eve extension capabilities", () => {
 
     await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
       file: join(root, "server", "agents", "inline.ts"),
-      server: { config: { root }, moduleGraph: { getModuleById: () => undefined } },
+      server: { config: { root }, moduleGraph: { idToModuleMap: new Map(), getModuleById: () => undefined } },
     })
     const factored = [
       `import { defineAgent } from "@vite-hub/agent"`,

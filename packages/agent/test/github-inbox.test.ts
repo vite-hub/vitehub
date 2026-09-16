@@ -80,6 +80,19 @@ test('own activity and issue comments do not wake PR agents; AI review does', t 
   post(inbox, 'ai', 'pull_request_review', { pull_request: pr(), review: { ...comment(), user: { login: 'pullfrog[bot]', type: 'Bot' } } })
   assert.equal(inbox.claim(1).length, 1)
 })
+test('trusted repair comments remain feedback without revoking the claim or waking completed work', t => {
+  const inbox = memory(t); inbox.seed(repository, pr()); const [claim] = inbox.claim(1); assert.ok(claim)
+  const repair = { ...comment(), body: '<!-- vitehub-babysitter-repair:7 --> Repaired the failure', user: { login: 'vitehub-bot[bot]', type: 'Bot' } }
+  assert.deepEqual(post(inbox, 'repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: repair }).queued, [])
+  assert.equal(inbox.get(repository, 7)?.comments['1']?.body, repair.body)
+  assert.equal(inbox.get(repository, 7)?.generation, claim.generation)
+  assert.ok(inbox.renew(claim, Date.now() + 60_000))
+  inbox.finish(claim, { text: 'wait' })
+  post(inbox, 'late-repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { ...repair, id: 2 } })
+  assert.equal(inbox.claim(1).length, 0)
+  post(inbox, 'untrusted-repair', 'issue_comment', { action: 'created', issue: { number: 7, pull_request: {} }, comment: { ...repair, id: 3, user: { login: 'other', type: 'User' } } })
+  assert.equal(inbox.claim(1).length, 1)
+})
 test('released claim is immediately reusable without handling the generation', t => {
   const inbox = memory(t); inbox.seed(repository, pr()); const [claim] = inbox.claim(1); assert.ok(claim)
   assert.ok(inbox.release(claim)); const [next] = inbox.claim(1); assert.ok(next)

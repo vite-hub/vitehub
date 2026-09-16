@@ -911,7 +911,7 @@ describe("agent Vite plugin", () => {
 
       await handleHotUpdate({
         file: join(root, "backend/agents/digest.ts"),
-        server: { config: { root }, moduleGraph: { getModuleById, invalidateModule } },
+        server: { config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
       expect(invalidateModule).toHaveBeenCalledWith(registryModule)
@@ -921,7 +921,7 @@ describe("agent Vite plugin", () => {
       invalidateModule.mockClear()
       await handleHotUpdate({
         file: join(root, "backend/agents/digest/skills/review/SKILL.md"),
-        server: { config: { root }, moduleGraph: { getModuleById, invalidateModule } },
+        server: { config: { root }, moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
       expect(invalidateModule).toHaveBeenCalledWith(registryModule)
@@ -949,7 +949,8 @@ describe("agent Vite plugin", () => {
       const configResolved = configResolvedHook as (config: { agent?: unknown; command: "serve"; plugins: never[]; root: string }) => Promise<void>
       await configResolved({ command: "serve", plugins: [], root })
       const generatedRouteModule = { id: "generated-route" }
-      const getModuleById = vi.fn((id: string) => (id === join(root, ".vitehub/agent/chat-webhook-route.ts") ? generatedRouteModule : undefined))
+      const modules = new Map([[join(root, ".vitehub/agent/chat-webhook-route.ts"), generatedRouteModule]])
+      const getModuleById = vi.fn((id: string) => modules.get(id))
       const invalidateModule = vi.fn()
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const handleHotUpdate = plugin.handleHotUpdate as (context: unknown) => Promise<void>
@@ -957,7 +958,7 @@ describe("agent Vite plugin", () => {
 
       await handleHotUpdate({
         file: join(agentRoot, "tone.md"),
-        server: { moduleGraph: { getModuleById, invalidateModule } },
+        server: { moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
       expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
@@ -966,7 +967,7 @@ describe("agent Vite plugin", () => {
       await rm(join(agentRoot, "instructions.md"))
       await handleHotUpdate({
         file: join(agentRoot, "instructions.md"),
-        server: { moduleGraph: { getModuleById, invalidateModule } },
+        server: { moduleGraph: { idToModuleMap: modules, getModuleById, invalidateModule } },
       })
 
       expect(invalidateModule).toHaveBeenCalledWith(generatedRouteModule)
