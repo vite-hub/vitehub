@@ -197,6 +197,7 @@ export class PullRequestInbox {
       const commentAuthor = String(payload.comment?.user?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
       const commentBody = String(payload.comment?.body ?? '')
       const marked = commentBody.startsWith('<!-- vitehub-agent-activity:')
+      const repairMarked = commentBody.startsWith('<!-- vitehub-babysitter-repair:')
       const activity = marked && this.activityAuthors.has(commentAuthor)
       // Only authenticated activity markers are transport records. A public
       // marker on an external comment must remain actionable feedback.
@@ -247,11 +248,11 @@ export class PullRequestInbox {
           changed = true
         }
         if (event === 'issue_comment') {
-          const feedback = !(marked && this.activityAuthors.has(commentAuthor))
+          const feedback = !activity
           if (feedback) upsert(s.comments, payload.comment)
           // Agent activity comments are self-generated transport records; they
           // must not advance the repair generation or revoke the active claim.
-          if (!feedback) changed = false
+          if (activity || repairMarked && this.activityAuthors.has(commentAuthor)) changed = false
         }
         if (event === 'pull_request_review_comment') { upsert(s.reviewComments, payload.comment); if (changed) s.feedbackRefresh = true }
         if (event === 'pull_request_review') { upsert(s.reviews, payload.review); if (changed) s.feedbackRefresh = true }
