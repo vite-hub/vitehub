@@ -91,6 +91,30 @@ test('three explicit no-progress completions stop regardless of result text, ret
   assert.equal(inbox.resetProgressBudget(repository, 7, 'a', 'Cannot reset an active claim'), false)
 })
 
+test('exhausted same-head deliveries persist feedback and closure without queueing stale work', t => {
+  const inbox = memory(t); inbox.seed(repository, pr())
+  for (let index = 0; index < 3; index++) {
+    wake(inbox, index)
+    inbox.finish(inbox.claim(1)[0]!, { text: 'waiting', progress: { kind: 'no-progress' } })
+  }
+  const feedback = {
+    repository: { full_name: repository }, issue: { number: 7, pull_request: {} },
+    comment: { id: 9, body: 'New feedback after exhaustion' },
+  }
+  assert.deepEqual(inbox.ingest('feedback', 'issue_comment', feedback), { accepted: true, updated: [7], queued: [] })
+  assert.equal(inbox.get(repository, 7)?.comments['9']?.body, feedback.comment.body)
+  assert.equal(inbox.claim(1).length, 0)
+  assert.equal(inbox.ingest('feedback', 'issue_comment', feedback).duplicate, true)
+
+  const closed = { repository: { full_name: repository }, action: 'closed', pull_request: { ...pr(), state: 'closed' } }
+  assert.deepEqual(inbox.ingest('closed', 'pull_request', closed), { accepted: true, updated: [7], queued: [] })
+  assert.equal(inbox.get(repository, 7)?.pr?.state, 'closed')
+  assert.equal(inbox.get(repository, 7)?.status, 'terminal')
+  assert.equal(inbox.ingest('closed', 'pull_request', closed).duplicate, true)
+  assert.equal(inbox.resetProgressBudget(repository, 7, 'a', 'Operator retry'), false)
+  assert.equal(inbox.claim(1).length, 0)
+})
+
 test('new heads get a fresh budget and stale completions cannot charge them', t => {
   const inbox = memory(t); inbox.seed(repository, pr())
   const old = inbox.claim(1)[0]!

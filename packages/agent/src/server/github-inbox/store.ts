@@ -359,11 +359,11 @@ export class PullRequestInbox {
         const wake = (changed || !s.pr) && !pendingCi
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
         else if (changed) s.revision = (s.revision ?? 0) + 1
-        if (s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha) continue
+        const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha
         if (s.pr && !this.eligible(repository, s.pr)) { s.status = 'terminal'; s.handled = s.generation }
         this.put(s)
         if (changed || !s.pr) updated.push(number)
-        if (wake && s.status !== 'terminal') queued.push(number)
+        if (wake && s.status !== 'terminal' && !exhausted) queued.push(number)
       }
       return finish(numbers.size ? undefined : 'no matching PR head')
     })
