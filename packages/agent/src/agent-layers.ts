@@ -135,7 +135,12 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     const inheritedOverrides = merge(parentOverrides, overrides, "")
     if (!record(inheritedOverrides)) throw new TypeError("[vitehub] Invalid Agent layer overrides.")
     const { name: _parentName, ...defaults } = layerMetadata(definition)!.options
-    const resolved = merge(merge(inherited.defaults, defaults, ""), inheritedOverrides, "")
+    const { workspace: discoveredWorkspace, ...discoveryDefaults } = inherited.defaults ?? {}
+    // Discovery decorates Workspace access but must not create it after reconfiguration.
+    const applicableDefaults = "__vitehubWorkspaceAgent" in definition || inheritedOverrides.workspace !== undefined
+      ? { ...discoveryDefaults, workspace: discoveredWorkspace }
+      : discoveryDefaults
+    const resolved = merge(merge(applicableDefaults, defaults, ""), inheritedOverrides, "")
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })

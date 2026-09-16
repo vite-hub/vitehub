@@ -175,6 +175,23 @@ it("keeps discovery defaults below reconfigured workspace values", () => {
   expect(getAgentLayerOptions(discovered)?.workspace).toMatchObject({ mode: "read", sourceRootDir: "/discovered" })
 })
 
+it("does not restore discovered Workspace access when configure returns a plain Agent", () => {
+  const preset = defineAgent({ options: { workspace: true }, configure: options => options.workspace
+    ? defineAgent({ driver: "codex", workspace: {} })
+    : defineAgent({ driver: "codex" }) })
+  const discovered = workspaceAgentWithSourceRoot(preset, "/discovered", "Repository context.")
+  const plain = defineAgent({ extends: discovered, options: { workspace: false } })
+  expect(plain).not.toHaveProperty("__vitehubWorkspaceAgent")
+  expect(getAgentLayerOptions(plain)?.workspace).toBeUndefined()
+  expect(defineAgent({ extends: plain })).not.toHaveProperty("__vitehubWorkspaceAgent")
+  const restored = defineAgent({ extends: plain, options: { workspace: true } })
+  expect(restored).toHaveProperty("__vitehubWorkspaceAgent", true)
+  expect(getAgentLayerOptions(restored)?.workspace).toMatchObject({ sourceRootDir: "/discovered", sources: { __vitehubAgentInstructions: { content: "Repository context." } } })
+  const explicit = defineAgent({ extends: discovered, options: { workspace: false }, workspace: { mode: "write" } })
+  expect(explicit).toHaveProperty("__vitehubWorkspaceAgent", true)
+  expect(getAgentLayerOptions(explicit)?.workspace).toMatchObject({ mode: "write", sourceRootDir: "/discovered" })
+})
+
 it("promotes configured presets when capabilities or channels contribute Workspace access", () => {
   const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
   const capability = defineCapability({ id: "workspace", workspace: {} })

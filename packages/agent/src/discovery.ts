@@ -341,22 +341,28 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return index
   }
 
-  function resolveReference(index: number, seen = new Set<number>()): number {
+  function resolveReference(index: number, seen = new Set<number>(), preserveCalls = false): number {
     while (tokens[index] === "(" || tokens[index] === "<") {
       index = tokens[index] === "<" ? skipTypeArguments(index) : index + 1
     }
     if (seen.has(index)) return index
     seen.add(index)
+    if (preserveCalls) {
+      let call = index + 1
+      while (tokens[call] === ".") call += 2
+      if (tokens[call] === "<") call = skipTypeArguments(call)
+      if (tokens[call] === "(") return index
+    }
     const binding = visibleDeclaration(index)
     if (binding !== undefined) {
       if (binding > index) return index
       let initializer = binding + 2
       while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
-      return tokens[initializer] === "=" ? resolveReference(initializer + 1, seen) : index
+      return tokens[initializer] === "=" ? resolveReference(initializer + 1, seen, preserveCalls) : index
     }
     if (callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) return index
     const reference = declarations.get(tokens[index])
-    return reference === undefined ? index : resolveReference(reference, seen)
+    return reference === undefined ? index : resolveReference(reference, seen, preserveCalls)
   }
 
   function propertyName(token: string): string {
@@ -454,8 +460,33 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return result
   }
 
+  function agentCall(index: number): number | undefined {
+    const reference = resolveReference(index)
+    if (visibleDeclaration(reference) !== undefined || callbackParameters.some(scope =>
+      reference >= scope.start && reference < scope.end && scope.names.has(tokens[reference]))) return undefined
+    // A binding to an Agent value is not an alias of the factory itself.
+    let identityEnd = reference + 1
+    while (tokens[identityEnd] === ".") identityEnd += 2
+    if (tokens[identityEnd] === "<") identityEnd = skipTypeArguments(identityEnd)
+    if (reference !== index && tokens[identityEnd] === "(") return undefined
+    let scope = tokenScopes[reference]
+    while (true) {
+      if (tokens.some((token, declaration) => (token === "function" || token === "class") &&
+          tokens[declaration + 1] === tokens[reference] && tokenScopes[declaration] === scope)) return undefined
+      if (scope === undefined) break
+      scope = scopeParents.get(scope)
+    }
+    const factory = tokens[reference]
+    if (factory !== "defineAgent" && !importedAgentBindings.has(factory) &&
+        !(importedNamespaces.has(factory) && tokens[reference + 1] === "." && tokens[reference + 2] === "defineAgent")) return undefined
+    let call = index + 1
+    while (tokens[call] === ".") call += 2
+    if (tokens[call] === "<") call = skipTypeArguments(call)
+    return tokens[call] === "(" ? call : undefined
+  }
+
   function ownsWorkspace(index: number, seen = new Set<number>()): boolean {
-    index = resolveReference(index)
+    index = resolveReference(index, new Set(), true)
     if (seen.has(index)) return false
     seen.add(index)
     // Either exported branch may be selected at runtime. Inspect only those
@@ -478,13 +509,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (["{", "(", "["].includes(token)) expressionDepth++
       if (["}", ")", "]"].includes(token)) expressionDepth--
     }
-    if (tokens[index] !== "defineAgent" && !importedAgentBindings.has(tokens[index])) {
-      if (!(tokens[index + 1] === "." && tokens[index + 2] === "defineAgent" && importedNamespaces.has(tokens[index]))) return false
-      index += 2
-    }
-    let call = index + 1
-    if (tokens[call] === "<") call = skipTypeArguments(call)
-    if (tokens[call] !== "(") return false
+    const call = agentCall(index)
+    if (call === undefined) return false
     const options = properties(call + 1)
     const workspace = options.get("workspace")
     if (workspace !== undefined) {
@@ -648,13 +674,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       const returnedDefinitions: number[] = []
       let callbackDepth = 0
       let returnExpression = false
+      const body = tokens[bodyStart] === ">" ? bodyStart + 1 : bodyStart
+      const callbackScope = variableScope(tokens[body] === "{" ? body + 1 : body)
       for (let i = bodyStart; i < callbackEnd; i++) {
         const token = tokens[i]
-        const reference = resolveReference(i)
-        const definition = tokens[reference]
-        const isDefineAgent = definition === "defineAgent" || importedAgentBindings.has(definition) ||
-          (tokens[reference + 1] === "." && tokens[reference + 2] === "defineAgent" && importedNamespaces.has(definition))
-        if (isDefineAgent) {
+        const inCallbackScope = variableScope(i) === callbackScope
+        const reference = resolveReference(i, new Set(), true)
+        if (inCallbackScope && agentCall(reference) !== undefined) {
           let expressionStart = i
           while (tokens[expressionStart - 1] === "(") expressionStart--
           const expressionDepth = callbackDepth - (i - expressionStart)
@@ -685,7 +711,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             callbackDefinitionDepth = callbackDepth
           }
         }
-        if (token === "return") returnExpression = true
+        if (token === "return" && inCallbackScope) returnExpression = true
         else if ((token === "?" || token === ":") && returnExpression) returnExpression = true
         else if (token === ";" && callbackDepth === 0) returnExpression = false
         if (["{", "(", "["].includes(token)) callbackDepth++
@@ -741,7 +767,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       }
       // Expression-bodied arrows return their direct definition without a
       // `return` token; retain that callback result for ownership analysis.
-      if (returnedDefinitions.length === 0 && arrow >= 0 && callbackDefinition >= 0) {
+      if (returnedDefinitions.length === 0 && arrow >= 0 && tokens[bodyStart + 1] !== "{" && callbackDefinition >= 0) {
         returnedDefinitions.push(callbackDefinition)
       }
       // Only callback results contribute ownership. Inspect their Capability
