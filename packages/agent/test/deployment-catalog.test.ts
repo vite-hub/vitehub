@@ -114,7 +114,7 @@ async function createDeploymentRuntimeFixture(
   discordGatewayRoute?: true | string,
   declaredWorkspaceName?: string,
   explicitSourceRoot = false,
-  explicitInstructions: boolean | "destination" = false,
+  explicitInstructions: boolean | "destination" | "capability same key" | "capability destination" = false,
   explicitSkill: false | "same key" | "destination" | "capability" = false,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
@@ -134,6 +134,7 @@ async function createDeploymentRuntimeFixture(
     "export default defineAgent({",
     "  description: 'support',",
     ...(explicitSkill === "capability" ? ["  capabilities: [{ id: 'review', workspaceSources: { explicitSkill: { content: 'Explicit skill', materialize: 'startup', mount: '.agents/skills/review', workspacePath: 'SKILL.md' } } }],"] : []),
+    ...(typeof explicitInstructions === "string" && explicitInstructions.startsWith("capability") ? [`  capabilities: [{ id: 'instructions', workspaceSources: { ${explicitInstructions === "capability same key" ? "__vitehubAgentInstructions" : "explicitInstructions"}: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } } }],`] : []),
     "  driver: { model: {} },",
     ...(declaredWorkspaceName ? [`  name: ${JSON.stringify(declaredWorkspaceName)},`] : []),
     "  runtime: false,",
@@ -141,7 +142,7 @@ async function createDeploymentRuntimeFixture(
     "    mode: 'write',",
     ...(explicitSourceRoot ? [`    sourceRootDir: ${JSON.stringify(supportRoot)},`] : []),
     "    sources: {",
-    ...(explicitInstructions ? [`      ${explicitInstructions === "destination" ? "explicitInstructions" : "__vitehubAgentInstructions"}: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' },`] : []),
+    ...(explicitInstructions && !String(explicitInstructions).startsWith("capability") ? [`      ${explicitInstructions === "destination" ? "explicitInstructions" : "__vitehubAgentInstructions"}: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' },`] : []),
     ...(explicitSkill && explicitSkill !== "capability" ? [`      ${JSON.stringify(explicitSkill === "same key" ? "__vitehubAgentSkill:.agents/skills/review/SKILL.md" : "explicitSkill")}: { content: 'Explicit skill', materialize: 'startup', mount: '.agents/skills/review', workspacePath: 'SKILL.md' },`] : []),
     "    },",
     "  },",
@@ -483,6 +484,19 @@ describe("generated Agent deployment catalog", () => {
     const workspace = await runtime.workspace("support")
     expect(workspace.sources).not.toHaveProperty("__vitehubAgentInstructions")
     expect(workspace.sources).toMatchObject({ explicitInstructions: { content: "Explicit instructions" } })
+  })
+
+  it.each((["nitro", "deno", "netlify"] as const).flatMap(adapter => (["capability same key", "capability destination"] as const).map(collision => ({ adapter, collision }))))("preserves explicit instruction Sources in $adapter deployment fallback ($collision)", async ({ adapter, collision }) => {
+    await runtime!.close()
+    if (adapter === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    runtime = await createDeploymentRuntimeFixture(adapter, "support", true, undefined, undefined, true, collision)
+    const workspace = await runtime.workspace("support")
+    expect(workspace.sources).toMatchObject({
+      [collision === "capability same key" ? "__vitehubAgentInstructions" : "explicitInstructions"]: { content: "Explicit instructions" },
+    })
+    if (collision === "capability destination") expect(workspace.sources).not.toHaveProperty("__vitehubAgentInstructions")
+    await runtime.request("support", "webhooks/channel")
+    expect(runtime.capture.lastAgent).toBeDefined()
   })
 
   it.each([false, true])("keeps startup instructions with an explicit source root and explicit override %s", async (explicitInstructions) => {

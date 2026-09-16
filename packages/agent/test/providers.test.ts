@@ -2869,7 +2869,7 @@ export default defineAgent({
       expect(denoServer).toContain(JSON.stringify("__vitehubAgentSkill:.agents/skills/review/SKILL.md"))
       expect(denoServer).toContain(JSON.stringify(Buffer.from([0, 255, 42]).toString("base64")))
       expect(denoServer).toContain(
-        "const remainingSkills = filterColocatedAgentSkills(skills, workspaceDefinitionFromOptions(options).sources)",
+        "const remainingSkills = filterColocatedAgentSkills(skills, explicitSources)",
       )
       expect(denoServer).toContain("materialize: 'startup'")
       expect(denoServer).toContain("    ...remainingSkills,")

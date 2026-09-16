@@ -82,6 +82,7 @@ import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-outpu
 import {
   colocatedAgentSkillsContextKey,
   colocatedAgentSkillsSymbol,
+  filterColocatedAgentSkills,
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 
@@ -3540,7 +3541,7 @@ async function createAgentInvocationContext<
     invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
     invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
+    const colocatedSkills = (definition && Reflect.get(definition, colocatedAgentSkillsSymbol)) as ColocatedAgentSkills | undefined
     invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
     invoker = await resolveAgentInvoker(
       definition?.invoker,
@@ -3816,6 +3817,10 @@ async function createAgentInvocationContext<
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
+    // Owned definitions already include fallback Sources; references need their resolved Sources before filtering.
+    if (colocatedSkills && !ownsWorkspaceDefinition) {
+      invocationContext.set(colocatedAgentSkillsContextKey, filterColocatedAgentSkills(colocatedSkills, activeWorkspaceDefinition?.sources), { overwrite: true })
+    }
     const configuredWorkspace = workspaceOptions?.workspace
     const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object") && !("name" in configuredWorkspace)
       ? configuredWorkspace.commit

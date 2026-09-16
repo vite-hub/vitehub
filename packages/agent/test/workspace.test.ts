@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { noExecutionAuthority, unknownExecutionAuthority, ViteHubError } from "@vite-hub/runtime"
 
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSourceInput } from "@vite-hub/workspace"
+import type { AgentModelResolverContext } from "../src/index.ts"
 
 const readFile = vi.fn()
 const writeFile = vi.fn()
@@ -515,6 +516,39 @@ describe("defineAgent workspace option", () => {
       }),
       mode: "write",
     })
+  })
+
+  it.each(["string", "named"])("filters colocated Skills against resolved %s Workspace references", async (form) => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+    const { colocatedAgentSkillsContextKey, withColocatedAgentSkills } = await import("../src/internal/colocated-agent-skills.ts")
+    const workspaceName = `skills-${Math.random().toString(36).slice(2)}`
+    const registeredSources = {
+      review: { content: "Workspace review", workspacePath: ".agents/skills/review/SKILL.md" },
+    }
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce({ name: workspaceName, sources: registeredSources, store: { provider: "memory" } })
+    const unrelated = { content: "Other skill", workspacePath: ".agents/skills/other/SKILL.md" }
+    const run = vi.fn()
+    const agent = workspaceAgentWithSourceRoot(withColocatedAgentSkills(defineAgent({
+      workspace: form === "string" ? workspaceName : { name: workspaceName, mode: "read" },
+      capabilities: [{ id: "capability-skill", workspaceSources: {
+        custom: { content: "Capability skill", workspacePath: ".agents/skills/capability/SKILL.md" },
+      } }],
+      driver: { model: ({ context }: AgentModelResolverContext) => {
+        run(context.get(colocatedAgentSkillsContextKey))
+        return {} as never
+      } },
+    }), {
+      reviewFallback: { content: "Colocated review", workspacePath: ".agents/skills/review/SKILL.md" },
+      capabilityFallback: { content: "Colocated capability", workspacePath: ".agents/skills/capability/SKILL.md" },
+      unrelated,
+    }), "/workspace")
+
+    await runAgentInline(agent, context(), { messages: [] })
+
+    expect(run).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith({ unrelated })
+    expect(registeredSources).toEqual({ review: { content: "Workspace review", workspacePath: ".agents/skills/review/SKILL.md" } })
   })
 
   it("attaches skill sources before validating the required skill path", async () => {
