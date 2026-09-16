@@ -19171,6 +19171,11 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.postMessage.mockImplementation(() => new Promise(() => undefined))
+    const run = vi.fn(async () => ({
+      stream: (async function* () {
+        await new Promise(() => undefined)
+      })(),
+    }))
     const agent = defineAgent({
       channels: {
         telegram: telegram({
@@ -19183,13 +19188,7 @@ describe("server helpers", () => {
           webhooks: { secretToken: false },
         }),
       },
-      driver: {
-        run: async () => ({
-          stream: (async function* () {
-            await new Promise(() => undefined)
-          })(),
-        }),
-      },
+      driver: { run },
     })
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -19199,7 +19198,7 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch((error) => error)
-      await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0), { interval: 0 })
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
 
       await vi.advanceTimersByTimeAsync(29_999)
       await expect(Promise.race([responseError.then(() => "settled"), Promise.resolve("pending")])).resolves.toBe("pending")
