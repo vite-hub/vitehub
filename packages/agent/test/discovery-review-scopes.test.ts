@@ -5,6 +5,12 @@ import { expect, it } from "vitest"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 
 it.each([
+  ["later var shadows module", "return defineAgent({ capabilities: [storage] }); var storage = defineCapability({ id: 'plain' })", false],
+  ["later block var shadows module", "return defineAgent({ capabilities: [storage] }); if (true) { var storage = defineCapability({ id: 'plain' }) }", false],
+  ["later nested function var stays local", "return defineAgent({ capabilities: [storage] }); function helper() { var storage = defineCapability({ id: 'plain' }) }", true],
+  ["Channel Capability owns Workspace", "return defineAgent({ channels: { custom: { capabilities: [storage] } } })", true],
+  ["aliased Channel Capability owns Workspace", "const custom = { capabilities: [storage] }; const channels = { custom }; return defineAgent({ channels })", true],
+  ["plain Channel stays plain", "return defineAgent({ channels: { custom: { capabilities: [defineCapability({ id: 'plain' })] } } })", false],
   ["block var shadows module", "if (true) { var storage = defineCapability({ id: 'plain' }) } return defineAgent({ capabilities: [storage] })", false],
   ["block let stays local", "if (true) { let storage = defineCapability({ id: 'plain' }) } return defineAgent({ capabilities: [storage] })", true],
   ["block const stays local", "if (true) { const storage = defineCapability({ id: 'plain' }) } return defineAgent({ capabilities: [storage] })", true],

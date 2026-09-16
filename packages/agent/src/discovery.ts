@@ -267,6 +267,25 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return names
   }
 
+  function visibleDeclaration(index: number): number | undefined {
+    const visibleScopes: (number | undefined)[] = []
+    for (let scope = tokenScopes[index]; scope !== undefined; scope = scopeParents.get(scope)) visibleScopes.push(scope)
+    visibleScopes.push(undefined)
+    const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
+    for (const scope of visibleScopes) {
+      let binding: number | undefined
+      for (let i = parameterScope?.start ?? 0; i < tokens.length; i++) {
+        if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== tokens[index]) continue
+        const bindingScope = tokens[i] === "var" ? variableScope(i) : tokenScopes[i]
+        if (bindingScope !== scope) continue
+        if (binding === undefined || i < index) binding = i
+      }
+      if (binding === undefined) continue
+      return binding
+    }
+    return undefined
+  }
+
   function capabilityOwnsWorkspace(index: number, seen = new Set<number>()): boolean {
     while (tokens[index] === "(") index++
     if (seen.has(index)) return false
@@ -294,17 +313,19 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
     }
     if (!/^[A-Za-z_$][\w$]*$/.test(tokens[index] ?? "")) return false
-    const visibleScopes = new Set<number | undefined>([undefined])
-    for (let scope = tokenScopes[index]; scope !== undefined; scope = scopeParents.get(scope)) visibleScopes.add(scope)
     const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
-    for (let i = index - 1; i >= (parameterScope?.start ?? 0); i--) {
-      if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== tokens[index]) continue
-      const bindingScope = tokens[i] === "var" ? variableScope(i) : tokenScopes[i]
-      if (!visibleScopes.has(bindingScope)) continue
-      // A nearer binding shadows earlier declarations even when it is plain.
-      let initializer = i + 2
+    const binding = visibleDeclaration(index)
+    if (binding !== undefined) {
+      // Later declarations shadow outer bindings before their initializer runs.
+      if (binding > index) return false
+      let initializer = binding + 2
       while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
       return tokens[initializer] === "=" && capabilityOwnsWorkspace(initializer + 1, seen)
+    }
+    let referenceEnd = index + 1
+    while (tokens[referenceEnd] === ".") referenceEnd += 2
+    if (!parameterScope && imported.has(tokens[index]) && !["(", "<"].includes(tokens[referenceEnd])) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Capability. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or define the Capability locally so discovery can inspect it.")
     }
     return false
   }
@@ -326,6 +347,14 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     if (seen.has(index)) return index
     seen.add(index)
+    const binding = visibleDeclaration(index)
+    if (binding !== undefined) {
+      if (binding > index) return index
+      let initializer = binding + 2
+      while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
+      return tokens[initializer] === "=" ? resolveReference(initializer + 1, seen) : index
+    }
+    if (callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) return index
     const reference = declarations.get(tokens[index])
     return reference === undefined ? index : resolveReference(reference, seen)
   }
@@ -484,6 +513,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     const capabilities = options.get("capabilities")
     if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
+    const channels = options.get("channels")
+    if (channels !== undefined) {
+      for (const channel of properties(channels).values()) {
+        const capabilities = properties(channel).get("capabilities")
+        if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
+      }
+    }
     const inherited = options.get("extends")
     if (inherited !== undefined && ownsWorkspace(inherited, seen)) return true
     const preset = options.get("preset")

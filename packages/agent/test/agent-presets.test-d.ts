@@ -141,3 +141,36 @@ it("removes Workspace contributed by a configured callback result", () => {
   // @ts-expect-error The callback's only Workspace contribution was replaced.
   void child.__vitehubWorkspaceAgent
 })
+
+it("recomputes Workspace contributions returned directly by configure", () => {
+  const capability = defineCapability({ id: "workspace", workspace: {} })
+  const replacement = defineCapability({ id: "workspace", metadata: {} })
+  const capabilityPreset = defineAgent({ options: {}, configure: () => defineAgent({
+    driver: "codex", capabilities: [capability],
+  }) })
+  expectTypeOf(capabilityPreset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const replacedCapability = defineAgent({ extends: capabilityPreset, capabilities: [replacement] })
+  // @ts-expect-error Replacing the callback's only Capability removes Workspace access.
+  void replacedCapability.__vitehubWorkspaceAgent
+  const customPreset = defineAgent({ options: {}, configure: () => defineAgent({
+    driver: { run: () => ({ text: "custom" }) }, capabilities: [capability],
+  }) })
+  expectTypeOf(customPreset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const replacedCustom = defineAgent({ extends: customPreset, capabilities: [replacement] })
+  // @ts-expect-error Custom Drivers use the same Capability replacement contract.
+  void replacedCustom.__vitehubWorkspaceAgent
+  const channelPreset = defineAgent({ options: {}, configure: () => defineAgent({
+    driver: "codex", channels: { custom: { kind: "custom", capabilities: [capability] } },
+  }) })
+  expectTypeOf(channelPreset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const replacedChannel = defineAgent({ preset: "channel", presets: { channel: channelPreset }, channels: { custom: { kind: "custom" } } })
+  // @ts-expect-error Replacing the callback's only Channel removes Workspace access.
+  void replacedChannel.__vitehubWorkspaceAgent
+  const retained = defineAgent({ extends: channelPreset, channels: { other: { kind: "custom" } } })
+  expectTypeOf(retained.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const explicitPreset = defineAgent({ options: {}, configure: () => defineAgent({
+    driver: "codex", workspace: {}, capabilities: [capability],
+  }) })
+  const explicit = defineAgent({ extends: explicitPreset, capabilities: [replacement] })
+  expectTypeOf(explicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+})

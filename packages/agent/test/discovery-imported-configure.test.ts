@@ -48,3 +48,25 @@ it("allows an aliased local callback whose parameter shadows an import", async (
   const definitions = await discover('import options from "./options"; const configure = (options: Options) => defineAgent({ workspace: {} }); const setup = configure; export default defineAgent({ options: {}, configure: setup })')
   expect(definitions[0]?.workspace).toBe("notes")
 })
+
+it.each([
+  "capabilities: [storage]",
+  "channels: { custom: { capabilities: [storage] } }",
+  "capabilities: [alias]",
+])("rejects opaque imported Capability values: %s", async (settings) => {
+  await expect(discover(`import { storage } from "./storage"; const alias = storage; export default defineAgent({ options: {}, configure: () => defineAgent({ ${settings} }) })`)).rejects.toThrow("Agent Workspace discovery cannot inspect an imported Capability")
+})
+
+it("accepts an explicit Workspace marker with an imported Capability", async () => {
+  const definitions = await discover('import { storage } from "./storage"; export default defineAgent({ options: {}, configure: () => defineAgent({ workspace: {}, capabilities: [storage] }) })')
+  expect(definitions[0]?.workspace).toBe("notes")
+})
+
+it("allows callback parameters to shadow imported Capabilities", async () => {
+  const definitions = await discover('import { storage } from "./storage"; export default defineAgent({ options: {}, configure: storage => defineAgent({ capabilities: [storage] }) })')
+  expect(definitions[0]?.workspace).toBeUndefined()
+})
+
+it("rejects opaque namespace Capability values", async () => {
+  await expect(discover('import * as capabilities from "./storage"; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: [capabilities.storage] }) })')).rejects.toThrow("Agent Workspace discovery cannot inspect an imported Capability")
+})

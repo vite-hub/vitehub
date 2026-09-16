@@ -395,7 +395,7 @@ notes.options.format // "concise" | "detailed"
 
 `configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
 
-For folder Agents discovered from `agent.ts`, define `configure` in that file and return a discoverable `defineAgent()` call. Workspace discovery does not execute imported callbacks. It rejects an imported `configure` callback because it cannot determine the required Workspace setup.
+For folder Agents discovered from `agent.ts`, define `configure` in that file and return a discoverable `defineAgent()` call. Workspace discovery does not execute imported callbacks. It rejects an imported `configure` callback because it cannot determine the required Workspace setup. The same restriction applies to imported Capability values in an Agent or its Channels. If an imported Capability owns a Workspace, add `workspace: {}` to the Agent definition. Otherwise, define the Capability locally so discovery can inspect it.
 
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
 
