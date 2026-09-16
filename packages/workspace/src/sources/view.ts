@@ -510,12 +510,32 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
   }
 
+  async function readOwnedRootStartupFile(path: string, sourceKey?: string) {
+    if ((await store.stat(path))?.type !== "file") return
+    const file = await store.readFile(path)
+    if (!file) return
+    const owner = await readWorkspaceFileOwner(store, path)
+    if (owner?.workspace !== definition.name || !owner.digest) return
+    if (sourceKey && owner.source !== sourceKey) return
+    if (file.metadata?.source && (file.metadata.workspaceSourceOwner !== definition.name || file.metadata.source !== owner.source)) return
+    const source = sources.find(source => !source.mountPath && source.materialize === "startup" && source.key === owner.source)
+    if (!source) return
+    const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
+    if (snapshot?.status !== "ready" || !Object.hasOwn(snapshot.items || {}, path)) return
+    if (await sha256(file.content) === owner.digest) return file
+  }
+
   async function materializeRootSourceForPath(path: string) {
     for (const source of sources.filter(source => !source.mountPath)) {
       await ensurePrepared(source.key)
       await ensureMaterialized(source.key)
-      const file = await store.stat(path)
-      if (file?.metadata?.source === source.key) return source
+      if (source.materialize === "startup") {
+        if (await readOwnedRootStartupFile(path, source.key)) return source
+      }
+      else {
+        const file = await store.stat(path)
+        if (file?.metadata?.source === source.key) return source
+      }
     }
   }
 
@@ -601,19 +621,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
       await materializeRootStartupSources()
-      const startupFile = await store.readFile(resolution.workspacePath)
-      if (startupFile) {
-        const owner = startupFile.metadata?.source ? undefined : await readWorkspaceFileOwner(store, resolution.workspacePath)
-        const sourceKey = startupFile.metadata?.source ?? (owner?.workspace === definition.name ? owner.source : undefined)
-        const source = sources.find(source => !source.mountPath && source.materialize === "startup" && source.key === sourceKey)
-        if (source) {
-          const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
-          const hasCurrentPath = snapshot?.status === "ready" && Object.hasOwn(snapshot.items || {}, resolution.workspacePath)
-          if (hasCurrentPath && (startupFile.metadata?.source || (owner?.digest && await sha256(startupFile.content) === owner.digest))) {
-            return decodeFile(startupFile.content, options)
-          }
-        }
-      }
+      const startupFile = await readOwnedRootStartupFile(resolution.workspacePath)
+      if (startupFile) return decodeFile(startupFile.content, options)
       await materializeRootSourceForPath(resolution.workspacePath)
       const file = await store.readFile(resolution.workspacePath)
       if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)

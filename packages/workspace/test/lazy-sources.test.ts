@@ -362,6 +362,41 @@ describe("lazy sources", () => {
     expect(getLazyKeys).toHaveBeenCalledOnce()
   })
 
+  it.each(["content", "workspace"] as const)("rejects stale inline startup ownership after replacing %s", async (replacement) => {
+    const store = createMemoryWorkspaceStore()
+    const getLazyKeys = vi.fn(async () => ["AGENTS.md"])
+    const definition = {
+      name: "inline-startup-root-owner",
+      sources: {
+        lazy: custom({
+          mount: "",
+          materialize: "lazy" as const,
+          getKeys: getLazyKeys,
+          async getItem(key) { return { key, content: "lazy" } },
+        }),
+        instructions: custom({
+          mount: "",
+          materialize: "startup" as const,
+          async getKeys() { return ["AGENTS.md"] },
+          async getItem(key) { return { key, content: "startup" } },
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await expect(view.readFile("AGENTS.md")).resolves.toBe("startup")
+    if (replacement === "content") {
+      const file = (await store.readFile("AGENTS.md"))!
+      await store.writeFile("AGENTS.md", { ...file, content: "user edit" })
+    }
+    else {
+      const other = createWorkspaceSourceView({ ...definition, name: "other-workspace" }, store)
+      await expect(other.readFile("AGENTS.md")).resolves.toBe("startup")
+    }
+
+    await expect(view.readFile("AGENTS.md")).resolves.toBe("lazy")
+    expect(getLazyKeys).toHaveBeenCalledOnce()
+  })
+
   it.each(["stat", "exists"] as const)("refreshes root startup Sources before the first %s", async (operation) => {
     for (const reuseStartupSnapshots of [false, true]) {
       for (const removed of [false, true]) {

@@ -489,7 +489,11 @@ async function reconcileRemovedStartupSourcesInternal(
       try {
         await control.mutate(() => store.rm(path, { force: true }))
       }
-      catch {}
+      catch (error) {
+        // Only retained content makes directory removal optional. Other failures
+        // must keep this Source's snapshot and index available for a retry.
+        if ((await store.stat(path))?.type !== "directory" || !(await store.list(path)).length) throw error
+      }
     }
     await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(workspace, source.key), {}))
   }
