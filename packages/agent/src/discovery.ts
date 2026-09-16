@@ -454,6 +454,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           }
         }
         if (token === "return") returnExpression = true
+        else if ((token === "?" || token === ":") && returnExpression) returnExpression = true
         else if (token === ";" && callbackDepth === 0) returnExpression = false
         if (["{", "(", "["].includes(token)) callbackDepth++
         else if (["}", ")", "]"].includes(token)) callbackDepth--
