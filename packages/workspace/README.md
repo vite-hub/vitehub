@@ -348,7 +348,7 @@ Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://
 
 Learn more at [vitehub.dev](https://vitehub.dev).
 
-Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition does not remove files last materialized by another definition. Shared paths still contain the most recent write.
+Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition does not remove files last materialized by another definition. Cleanup also preserves files without a recorded Workspace owner, including files from legacy snapshots. Shared paths still contain the most recent write.
 
 `metadata.source` is reserved for internal Source materialization. Public Workspace writes and write validators cannot assign this ownership marker. Explicit loaders write through `ctx.store`; when multiple build Sources share a mount, these writes must preserve the input item's `metadata.source` or set it to the owning Source key for derived output within that Source's mount. Ambiguous writes fail before storing the file.
 

@@ -322,7 +322,7 @@ it.each([3600, 0])("converges scoped legacy materialization ownership with cache
   }
 })
 
-it.each(["enumeration", "item"])("retains legacy ownership after failed %s and restart", async (failure) => {
+it.each(["enumeration", "item"])("preserves unowned legacy files after failed %s and restart", async (failure) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-migration-retry-"))
   let unavailable = false
   let keys = ["kept.txt", "removed.txt"]
@@ -378,7 +378,7 @@ it.each(["enumeration", "item"])("retains legacy ownership after failed %s and r
     const result = await materializeWorkspaceSources(definition, restarted)
     expect(result.sources[0]?.status).toBe("ready")
     await expect(restarted.readFile("kept.txt")).resolves.toMatchObject({ metadata: { source: "docs" } })
-    await expect(restarted.readFile("removed.txt")).resolves.toBeUndefined()
+    await expect(restarted.readFile("removed.txt")).resolves.toMatchObject({ content: new TextEncoder().encode("original") })
     const ready = await readCurrentSourceSnapshot(restarted, definition.name, source)
     expect(ready?.items?.["kept.txt"]).not.toHaveProperty("migrationPending")
     expect(ready?.items).not.toHaveProperty("removed.txt")
@@ -386,4 +386,49 @@ it.each(["enumeration", "item"])("retains legacy ownership after failed %s and r
   finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+it("refreshes keyed items after another Workspace replaces their content", async () => {
+  const store = createMemoryWorkspaceStore()
+  const definition = (name: string) => ({
+    name,
+    sources: { docs: {
+      materialize: "startup" as const,
+      async getKeys() { return ["shared.md"] },
+      async getMeta() { return { etag: "stable" } },
+      async getItem(key: string) { return { key, content: name } },
+    } },
+  })
+  await materializeWorkspaceSources(definition("first"), store)
+  await materializeWorkspaceSources(definition("second"), store)
+  await materializeWorkspaceSources(definition("first"), store)
+  await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({
+    content: "first", metadata: { workspaceSourceOwner: "first" },
+  })
+})
+
+it.each(["removal", "refresh"])("preserves unowned legacy cached files during %s", async (operation) => {
+  const store = createMemoryWorkspaceStore()
+  const getKeys = vi.fn(async () => ["shared.md"])
+  const source = {
+    materialize: "startup" as const,
+    cache: { maxAge: 3600 },
+    getKeys,
+    async getItem(key: string) { return { key, content: "legacy" } },
+  }
+  const first = { name: "first", sources: { docs: source } }
+  await materializeWorkspaceSources(first, store)
+  await store.setMeta!("source:docs:snapshot", await store.getMeta!(sourceSnapshotMetaKey("first", "docs")))
+  await store.setMeta!(sourceSnapshotMetaKey("first", "docs"), undefined)
+  await store.writeFile("docs/shared.md", { path: "docs/shared.md", content: "legacy", metadata: { source: "docs" } })
+  const second = { name: "second", sources: { docs: source } }
+  await materializeWorkspaceSources(second, store)
+  if (operation === "removal") {
+    await materializeWorkspaceSources({ name: "second", sources: {} }, store)
+  }
+  else {
+    getKeys.mockResolvedValue([])
+    await materializeWorkspaceSources({ ...second, sources: { docs: { ...source, cache: { maxAge: 0 } } } }, store)
+  }
+  await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "legacy" })
 })

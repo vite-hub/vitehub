@@ -317,7 +317,7 @@ describe("sources, loaders, and publishers", () => {
     expect(Buffer.from(updatedReadme?.content || "").toString("utf8")).toBe("# Updated docs\n")
   })
 
-  it("removes unowned stale files from a complete mounted Source refresh", async () => {
+  it("preserves unowned files during a complete mounted Source refresh", async () => {
     const store = createMemoryWorkspaceStore()
     await store.writeFile("docs/stale.md", { content: "# Stale\n", path: "docs/stale.md" })
 
@@ -332,7 +332,7 @@ describe("sources, loaders, and publishers", () => {
       },
     }, store)
 
-    await expect(store.readFile("docs/stale.md")).resolves.toBeUndefined()
+    await expect(store.readFile("docs/stale.md")).resolves.toMatchObject({ content: "# Stale\n" })
     await expect(store.readFile("docs/current.md")).resolves.toMatchObject({ content: "# Current\n" })
   })
 
@@ -1145,7 +1145,7 @@ describe("sources, loaders, and publishers", () => {
   it("waits for an accepted Store removal before cancellation settles", async () => {
     const base = createMemoryWorkspaceStore()
     await base.setMeta?.("workspace:support:build-sources", [{ key: "docs", mountPath: "docs" }])
-    await base.writeFile("docs/stale.md", { path: "docs/stale.md", content: "stale", metadata: { source: "docs" } })
+    await base.writeFile("docs/stale.md", { path: "docs/stale.md", content: "stale", metadata: { source: "docs", workspaceSourceOwner: "support" } })
     let releaseRemoval!: () => void
     const removalBlocked = new Promise<void>((resolve) => { releaseRemoval = resolve })
     let removalStarted!: () => void

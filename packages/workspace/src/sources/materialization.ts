@@ -317,7 +317,8 @@ async function removeStaleMaterializedSourceFiles(
   for (const entry of entries) {
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
-    if (file?.metadata?.workspaceSourceOwner !== undefined && file.metadata.workspaceSourceOwner !== workspace) continue
+    // Legacy snapshots can be shared; only file ownership authorizes deletion.
+    if (file?.metadata?.workspaceSourceOwner !== workspace) continue
     const currentOwner = file?.metadata?.source
     if (source.materialize === "startup" && store.getMeta && store.setMeta && !previousSnapshot && currentOwner !== undefined) continue
     const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
@@ -408,7 +409,7 @@ async function reconcileRemovedStartupSourcesInternal(
     for (const path of previousPaths) {
       const file = await store.readFile(path)
       if (!file) continue
-      if (file.metadata?.workspaceSourceOwner !== undefined && file.metadata.workspaceSourceOwner !== workspace) continue
+      if (file.metadata?.workspaceSourceOwner !== workspace) continue
       const owner = file.metadata?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
       // Persisted metadata does not prove that externally edited content is ours.
@@ -539,7 +540,7 @@ async function* iterateMaterializationEntries(
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
       const owner = stat?.metadata?.workspaceSourceOwner
-      if (stat?.type === "file" && (owner === undefined || owner === workspace)) {
+      if (stat?.type === "file" && owner === workspace) {
         yield {
           metadata: previous,
           path,

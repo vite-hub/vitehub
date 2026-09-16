@@ -672,7 +672,7 @@ describe("lazy sources", () => {
       },
     }
     await createWorkspaceSourceView(initial, store).materializeSources()
-    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed" } })
+    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed", workspaceSourceOwner: initial.name } })
     await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "removed" })
 
     const next = { name: initial.name, sources: { retained } }
@@ -737,7 +737,7 @@ describe("lazy sources", () => {
       name: "concurrent-startup-removal",
       sources: { retained, other, removed: source("shared.md") },
     }, store).materializeSources()
-    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed" } })
+    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed", workspaceSourceOwner: "concurrent-startup-removal" } })
     const remove = store.rm.bind(store)
     const removals = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
       // Let competing source materializations reach reconciliation before deletion.
@@ -2851,7 +2851,7 @@ describe("lazy sources", () => {
   })
 
   it("materializes startup Sources before stat and exists trust stored paths", async () => {
-    const getKeys = vi.fn(async (): Promise<string[]> => [])
+    const getKeys = vi.fn(async (): Promise<string[]> => ["stale.md"])
     const definition = {
       name: "startup-stale-stat",
       sources: {
@@ -2863,7 +2863,8 @@ describe("lazy sources", () => {
       },
     }
     const store = createMemoryWorkspaceStore()
-    await store.writeFile("docs/stale.md", { content: "stale", path: "docs/stale.md" })
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    getKeys.mockClear().mockResolvedValue([])
     const view = createWorkspaceSourceView(definition, store)
 
     await view.materializeSources({ sources: ["docs"] })

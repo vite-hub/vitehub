@@ -37,3 +37,14 @@ for (const mount of ["", "docs"]) {
     })
   }
 }
+
+it.each(["", "docs"])("preserves unowned legacy build files at '%s'", async (mount) => {
+  const store = createMemoryWorkspaceStore()
+  const path = [mount, "legacy.md"].filter(Boolean).join("/")
+  await syncWorkspaceDefinition({ name: "first", sources: {
+    docs: custom({ materialize: "build", mount, files: [{ path: "legacy.md", content: "legacy" }] }),
+  } }, store)
+  await store.writeFile(path, { path, content: "legacy", metadata: { source: "docs", workspaceBuildSource: "docs" } })
+  await syncWorkspaceDefinition({ name: "first", sources: {} }, store)
+  await expect(store.readFile(path)).resolves.toMatchObject({ content: "legacy" })
+})

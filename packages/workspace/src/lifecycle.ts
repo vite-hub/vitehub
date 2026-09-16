@@ -212,7 +212,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     abortSignal?.throwIfAborted()
     const buildKeys = previousSources.filter(source => source.mountPath === mountPath).map(source => source.key)
     const removedPaths = (await store.list(mountPath, { recursive: true }))
-      .filter(entry => entry.type === "file" && (entry.metadata?.workspaceSourceOwner === undefined || entry.metadata.workspaceSourceOwner === definition.name) && buildKeys.some(key => entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
+      .filter(entry => entry.type === "file" && entry.metadata?.workspaceSourceOwner === definition.name && buildKeys.some(key => entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
       .map(entry => entry.path)
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
@@ -360,7 +360,7 @@ async function readSyncedBuildSources(store: WorkspaceStore, workspace: string):
 async function rootBuildSourceFilePaths(store: WorkspaceStore, workspace: string, key: string) {
   const entries = await store.list("", { recursive: true })
   return entries
-    .filter(entry => entry.type === "file" && (entry.metadata?.workspaceSourceOwner === undefined || entry.metadata.workspaceSourceOwner === workspace) && (entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
+    .filter(entry => entry.type === "file" && entry.metadata?.workspaceSourceOwner === workspace && (entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
     .map(entry => entry.path)
 }
 
