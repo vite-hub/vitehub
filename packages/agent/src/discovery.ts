@@ -477,7 +477,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         }
         // Keep the outer returned call and direct conditional branch calls;
         // nested calls inside its argument object are never callback results.
-        return depth === returnedDefinitionDepth || tokens[index - 1] === "?" || tokens[index - 1] === ":"
+        // Conditional branches are one delimiter level inside the returned
+        // expression (for example `return ok ? defineAgent(...) : ...`).
+        // Property values in the returned definition are deeper still; even
+        // when preceded by `:`, they are nested settings rather than results.
+        return depth === returnedDefinitionDepth ||
+          ((tokens[index - 1] === "?" || tokens[index - 1] === ":") &&
+            depth === returnedDefinitionDepth + 1)
       })
       returnedDefinitions.splice(0, returnedDefinitions.length, ...returnedCandidates)
       if (returnedDefinition >= 0) callbackDefinition = returnedDefinition
