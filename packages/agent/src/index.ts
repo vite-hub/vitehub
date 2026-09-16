@@ -1,7 +1,7 @@
 import type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
-import { agentLayerMetadata, asMetadataTarget, copyDefinitionDecorations, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions, type DefinitionDecorationCarrier } from "./agent-layers.ts"
+import { agentLayerMetadata, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
@@ -2122,6 +2122,10 @@ type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
 
 type AgentDefinitionLike = { resolve: (...args: never[]) => unknown }
 
+type ConfiguredOptionsRecord<TOptions> = TOptions extends readonly unknown[] | ((...args: never[]) => unknown)
+  | Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | URLSearchParams
+  | ArrayBuffer | ArrayBufferView | SharedArrayBuffer ? never : unknown
+
 type ConfiguredAgentOptions<TDefinition> = TDefinition extends { options: infer TOptions extends object } ? TOptions : never
 
 type ConfiguredAgentSettings<TDefinition> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
@@ -2146,22 +2150,34 @@ type ConfiguredChannelsWorkspace<TChannels> = TChannels extends object
         : never }[keyof TChannels]
   : never
 
-type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels> =
-  TWorkspace extends WorkspaceAgentWorkspaceConfig
-    ? ConfiguredWorkspaceDefinition<TDefinition, TCapabilities>
-    : true extends ConfiguredCapabilitiesWorkspace<TCapabilities> | ConfiguredChannelsWorkspace<TChannels>
-      ? ConfiguredWorkspaceDefinition<TDefinition, TCapabilities>
-      : TChannels extends undefined
-        ? TCapabilities extends undefined
-          ? ConfiguredContextDefinition<TDefinition, TCapabilities>
-          : ConfiguredContextDefinition<
-              TDefinition,
-              TCapabilities
-            >
-        : ConfiguredContextDefinition<
-            TDefinition,
-            TCapabilities
-          >
+// Track contribution identities so replacements can remove inferred Workspace access.
+declare const configuredAgentWorkspace: unique symbol
+
+type ConfiguredWorkspaceState<TDefinition> = TDefinition extends { [configuredAgentWorkspace]: infer TState }
+  ? TState
+  : { workspace: TDefinition extends { __vitehubWorkspaceAgent: true } ? true : false, capabilities: never, channels: {} }
+
+type ConfiguredCapabilityMembers<TCapabilities> = TCapabilities extends readonly (infer TCapability)[] ? TCapability : never
+
+type MergeConfiguredCapabilities<TParent, TChild> = Exclude<TParent, { id: TChild extends { id: infer TId } ? TId : never }> | TChild
+
+type MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChannels> =
+  ConfiguredWorkspaceState<TDefinition> extends { workspace: infer TExplicit, capabilities: infer TParentCapabilities, channels: infer TParentChannels }
+    ? {
+        workspace: TWorkspace extends WorkspaceAgentWorkspaceConfig ? true : TExplicit
+        capabilities: MergeConfiguredCapabilities<TParentCapabilities, ConfiguredCapabilityMembers<TCapabilities>>
+        channels: TChannels extends object ? Omit<TParentChannels, keyof TChannels> & TChannels : TParentChannels
+      }
+    : never
+
+type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels,
+  TState = MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChannels>> =
+  TState extends { workspace: infer TExplicit, capabilities: infer TMergedCapabilities, channels: infer TMergedChannels }
+    ? (true extends TExplicit | ConfiguredCapabilitiesWorkspace<readonly TMergedCapabilities[]> | ConfiguredChannelsWorkspace<TMergedChannels>
+        ? ConfiguredWorkspaceDefinition<Omit<TExplicit extends true ? TDefinition : AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>
+        : ConfiguredContextDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>)
+      & { [configuredAgentWorkspace]: TState }
+    : never
 
 type ConfiguredContextDefinition<TDefinition, TCapabilities> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
   ? TDefinition & AgentDefinition<TRuntimeConfig, TCallOptions, TInvoker,
@@ -2324,7 +2340,7 @@ export interface DefineAgent {
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
 
   <TOptions extends object, TDefinition extends AgentDefinition>(options: {
-    options: TOptions
+    options: TOptions & ConfiguredOptionsRecord<TOptions>
     configure: (options: TOptions) => TDefinition
   }): ConfiguredAgentDefinition<TOptions, TDefinition>
 
@@ -2529,13 +2545,7 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
       })
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     : defineBaseAgent(normalizedOptions as never)
-  const result = rememberAgentLayerOptions(definition, normalizedOptions, agentOptions)
-  // Reconfiguration carries callback-owned decorations through the settings object;
-  // copy them onto the rebuilt Agent after defineBaseAgent has reconstructed it.
-  if (agentOptions !== normalizedOptions) {
-    copyDefinitionDecorations(asMetadataTarget(agentOptions), asMetadataTarget(result))
-  }
-  return result
+  return rememberAgentLayerOptions(definition, normalizedOptions, agentOptions)
 }) as DefineAgent
 
 export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions?: string): Agent {

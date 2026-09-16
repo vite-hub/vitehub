@@ -888,7 +888,7 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     `    if (!Object.prototype.propertyIsEnumerable.call(resolvedAgent, key)) Object.defineProperty(decoratedAgent, key, Object.getOwnPropertyDescriptor(resolvedAgent, key)${typescript ? "!" : ""})`,
     "  }",
     "  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== workspace.sources?.[key] && source !== existingSources?.[key]))",
-    "  inheritAgentLayerOptions(resolvedAgent, decoratedAgent, { workspace: { sourceRootDir: resolvedSourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) } })",
+    "  inheritAgentLayerOptions(resolvedAgent, decoratedAgent, { workspace: { sourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) } })",
     `  return decoratedAgent${typescript ? " as unknown as Agent" : ""}`,
     "}",
   ]

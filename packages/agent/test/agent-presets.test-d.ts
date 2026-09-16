@@ -88,3 +88,56 @@ it("infers Workspace access contributed to configured presets", () => {
   // @ts-expect-error Capabilities without Workspace access do not promote the definition.
   void unchanged.__vitehubWorkspaceAgent
 })
+
+it("accepts interface options and rejects non-record roots", () => {
+  interface PresetOptions { enabled: boolean }
+  const options: PresetOptions = { enabled: true }
+  const preset = defineAgent({ options, configure: value => {
+    expectTypeOf(value).toEqualTypeOf<PresetOptions>()
+    return defineAgent({ driver: "codex" })
+  } })
+  expectTypeOf(defineAgent({ extends: preset, options: { enabled: false } }).options.enabled).toEqualTypeOf<boolean>()
+  // @ts-expect-error The root options value must be a record, not an array.
+  defineAgent({ options: [], configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error Callback values may only be nested in a record.
+  defineAgent({ options: () => true, configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error Built-in instances may only be nested in a record.
+  defineAgent({ options: new Date(), configure: () => defineAgent({ driver: "codex" }) })
+})
+
+it("recomputes contributed Workspace types after channel and capability replacement", () => {
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const workspaceCapability = defineCapability({ id: "workspace", workspace: {} })
+  const replacementCapability = defineCapability({ id: "workspace", metadata: {} })
+  const channel = defineAgent({ extends: plain, channels: { custom: { kind: "custom", capabilities: [workspaceCapability] } } })
+  const removedChannel = defineAgent({ extends: channel, channels: { custom: { kind: "custom" } } })
+  // @ts-expect-error Replacing the only contributing channel removes Workspace access.
+  void removedChannel.__vitehubWorkspaceAgent
+  const capability = defineAgent({ extends: plain, capabilities: [workspaceCapability] })
+  const removedCapability = defineAgent({ preset: "capability", presets: { capability }, capabilities: [replacementCapability] })
+  // @ts-expect-error Replacing the only contributing capability removes Workspace access.
+  void removedCapability.__vitehubWorkspaceAgent
+  const retainedChannel = defineAgent({ extends: channel, channels: { other: { kind: "custom" } } })
+  expectTypeOf(retainedChannel.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const otherCapability = defineCapability({ id: "other", metadata: {} })
+  const retainedCapability = defineAgent({ extends: capability, capabilities: [otherCapability] })
+  expectTypeOf(retainedCapability.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const explicit = defineAgent({ extends: channel, workspace: {} })
+  const retainedExplicit = defineAgent({ extends: explicit, channels: { custom: { kind: "custom" } } })
+  expectTypeOf(retainedExplicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const baseWorkspace = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", workspace: {} }) })
+  const retainedBase = defineAgent({ extends: baseWorkspace, channels: {}, capabilities: [] })
+  expectTypeOf(retainedBase.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+})
+
+it("removes Workspace contributed by a configured callback result", () => {
+  const plain = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex" }) })
+  const capability = defineCapability({ id: "workspace", workspace: {} })
+  const preset = defineAgent({ options: { enabled: true }, configure: () => defineAgent({
+    extends: plain, channels: { custom: { kind: "custom", capabilities: [capability] } },
+  }) })
+  expectTypeOf(preset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const child = defineAgent({ extends: preset, channels: { custom: { kind: "custom" } } })
+  // @ts-expect-error The callback's only Workspace contribution was replaced.
+  void child.__vitehubWorkspaceAgent
+})

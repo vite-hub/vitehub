@@ -186,3 +186,33 @@ it("promotes configured presets when capabilities or channels contribute Workspa
     expect(agent.options).toEqual({ enabled: true })
   }
 })
+
+it("removes contributed Workspace access when its last channel or capability is replaced", () => {
+  const plain = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex" }) })
+  const capability = defineCapability({ id: "workspace", workspace: {} })
+  const replacement = defineCapability({ id: "workspace", metadata: {} })
+  const channel = defineAgent({ extends: plain, channels: { custom: { kind: "custom", capabilities: [capability] } } })
+  const removedChannel = defineAgent({ extends: channel, channels: { custom: { kind: "custom" } } })
+  expect(removedChannel).not.toHaveProperty("__vitehubWorkspaceAgent")
+  const decoratedChannel = defineAgent({ extends: channel, name: "callback-default" })
+  const decoration = Symbol("published-metadata")
+  Object.defineProperty(decoratedChannel, decoration, { value: { published: true } })
+  Object.defineProperty(decoratedChannel, "publishedMetadata", { value: { published: true } })
+  const callbackPreset = defineAgent({ options: { enabled: true }, configure: () => decoratedChannel })
+  expect(callbackPreset.__vitehubWorkspaceAgent).toBe(true)
+  const callbackChild = defineAgent({ extends: callbackPreset, channels: { custom: { kind: "custom" } } })
+  expect(callbackChild).not.toHaveProperty("__vitehubWorkspaceAgent")
+  expect(callbackChild.name).toBeUndefined()
+  expect(callbackChild).toHaveProperty("publishedMetadata", { published: true })
+  expect(Object.getOwnPropertyDescriptor(callbackChild, decoration)?.value).toEqual({ published: true })
+  expect(defineAgent({ extends: callbackPreset, workspace: {} })).toHaveProperty("publishedMetadata", { published: true })
+  const withCapability = defineAgent({ extends: plain, capabilities: [capability] })
+  const removedCapability = defineAgent({ preset: "base", presets: { base: withCapability }, capabilities: [replacement] })
+  expect(removedCapability).not.toHaveProperty("__vitehubWorkspaceAgent")
+  const explicit = defineAgent({ extends: channel, workspace: {} })
+  expect(defineAgent({ extends: explicit, channels: { custom: { kind: "custom" } } }).__vitehubWorkspaceAgent).toBe(true)
+})
+
+it.each([[], () => true, new Date()])("rejects non-record configured option roots", options => {
+  expect(() => defineAgent({ options, configure: () => defineAgent({ driver: "codex" }) } as never)).toThrow("requires only options defaults and a configure callback")
+})

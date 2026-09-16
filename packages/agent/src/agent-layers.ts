@@ -155,14 +155,19 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
 export type DefinitionDecorationCarrier = Record<PropertyKey, unknown>
 
 export function copyDefinitionDecorations(source: DefinitionDecorationCarrier, target: DefinitionDecorationCarrier): void {
-  const frameworkSymbols = new Set<PropertyKey>([
+  const frameworkProperties = new Set<PropertyKey>([
+    "options", "__vitehubAgentSettings", "__vitehubWorkspaceAgent", "__vitehubWorkspaceAgentOptions", agentLayerMetadata,
+    "resolve", "run", "health", "status", "box", "capabilities", "channels", "chat", "cli", "description",
+    "driver", "hooks", "invoker", "invocations", "messages", "name", "runtime", "runEvents", "uiMessageStream", "version", "workspace",
+    "bindings", "commit", "loaders", "plugins", "publish", "rootDir", "rules", "sourceRootDir", "sources", "store", "mode",
     Symbol.for("vitehub.baseAgentResolve"), Symbol.for("vitehub.baseAgentDefinitionResolve"),
     Symbol.for("vitehub.baseAgentCapabilitiesResolver"), Symbol.for("vitehub.baseAgentModel"),
     Symbol.for("vitehub.baseAgentDriverKind"), Symbol.for("vitehub.baseAgentDriver"),
     Symbol.for("vitehub.baseAgentOutput"), Symbol.for("vitehub.syntheticWorkspaceRun"),
   ])
   for (const key of Reflect.ownKeys(source)) {
-    if (key === "options" || key === "__vitehubAgentSettings" || key === agentLayerMetadata || key === "resolve" || key === "run" || key === "health" || key === "status" || frameworkSymbols.has(key)) continue
+    // Rebuild framework fields from layer settings instead of copying derived runtime state.
+    if (frameworkProperties.has(key)) continue
     // Resolved settings and explicit overrides take precedence over callback decorations.
     if (Object.prototype.hasOwnProperty.call(target, key)) continue
     const descriptor = Object.getOwnPropertyDescriptor(source, key)
@@ -175,6 +180,7 @@ export function rememberAgentLayerOptions<T extends AgentDefinition>(definition:
   // SAFETY: Agent definitions are mutable metadata carriers owned by this package.
   const metadataTarget = asMetadataTarget(definition)
   rememberLayerMetadata(metadataTarget, { options: { ...options }, configured: inherited?.configured, defaults: inherited?.defaults })
+  copyDefinitionDecorations(asMetadataTarget(source), metadataTarget)
   if (inherited?.parent) inheritColocatedSkills(asMetadataTarget(inherited.parent), asMetadataTarget(definition))
   // SAFETY: Metadata stores the private configured layer shape created by this module.
   if (inherited?.configured) rememberConfiguredLayer(definition, inherited.configured as ConfiguredLayer)
@@ -261,17 +267,12 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value instanceof URL) { const clone = new URL(value.href); memo.set(value, clone); return clone }
   if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
   if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
-  // SAFETY: globalThis is the only supported source for an optional SharedArrayBuffer constructor.
-  const globalObject: { SharedArrayBuffer?: { new (length: number): { byteLength: number } } } = globalThis
-  const sharedArrayBuffer = globalObject.SharedArrayBuffer
+  const sharedArrayBuffer = globalThis.SharedArrayBuffer
   if (sharedArrayBuffer && value instanceof sharedArrayBuffer) {
     const source = value
     const clone = new sharedArrayBuffer(source.byteLength)
-    // SAFETY: SharedArrayBuffer is binary-compatible with ArrayBuffer for byte copying.
-    // SAFETY: The SharedArrayBuffer clone has the same byte-oriented storage contract as ArrayBuffer.
-    const cloneBytes = new Uint8Array(clone as unknown as ArrayBuffer)
-    // SAFETY: The value was validated as a SharedArrayBuffer instance above, so its storage is byte-addressable.
-    const sourceBytes = new Uint8Array(value as ArrayBuffer)
+    const cloneBytes = new Uint8Array(clone)
+    const sourceBytes = new Uint8Array(value)
     cloneBytes.set(sourceBytes)
     memo.set(value, clone)
     return clone
