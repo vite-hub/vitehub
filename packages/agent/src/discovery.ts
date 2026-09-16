@@ -467,6 +467,17 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         if (["{", "(", "["].includes(token)) callbackDepth++
         else if (["}", ")", "]"].includes(token)) callbackDepth--
       }
+      // Exclude defineAgent calls nested inside the selected definition's settings.
+      // Conditional branches remain eligible when they occur at the same expression depth.
+      const returnedCandidates = returnedDefinitions.filter((index) => {
+        let depth = 0
+        for (let i = bodyStart; i < index; i++) {
+          if (["{", "(", "["].includes(tokens[i])) depth++
+          else if (["}", ")", "]"].includes(tokens[i])) depth--
+        }
+        return depth === returnedDefinitionDepth
+      })
+      returnedDefinitions.splice(0, returnedDefinitions.length, ...returnedCandidates)
       if (returnedDefinition >= 0) callbackDefinition = returnedDefinition
       // A conditional return can yield multiple same-depth definitions. Any
       // Workspace-producing branch promotes the configured Agent.
