@@ -190,10 +190,16 @@ function assertLayerDefinition(value: unknown): asserts value is AgentDefinition
 // Options contain application data, so driver and capability merge rules do not apply.
 function mergePresetOptions(parent: Record<string, unknown>, child?: Record<string, unknown>): Record<string, unknown> {
   const memo = new WeakMap<object, unknown>()
-  return mergePresetOptionsWithMemo(parent, child, memo)
+  const pairMemo = new WeakMap<object, WeakMap<object, Record<string, unknown>>>()
+  return mergePresetOptionsWithMemo(parent, child, memo, pairMemo)
 }
 
-function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>): Record<string, unknown> {
+function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>, pairMemo: WeakMap<object, WeakMap<object, Record<string, unknown>>>): Record<string, unknown> {
+  if (child) {
+    const byChild = pairMemo.get(parent)
+    const existing = byChild?.get(child)
+    if (existing) return existing
+  }
   // A parent may be merged with multiple distinct child overrides. Reusing a
   // parent-only memo entry would apply the first child to every occurrence.
   if (!child && memo.has(parent)) {
@@ -203,6 +209,11 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   // SAFETY: Object.create result is immediately populated as a property-key record.
   const result: Record<string | symbol, unknown> = Object.create(Object.getPrototypeOf(parent)) as Record<string | symbol, unknown>
   memo.set(parent, result)
+  if (child) {
+    let byChild = pairMemo.get(parent)
+    if (!byChild) { byChild = new WeakMap(); pairMemo.set(parent, byChild) }
+    byChild.set(child, result)
+  }
   // SAFETY: Own keys are read from these record-shaped inputs, including symbols.
   const parentKeys = parent as Record<PropertyKey, unknown>
   // SAFETY: `child` is narrowed by the optional guard at each use site.
@@ -211,7 +222,7 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
     const value = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined ? childKeys[key] : parentKeys[key]
     if (record(value)) {
       const parentValue = record(parentKeys[key]) ? parentKeys[key] : {}
-      const merged = mergePresetOptionsWithMemo(parentValue, value, memo)
+      const merged = mergePresetOptionsWithMemo(parentValue, value, memo, pairMemo)
       Object.defineProperty(result, key, { value: merged, enumerable: true, writable: true, configurable: true })
     } else Object.defineProperty(result, key, { value: clonePresetOption(value, memo), enumerable: true, writable: true, configurable: true })
   }
