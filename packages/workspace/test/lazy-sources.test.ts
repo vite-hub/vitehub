@@ -2821,6 +2821,59 @@ describe("lazy sources", () => {
     await expect(store.readFile(path)).resolves.toMatchObject({ content: "first" })
   })
 
+  it.each(["missing", "inline-missing", "inline-own", "inline-stale", "inline-no-digest"])("revalidates startup snapshots with %s ownership", async (state) => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "first",
+      sources: { docs: custom({ materialize: "startup", files: [{ path: "shared.md", content: "first" }] }) },
+    }, store)
+    await view.materializeSources()
+    const ownerKey = "workspace-file-owner:docs%2Fshared.md"
+    if (state === "missing") {
+      await store.setMeta!(ownerKey, { workspace: "second", source: "docs", digest: "old" })
+      await store.rm("docs/shared.md")
+    }
+    else {
+      await store.writeFile("docs/shared.md", { path: "docs/shared.md", content: "second", metadata: { workspaceSourceOwner: "second", source: "docs" } })
+      if (state === "inline-missing") await store.setMeta!(ownerKey, null)
+      if (state === "inline-stale") await store.setMeta!(ownerKey, { workspace: "second", source: "docs", digest: "stale" })
+      if (state === "inline-no-digest") await store.setMeta!(ownerKey, { workspace: "second", source: "docs" })
+    }
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("first")
+  })
+
+  it.each(["docs/nested", "docs"])("retries failed stale directory removal at %s after reopening", async (failedPath) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["nested/old.md"]
+    const definition = {
+      name: "cleanup-retry",
+      sources: { docs: custom({
+        materialize: "startup",
+        async getKeys() { return keys },
+        async getItem(key) { return { key, content: key } },
+      }) },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = []
+    const originalRm = store.rm.bind(store)
+    let fail = true
+    vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+      if (path === failedPath && fail) {
+        fail = false
+        throw new Error("provider unavailable")
+      }
+      await originalRm(path, options)
+    })
+    await expect(createWorkspaceSourceView(definition, store).materializeSources()).resolves.toMatchObject({
+      sources: [{ status: "error", error: "provider unavailable" }],
+    })
+    await expect(store.stat("docs/nested/old.md")).resolves.toBeUndefined()
+    await expect(createWorkspaceSourceView(definition, store).materializeSources()).resolves.toMatchObject({
+      sources: [{ status: "ready" }],
+    })
+    await expect(store.stat(failedPath)).resolves.toBeUndefined()
+  })
+
   it("restores a missing empty mount before accepting a cached snapshot", async () => {
     const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({

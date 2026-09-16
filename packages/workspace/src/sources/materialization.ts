@@ -138,10 +138,13 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
   if (verifyOwnership === "workspace") {
     // Normal reads preserve external edits, but cannot reuse files owned by another Workspace.
     for (const path of Object.keys(meta.items || {})) {
+      const file = await store.readFile(path)
+      if (!file) return false
+      const inlineOwner = file.metadata?.workspaceSourceOwner
+      if (inlineOwner !== undefined && inlineOwner !== workspace) return false
       const owner = await readWorkspaceFileOwner(store, path)
       if (!owner || owner.workspace === workspace || !owner.digest) continue
-      const file = await store.readFile(path)
-      if (file && await sha256(file.content) === owner.digest) return false
+      if (await sha256(file.content) === owner.digest) return false
     }
     return true
   }
@@ -340,12 +343,16 @@ async function removeStaleMaterializedSourceFiles(
   scope: WorkspaceMaterializeSourcesOptions | undefined,
   control: MaterializationControl,
   previousSnapshot: SourceSnapshotMetadata | undefined,
+  ownedDirectories: Set<string>,
   onRemoved?: (path: string, bytes: number) => void,
 ) {
   const localStore = (await resolveWorkspaceStoreTarget(store))?.provider === "local"
   const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
-  const staleDirectories = new Set<string>()
+  // Owned directories survive failed cleanup after their last file was removed.
+  const staleDirectories = new Set((previousSnapshot?.ownedDirectories || []).filter(path =>
+    sourceOwnsDirectory(source, path) && materializationPathMatches(path, scope),
+  ))
   const removedDirectories = new Set<string>()
   // Build cleanup leaves an empty snapshot object; only that missing index needs recovery.
   // With metadata support, an absent snapshot is a first startup with no owned paths.
@@ -398,11 +405,18 @@ async function removeStaleMaterializedSourceFiles(
     }
   }
   for (const path of [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)) {
+    if ((await store.stat(path))?.type === "file" || (await store.list(path)).length) continue
     try {
       await control.mutate(() => store.rm(path, { force: true }))
       removedDirectories.add(path)
     }
-    catch {}
+    catch (error) {
+      // A concurrent write may make the directory nonempty after the check.
+      if (!(await store.list(path)).length) {
+        ownedDirectories.add(path)
+        throw error
+      }
+    }
   }
   return removedDirectories
 }
@@ -924,7 +938,7 @@ async function materializeWorkspaceSourcesInternal(
         }
       }
       throwIfAborted(options.abortSignal)
-      const removedDirectories = await removeStaleMaterializedSourceFiles(store, workspace, source, configuredSources, nextPaths, options, control, existing, (path, removedBytes) => {
+      const removedDirectories = await removeStaleMaterializedSourceFiles(store, workspace, source, configuredSources, nextPaths, options, control, existing, ownedDirectories, (path, removedBytes) => {
         counts.removed++
         if (Object.hasOwn(itemMetadata, path)) persistedBytesDelta -= itemMetadata[path]?.materializedBytes ?? removedBytes
         delete itemMetadata[path]
