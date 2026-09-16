@@ -186,8 +186,9 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
 
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
+    const buildKeys = new Set(previousSources.filter(source => source.mountPath === mountPath).map(source => source.key))
     const removedPaths = (await store.list(mountPath, { recursive: true }))
-      .filter(entry => entry.type === "file")
+      .filter(entry => entry.type === "file" && typeof entry.metadata?.source === "string" && buildKeys.has(entry.metadata.source))
       .map(entry => entry.path)
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
@@ -200,7 +201,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
       await invalidateSourceSnapshot(store, source.key)
     }
     abortSignal?.throwIfAborted()
-    await store.rm(mountPath, { recursive: true, force: true })
+    await Promise.all(removedPaths.map(path => store.rm(path, { force: true })))
     abortSignal?.throwIfAborted()
   }
   const rootSourceKeys = new Set([...previousSources, ...currentSources].filter(source => !source.mountPath).map(source => source.key))

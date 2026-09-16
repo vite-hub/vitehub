@@ -46,8 +46,6 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
   const revision = "current"
   if (path !== null) {
     if (!visiblePath(path)) throw failure(400, "Choose a visible file inside this Workspace.")
-    const visible = (await workspace.fs.glob("**/*")).some(entry => entry.type === "file" && entry.path === path)
-    if (!visible) throw failure(404, "This file is not in the mounted Workspace.")
     const stat = await workspace.fs.stat(path)
     if (stat.type !== "file") throw failure(400, "Choose a file to preview.")
     if (stat.size !== undefined && stat.size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
