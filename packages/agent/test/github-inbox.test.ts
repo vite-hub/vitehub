@@ -8,7 +8,7 @@ const repository = 'vite-hub/vitehub'
 const repo = { full_name: repository }
 const pr = (patch = {}) => ({ number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { sha: 'base', ref: 'main' }, updated_at: '2026-09-13T10:00:00Z', ...patch })
 const comment = (id = 1, body = 'Please repair this') => ({ id, body, user: { login: 'human', type: 'User' } })
-function memory(t: { onTestFinished: (fn: () => void) => void }) { const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository]}); t.onTestFinished(() => inbox.close()); return inbox }
+function memory(t: { onTestFinished: (fn: () => void) => void }) { const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], activityAuthors: ['vitehub-bot[bot]']}); t.onTestFinished(() => inbox.close()); return inbox }
 function post(inbox: PullRequestInbox, id: string, event: string, payload: object) { return inbox.ingest(id, event, { repository: repo, ...payload }) }
 
 test('GraphQL bootstrap normalizes state, author and head into a claimable snapshot', t => {
