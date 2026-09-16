@@ -57,6 +57,8 @@ export interface MkdirOptions {
 }
 
 export interface RmOptions {
+  /** Require the observed directory identity. Only use with conditionalDirectoryRemoval. */
+  ifDirectoryIdentity?: string
   recursive?: boolean
   force?: boolean
   ifDigest?: string
@@ -327,6 +329,8 @@ export interface WorkspaceRebaseOptions {
 export interface WorkspaceStore {
   /** rm atomically checks SHA-256 content and Source ownership before removing a file. */
   readonly conditionalRemoval?: boolean
+  /** rm atomically checks directory identity before removing an empty directory. */
+  readonly conditionalDirectoryRemoval?: boolean
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>

@@ -32,6 +32,7 @@ function now() {
 }
 
 class MemoryWorkspaceStore implements WorkspaceStore {
+  readonly conditionalDirectoryRemoval = true;
   readonly conditionalRemoval = true;
   [workspaceStoreTarget]() {
     return { provider: "memory" }
@@ -112,6 +113,8 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     await this.#mutate(async () => {
       const normalized = normalizeWorkspacePath(path)
       const node = this.#nodes.get(normalized)
+      if (options.ifDirectoryIdentity !== undefined
+        && (node?.type !== "directory" || node.directoryIdentity !== options.ifDirectoryIdentity)) return
       if (options.ifDigest !== undefined || options.ifSource !== undefined) {
         if (node?.type !== "file") return
         if (options.ifDigest !== undefined && (await this.#entry(normalized, node)).digest !== options.ifDigest) return
@@ -124,7 +127,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       if (node.type === "directory" && !options.recursive) {
         for (const key of this.#nodes.keys()) {
           if (key.startsWith(`${normalized}/`)) {
-            throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+            throw Object.assign(workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`), { code: "ENOTEMPTY" })
           }
         }
       }

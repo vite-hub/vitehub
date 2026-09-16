@@ -30,6 +30,7 @@ function getStore(definition: WorkspaceDefinition) {
 
 async function filterStartupSourceChanges(definition: WorkspaceDefinition, store: WorkspaceStore, diff: WorkspaceDiff): Promise<WorkspaceDiff> {
   if (!diff.entries.length) return diff
+  const startupOwners = new Set(normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "startup").map(source => source.key))
   const generatedFiles = new Set<string>()
   const generatedDirectories = new Set<string>()
   const generatedEmptyDirectories = new Set<string>()
@@ -61,6 +62,8 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
   }
   const entries: WorkspaceDiff["entries"] = []
   for (const entry of diff.entries) {
+    if (entry.type === "removed" && entry.before?.type === "file"
+      && hasRuntimeType(entry.before.metadata?.source, "string") && startupOwners.has(entry.before.metadata.source)) continue
     if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
     if (entry.type === "added" && entry.after?.type === "directory" && generatedDirectories.has(entry.path)) {
       const descendants = await store.list(entry.path, { recursive: true })

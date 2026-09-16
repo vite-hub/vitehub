@@ -55,6 +55,7 @@ interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStat
   mountIdentity?: string
   ownedAncestors?: string[]
   ownedDirectories?: string[]
+  pendingDirectories?: string[]
   items?: Record<string, LazyMaterializedMetadata>
 }
 
@@ -505,10 +506,11 @@ async function removeStaleMaterializedSourceFiles(
   control: MaterializationControl,
   previousSnapshot: SourceSnapshotMetadata | undefined,
   onRemoved?: (path: string, bytes: number) => void,
+  onPendingDirectories?: (paths: string[]) => void,
 ) {
   const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
-  const staleDirectories = new Set<string>()
+  const staleDirectories = new Set(previousSnapshot?.pendingDirectories || [])
   const removedDirectories = new Set<string>()
   // Build cleanup leaves an empty snapshot object; only that missing index needs recovery.
   // With metadata support, an absent snapshot is a first startup with no owned paths.
@@ -538,6 +540,7 @@ async function removeStaleMaterializedSourceFiles(
         if (sourceOwnsDirectory(source, directory)
           && (directory === source.mountPath ? previousSnapshot?.ownsMount : previousSnapshot?.ownedDirectories?.includes(directory) || !store.getMeta || !store.setMeta)) staleDirectories.add(directory)
       }
+      onPendingDirectories?.([...staleDirectories])
       for (const candidate of sources) {
         if (candidate.key === source.key) continue
         const retainedSnapshot = await readSourceSnapshotMetadata(store, candidate.key)
@@ -564,16 +567,23 @@ async function removeStaleMaterializedSourceFiles(
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
   }
-  for (const path of [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)) {
+  const pendingDirectories = [...staleDirectories].filter(path => !nextDirectories.has(path))
+  onPendingDirectories?.(pendingDirectories)
+  for (const path of pendingDirectories.sort((a, b) => b.length - a.length)) {
     try {
       const stat = await store.stat(path)
       if (stat?.type !== "directory") continue
       if (path === source.mountPath && previousSnapshot?.mountIdentity
         && stat.directoryIdentity !== previousSnapshot.mountIdentity) continue
-      await control.mutate(() => store.rm(path, { force: true }))
-      removedDirectories.add(path)
+      // A stat followed by unconditional rm can delete a concurrent replacement.
+      if (!store.conditionalDirectoryRemoval || !stat.directoryIdentity) continue
+      if ((await store.list(path)).length) continue
+      await control.mutate(() => store.rm(path, { force: true, ifDirectoryIdentity: stat.directoryIdentity }))
+      if (!await store.stat(path)) removedDirectories.add(path)
     }
-    catch {}
+    catch (error) {
+      if (!hasRuntimeType(error, "object") || error === null || !["ENOENT", "ENOTDIR", "ENOTEMPTY", "EEXIST"].includes(Reflect.get(error, "code"))) throw error
+    }
   }
   return removedDirectories
 }
@@ -913,6 +923,7 @@ async function materializeWorkspaceSourcesInternal(
     let mountIdentity = existing?.mountPath === source.mountPath ? existing.mountIdentity : undefined
     const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
+    let pendingDirectories = existing?.pendingDirectories
     let revision = existing?.revision
     const retainPriorItems = existing?.configHash === configHash
       || source.materialize === "startup" && existing?.mountPath === source.mountPath
@@ -1063,7 +1074,7 @@ async function materializeWorkspaceSourcesInternal(
         if (Object.hasOwn(itemMetadata, path)) persistedBytesDelta -= itemMetadata[path]?.materializedBytes ?? removedBytes
         delete itemMetadata[path]
         paths.push({ path, status: "removed" })
-      })
+      }, (paths) => { pendingDirectories = paths })
       if (removedDirectories.has(source.mountPath)) ownsMount = false
       for (const directory of removedDirectories) ownedDirectories.delete(directory)
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
@@ -1134,6 +1145,7 @@ async function materializeWorkspaceSourcesInternal(
     catch (error) {
       const checkpointItemsMetadata = checkpointItems(itemMetadata)
       const failed: SourceSnapshotMetadata = {
+        pendingDirectories,
         configHash,
         source: source.key,
         mountPath: source.mountPath,
@@ -1153,7 +1165,7 @@ async function materializeWorkspaceSourcesInternal(
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? { ...existing, ownedDirectories: [...ownedDirectories], items: checkpointItemsMetadata }
+            ? { ...existing, pendingDirectories, ownedDirectories: [...ownedDirectories], items: checkpointItemsMetadata }
             : source.materialize === "startup" ? { ...failed, status: "updating" as const, error: undefined } : undefined
         : failed
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))

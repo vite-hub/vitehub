@@ -704,7 +704,8 @@ describe("lazy sources", () => {
 
     await expect(store.stat(path("kept"))).resolves.toMatchObject({ type: "directory" })
     await expect(store.stat(path("kept/file.md"))).resolves.toBeUndefined()
-    await expect(store.stat(path("created"))).resolves.toBeUndefined()
+    if (restart) await expect(store.stat(path("created"))).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat(path("created"))).resolves.toBeUndefined()
   })
 
   it.each([
@@ -2799,6 +2800,73 @@ describe("lazy sources", () => {
     await expect(view.readFile("AGENTS.md")).resolves.toBe("# Source\n")
   })
 
+  it.each(["file", "directory"] as const)("preserves a %s replacing a stale directory during removal", async (replacement) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["nested/file.md"]
+    const view = createWorkspaceSourceView({ name: "stale-race", sources: { generated: custom({
+      materialize: "startup", mount: "generated",
+      async getKeys() { return keys },
+      async getItem(key) { return { key, content: key } },
+    }) } }, store)
+    await view.materializeSources()
+    const original = store.rm.bind(store)
+    const spy = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+      if (path === "generated/nested") {
+        await original(path, { recursive: true })
+        if (replacement === "file") await store.writeFile(path, { path, content: "user" })
+        else await store.mkdir(path)
+      }
+      await original(path, options)
+    })
+    keys = []
+    await view.materializeSources()
+    spy.mockRestore()
+    await expect(store.stat("generated/nested")).resolves.toMatchObject({ type: replacement })
+  })
+
+  it.each(["stat", "list", "rm"] as const)("retries stale-directory cleanup after %s fails", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["nested/file.md"]
+    const definition = { name: "stale-retry", sources: { generated: custom({
+      materialize: "startup", mount: "generated",
+      async getKeys() { return keys },
+      async getItem(key) { return { key, content: key } },
+    }) } }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    keys = []
+    const original = store[operation].bind(store)
+    const spy = vi.spyOn(store, operation).mockImplementation(async (...args: unknown[]) => {
+      if (args[0] === "generated/nested") throw Object.assign(new Error("Store unavailable"), { code: "EIO" })
+      return Reflect.apply(original, store, args)
+    })
+    const result = await view.materializeSources()
+    expect(result.sources[0]?.status).toBe("error")
+    spy.mockRestore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await expect(store.stat("generated/nested")).resolves.toBeUndefined()
+  })
+
+  it("excludes generated removals from default diffs while retaining lazy removals", async () => {
+    let keys = ["file.md"]
+    const source = (materialize: "startup" | "lazy") => custom({
+      materialize, async getKeys() { return keys }, async getItem(key) { return { key, content: key } },
+    })
+    registerWorkspace("removed-diff", defineWorkspace({ store: { provider: "memory" }, sources: {
+      generated: source("startup"), lazy: source("lazy"),
+    } }))
+    const workspace = await useRegisteredWorkspace("removed-diff")
+    await workspace.readFile("generated/file.md")
+    await workspace.readFile("lazy/file.md")
+    const baseline = await workspace.snapshot()
+    keys = []
+    await workspace.materializeSources?.()
+    const diff = await workspace.diff()
+    expect(diff.entries.some(entry => entry.path === "generated/file.md")).toBe(false)
+    expect((await workspace.diff({ from: baseline })).entries).toContainEqual(expect.objectContaining({ path: "generated/file.md", type: "removed" }))
+    expect(diff.entries).toContainEqual(expect.objectContaining({ path: "lazy/file.md", type: "removed" }))
+  })
+
   it("keeps user-owned ancestors when clearing a nested source mount", async () => {
     const store = createMemoryWorkspaceStore()
     await store.mkdir("docs")
@@ -2868,6 +2936,11 @@ describe("lazy sources", () => {
     keys = []
     await view.materializeSources()
 
+    if (local) {
+      // Local filesystems cannot atomically bind rmdir to a directory identity.
+      await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+      return
+    }
     await expect(store.stat("docs/generated")).resolves.toBeUndefined()
     await expect(store.getMeta?.("source:generated:snapshot")).resolves.toMatchObject({
       ownsMount: false,
