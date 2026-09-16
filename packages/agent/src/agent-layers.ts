@@ -250,6 +250,7 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   return result
 }
 
+// doctor-disable-next-line typescript/evidence/no-object-parameters -- Descriptor copying accepts arbitrary built-in and plain option objects.
 function clonePresetDescriptors(source: object, target: object, memo: WeakMap<object, unknown>, active: WeakMap<object, unknown>): void {
   for (const key of Reflect.ownKeys(source)) {
     const descriptor = Object.getOwnPropertyDescriptor(source, key)
@@ -272,6 +273,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value === null || !hasRuntimeType(value, "object")) return value
   if (active.has(value)) return active.get(value)
   if (memo.has(value)) return memo.get(value)
+  // doctor-disable-next-line typescript/evidence/no-object-parameters -- Each clone has its own built-in shape; this step only copies descriptors.
   const finish = (clone: object) => {
     memo.set(value, clone)
     clonePresetDescriptors(value, clone, memo, active)
@@ -327,7 +329,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       readonly BYTES_PER_ELEMENT: number
     }[] = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array, BigUint64Array]
     const TypedArray = constructors.find(ctor => Object.getPrototypeOf(value) === ctor.prototype)
-    const isBuffer = typeof Buffer !== "undefined" && Object.getPrototypeOf(value) === Buffer.prototype
+    const isBuffer = globalThis.Buffer !== undefined && Object.getPrototypeOf(value) === Buffer.prototype
     const isDataView = Object.getPrototypeOf(value) === DataView.prototype
     if (!TypedArray && !isBuffer && !isDataView) return value
     const prototype = isDataView ? DataView.prototype : typedArrayPrototype
