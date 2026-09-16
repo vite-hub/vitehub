@@ -126,6 +126,12 @@ import type {
   MaybeResolvable,
   ResolvedAgentTriggerDefinition,
 } from "../types.ts"
+
+// Chat adapters can acknowledge a message and leave their typing placeholder
+// visible forever when a Driver or a source provider stalls. Keep the existing
+// 28-second delivery budget as the default even when an Agent does not specify
+// an explicit timeout.
+const defaultChatInvocationTimeoutMs = 28_000
 import type { AttachmentPart, MessagePart } from "../messages.ts"
 import type {
   Adapter,
@@ -4774,8 +4780,8 @@ async function isChatMessageAuthorized(
 }
 
 function chatInvocationTimeout(timeout: number | undefined, maximum: number | undefined): number | undefined {
-  if (maximum === undefined) return timeout
-  return timeout === undefined ? maximum : Math.min(timeout, maximum)
+  const requested = timeout ?? defaultChatInvocationTimeoutMs
+  return maximum === undefined ? requested : Math.min(requested, maximum)
 }
 
 async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number | undefined, abortController?: AbortController): Promise<T> {

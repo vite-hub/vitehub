@@ -18848,7 +18848,6 @@ describe("server helpers", () => {
             delivery: "manual",
             errorFallbackText: "Please try again.",
             fallbackStreamingPlaceholderText: "Analyzing photo…",
-            timeout: 50_000,
           },
         }),
       },
