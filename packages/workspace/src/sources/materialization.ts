@@ -513,6 +513,7 @@ async function* iterateMaterializationEntries(
   snapshot: SourceSnapshotMetadata | undefined,
   configHash: string,
   options: WorkspaceMaterializeSourcesOptions | undefined,
+  workspace: string,
 ): AsyncGenerator<MaterializationEntry> {
   const directKey = directMaterializationSourceKey(source, options)
   if (directKey) {
@@ -537,7 +538,8 @@ async function* iterateMaterializationEntries(
     const previous = materializedItemMeta(snapshot, configHash, path)
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
-      if (stat?.type === "file") {
+      const owner = stat?.metadata?.workspaceSourceOwner
+      if (stat?.type === "file" && (owner === undefined || owner === workspace)) {
         yield {
           metadata: previous,
           path,
@@ -713,7 +715,7 @@ async function materializeWorkspaceSourcesInternal(
       revision = ctx.revision
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
-      for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash, options)) {
+      for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash, options, workspace)) {
         throwIfAborted(options.abortSignal)
         const path = entry.path
         nextPaths.add(path)
