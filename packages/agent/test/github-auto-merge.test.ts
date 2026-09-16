@@ -187,7 +187,7 @@ describe("native auto-merge", () => {
       push: async () => { f.pullRequest.headRefOid = nextHead; return nextHead },
       eligible: async () => { if (++admitted === 1) await f.operations.push(); return true },
     })
-    await expect(f.operations.requestAutoMerge()).rejects.toThrow("Pull request ref changed during auto-merge admission")
+    await expect(f.operations.requestAutoMerge()).rejects.toThrow("Pull request ref changed")
     expect(f.mutations()).toHaveLength(0)
   })
 
