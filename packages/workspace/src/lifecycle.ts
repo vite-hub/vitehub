@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto"
 import { useWorkspaceAssets } from "./asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { files as filesLoader } from "./loaders/files.ts"
-import { normalizeWorkspacePath, sha256 } from "./core/path.ts"
+import { contentStreamChunks, normalizeWorkspacePath, sha256 } from "./core/path.ts"
 import { workspaceError } from "./core/errors.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { readWorkspaceFileOwner, recordWorkspaceFileOwner } from "./sources/file-ownership.ts"
@@ -62,8 +63,15 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
       }
       if (property === "writeFileStream" && target.writeFileStream) return async (path: string, file: WorkspaceStreamFile) => {
         const tagged = tag(path, file)
-        const written = await target.writeFileStream!(path, tagged)
-        await record(path, tagged.metadata?.workspaceBuildSource, written.digest)
+        const hash = createHash("sha256")
+        const content = (async function* () {
+          for await (const chunk of contentStreamChunks(tagged.content)) {
+            hash.update(chunk)
+            yield chunk
+          }
+        })()
+        const written = await target.writeFileStream!(path, { ...tagged, content })
+        await record(path, tagged.metadata?.workspaceBuildSource, hash.digest("hex"))
         return written
       }
       return Reflect.get(target, property, target)?.bind(target)
@@ -228,6 +236,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
       const owner = await readWorkspaceFileOwner(store, path)
       const ownedByBuild = owner
         ? owner.workspace === definition.name && buildSources.some(buildSource => buildSource.key === owner.source)
+          && await sha256(file.content) === owner.digest
         : (file.metadata?.workspaceSourceOwner === undefined || file.metadata.workspaceSourceOwner === definition.name)
           && buildSources.some(buildSource => buildSource.key === file.metadata?.source || buildSource.key === file.metadata?.workspaceBuildSource)
       if (!ownedByBuild) continue

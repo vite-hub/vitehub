@@ -1,4 +1,5 @@
 import { posix } from "node:path"
+import { createHash } from "node:crypto"
 import { isDeepStrictEqual } from "node:util"
 
 import { workspaceError } from "../core/errors.ts"
@@ -845,7 +846,7 @@ async function materializeWorkspaceSourcesInternal(
           : 0)
         const contentEqual = entry.contentStream
           ? store.writeFileStream
-            ? previousStat?.type === "file" && previousStat.digest !== undefined && previousStat.digest === written.digest
+            ? previousStat?.type === "file" && previousStat.digest !== undefined && previousStat.digest === written.storeDigest
             : written.contentEqual === true
           : previous !== undefined && contentEquals(previous.content, entry.content ?? "")
         const status = contentEqual
@@ -1019,13 +1020,15 @@ async function writeMaterializedFile(
     metadata?: Record<string, unknown>
   },
   previousContent?: string | Uint8Array,
-): Promise<{ contentEqual?: boolean, digest?: string, size?: number }> {
+): Promise<{ contentEqual?: boolean, digest?: string, storeDigest?: string, size?: number }> {
   if (file.contentStream) {
     if (store.writeFileStream) {
       let size = 0
+      const hash = createHash("sha256")
       const content = (async function* () {
         for await (const chunk of contentStreamChunks(file.contentStream!)) {
           size += chunk.byteLength
+          hash.update(chunk)
           yield chunk
         }
       })()
@@ -1039,7 +1042,7 @@ async function writeMaterializedFile(
       if (!written.digest) {
         throw workspaceError("[vitehub] Workspace Store writeFileStream() must return a content digest.")
       }
-      return { digest: written.digest, size }
+      return { digest: hash.digest("hex"), storeDigest: written.digest, size }
     }
     const content = await contentStreamToBytes(file.contentStream)
     await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })

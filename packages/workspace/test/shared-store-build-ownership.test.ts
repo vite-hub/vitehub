@@ -30,6 +30,36 @@ it.each([false, true])("invalidates startup snapshots after durable build overwr
   await expect(workspace.readFile("docs/shared.md")).resolves.toBe("startup")
 })
 
+it.each([false, true])("preserves external replacements after durable build ownership is recorded, explicit=%s", async (explicit) => {
+  const store = createMemoryWorkspaceStore()
+  const write = store.writeFile.bind(store)
+  store.writeFile = (path, file) => write(path, { ...file, metadata: undefined })
+  const name = `build-overwrite-${crypto.randomUUID()}`
+  const definition: WorkspaceDefinition = {
+    name,
+    sources: {
+      build: custom({ materialize: "build", mount: "", files: [{ path: "docs/shared.md", content: "build" }] }),
+      startup: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "startup" }] }),
+    },
+    loaders: explicit ? [{ name: "derived", async load(ctx) {
+      await ctx.store.writeFile("docs/shared.md", { path: "docs/shared.md", content: "build" })
+    } }] : undefined,
+  }
+  const workspace = createWorkspaceSourceView(definition, store)
+  await expect(workspace.readFile("docs/shared.md")).resolves.toBe("startup")
+  const setMeta = store.setMeta!.bind(store)
+  store.setMeta = async (key, value) => {
+    await setMeta(key, value)
+    if (key === `workspace:${encodeURIComponent(name)}:build-files`) {
+      await store.writeFile("docs/shared.md", { path: "docs/shared.md", content: "external replacement" })
+    }
+  }
+  await syncWorkspaceDefinition(definition, store)
+  await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "external replacement" })
+  await expect(store.getMeta!(sourceSnapshotMetaKey(name, "startup"))).resolves.toMatchObject({ status: "ready" })
+  await expect(workspace.readFile("docs/shared.md")).resolves.toBe("external replacement")
+})
+
 for (const mount of ["", "docs"]) {
   for (const explicit of [false, true]) {
     it(`isolates shared-Store build cleanup at '${mount}' with explicit loader=${explicit}`, async () => {
