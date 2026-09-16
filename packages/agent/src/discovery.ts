@@ -533,7 +533,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
               const partIndex = tokens.indexOf(part, i + 1)
               const resolved = partIndex >= 0 ? resolveReference(partIndex) : partIndex
               const value = resolved >= 0 ? tokens[resolved] : part
-              if (!value || !/^["'`]/.test(value) || (value.startsWith("`") && value.includes("${"))) { valid = false; break }
+              if (!value || !/^["'`]/.test(value) || (value.startsWith("`") && (value.includes("${") || value.includes("\\")))) { valid = false; break }
               literalParts.push(propertyName(value))
               if (p + 1 < expression.length && expression[p + 1] !== "+") { valid = false; break }
             }
