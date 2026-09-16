@@ -629,8 +629,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const branches = conditionalBranches(value)
         if (branches) return branches.some(workspaceOwnsDefinition)
         if (tokens[value] === "{") {
-          // Named Workspace objects are references, including option-derived names.
-          return !properties(value).has("name")
+          const name = properties(value).get("name")
+          if (name === undefined) return true
+          const nameValue = resolveReference(name)
+          if (tokens[nameValue] === "undefined") return true
+          if (/^["'`]/.test(tokens[nameValue] ?? "")) return false
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic Workspace name. Use a statically known string reference or workspace: {} ownership marker.")
         }
         if (tokens[value] === "undefined" || /^["'`]/.test(tokens[value] ?? "")) return false
         // A dynamic member may resolve to either a named reference or owned

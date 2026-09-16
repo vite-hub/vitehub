@@ -2124,6 +2124,7 @@ type AgentDefinitionLike = { resolve: (...args: never[]) => unknown }
 
 type ConfiguredOptionsRecord<TOptions> = [Extract<TOptions, readonly unknown[] | ((...args: never[]) => unknown)
   | Promise<unknown> | Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | URLSearchParams
+  | WeakMap<object, unknown> | WeakSet<object> | Error
   | ArrayBuffer | ArrayBufferView | SharedArrayBuffer>] extends [never] ? unknown : never
 
 type ConfiguredAgentOptions<TDefinition> = TDefinition extends { options: infer TOptions extends object } ? TOptions : never
@@ -2159,8 +2160,13 @@ type ConfiguredWorkspaceState<TDefinition> = TDefinition extends { [configuredAg
 
 type ConfiguredCapabilityMembers<TCapabilities> = TCapabilities extends readonly (infer TCapability)[] ? TCapability : never
 
+// Brands are erased at runtime; enum members compare by their string values.
+type ConfiguredCapabilityString<TId> = TId extends string
+  ? Exclude<keyof TId, keyof string> extends never ? `${TId}` : string
+  : never
+
 type RetainedConfiguredCapabilityMembers<TParent, TChildId> = TParent extends { id: infer TParentId }
-  ? [TParentId & TChildId] extends [never]
+  ? [ConfiguredCapabilityString<TParentId> & ConfiguredCapabilityString<TChildId>] extends [never]
     ? TParent
     : never
   : TParent

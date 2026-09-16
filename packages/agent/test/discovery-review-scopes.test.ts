@@ -5,8 +5,6 @@ import { expect, it } from "vitest"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 
 it.each([
-  "{ name: options.workspaceName }",
-  "{ name: getWorkspaceName(options) }",
   "{ name: 'shared' }",
   "options.prod ? { name: 'prod' } : { name: 'dev' }",
   "options.prod ? 'prod' : 'dev'",
@@ -35,6 +33,9 @@ it.each([
   ["aliased undefined Capability Workspace stays plain", "const omitted = undefined; const plain = defineCapability({ id: 'plain', workspace: omitted }); return defineAgent({ capabilities: [plain] })", false],
   ["undefined Capability preserves nested ownership", "const wrapper = defineCapability({ id: 'wrapper', workspace: undefined, capabilities: [storage] }); return defineAgent({ capabilities: [wrapper] })", true],
   ["conditional owned Workspace remains owned", "return defineAgent({ workspace: options.prod ? { name: 'prod' } : {} })", true],
+  ["undefined name owns Workspace", "return defineAgent({ workspace: { name: undefined } })", true],
+  ["aliased undefined name owns Workspace", "const name = undefined; return defineAgent({ workspace: { name } })", true],
+  ["aliased string name references Workspace", "const name = 'shared'; return defineAgent({ workspace: { name } })", false],
   ["undefined Workspace stays plain", "return defineAgent({ driver: 'codex', workspace: undefined })", false],
   ["undefined Workspace keeps Capability ownership", "return defineAgent({ workspace: undefined, capabilities: [storage] })", true],
   ["later var shadows module", "return defineAgent({ capabilities: [storage] }); var storage = defineCapability({ id: 'plain' })", false],
@@ -62,6 +63,18 @@ it.each([
     await writeFile(join(folder, "agent.ts"), `const storage = defineCapability({ id: 'storage', workspace: {} }); export default defineAgent({ options: {}, configure: () => { ${body} } })`)
     const definitions = discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] })
     expect(definitions[0]?.workspace).toBe(workspace ? "support" : undefined)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each(["options.workspaceName", "getWorkspaceName(options)"])("rejects an opaque Workspace name: %s", async (name) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-discovery-name-"))
+  try {
+    const folder = join(root, "server", "agents", "support")
+    await mkdir(folder, { recursive: true })
+    await writeFile(join(folder, "agent.ts"), `export default defineAgent({ options: {}, configure: options => defineAgent({ workspace: { name: ${name} } }) })`)
+    expect(() => discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] })).toThrow("dynamic Workspace name")
   } finally {
     await rm(root, { recursive: true, force: true })
   }

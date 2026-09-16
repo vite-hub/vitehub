@@ -286,6 +286,6 @@ it("removes contributed Workspace access when its last channel or capability is 
   expect(defineAgent({ extends: explicit, channels: { custom: { kind: "custom" } } }).__vitehubWorkspaceAgent).toBe(true)
 })
 
-it.each([[], () => true, new Date()])("rejects non-record configured option roots", options => {
+it.each([[], () => true, new Date(), new WeakMap(), new WeakSet(), new Error(), new class Client { connect() { return true } }()])("rejects non-record configured option roots", options => {
   expect(() => defineAgent({ options, configure: () => defineAgent({ driver: "codex" }) } as never)).toThrow("requires only options defaults and a configure callback")
 })

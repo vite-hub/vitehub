@@ -103,6 +103,12 @@ it("accepts interface options and rejects non-record roots", () => {
   defineAgent({ options: Promise.resolve({ enabled: true }), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Callback values may only be nested in a record.
   defineAgent({ options: () => true, configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error WeakMap roots are not plain option records.
+  defineAgent({ options: new WeakMap(), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error WeakSet roots are not plain option records.
+  defineAgent({ options: new WeakSet(), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error Error roots are not plain option records.
+  defineAgent({ options: new Error(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Built-in instances may only be nested in a record.
   defineAgent({ options: new Date(), configure: () => defineAgent({ driver: "codex" }) })
 })
@@ -272,4 +278,21 @@ it("does not retain Workspace access when widened Capability IDs can overlap", (
   const unrelated = defineCapability({ id: "unrelated", metadata: {} })
   const disjoint = defineAgent({ extends: unionPreset, capabilities: [unrelated] })
   expectTypeOf(disjoint.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+})
+
+it("removes Workspace access for equal branded and enum Capability IDs", () => {
+  const workspace = defineCapability({ id: "workspace" as string & { brand: "parent" }, workspace: {} })
+  const plain = defineCapability({ id: "workspace" as string & { brand: "child" }, metadata: {} })
+  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [workspace] }) })
+  const replaced = defineAgent({ extends: preset, capabilities: [plain] })
+  // @ts-expect-error Distinct brands can have the same runtime string.
+  void replaced.__vitehubWorkspaceAgent
+  enum ParentId { Workspace = "workspace" }
+  enum ChildId { Workspace = "workspace" }
+  const enumWorkspace = defineCapability({ id: ParentId.Workspace, workspace: {} })
+  const enumPlain = defineCapability({ id: ChildId.Workspace, metadata: {} })
+  const enumPreset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [enumWorkspace] }) })
+  const enumReplaced = defineAgent({ extends: enumPreset, capabilities: [enumPlain] })
+  // @ts-expect-error Distinct enums can have the same runtime string.
+  void enumReplaced.__vitehubWorkspaceAgent
 })
