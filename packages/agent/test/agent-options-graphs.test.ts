@@ -131,6 +131,27 @@ it("preserves non-writable array length in callback and public option copies", (
   }
 })
 
+it("preserves custom array instances through configuration and extension", () => {
+  class Entries extends Array<string> {
+    #separator = ","
+    summary() { return this.join(this.#separator) }
+  }
+  const initial = new Entries("default")
+  const replacement = new Entries("override")
+  const configure = vi.fn((options: { nested: { entries: Entries } }) => {
+    expect(options.nested.entries.summary()).toBe(options.nested.entries[0])
+    return defineAgent({ driver: "codex" })
+  })
+  const preset = defineAgent({ options: { nested: { entries: initial } }, configure })
+  const inherited = defineAgent({ extends: preset })
+  const extended = defineAgent({ extends: preset, options: { nested: { entries: replacement } } })
+  expect(preset.options.nested.entries).toBe(initial)
+  expect(inherited.options.nested.entries).toBe(initial)
+  expect(extended.options.nested.entries).toBe(replacement)
+  expect(configure.mock.calls.map(([options]) => options.nested.entries)).toEqual([initial, initial, replacement])
+  expect(configure.mock.calls.at(-1)![0].nested.entries).toBe(replacement)
+})
+
 it("replaces class option values with complete instances", () => {
   class Client {
     constructor(public endpoint: string) {}

@@ -258,6 +258,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (active.has(value)) return active.get(value)
   if (memo.has(value)) return memo.get(value)
   if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return value
     // SAFETY: Array construction with the source length produces an indexed option container.
     const clone = new Array(value.length) as unknown[]
     memo.set(value, clone)
