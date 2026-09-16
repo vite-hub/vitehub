@@ -200,15 +200,9 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
     // SAFETY: memo stores only merged record objects.
     return memo.get(parent) as Record<string, unknown>
   }
-  if (child && memo.has(child)) {
-    // SAFETY: Only record-shaped children are inserted into this memo.
-    // SAFETY: memo stores only merged record objects.
-    return memo.get(child) as Record<string, unknown>
-  }
   // SAFETY: Object.create result is immediately populated as a property-key record.
   const result: Record<string | symbol, unknown> = Object.create(Object.getPrototypeOf(parent)) as Record<string | symbol, unknown>
   memo.set(parent, result)
-  if (child) memo.set(child, result)
   // SAFETY: Own keys are read from these record-shaped inputs, including symbols.
   const parentKeys = parent as Record<PropertyKey, unknown>
   // SAFETY: `child` is narrowed by the optional guard at each use site.
