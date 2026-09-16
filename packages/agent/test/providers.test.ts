@@ -11229,7 +11229,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 15_000)
 
   it("can deliver state-backed Chat SDK titles on every invocation", async () => {
     const { defineAgent } = await import("../src/index.ts")

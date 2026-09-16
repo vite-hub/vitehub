@@ -490,6 +490,7 @@ export type {
   AgentProviderCredentialValue,
   AgentProviderEnvironment,
   AgentProviderEnvironmentResolver,
+  AgentProviderExitContext,
   AgentProviderLaunchCommand,
   AgentProviderLaunchContext,
   AgentProviderLaunchResolver,
