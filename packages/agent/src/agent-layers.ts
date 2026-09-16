@@ -253,7 +253,8 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   // SAFETY: globalThis is the only supported source for an optional SharedArrayBuffer constructor.
   const sharedArrayBuffer = (globalThis as unknown as { SharedArrayBuffer?: { new (length: number): { byteLength: number } } }).SharedArrayBuffer
   if (sharedArrayBuffer && value instanceof sharedArrayBuffer) {
-    const clone = new sharedArrayBuffer(value.byteLength) as unknown as ArrayBuffer
+    const source = value as { byteLength: number }
+    const clone = new sharedArrayBuffer(source.byteLength) as unknown as ArrayBuffer
     new Uint8Array(clone).set(new Uint8Array(value as ArrayBuffer))
     memo.set(value, clone)
     return clone
