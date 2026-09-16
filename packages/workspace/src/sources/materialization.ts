@@ -227,6 +227,21 @@ async function readSourceFile(store: WorkspaceStore, path: string) {
   }
 }
 
+async function hasNonFilePromotionDestination(store: WorkspaceStore, path: string) {
+  try {
+    const stat = await store.stat(path)
+    if (stat?.type === "directory") return true
+    for (let parent = posix.dirname(path); parent !== "."; parent = posix.dirname(parent)) {
+      if ((await store.stat(parent))?.type === "file") return true
+    }
+    return false
+  }
+  catch (error) {
+    if (hasRuntimeType(error, "object") && error !== null && Reflect.get(error, "code") === "ENOTDIR") return true
+    throw error
+  }
+}
+
 async function reconcilePromotedSourceSkills(
   store: WorkspaceStore,
   sources: readonly ResolvedWorkspaceSource[],
@@ -293,10 +308,10 @@ async function reconcilePromotedSourceSkills(
   const retainedSkills = new Set<string>()
   for (const [skill, selected] of selectedSkills) {
     const rootSkillPath = `.agents/skills/${skill}/SKILL.md`
-    const existingRootSkill = await store.readFile(rootSkillPath)
+    const existingRootSkill = await readSourceFile(store, rootSkillPath)
     const previousRootSkill = previous[rootSkillPath]
     const ownsRootSkill = Boolean(previousRootSkill && existingRootSkill && await promotedFileMatches(existingRootSkill, previousRootSkill))
-    if (existingRootSkill && !ownsRootSkill) {
+    if ((existingRootSkill && !ownsRootSkill) || await hasNonFilePromotionDestination(store, rootSkillPath)) {
       retainedSkills.add(skill)
       continue
     }
@@ -321,7 +336,7 @@ async function reconcilePromotedSourceSkills(
   const conflictedDestinations = new Set<string>()
   for (const [destination, candidate] of candidates) {
     const sourceFile = verifiedSkillFiles.get(candidate.sourcePath)
-    if (!sourceFile) continue
+    if (!sourceFile || await hasNonFilePromotionDestination(store, destination)) continue
     const existing = await readSourceFile(store, destination)
     const prior = previous[destination]
     const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await promotedFileMatches(existing, prior))
@@ -756,7 +771,7 @@ async function reconcileRemovedStartupSourcesInternal(
       const ownedIdentity = path === source.mountPath ? snapshot?.mountIdentity : snapshot?.directoryIdentities?.[path]
       if (!ownedIdentity || stat.directoryIdentity !== ownedIdentity) continue
       for (const currentSource of currentSources) {
-        if (!pathContains(path, currentSource.mountPath)) continue
+        if (!pathContains(path, currentSource.mountPath) && !pathContains(currentSource.mountPath, path)) continue
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key, workspaceName)
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
         // Retained files can keep this directory nonempty. Carry its ownership
@@ -765,7 +780,12 @@ async function reconcileRemovedStartupSourcesInternal(
           ...retainedSnapshot,
           ...(path === currentSource.mountPath
             ? path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true, mountIdentity: ownedIdentity } : {}
-            : { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])], directoryIdentities: { ...retainedSnapshot.directoryIdentities, [path]: ownedIdentity } }),
+            : {
+                ...(pathContains(currentSource.mountPath, path)
+                  ? { ownedDirectories: [...new Set([...(retainedSnapshot.ownedDirectories || []), path])] }
+                  : { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }),
+                directoryIdentities: { ...retainedSnapshot.directoryIdentities, [path]: ownedIdentity },
+              }),
         }))
       }
       if (!store.conditionalDirectoryRemoval || !stat.directoryIdentity) continue

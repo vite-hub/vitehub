@@ -71,6 +71,47 @@ describe("lazy sources", () => {
     await expect(view.exists("missing.md")).resolves.toBe(false)
   })
 
+  it.each(["directory", "ancestor file"])("preserves a promoted Skill replaced by %s", async (replacement) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    registerWorkspace("non-file-promotion", defineWorkspace({ store, sources: {
+      skills: custom({ materialize: "startup", mount: "source", files: [
+        { path: ".agents/skills/review/SKILL.md", content: "review skill" },
+      ] }),
+    } }))
+    const view = await useRegisteredWorkspace("non-file-promotion")
+    await view.materializeSources?.()
+    const path = replacement === "directory" ? ".agents/skills/review/SKILL.md" : ".agents/skills/review"
+    await rm(join(root, path), { recursive: true })
+    if (replacement === "directory") await mkdir(join(root, path))
+    else await writeFile(join(root, path), "user replacement")
+
+    await expect(view.materializeSources?.()).resolves.toBeDefined()
+    await expect(view.diff()).resolves.toBeDefined()
+    await expect(store.stat(path)).resolves.toMatchObject({ type: replacement === "directory" ? "directory" : "file" })
+    if (replacement === "ancestor file") await expect(readFile(join(root, path), "utf8")).resolves.toBe("user replacement")
+  })
+
+  it.each(["", "foo"])("transfers generated directory ownership to a retained ancestor mounted at %s", async (mount) => {
+    const store = createMemoryWorkspaceStore()
+    await store.mkdir("foo")
+    const retained = custom({ materialize: "startup", mount, files: [
+      { path: mount ? "bar/retained.md" : "foo/bar/retained.md", content: "retained" },
+    ] })
+    const initial = { name: "retained-ancestor", sources: {
+      removed: custom({ materialize: "startup", mount: "foo/bar", files: [{ path: "removed.md", content: "removed" }] }),
+      retained,
+    } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await syncWorkspaceDefinition({ name: initial.name, sources: { retained } }, store)
+    await expect(store.readFile("foo/bar/retained.md")).resolves.toMatchObject({ content: "retained" })
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("retained", initial.name))).resolves.toMatchObject({ ownedDirectories: expect.arrayContaining(["foo/bar"]) })
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("foo/bar")).resolves.toBeUndefined()
+    await expect(store.stat("foo")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it.each(["update", "remove"])("preserves legacy promoted skill ownership during source %s", async (action) => {
     const store = createMemoryWorkspaceStore()
     const destination = ".agents/skills/review/SKILL.md"
