@@ -297,7 +297,11 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   // legacy symbol in sync so provider-side fallback materialization cannot
   // overwrite an explicit source.
   if (colocatedSkills) {
-    const remainingSkills = Object.fromEntries(Object.entries(colocatedSkills).filter(([key]) => !Object.hasOwn(ownedWorkspace.sources ?? {}, key)))
+    const explicitPaths = new Set(Object.values(ownedWorkspace.sources ?? {}).map((source) => normalizeWorkspacePath(source.workspacePath ?? "")))
+    const remainingSkills = Object.fromEntries(Object.entries(colocatedSkills).filter(([key, source]) => {
+      if (Object.hasOwn(ownedWorkspace.sources ?? {}, key)) return false
+      return !explicitPaths.has(normalizeWorkspacePath(source.workspacePath ?? key))
+    }))
     if (Object.keys(remainingSkills).length) {
       Object.defineProperty(decoratedAgent, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })
     } else {
