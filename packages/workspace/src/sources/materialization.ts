@@ -333,6 +333,10 @@ async function removeStaleMaterializedSourceFiles(
     const currentOwner = file?.metadata?.source ?? durableOwner?.source
     if (source.materialize === "startup" && store.getMeta && store.setMeta && !previousSnapshot && currentOwner !== undefined) continue
     const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+    // During legacy snapshot migration, durable ownership is only valid when it
+    // matches the snapshot digest that authorized cleanup.
+    if (file?.metadata?.source === undefined && durableOwner?.digest !== undefined
+      && recordedDigest !== undefined && durableOwner.digest !== recordedDigest) continue
     // Persisted ownership can outlive an external edit. Preserve changed content.
     if (localStore && previousSnapshot?.items && (!recordedDigest || !file || await sha256(file.content) !== recordedDigest)) continue
     if (currentOwner === undefined && previousSnapshot?.items && !recordedDigest) continue
