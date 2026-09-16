@@ -151,7 +151,7 @@ async function sourceSnapshotFilesMatch(store: WorkspaceStore, snapshot: SourceS
       if (code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR") return false
       throw error
     }
-    if (!await materializedFileMatches(file, item)) return false
+    if (!await cachedMaterializedFileMatches(file, item)) return false
   }
   return true
 }
@@ -323,18 +323,8 @@ async function reconcilePromotedSourceSkills(
           // risking deletion of a concurrent user replacement.
           next[destination] = prior
         }
-        // Directory emptiness cannot be checked and removed atomically. Stores
-        // without conditional removal must retain the directory to avoid
-        // deleting a concurrent user replacement after the listing.
-        if (store.conditionalRemoval) {
-          let parent = posix.dirname(destination)
-          while (parent.startsWith(".agents/skills/") && parent !== ".agents/skills") {
-            const entries = await store.list(parent)
-            if (entries.length) break
-            await control.mutate(() => store.rm(parent, { force: true }))
-            parent = posix.dirname(parent)
-          }
-        }
+        // Retain promoted directories: conditional file removal cannot bind
+        // directory removal to its observed identity and emptiness.
       }
     }
     else if (existing) next[destination] = prior
@@ -366,6 +356,13 @@ export async function materializedFileMatches(file: Awaited<ReturnType<Workspace
   if (file.metadata === undefined) return false
   return file.mediaType === item.materializedMediaType
     && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(item.materializedMetadata))
+}
+
+// Snapshot ownership remains useful after sidecar loss, but cache reuse must
+// prove that the recorded attributes are still visible before skipping replay.
+async function cachedMaterializedFileMatches(file: Awaited<ReturnType<WorkspaceStore["readFile"]>>, item: LazyMaterializedMetadata) {
+  if (file && item.materializedAttributes && fileAttributesUnavailable(file)) return false
+  return materializedFileMatches(file, item)
 }
 
 function contentSize(content: string | Uint8Array) {
@@ -783,7 +780,7 @@ async function* iterateMaterializationEntries(
     const previous = materializedItemMeta(snapshot, configHash, path)
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
-      if (stat?.type === "file" && await materializedFileMatches(await store.readFile(path), previous)) {
+      if (stat?.type === "file" && await cachedMaterializedFileMatches(await store.readFile(path), previous)) {
         yield {
           metadata: previous,
           path,

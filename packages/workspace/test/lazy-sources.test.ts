@@ -122,6 +122,43 @@ describe("lazy sources", () => {
     await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Concurrent user edit" })
   })
 
+  it.each([false, true])("retains promoted directories during cleanup (replacement: %s)", async (replacement) => {
+    const store = createMemoryWorkspaceStore()
+    const directory = ".agents/skills/shared"
+    const destination = `${directory}/SKILL.md`
+    let keys = [destination]
+    const view = createWorkspaceSourceView({
+      name: "promotion-directory-race",
+      sources: {
+        portal: custom({
+          materialize: "startup",
+          mount: "portal",
+          sync: { stale: "remove" },
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: "# Skill" } },
+        }),
+      },
+    }, store)
+    await view.materializeSources()
+    const remove = store.rm.bind(store)
+    let replaced = false
+    vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+      await remove(path, options)
+      if (replacement && path === destination && !replaced) {
+        replaced = true
+        await remove(directory)
+        await store.writeFile(directory, { path: directory, content: "User replacement" })
+      }
+    })
+    keys = []
+    await view.materializeSources()
+    expect(replaced).toBe(replacement)
+    await expect(store.stat(directory)).resolves.toMatchObject({ type: replacement ? "file" : "directory" })
+    await view.materializeSources()
+    if (replacement) await expect(store.readFile(directory)).resolves.toMatchObject({ content: "User replacement" })
+    else await expect(store.list(directory)).resolves.toEqual([])
+  })
+
   it("keeps explicit and edited root skills during source refresh", async () => {
     const store = createMemoryWorkspaceStore()
     let files = [
