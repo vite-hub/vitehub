@@ -3,7 +3,32 @@ import { custom } from "../src/index.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { registerWorkspace, useWorkspace } from "../src/runtime.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
+import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
+
+it.each([false, true])("invalidates startup snapshots after durable build overwrites, explicit=%s", async (explicit) => {
+  const store = createMemoryWorkspaceStore()
+  const write = store.writeFile.bind(store)
+  store.writeFile = (path, file) => write(path, { ...file, metadata: undefined })
+  const name = `build-overwrite-${crypto.randomUUID()}`
+  const definition: WorkspaceDefinition = {
+    name,
+    sources: {
+      build: custom({ materialize: "build", mount: "", files: [{ path: "docs/shared.md", content: "build" }] }),
+      startup: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "startup" }] }),
+    },
+    loaders: explicit ? [{ name: "derived", async load(ctx) {
+      await ctx.store.writeFile("docs/shared.md", { path: "docs/shared.md", content: "build" })
+    } }] : undefined,
+  }
+  const workspace = createWorkspaceSourceView(definition, store)
+  await expect(workspace.readFile("docs/shared.md")).resolves.toBe("startup")
+  await syncWorkspaceDefinition(definition, store)
+  await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "build" })
+  await expect(store.getMeta!(sourceSnapshotMetaKey(name, "startup"))).resolves.toMatchObject({ status: "updating" })
+  await expect(workspace.readFile("docs/shared.md")).resolves.toBe("startup")
+})
 
 for (const mount of ["", "docs"]) {
   for (const explicit of [false, true]) {
