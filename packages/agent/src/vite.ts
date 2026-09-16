@@ -447,7 +447,7 @@ async function transformScheduleRegistry(
   )
   return [
     `import { agentWithColocatedInstructions as vitehubAgentWithColocatedInstructions, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget, filterColocatedAgentSkills } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceRuntime.imports,
     ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
@@ -887,8 +887,7 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  const resolvedSourceRootDir = workspace.sourceRootDir ?? resolvedAgent.sourceRootDir ?? sourceRootDir",
     `  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }${typescript ? " as WorkspaceAgentOptions" : ""}`,
     `  const decoratedAgent = { ...resolvedAgent, ...${workspaceDefinitionFromOptions}(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }`,
-    "  const explicitPaths = new Set(Object.values(workspace.sources ?? {}).map((source) => normalizeWorkspacePath(source.workspacePath ?? '')))",
-    "  const remainingSkills = Object.fromEntries(Object.entries(skills).filter(([key, source]) => !Object.hasOwn(workspace.sources ?? {}, key) && !explicitPaths.has(normalizeWorkspacePath(source.workspacePath ?? key))))",
+    "  const remainingSkills = filterColocatedAgentSkills(skills, workspace.sources)",
     "  const skillsSymbol = Symbol.for('vitehub.agent.colocatedSkills')",
     "  if (Object.keys(remainingSkills).length) Object.defineProperty(decoratedAgent, skillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })",
     "  else Reflect.deleteProperty(decoratedAgent, skillsSymbol)",
@@ -1699,6 +1698,7 @@ async function generateAgentDeploymentCatalog(
     : [])
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const serverInternalImports = [
+    "filterColocatedAgentSkills",
     "agentGeneratedRuntimeError as vitehubAgentRuntimeError",
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute"] : []),

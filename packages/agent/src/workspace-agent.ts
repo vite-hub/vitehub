@@ -35,7 +35,7 @@ import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-cap
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
-import { colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
+import { colocatedAgentSkillsSymbol, filterColocatedAgentSkills, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -297,11 +297,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   // legacy symbol in sync so provider-side fallback materialization cannot
   // overwrite an explicit source.
   if (colocatedSkills) {
-    const explicitPaths = new Set(Object.values(ownedWorkspace.sources ?? {}).map((source) => normalizeWorkspacePath(source.workspacePath ?? "")))
-    const remainingSkills = Object.fromEntries(Object.entries(colocatedSkills).filter(([key, source]) => {
-      if (Object.hasOwn(ownedWorkspace.sources ?? {}, key)) return false
-      return !explicitPaths.has(normalizeWorkspacePath(source.workspacePath ?? key))
-    }))
+    const remainingSkills = filterColocatedAgentSkills(colocatedSkills, ownedWorkspace.sources)
     if (Object.keys(remainingSkills).length) {
       Object.defineProperty(decoratedAgent, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })
     } else {

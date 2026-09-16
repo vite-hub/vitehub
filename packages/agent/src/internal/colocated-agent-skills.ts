@@ -1,10 +1,26 @@
 import { hasRuntimeType } from "./runtime-type.ts"
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
+import { normalizeWorkspaceSourcesMetadata, workspaceSourceGrantPaths } from "@vite-hub/workspace/source-metadata"
 
 export const colocatedAgentSkillsSymbol: symbol = Symbol.for("vitehub.agent.colocatedSkills")
 export const colocatedAgentSkillsContextKey = "agent.colocatedSkills"
 
 export type ColocatedAgentSkills = Record<string, WorkspaceSourceInput>
+
+export function filterColocatedAgentSkills(skills: ColocatedAgentSkills, explicitSources: ColocatedAgentSkills = {}): ColocatedAgentSkills {
+  const explicitPaths = normalizeWorkspaceSourcesMetadata(explicitSources).flatMap(source => {
+    if (source.requestOnly) return []
+    // Sources without static item paths own their mount for fallback purposes.
+    const recursive = !source.probeKeys?.length
+    const paths = recursive ? [source.mountPath] : workspaceSourceGrantPaths(source.key, explicitSources[source.key]!)
+    return paths.map(path => ({ path, recursive }))
+  })
+  return Object.fromEntries(Object.entries(skills).filter(([key, source]) =>
+    !Object.hasOwn(explicitSources, key) && !workspaceSourceGrantPaths(key, source).some(path =>
+      explicitPaths.some(explicit => path === explicit.path || explicit.recursive && (!explicit.path || path.startsWith(`${explicit.path}/`))),
+    ),
+  ))
+}
 
 interface EncodedColocatedAgentSkillSource {
   content: string

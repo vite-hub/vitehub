@@ -3,6 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
+import { custom, file } from "@vite-hub/workspace"
+import { defineAgent } from "../src/index.ts"
+import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
 import { colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../src/vite/colocated-agent-skills.ts"
@@ -10,6 +13,32 @@ import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../sr
 const roots: string[] = []
 
 describe("colocated Agent Skills", () => {
+  const destination = ".agents/skills/review/SKILL.md"
+  it.each([
+    { form: "string", source: destination },
+    { form: "path", source: { path: destination } },
+    { form: "file helper", source: file({ content: "Explicit", workspacePath: destination }) },
+    { form: "binding", source: { source: file({ content: "Explicit", workspacePath: destination }) } },
+    { form: "mount and item", source: file({ content: "Explicit", mount: ".agents/skills/review", workspacePath: "SKILL.md" }) },
+    { form: "directory mount", source: custom({ mount: ".agents/skills/review", files: [{ path: "SKILL.md", content: "Explicit" }] }) },
+    { form: "root mount", source: custom({ mount: "", files: [{ path: destination, content: "Explicit" }] }) },
+  ])("filters provider fallback for an explicit $form Source", ({ source }) => {
+    const agent = withColocatedAgentSkills(defineAgent({ workspace: { sources: { explicit: source } }, driver: { model: {} as never } }), {
+      colocated: { content: "Colocated", workspacePath: destination },
+    })
+    const decorated = workspaceAgentWithSourceRoot(agent, "/workspace")
+    expect(Reflect.get(decorated, colocatedAgentSkillsSymbol)).toBeUndefined()
+  })
+
+  it("retains fallback when an explicit mount moves the matching item elsewhere", () => {
+    const skills = { colocated: { content: "Colocated", workspacePath: destination } }
+    const agent = withColocatedAgentSkills(defineAgent({
+      workspace: { sources: { explicit: { content: "Explicit", mount: "elsewhere", workspacePath: destination } } },
+      driver: { model: {} as never },
+    }), skills)
+    expect(Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)).toEqual(skills)
+  })
+
   afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
   })
