@@ -228,6 +228,7 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   const localMemo = new WeakMap<object, unknown>()
   // SAFETY: Own keys are read from these record-shaped inputs, including symbols.
   const parentKeys = parent as Record<PropertyKey, unknown>
+  // SAFETY: Child is a record after the early return; Reflect.ownKeys also includes its symbol keys.
   const childKeys = child as Record<PropertyKey, unknown>
   for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child)])) {
     const overridden = Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined
