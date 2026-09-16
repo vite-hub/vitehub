@@ -469,7 +469,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (returnedDefinition >= 0) callbackDefinition = returnedDefinition
       // A conditional return can yield multiple same-depth definitions. Any
       // Workspace-producing branch promotes the configured Agent.
-      if (returnedDefinitions.length > 1 && returnedDefinitions.some((index) => ownsWorkspace(index))) return true
+      if (returnedDefinitions.length > 1) {
+        const workspaceBranch = returnedDefinitions.find((index) => ownsWorkspace(index))
+        if (workspaceBranch !== undefined) {
+          callbackDefinition = workspaceBranch
+        }
+      }
       if (callbackDefinition >= 0) start = callbackDefinition
       let end = start
       let depth = 0
