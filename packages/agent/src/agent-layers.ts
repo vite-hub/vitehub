@@ -108,7 +108,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
 }
 
 /** Rebuild a definition from configuration. Never copy a parent's bound runtime or invocation state. */
-export function resolveAgentLayerOptions(input: unknown): unknown {
+export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (settings: AgentSettings) => boolean): unknown {
   input = resolveNamedAgentPresetOptions(input)
   if (!record(input)) return input
   if (!("extends" in input)) {
@@ -135,12 +135,15 @@ export function resolveAgentLayerOptions(input: unknown): unknown {
     const inheritedOverrides = merge(parentOverrides, overrides, "")
     if (!record(inheritedOverrides)) throw new TypeError("[vitehub] Invalid Agent layer overrides.")
     const { name: _parentName, ...defaults } = layerMetadata(definition)!.options
+    const settings = merge(defaults, inheritedOverrides, "")
+    if (!record(settings)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     const { workspace: discoveredWorkspace, ...discoveryDefaults } = inherited.defaults ?? {}
-    // Discovery decorates Workspace access but must not create it after reconfiguration.
-    const applicableDefaults = "__vitehubWorkspaceAgent" in definition || inheritedOverrides.workspace !== undefined
+    // Inspect final settings before discovery defaults can create Workspace access.
+    // SAFETY: These settings combine a registered definition with its overrides.
+    const applicableDefaults = ownsWorkspace(settings as AgentSettings)
       ? { ...discoveryDefaults, workspace: discoveredWorkspace }
       : discoveryDefaults
-    const resolved = merge(merge(applicableDefaults, defaults, ""), inheritedOverrides, "")
+    const resolved = merge(applicableDefaults, settings, "")
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })

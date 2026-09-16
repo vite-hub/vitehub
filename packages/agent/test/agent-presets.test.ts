@@ -192,6 +192,26 @@ it("does not restore discovered Workspace access when configure returns a plain 
   expect(getAgentLayerOptions(explicit)?.workspace).toMatchObject({ mode: "write", sourceRootDir: "/discovered" })
 })
 
+it.each(["capability", "channel", "channel factory"])("preserves discovered defaults when a plain callback gains Workspace through a %s", (kind) => {
+  const preset = defineAgent({ options: { workspace: true }, configure: options => options.workspace
+    ? defineAgent({ driver: "codex", workspace: {} })
+    : defineAgent({ driver: "codex" }) })
+  const discovered = workspaceAgentWithSourceRoot(preset, "/discovered", "Repository context.")
+  const capability = defineCapability({ id: "storage", workspace: {} })
+  const channel = { kind: "custom" as const, capabilities: [capability] }
+  let factoryCalls = 0
+  const extension = kind === "capability"
+    ? { capabilities: [capability] }
+    : { channels: { custom: kind === "channel factory" ? () => { factoryCalls++; return channel } : channel } }
+  const child = defineAgent({ extends: discovered, options: { workspace: false }, ...extension })
+  expect(child).toHaveProperty("__vitehubWorkspaceAgent", true)
+  expect(getAgentLayerOptions(child)?.workspace).toMatchObject({ sourceRootDir: "/discovered", sources: { __vitehubAgentInstructions: { content: "Repository context." } } })
+  expect(factoryCalls).toBe(kind === "channel factory" ? 1 : 0)
+  // SAFETY: The parameterized fixture varies contributor types; this checks their runtime replacement.
+  const removed = defineAgent({ extends: child, capabilities: [defineCapability({ id: "storage" })], channels: { custom: { kind: "custom" } } } as never)
+  expect(removed).not.toHaveProperty("__vitehubWorkspaceAgent")
+})
+
 it("promotes configured presets when capabilities or channels contribute Workspace access", () => {
   const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
   const capability = defineCapability({ id: "workspace", workspace: {} })

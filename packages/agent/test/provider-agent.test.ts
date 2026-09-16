@@ -4071,7 +4071,7 @@ cli_auth_credentials_store = "keyring"
       })),
       startSession: vi.fn(async (options: { target: string }) => { root = options.target; await writeFile(`${root}/${file}`, "Native repository guidance."); return session }),
     }
-    const settings = resolveAgentLayerOptions({ extends: workspacePreset, driver: { kind: provider, instructions: "Explain migration risks." } }) as { driver: { instructions: import("../src/types.ts").AgentAdapterInstructions } }
+    const settings = resolveAgentLayerOptions({ extends: workspacePreset, driver: { kind: provider, instructions: "Explain migration risks." } }, settings => Boolean(settings.workspace)) as { driver: { instructions: import("../src/types.ts").AgentAdapterInstructions } }
     await createProviderAgentAdapter({ instructions: settings.driver.instructions, provider }).generate(context(threadId, {
       workspace,
       workspaceDefinition: { name: "docs", sources: { docs: github({ repo: "vite-hub/vitehub", root: "docs#v1" }) } },

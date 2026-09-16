@@ -2558,7 +2558,11 @@ export const defineAgent: DefineAgent = ((options: unknown) => {
   const configured = createConfiguredAgentDefinition(options, settings => defineAgent(settings as never))
   if (configured) return configured
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-  const agentOptions = resolveAgentLayerOptions(options) as AgentSettings
+  const agentOptions = resolveAgentLayerOptions(options, settings => {
+    const channels = normalizeAgentChannels(settings.channels)
+    settings.channels = channels
+    return isWorkspaceAgentOptions(settings) || agentContributesWorkspace({ capabilities: settings.capabilities, channels })
+  }) as AgentSettings
   const channels = normalizeAgentChannels(agentOptions.channels)
   const name = agentOptions.name?.trim()
   if (name && name.length > 512) {
