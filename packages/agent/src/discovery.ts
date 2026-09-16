@@ -85,6 +85,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   const imported = new Set<string>()
   const importedNamespaces = new Set<string>()
   const importedAgentBindings = new Set<string>()
+  const importedCapabilityBindings = new Set<string>()
   let exported: number | undefined
   let depth = 0
   for (let i = 0; i < tokens.length; i++) {
@@ -140,6 +141,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
                 const bindings = tokens.slice(i + 1, j)
                 for (let b = 0; b < bindings.length; b++) {
                   if (bindings[b] === "defineAgent") importedAgentBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
+                  if (bindings[b] === "defineCapability") importedCapabilityBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
                 }
               }
               i = j; break
@@ -174,13 +176,31 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   // A declaration is visible only in its containing scope and descendants.
   const tokenScopes: (number | undefined)[] = []
   const scopeParents = new Map<number, number | undefined>()
+  const openingDelimiters = new Map<number, number>()
+  const functionScopes = new Set<number>()
   const scopes: number[] = []
   for (let i = 0; i < tokens.length; i++) {
     tokenScopes[i] = scopes.at(-1)
     if (["{", "(", "["].includes(tokens[i])) {
       scopeParents.set(i, scopes.at(-1))
+      if (tokens[i] === "{") {
+        const parameters = openingDelimiters.get(i - 1)
+        const arrowBody = tokens[i - 2] === "=" && tokens[i - 1] === ">"
+        const functionBody = tokens[i - 1] === ")" && parameters !== undefined
+          && !["if", "for", "while", "switch", "catch", "with"].includes(tokens[parameters - 1])
+        if (arrowBody || functionBody) functionScopes.add(i)
+      }
       scopes.push(i)
-    } else if (["}", ")", "]"].includes(tokens[i])) scopes.pop()
+    } else if (["}", ")", "]"].includes(tokens[i])) {
+      const opening = scopes.pop()
+      if (opening !== undefined) openingDelimiters.set(i, opening)
+    }
+  }
+
+  function variableScope(index: number): number | undefined {
+    let scope = tokenScopes[index]
+    while (scope !== undefined && !functionScopes.has(scope)) scope = scopeParents.get(scope)
+    return scope
   }
 
   const callbackParameters: { start: number; end: number; names: Set<string> }[] = []
@@ -261,8 +281,14 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       }
       return false
     }
-    if (tokens[index] === "defineCapability" && tokens[index + 1] === "(") {
-      const options = properties(index + 2)
+    let capabilityCall = tokens[index] === "defineCapability" || importedCapabilityBindings.has(tokens[index])
+      ? index + 1
+      : importedNamespaces.has(tokens[index]) && tokens[index + 1] === "." && tokens[index + 2] === "defineCapability"
+        ? index + 3
+        : -1
+    if (tokens[capabilityCall] === "<") capabilityCall = skipTypeArguments(capabilityCall)
+    if (tokens[capabilityCall] === "(") {
+      const options = properties(capabilityCall + 1)
       if (options.has("workspace")) return true
       const nested = options.get("capabilities")
       return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
@@ -272,7 +298,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     for (let scope = tokenScopes[index]; scope !== undefined; scope = scopeParents.get(scope)) visibleScopes.add(scope)
     const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
     for (let i = index - 1; i >= (parameterScope?.start ?? 0); i--) {
-      if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== tokens[index] || !visibleScopes.has(tokenScopes[i])) continue
+      if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== tokens[index]) continue
+      const bindingScope = tokens[i] === "var" ? variableScope(i) : tokenScopes[i]
+      if (!visibleScopes.has(bindingScope)) continue
       // A nearer binding shadows earlier declarations even when it is plain.
       let initializer = i + 2
       while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
@@ -464,13 +492,16 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (configure !== undefined) {
       // A configure callback may return an existing Agent binding directly;
       // follow that binding so its Workspace metadata is preserved.
-      const configuredReference = resolveReference(configure)
       let callbackStart = configure
       const callbackReferences = new Set<number>()
-      while (declarations.has(tokens[callbackStart]) && !callbackReferences.has(callbackStart)) {
+      while (declarations.has(tokens[callbackStart]) && !callbackReferences.has(callbackStart)
+        && !(tokens[callbackStart + 1] === "=" && tokens[callbackStart + 2] === ">")) {
         callbackReferences.add(callbackStart)
         callbackStart = declarations.get(tokens[callbackStart])!
       }
+      const configuredReference = tokens[callbackStart + 1] === "=" && tokens[callbackStart + 2] === ">"
+        ? callbackStart
+        : resolveReference(configure)
       let parameterEnd = configuredReference + 1
       if (tokens[callbackStart] === "(") {
         let depth = 0
@@ -586,22 +617,25 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const isDefineAgent = token === "defineAgent" || importedAgentBindings.has(token) ||
           (tokens[i + 1] === "." && tokens[i + 2] === "defineAgent" && importedNamespaces.has(token))
         if (isDefineAgent) {
+          let expressionStart = i
+          while (tokens[expressionStart - 1] === "(") expressionStart--
+          const expressionDepth = callbackDepth - (i - expressionStart)
           // A returned expression may contain conditional branches; keep all
           // defineAgent calls until the expression terminates rather than only
           // accepting the token immediately following `return`.
           // Expression-bodied arrows return their sole top-level expression
           // without a `return` token; the callbackEnd bound keeps this from
           // capturing unrelated definitions later in the module.
-          const expressionBody = arrow >= 0 && callbackDepth === 0 && !returnExpression
-          const returned = (returnExpression && callbackDepth === 0) || expressionBody ||
+          const expressionBody = arrow >= 0 && expressionDepth === 0 && !returnExpression
+          const returned = (returnExpression && expressionDepth === 0) || expressionBody ||
             // In an expression-bodied arrow, later comma operands are also
             // part of the returned expression; only the final operand is the
             // callback value (the fallback below selects it).
             (arrow >= 0 && !returnExpression && callbackDepth === 0 && tokens[i - 1] === ",") ||
-            tokens[i - 1] === "return" || tokens[i - 1] === "?" || tokens[i - 1] === ":"
+            tokens[expressionStart - 1] === "return" || tokens[expressionStart - 1] === "?" || tokens[expressionStart - 1] === ":"
           if (returned) {
-            if (callbackDepth < returnedDefinitionDepth) {
-              returnedDefinitionDepth = callbackDepth
+            if (expressionDepth < returnedDefinitionDepth) {
+              returnedDefinitionDepth = expressionDepth
               returnedDefinition = i
             }
             // Keep every call in the returned expression. Conditional branches
@@ -627,6 +661,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           if (["{", "(", "["].includes(tokens[i])) depth++
           else if (["}", ")", "]"].includes(tokens[i])) depth--
         }
+        let expressionStart = index
+        while (tokens[expressionStart - 1] === "(") expressionStart--
+        depth -= index - expressionStart
         // Keep the outer returned call and direct conditional branch calls;
         // nested calls inside its argument object are never callback results.
         // Conditional branches are one delimiter level inside the returned
