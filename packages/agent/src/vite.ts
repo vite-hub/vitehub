@@ -868,8 +868,8 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
   return [
     `function ${name}${parameters} {`,
     "  const skills = Object.fromEntries(Object.entries(colocatedSkills || {}).map(([key, source]) => {",
-    "    const { encoding, content, ...options } = source",
-    "    return [key, encoding === 'base64' ? { ...options, content: Uint8Array.from(atob(content), byte => byte.charCodeAt(0)) } : source]",
+    "    const { encoding: _encoding, content, ...options } = source",
+    "    return [key, { ...options, content: Uint8Array.from(atob(content), byte => byte.charCodeAt(0)) }]",
     "  }))",
     `  const resolvedAgent = ${typescript ? "(" : ""}Object.keys(skills).length ? Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) : agent${typescript ? ") as Agent & Partial<WorkspaceAgentDefinition>" : ""}`,
     "  if (resolvedAgent !== agent) Object.defineProperty(resolvedAgent, Symbol.for('vitehub.agent.colocatedSkills'), { configurable: true, enumerable: true, value: skills })",
@@ -1719,7 +1719,7 @@ async function generateAgentDeploymentCatalog(
     setup: [
       ...(typescript
         ? [
-            "type ViteHubEncodedColocatedSkills = Record<string, { content: string, encoding: 'base64', [key: string]: unknown }>",
+            "type ViteHubEncodedColocatedSkills = Record<string, { content: string, encoding: 'base64', materialize: 'startup', mount: '', workspacePath: string }>",
             "",
           ]
         : []),
