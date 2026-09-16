@@ -448,7 +448,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           // A returned expression may contain conditional branches; keep all
           // defineAgent calls until the expression terminates rather than only
           // accepting the token immediately following `return`.
-          const returned = (returnExpression && callbackDepth === 0) || tokens[i - 1] === "return" || tokens[i - 1] === "?" || tokens[i - 1] === ":"
+          // Expression-bodied arrows return their sole top-level expression
+          // without a `return` token; the callbackEnd bound keeps this from
+          // capturing unrelated definitions later in the module.
+          const expressionBody = arrow >= 0 && callbackDepth === 0 && !returnExpression
+          const returned = (returnExpression && callbackDepth === 0) || expressionBody || tokens[i - 1] === "return" || tokens[i - 1] === "?" || tokens[i - 1] === ":"
           if (returned) {
             if (callbackDepth < returnedDefinitionDepth) {
               returnedDefinitionDepth = callbackDepth
