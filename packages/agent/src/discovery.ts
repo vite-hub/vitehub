@@ -577,7 +577,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     const options = properties(call + 1)
     const workspace = options.get("workspace")
-    if (workspace !== undefined) {
+    if (workspace !== undefined && tokens[resolveReference(workspace)] !== "undefined") {
       const value = resolveReference(workspace)
       if (tokens[value] === "{") {
         // A `{ name: "shared" }` value is a Workspace reference, not an

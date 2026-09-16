@@ -5,6 +5,8 @@ import { expect, it } from "vitest"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 
 it.each([
+  ["undefined Workspace stays plain", "return defineAgent({ driver: 'codex', workspace: undefined })", false],
+  ["undefined Workspace keeps Capability ownership", "return defineAgent({ workspace: undefined, capabilities: [storage] })", true],
   ["later var shadows module", "return defineAgent({ capabilities: [storage] }); var storage = defineCapability({ id: 'plain' })", false],
   ["later block var shadows module", "return defineAgent({ capabilities: [storage] }); if (true) { var storage = defineCapability({ id: 'plain' }) }", false],
   ["later nested function var stays local", "return defineAgent({ capabilities: [storage] }); function helper() { var storage = defineCapability({ id: 'plain' }) }", true],

@@ -66,3 +66,32 @@ describe("configured option graphs", () => {
     expect(extended.options.added?.left.self).toBe(extended.options.added?.left)
   })
 })
+
+it("preserves child-only aliases across distinct merged parent records", () => {
+  const extra = { value: 3 }
+  const defaults: { left: { value: number, extra?: typeof extra }, right: { value: number, extra?: typeof extra } } = { left: { value: 1 }, right: { value: 2 } }
+  const preset = defineAgent({ options: defaults, configure: () => defineAgent({ driver: "codex" }) })
+  const extended = defineAgent({ extends: preset, options: { left: { extra }, right: { extra } } })
+  expect(extended.options.left.extra).toBe(extended.options.right.extra)
+  expect(extended.options.left.extra).not.toBe(extra)
+  expect(extended.options.left.value).toBe(1)
+  expect(extended.options.right.value).toBe(2)
+})
+
+it("preserves option descriptors without invoking accessors during extension", () => {
+  const getter = vi.fn(() => "secret")
+  const defaults = { sibling: 1, nested: { value: 1 } }
+  Object.defineProperty(defaults, "hidden", { value: { secret: true }, enumerable: false, writable: false })
+  Object.defineProperty(defaults, "accessor", { get: getter, enumerable: true })
+  Object.defineProperty(defaults, "nested", { value: defaults.nested, writable: false })
+  const preset = defineAgent({ options: defaults, configure: () => defineAgent({ driver: "codex" }) })
+  const overrides = { sibling: 2, nested: { value: 2 } }
+  Object.defineProperty(overrides, "nested", { value: overrides.nested, writable: false })
+  const extended = defineAgent({ extends: preset, options: overrides })
+  expect(getter).not.toHaveBeenCalled()
+  expect(Object.getOwnPropertyDescriptor(extended.options, "accessor")?.get).toBe(getter)
+  expect(Object.getOwnPropertyDescriptor(extended.options, "hidden")).toMatchObject({ enumerable: false, writable: false, configurable: false, value: { secret: true } })
+  expect(Object.getOwnPropertyDescriptor(extended.options, "nested")?.writable).toBe(false)
+  expect(extended.options.nested.value).toBe(2)
+  expect(extended.options.sibling).toBe(2)
+})

@@ -203,14 +203,14 @@ function assertLayerDefinition(value: unknown): asserts value is AgentDefinition
 
 // Options contain application data, so driver and capability merge rules do not apply.
 function mergePresetOptions(parent: Record<string, unknown>, child?: Record<string, unknown>): Record<string, unknown> {
-  return mergePresetOptionsWithMemo(parent, child, new WeakMap(), new WeakMap(), new WeakMap())
+  return mergePresetOptionsWithMemo(parent, child, new WeakMap(), new WeakMap(), new WeakMap(), new WeakMap())
 }
 
-function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>, pairMemo: WeakMap<object, WeakMap<object, Record<string, unknown>>>, active: WeakMap<object, unknown>): Record<string, unknown> {
+function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>, pairMemo: WeakMap<object, WeakMap<object, Record<string, unknown>>>, active: WeakMap<object, unknown>, childMemo: WeakMap<object, unknown>): Record<string, unknown> {
   // Cloning an unchanged graph preserves aliases without reusing an overridden occurrence.
   if (!child || Reflect.ownKeys(parent).length === 0) {
     // SAFETY: The source is a record and cloning preserves its shape.
-    return clonePresetOption(child ?? parent, memo, active) as Record<string, unknown>
+    return clonePresetOption(child ?? parent, child ? childMemo : memo, active) as Record<string, unknown>
   }
   const existing = pairMemo.get(parent)?.get(child)
   if (existing) return existing
@@ -226,17 +226,22 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   // Clones within one override may point back to its result. Keep those clones
   // separate from the same defaults inherited by an unmodified sibling.
   const localMemo = new WeakMap<object, unknown>()
-  // SAFETY: Own keys are read from these record-shaped inputs, including symbols.
-  const parentKeys = parent as Record<PropertyKey, unknown>
-  // SAFETY: Child is a record after the early return; Reflect.ownKeys also includes its symbol keys.
-  const childKeys = child as Record<PropertyKey, unknown>
   for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child)])) {
-    const overridden = Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined
-    const value = overridden ? childKeys[key] : parentKeys[key]
-    const merged = overridden && record(value) && record(parentKeys[key])
-      ? mergePresetOptionsWithMemo(parentKeys[key], value, localMemo, pairMemo, active)
-      : clonePresetOption(value, localMemo, active)
-    Object.defineProperty(result, key, { value: merged, enumerable: true, writable: true, configurable: true })
+    const parentDescriptor = Object.getOwnPropertyDescriptor(parent, key)
+    const childDescriptor = Object.getOwnPropertyDescriptor(child, key)
+    const overridden = childDescriptor !== undefined && (!("value" in childDescriptor) || childDescriptor.value !== undefined)
+    const descriptor = overridden ? childDescriptor : parentDescriptor
+    if (!descriptor) continue
+    if ("value" in descriptor) {
+      // SAFETY: Data descriptors contain arbitrary option values.
+      const value: unknown = descriptor.value
+      // SAFETY: Only data descriptors participate in recursive option merging.
+      const parentValue: unknown = parentDescriptor?.value
+      descriptor.value = overridden && record(value) && record(parentValue)
+        ? mergePresetOptionsWithMemo(parentValue, value, localMemo, pairMemo, active, childMemo)
+        : clonePresetOption(value, overridden ? childMemo : localMemo, active)
+    }
+    Object.defineProperty(result, key, descriptor)
   }
   if (previousParent === undefined) active.delete(parent)
   else active.set(parent, previousParent)
