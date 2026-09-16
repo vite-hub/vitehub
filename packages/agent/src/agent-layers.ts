@@ -251,9 +251,9 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
   if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
   // SAFETY: globalThis is the only supported source for an optional SharedArrayBuffer constructor.
-  const sharedArrayBuffer = (globalThis as unknown as { SharedArrayBuffer?: { new (length: number): object } }).SharedArrayBuffer
+  const sharedArrayBuffer = (globalThis as unknown as { SharedArrayBuffer?: { new (length: number): { byteLength: number } } }).SharedArrayBuffer
   if (sharedArrayBuffer && value instanceof sharedArrayBuffer) {
-    const clone = new sharedArrayBuffer(value.byteLength) as ArrayBuffer
+    const clone = new sharedArrayBuffer(value.byteLength) as unknown as ArrayBuffer
     new Uint8Array(clone).set(new Uint8Array(value as ArrayBuffer))
     memo.set(value, clone)
     return clone
