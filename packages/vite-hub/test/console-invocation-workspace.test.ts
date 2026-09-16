@@ -34,6 +34,10 @@ describe("invocation Workspace inspection", () => {
     expect(await handler(request(file.path))).toEqual(file)
     expect(inspect).toHaveBeenCalledWith("run", file.path)
   })
+  it.each(["", "repo\nname", "repo\0name", "repo\u007fname"])("rejects invalid host provenance %j", async source => {
+    mocks.inspector.mockReturnValue(async () => Response.json({ content: "test", path: "AGENTS.md", revision: "abc123", size: 4, provenance: { source } }))
+    await expect(handler(request("AGENTS.md"))).rejects.toThrow()
+  })
   it.each([403, 404, 422])("preserves host inspection failure %i without falling back to mounted files", async status => {
     mocks.inspector.mockReturnValue(async () => new Response("Snapshot unavailable", { status }))
     await expect(handler(request())).rejects.toMatchObject({ statusCode: status, statusMessage: "Snapshot unavailable" })
@@ -72,7 +76,7 @@ describe("invocation Workspace inspection", () => {
     mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source: "repository", private: "hidden" } })
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current", provenance: { source: "repository" } })
   })
-  it.each([42, { name: "repository" }, null])("omits invalid source provenance %j", async source => {
+  it.each([42, { name: "repository" }, null, "", "repo\nname", "repo\0name", "repo\u007fname"])("omits invalid source provenance %j", async source => {
     mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source } })
     expect(await handler(request("AGENTS.md"))).not.toHaveProperty("provenance")
   })

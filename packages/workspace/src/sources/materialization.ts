@@ -10,6 +10,7 @@ import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./sou
 import { searchText } from "../core/search.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
+import { recordWorkspaceFileOwner } from "./file-ownership.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -122,10 +123,17 @@ export async function invalidateSourceSnapshot(store: WorkspaceStore, workspace:
   if (snapshot) await store.setMeta?.(sourceSnapshotMetaKey(workspace, sourceKey), { ...snapshot, status: "updating" })
 }
 
-export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource) {
+export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, verifyOwnership = false) {
   const configHash = await sourceConfigHash(source, store)
   const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source)
-  return meta?.status === "ready" && meta.configHash === configHash
+  if (meta?.status !== "ready" || meta.configHash !== configHash) return false
+  if (verifyOwnership) {
+    for (const path of Object.keys(meta.items || {})) {
+      const stat = await store.stat(path)
+      if (stat?.type !== "file" || stat.metadata?.workspaceSourceOwner !== workspace || stat.metadata?.source !== source.key) return false
+    }
+  }
+  return true
 }
 
 export async function hasFreshSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource) {
@@ -764,6 +772,7 @@ async function materializeWorkspaceSourcesInternal(
           mediaType: item.mediaType,
           metadata: fileMetadata,
         }, control, previous?.content)
+        await control.mutate(() => recordWorkspaceFileOwner(store, path, { workspace, source: source.key, digest: written.digest }))
         for (const directory of missingDirectories) ownedDirectories.add(directory)
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]

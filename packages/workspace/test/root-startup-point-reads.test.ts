@@ -92,3 +92,20 @@ it.each(["remove", "refresh"])("preserves another Workspace's same-key, same-pat
   await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "second" })
   await expect(useWorkspace(second, { refresh: false }).fs.readFile("shared.md", { encoding: "utf8" })).resolves.toBe("second")
 })
+
+
+it.each(["", "shared"])("revalidates inspection snapshot ownership at mount %j", async mount => {
+  const store = createMemoryWorkspaceStore()
+  const first = `inspection-first-${crypto.randomUUID()}`
+  const second = `inspection-second-${crypto.randomUUID()}`
+  const source = (content: string) => custom({ files: [{ path: "shared.md", content }], materialize: "startup", mount })
+  const path = [mount, "shared.md"].filter(Boolean).join("/")
+  registerWorkspace(first, { sources: { docs: source("first") }, store })
+  registerWorkspace(second, { sources: { docs: source("second") }, store })
+  await useWorkspace(first).fs.list("")
+  await useWorkspace(second).fs.list("")
+  const inspection = useWorkspace(first, { mode: "read", refresh: false })
+  await expect(inspection.fs.readFile(path, { encoding: "utf8" })).resolves.toBe("first")
+  await useWorkspace(second, { refresh: false }).fs.readFile(path, { encoding: "utf8" })
+  await expect(inspection.fs.readFile(path, { encoding: "utf8" })).resolves.toBe("first")
+})

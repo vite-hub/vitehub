@@ -1,6 +1,7 @@
 import { expect, it } from "vitest"
 import { custom } from "../src/index.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
+import { registerWorkspace, useWorkspace } from "../src/runtime.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
@@ -80,3 +81,66 @@ for (const mount of ["", "docs"]) {
     })
   }
 }
+
+for (const mount of ["", "docs"]) {
+  it.each([false, true])(`cleans durable build ownership after reopening a metadata-dropping Store at '${mount}', explicit=%s`, async (explicit) => {
+    const backing = createMemoryWorkspaceStore()
+    const open = (): WorkspaceStore => new Proxy(backing, {
+      get(target, property) {
+        if (property === "writeFile") return async (path: string, file: Parameters<WorkspaceStore["writeFile"]>[1]) => {
+          await target.writeFile(path, { ...file, metadata: undefined })
+        }
+        if (property === "list") return async (path: string, options: Parameters<WorkspaceStore["list"]>[1]) => {
+          return (await target.list(path, options)).map(entry => ({ ...entry, digest: explicit ? "provider-specific-digest" : undefined }))
+        }
+        if (property === "readFile") return async (path: string) => {
+          const file = await target.readFile(path)
+          return file && { ...file, metadata: { mode: "100644" } }
+        }
+        return Reflect.get(target, property, target)?.bind(target)
+      },
+    })
+    const path = (file: string) => [mount, file].filter(Boolean).join("/")
+    const definition = (name: string, files: string[]): WorkspaceDefinition => ({
+      name,
+      sources: { docs: custom({ materialize: "build", mount, files: files.map(file => ({ path: file, content: file })) }) },
+      loaders: explicit ? [{ name: "derived", async load(ctx) {
+        for (const file of files) await ctx.store.writeFile(path(file), { path: path(file), content: file })
+      } }] : undefined,
+    })
+    await syncWorkspaceDefinition(definition("first", ["old.md", "shared.md", "edited.md", "current.md"]), open())
+    await syncWorkspaceDefinition(definition("second", ["shared.md", "second.md"]), open())
+    await open().writeFile(path("edited.md"), { path: path("edited.md"), content: "external edit" })
+    await open().writeFile(path("user.md"), { path: path("user.md"), content: "user" })
+    await syncWorkspaceDefinition(definition("first", ["current.md"]), open())
+    await expect(open().readFile(path("old.md"))).resolves.toBeUndefined()
+    await expect(open().readFile(path("current.md"))).resolves.toMatchObject({ content: "current.md" })
+    await expect(open().readFile(path("shared.md"))).resolves.toMatchObject({ content: "shared.md" })
+    await expect(open().readFile(path("second.md"))).resolves.toMatchObject({ content: "second.md" })
+    await expect(open().readFile(path("edited.md"))).resolves.toMatchObject({ content: "external edit" })
+    await expect(open().readFile(path("user.md"))).resolves.toMatchObject({ content: "user" })
+    await syncWorkspaceDefinition({ name: "first", sources: {} }, open())
+    await expect(open().readFile(path("current.md"))).resolves.toBeUndefined()
+    await expect(open().readFile(path("shared.md"))).resolves.toBeDefined()
+    await syncWorkspaceDefinition({ name: "second", sources: {} }, open())
+    await expect(open().readFile(path("second.md"))).resolves.toBeUndefined()
+    await expect(open().readFile(path("shared.md"))).resolves.toBeUndefined()
+  })
+}
+
+
+it("preserves a same-byte startup overwrite when the Store drops file metadata", async () => {
+  const store = createMemoryWorkspaceStore()
+  const write = store.writeFile.bind(store)
+  store.writeFile = (path, file) => write(path, { ...file, metadata: undefined })
+  await syncWorkspaceDefinition({ name: "build-owner", sources: {
+    docs: custom({ materialize: "build", mount: "", files: [{ path: "shared.md", content: "same" }] }),
+  } }, store)
+  const name = `startup-owner-${crypto.randomUUID()}`
+  registerWorkspace(name, { store, sources: {
+    docs: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "same" }] }),
+  } })
+  await expect(useWorkspace(name).fs.readFile("shared.md", { encoding: "utf8" })).resolves.toBe("same")
+  await syncWorkspaceDefinition({ name: "build-owner", sources: {} }, store)
+  await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "same" })
+})

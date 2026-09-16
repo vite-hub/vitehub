@@ -214,10 +214,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     if (source.materialize === "startup" && completedSources.has(sourceKey)) {
-      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source)) return
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots)) return
       completedSources.delete(sourceKey)
     }
-    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, definition.name, source)) {
+    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots)) {
       reusedStartupSources.add(sourceKey)
       return
     }
@@ -344,12 +344,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
       const maxAge = source.cache && source.cache.maxAge
       if (source.materialize === "startup"
-        ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source)
+        ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots)
         : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, definition.name, source)) return
       materializedSources.delete(sourceKey)
     }
     if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
-      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source)) return
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots)) return
       completedSources.delete(sourceKey)
       reusedStartupSources.delete(sourceKey)
     }

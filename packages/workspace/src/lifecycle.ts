@@ -1,9 +1,10 @@
 import { useWorkspaceAssets } from "./asset-registry.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { files as filesLoader } from "./loaders/files.ts"
-import { normalizeWorkspacePath } from "./core/path.ts"
+import { normalizeWorkspacePath, sha256 } from "./core/path.ts"
 import { workspaceError } from "./core/errors.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
+import { readWorkspaceFileOwner, recordWorkspaceFileOwner } from "./sources/file-ownership.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
@@ -14,7 +15,26 @@ import type { LoaderContext, SourceContext, WorkspaceAssets, WorkspaceDefinition
 
 const buildSourcesMetaKey = (workspace: string) => `workspace:${encodeURIComponent(workspace)}:build-sources`
 
-function createBuildLoaderStore(workspace: string, store: WorkspaceStore, sources: ResolvedWorkspaceSource[]): WorkspaceStore {
+const buildFilesMetaKey = (workspace: string) => `workspace:${encodeURIComponent(workspace)}:build-files`
+
+interface BuildFileRecord {
+  source: string
+  digest: string
+}
+
+async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, sources: ResolvedWorkspaceSource[]): Promise<WorkspaceStore> {
+  const records = await readBuildFiles(store, workspace)
+  let checkpoint = Promise.resolve()
+  const record = (path: string, source: unknown, digest: string) => {
+    if (typeof source !== "string" || !store.setMeta) return Promise.resolve()
+    const normalized = normalizeWorkspacePath(path)
+    checkpoint = checkpoint.then(async () => {
+      await recordWorkspaceFileOwner(store, normalized, { workspace, source, digest })
+      records[normalized] = { source, digest }
+      await store.setMeta!(buildFilesMetaKey(workspace), records)
+    })
+    return checkpoint
+  }
   const mounts = [...sources].sort((a, b) => b.mountPath.length - a.mountPath.length)
   const tag = <T extends WorkspaceFile | WorkspaceStreamFile>(path: string, file: T): T => {
     const normalized = normalizeWorkspacePath(path)
@@ -29,9 +49,22 @@ function createBuildLoaderStore(workspace: string, store: WorkspaceStore, source
   }
   return new Proxy(store, {
     get(target, property) {
-      if (property === "writeFile") return (path: string, file: WorkspaceFile) => target.writeFile(path, tag(path, file))
-      if (property === "writeFileConditional" && target.writeFileConditional) return (path: string, file: WorkspaceFile, digest: string | null) => target.writeFileConditional!(path, tag(path, file), digest)
-      if (property === "writeFileStream" && target.writeFileStream) return (path: string, file: WorkspaceStreamFile) => target.writeFileStream!(path, tag(path, file))
+      if (property === "writeFile") return async (path: string, file: WorkspaceFile) => {
+        const tagged = tag(path, file)
+        await target.writeFile(path, tagged)
+        await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
+      }
+      if (property === "writeFileConditional" && target.writeFileConditional) return async (path: string, file: WorkspaceFile, digest: string | null) => {
+        const tagged = tag(path, file)
+        await target.writeFileConditional!(path, tagged, digest)
+        await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
+      }
+      if (property === "writeFileStream" && target.writeFileStream) return async (path: string, file: WorkspaceStreamFile) => {
+        const tagged = tag(path, file)
+        const written = await target.writeFileStream!(path, tagged)
+        await record(path, tagged.metadata?.workspaceBuildSource, written.digest)
+        return written
+      }
       return Reflect.get(target, property, target)?.bind(target)
     },
   })
@@ -146,8 +179,9 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   abortSignal?.throwIfAborted()
   const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
+  const buildStore = await createBuildLoaderStore(definition.name, store, buildSources)
   const bundledBuildSources = !hasExplicitLoaders
-    ? await syncRuntimeBuildAssets(definition, store, buildSources, abortSignal)
+    ? await syncRuntimeBuildAssets(definition, buildStore, buildSources, abortSignal)
     : undefined
   abortSignal?.throwIfAborted()
   if (bundledBuildSources && buildSources.every(source => bundledBuildSources.has(source.key))) {
@@ -167,7 +201,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
     rootDir: ctxSource.rootDir,
     sourceRootDir: ctxSource.sourceRootDir,
     sources: normalizedSources,
-    store: hasExplicitLoaders ? createBuildLoaderStore(definition.name, store, buildSources) : store,
+    store: buildStore,
     parseData: async input => input.data,
     generateDigest: input => JSON.stringify(input),
     logger: console,
@@ -252,6 +286,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   }
 
   abortSignal?.throwIfAborted()
+  await store.setMeta?.(buildFilesMetaKey(definition.name), {})
   await store.setMeta?.(buildSourcesMetaKey(definition.name), currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
   return hasBuildSourceState
 }
@@ -355,12 +390,37 @@ async function readSyncedBuildSources(store: WorkspaceStore, workspace: string):
   return value.filter(isSyncedBuildSource)
 }
 
+async function readBuildFiles(store: WorkspaceStore, workspace: string): Promise<Record<string, BuildFileRecord>> {
+  const value = await store.getMeta?.(buildFilesMetaKey(workspace))
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, BuildFileRecord] => {
+    const record: unknown = entry[1]
+    return !!record && typeof record === "object" && "source" in record && typeof record.source === "string"
+      && "digest" in record && typeof record.digest === "string"
+  }))
+}
+
 async function buildSourceFilePaths(store: WorkspaceStore, workspace: string, mountPath: string, keys: string[]) {
   const paths: string[] = []
+  const records = await readBuildFiles(store, workspace)
   for (const entry of await store.list(mountPath, { recursive: true })) {
     if (entry.type !== "file") continue
-    const metadata = entry.metadata ?? (await store.readFile(entry.path))?.metadata
-    if (metadata?.workspaceSourceOwner === workspace && keys.some(key => metadata.source === key || metadata.workspaceBuildSource === key)) {
+    const file = entry.metadata ? undefined : await store.readFile(entry.path)
+    const metadata = entry.metadata ?? file?.metadata
+    if (metadata?.workspaceSourceOwner !== undefined && metadata.workspaceSourceOwner !== workspace) continue
+    const record = records[entry.path]
+    if (record && keys.includes(record.source)) {
+      // Partial legacy ownership tags cannot authorize a metadata fallback.
+      if (metadata?.workspaceSourceOwner === undefined && (metadata?.source !== undefined || metadata?.workspaceBuildSource !== undefined)) continue
+      const owner = await readWorkspaceFileOwner(store, entry.path)
+      if (owner?.workspace !== workspace || owner.source !== record.source || owner.digest !== record.digest) continue
+      if (entry.digest !== record.digest) {
+        const current = file ?? await store.readFile(entry.path)
+        if (!current || await sha256(current.content) !== record.digest) continue
+      }
+      paths.push(entry.path)
+    }
+    else if (metadata?.workspaceSourceOwner === workspace && keys.some(key => metadata.source === key || metadata.workspaceBuildSource === key)) {
       paths.push(entry.path)
     }
   }
