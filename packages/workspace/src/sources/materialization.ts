@@ -136,8 +136,11 @@ async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string
   for (const path of Object.keys(meta.items || {})) {
     const stat = await store.stat(path)
     if (stat?.type !== "file") return false
+    if (stat.metadata?.workspaceSourceOwner === workspace && stat.metadata.source === source.key) continue
     const durable = await readWorkspaceFileOwner(store, path)
-    if (!((stat.metadata?.workspaceSourceOwner === workspace && stat.metadata?.source === source.key) || (durable?.workspace === workspace && durable.source === source.key))) return false
+    if (durable?.workspace !== workspace || durable.source !== source.key || !durable.digest) return false
+    const file = await store.readFile(path)
+    if (!file || await sha256(file.content) !== durable.digest) return false
   }
   return true
 }

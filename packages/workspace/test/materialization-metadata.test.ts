@@ -16,6 +16,36 @@ import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution
 import { readWorkspaceSourceMaterializationStatus } from "../src/source-metadata.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 
+it.each(["lazy", "direct", "inspection"] as const)("validates durable ownership content before %s cache reuse", async (mode) => {
+  const store = createMemoryWorkspaceStore()
+  const write = store.writeFile.bind(store)
+  store.writeFile = (path, file) => write(path, { ...file, metadata: undefined })
+  const getItem = vi.fn(async (key: string) => ({ key, content: "generated" }))
+  const definition = {
+    name: `durable-cache-${mode}`,
+    sources: { docs: {
+      materialize: mode === "lazy" ? "lazy" as const : "startup" as const,
+      mount: { path: "docs" },
+      cache: { maxAge: 3600 },
+      async getKeys() { return ["file.md"] },
+      getItem,
+    } },
+  }
+  const read = async () => {
+    if (mode === "direct") {
+      await materializeWorkspaceSources(definition, store)
+      return (await store.readFile("docs/file.md"))?.content
+    }
+    return createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: mode === "inspection" }).readFile("docs/file.md")
+  }
+  await expect(read()).resolves.toBe("generated")
+  await expect(read()).resolves.toBe("generated")
+  expect(getItem).toHaveBeenCalledTimes(1)
+  await store.writeFile("docs/file.md", { path: "docs/file.md", content: "replacement" })
+  await expect(read()).resolves.toBe("generated")
+  expect(getItem).toHaveBeenCalledTimes(2)
+})
+
 it.each(["sidecar", "tree"])("keeps cached Source paths read-only after losing the metadata %s", async (missing) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-missing-sidecar-"))
   const getItem = vi.fn(async (key: string) => ({ key, content: "original" }))
