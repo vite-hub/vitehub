@@ -341,39 +341,75 @@ async function reconcilePromotedSourceSkills(
     const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
     return incompleteSources.has(prior.source) || (destinationMatch && retainedSkills.has(destinationMatch[1]))
   }))
-  const conflictedDestinations = new Set<string>()
-  for (const [destination, candidate] of candidates) {
-    if (retainedSkills.has(candidate.skill)) continue
-    const sourceFile = verifiedSkillFiles.get(candidate.sourcePath)
-    if (!sourceFile || await hasNonFilePromotionDestination(store, destination)) continue
-    const existing = await readSourceFile(store, destination)
-    const prior = previous[destination]
-    const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await promotedFileMatches(existing, prior))
-    if (existing && !ownsExisting) continue
-    const metadata = {
-      ...sourceFile.metadata,
-      promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
-    }
-    const expectedDigest = existing ? await sha256(existing.content) : null
-    try {
-      await control.mutate(async () => {
-        await store.mkdir(posix.dirname(destination), { recursive: true })
-        await writeFileConditional(destination, { ...sourceFile, path: destination, metadata }, expectedDigest)
-      })
-    }
-    catch (error) {
-      if (!isWorkspaceConflict(error)) {
-        const code = hasRuntimeType(error, "object") && error !== null ? Reflect.get(error, "code") : undefined
-        if (code !== "EISDIR" && code !== "ENOTDIR") throw error
+  for (const [skill] of selectedSkills) {
+    if (retainedSkills.has(skill)) continue
+    const entries = [...candidates].filter(([, candidate]) => candidate.skill === skill)
+    const writes: { destination: string, existing: WorkspaceFile | undefined, promoted: PromotedSourceSkillFile }[] = []
+    let conflicted = false
+    let failure: unknown
+    // A new companion needs conditional removal to undo a later conflict.
+    // Stores without that capability can still refresh complete existing Skills.
+    if (entries.length > 1 && !store.conditionalRemoval) {
+      for (const [destination] of entries) {
+        if (!await readSourceFile(store, destination)) { conflicted = true; break }
       }
-      // Leave the concurrent writer's file unowned, including during cleanup.
-      conflictedDestinations.add(destination)
-      continue
     }
-    next[destination] = { source: candidate.source, sourcePath: candidate.sourcePath, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName || "default" }
+    for (const [destination, candidate] of entries) {
+      if (conflicted) break
+      const sourceFile = verifiedSkillFiles.get(candidate.sourcePath)
+      const existing = await readSourceFile(store, destination)
+      const prior = previous[destination]
+      const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await promotedFileMatches(existing, prior))
+      if (!sourceFile || (existing && !ownsExisting) || (!existing && entries.length > 1 && !store.conditionalRemoval) || await hasNonFilePromotionDestination(store, destination)) {
+        conflicted = true
+        break
+      }
+      const metadata = {
+        ...sourceFile.metadata,
+        promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
+      }
+      const promoted = { source: candidate.source, sourcePath: candidate.sourcePath, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName || "default" }
+      const expectedDigest = existing ? await sha256(existing.content) : null
+      try {
+        await control.mutate(async () => {
+          await store.mkdir(posix.dirname(destination), { recursive: true })
+          await writeFileConditional(destination, { ...sourceFile, path: destination, metadata }, expectedDigest)
+        })
+        writes.push({ destination, existing, promoted })
+      }
+      catch (error) {
+        if (!isWorkspaceConflict(error)) {
+          const code = hasRuntimeType(error, "object") && error !== null ? Reflect.get(error, "code") : undefined
+          if (code !== "EISDIR" && code !== "ENOTDIR") failure = error
+        }
+        conflicted = true
+      }
+    }
+    if (conflicted) {
+      for (const { destination, existing, promoted } of writes.reverse()) {
+        const current = await readSourceFile(store, destination)
+        if (!current || !await promotedFileMatches(current, promoted)) continue
+        try {
+          await control.mutate(async () => {
+            if (existing) await writeFileConditional(destination, existing, promoted.digest)
+            else await store.rm(destination, { force: true, ifDigest: promoted.digest })
+          })
+        }
+        catch (error) {
+          if (!isWorkspaceConflict(error)) throw error
+        }
+      }
+      for (const [destination, prior] of Object.entries(previous)) {
+        if (destination.startsWith(`.agents/skills/${skill}/`)) next[destination] = prior
+      }
+    }
+    else {
+      for (const { destination, promoted } of writes) next[destination] = promoted
+    }
+    if (failure) throw failure
   }
   for (const [destination, prior] of Object.entries(previous)) {
-    if (next[destination] || conflictedDestinations.has(destination)) continue
+    if (next[destination]) continue
     const existing = await readSourceFile(store, destination)
     if (existing && await promotedFileMatches(existing, prior)) {
       const latest = await readSourceFile(store, destination)
@@ -1077,9 +1113,11 @@ async function materializeWorkspaceSourcesInternal(
       throwIfAborted(options.abortSignal)
       if (source.mountPath) {
         await control.mutate(async () => {
-          const mountExists = Boolean(await store.stat(source.mountPath))
-          await store.mkdir(source.mountPath, { recursive: true, onCreate: (_path, identity) => { ownsMount = true; mountIdentity = identity } })
-          ownsMount = ownsMount || !mountExists
+          await store.mkdir(source.mountPath, { recursive: true, onCreate: (path, identity) => {
+            if (path !== source.mountPath) return
+            ownsMount = true
+            mountIdentity = identity
+          } })
         })
       }
 
@@ -1124,10 +1162,6 @@ async function materializeWorkspaceSourcesInternal(
           workspace: definition.name,
           sourceMaterialize: source.materialize,
         })
-        const missingDirectories: string[] = []
-        for (const directory of parentDirectoryPaths(path)) {
-          if (directory !== source.mountPath && sourceOwnsDirectory(source, directory) && !await store.stat(directory)) missingDirectories.push(directory)
-        }
         const written = await writeMaterializedFile(store, path, {
           path,
           content: entry.content,
@@ -1137,20 +1171,15 @@ async function materializeWorkspaceSourcesInternal(
         }, {
           ...control,
           mutate: operation => control.mutate(async () => {
-            try {
-              return await operation()
-            }
-            finally {
-              // Stores can create parents before a write fails. Check only after
-              // an attempted mutation, so a pre-write abort claims nothing.
-              for (const directory of missingDirectories) {
-                const stat = await store.stat(directory)
-                if (stat?.type === "directory") {
-                  ownedDirectories.add(directory)
-                  if (stat.directoryIdentity) directoryIdentities[directory] = stat.directoryIdentity
-                }
-              }
-            }
+            // Claim only directories created by this mutation, including parents
+            // created before a write fails. A prior stat cannot prove ownership.
+            const parent = posix.dirname(path)
+            if (parent !== ".") await store.mkdir(parent, { recursive: true, onCreate: (directory, identity) => {
+              if (directory === source.mountPath || !sourceOwnsDirectory(source, directory)) return
+              ownedDirectories.add(directory)
+              if (identity) directoryIdentities[directory] = identity
+            } })
+            return await operation()
           }),
         }, previous?.content)
         if (source.materialize === "startup") {

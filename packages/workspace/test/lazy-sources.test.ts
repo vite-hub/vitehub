@@ -447,6 +447,54 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${root}/other.md`)).resolves.toBeUndefined()
   })
 
+  it.each([false, true].flatMap(existing => [false, true].map(replaceEarlier => ({ existing, replaceEarlier }))))("rolls back companion promotion races (existing: $existing, replace earlier: $replaceEarlier)", async ({ existing, replaceEarlier }) => {
+    const store = createMemoryWorkspaceStore()
+    const root = ".agents/skills/review"
+    let version = "Original"
+    const view = createWorkspaceSourceView({ name: "companion-write-race", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [`${root}/SKILL.md`, `${root}/checks.md`, `${root}/other.md`] },
+        async getItem(key) { return { key, content: `${version}: ${key}` } },
+      }),
+    } }, store)
+    if (existing) await view.materializeSources()
+    version = "Updated"
+    const write = store.writeFileConditional!.bind(store)
+    let raced = false
+    vi.spyOn(store, "writeFileConditional").mockImplementation(async (path, file, digest) => {
+      if (path === `${root}/checks.md` && !raced) {
+        raced = true
+        await store.writeFile(path, { path, content: "User checks" })
+        if (replaceEarlier) await store.writeFile(`${root}/SKILL.md`, { path: `${root}/SKILL.md`, content: "User Skill" })
+      }
+      await write(path, file, digest)
+    })
+    await view.materializeSources()
+    expect(raced).toBe(true)
+    const expectedSkill = replaceEarlier ? "User Skill" : existing ? `Original: ${root}/SKILL.md` : undefined
+    expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(expectedSkill)
+    expect((await store.readFile(`${root}/checks.md`))?.content).toBe("User checks")
+    expect((await store.readFile(`${root}/other.md`))?.content).toBe(existing ? `Original: ${root}/other.md` : undefined)
+    await view.materializeSources()
+    expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(expectedSkill)
+  })
+
+  it("retains multi-file Skills when the Store cannot roll back new companions", async () => {
+    const store = createLocalWorkspaceStore(await createRoot())
+    const root = ".agents/skills/review"
+    const view = createWorkspaceSourceView({ name: "unsupported-companion-rollback", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [`${root}/SKILL.md`, `${root}/checks.md`] },
+        async getItem(key) { return { key, content: key } },
+      }),
+    } }, store)
+    await view.materializeSources()
+    await expect(store.readFile(`${root}/SKILL.md`)).resolves.toBeUndefined()
+    expect(await store.readFile(`portal/${root}/SKILL.md`)).toBeDefined()
+  })
+
   it("keeps explicit and edited root skills during source refresh", async () => {
     const store = createMemoryWorkspaceStore()
     let files = [
@@ -815,7 +863,7 @@ describe("lazy sources", () => {
     else await expect(reopened.stat("docs")).resolves.toMatchObject({ type: "directory" })
   })
 
-  it.each(["abort", "write"].flatMap(stage => [false, true].map(local => ({ stage, local }))))("does not claim unwritten child directories after $stage with local=$local", async ({ stage, local }) => {
+  it.each(["abort", "write"].flatMap(stage => [false, true].map(local => ({ stage, local }))))("claims child directories only after creation at $stage with local=$local", async ({ stage, local }) => {
     const root = await createRoot()
     const store = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
     const abort = new AbortController()
@@ -830,11 +878,11 @@ describe("lazy sources", () => {
       },
     }
     if (stage === "abort") {
-      const stat = store.stat.bind(store)
-      vi.spyOn(store, "stat").mockImplementation(async (path) => {
-        const entry = await stat(path)
-        if (path === "docs/child" && !entry) abort.abort(new Error("write canceled"))
-        return entry
+      const readFile = store.readFile.bind(store)
+      vi.spyOn(store, "readFile").mockImplementation(async (path) => {
+        const file = await readFile(path)
+        if (path === "docs/child/file.md") abort.abort(new Error("write canceled"))
+        return file
       })
     }
     else vi.spyOn(store, "writeFile").mockRejectedValueOnce(new Error("write failed"))
@@ -842,11 +890,15 @@ describe("lazy sources", () => {
     if (stage === "abort") await expect(materialization).rejects.toThrow("write canceled")
     else await expect(materialization).resolves.toMatchObject({ sources: [{ status: "error", error: "write failed" }] })
     vi.restoreAllMocks()
-    await expect(store.stat("docs/child")).resolves.toBeUndefined()
-    await store.mkdir("docs/child", { recursive: true })
+    if (stage === "abort") {
+      await expect(store.stat("docs/child")).resolves.toBeUndefined()
+      await store.mkdir("docs/child", { recursive: true })
+    }
+    else await expect(store.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
     const reopened = local ? createLocalWorkspaceStore(root) : store
     await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
-    await expect(reopened.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
+    if (stage === "write") await expectRetiredDirectory(reopened, "docs/child")
+    else await expect(reopened.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
   })
 
   it.each([
