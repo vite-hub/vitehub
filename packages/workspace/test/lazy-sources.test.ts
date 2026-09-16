@@ -10,6 +10,7 @@ import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } f
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
+import { sha256 } from "../src/core/path.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 const globSource = glob
@@ -39,6 +40,30 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["update", "remove"])("preserves legacy promoted skill ownership during source %s", async (action) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/review/SKILL.md"
+    const sources = { portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Original" }] }) }
+    const definition = { name: "legacy-promotion", sources }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.setMeta!("workspace:promoted-source-skills:legacy-promotion", {
+      [destination]: {
+        digest: await sha256("# Original"),
+        source: "portal",
+        sourcePath: `portal/${destination}`,
+        workspace: "legacy-promotion",
+      },
+    })
+    if (action === "update") {
+      sources.portal = custom({ materialize: "startup", files: [{ path: destination, content: "# Updated" }] })
+      await invalidateWorkspaceSourceMaterialization(definition, store, ["portal"])
+    }
+    else Reflect.deleteProperty(sources, "portal")
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    if (action === "update") await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Updated" })
+    else await expect(store.readFile(destination)).resolves.toBeUndefined()
+  })
+
   it.each(["metadata", "mediaType"])("preserves promoted files with user-replaced %s", async (attribute) => {
     const store = createMemoryWorkspaceStore()
     const destination = ".agents/skills/review/SKILL.md"
@@ -1156,7 +1181,8 @@ describe("lazy sources", () => {
       name: "concurrent-startup-removal",
       sources: { retained, other, removed: source("shared.md") },
     }, store).materializeSources()
-    await store.writeFile("shared.md", { path: "shared.md", content: "shared.md", metadata: { source: "removed" } })
+    const shared = (await store.readFile("shared.md"))!
+    await store.writeFile("shared.md", { ...shared, metadata: { ...shared.metadata, source: "removed" } })
     const remove = store.rm.bind(store)
     const removals = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
       // Let competing source materializations reach reconciliation before deletion.

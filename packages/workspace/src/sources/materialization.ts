@@ -80,6 +80,9 @@ function startupSourcesMetaKey(workspaceName?: string) {
 export function removedStartupPathMetaKey(workspaceName: string | undefined, path: string) {
   return `workspace:${workspaceName || "default"}:removed-startup-path:${JSON.stringify(path)}`
 }
+export function removedStartupDirectoryMetaKey(workspaceName: string | undefined, path: string) {
+  return `workspace:${workspaceName || "default"}:removed-startup-directory:${JSON.stringify(path)}`
+}
 const legacyStartupSourcesMetaKey = "workspace:startup-sources"
 const promotedSourceSkillsMetaKey = "workspace:promoted-source-skills"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
@@ -209,8 +212,9 @@ function isPromotedSourceSkillFile(value: unknown): value is PromotedSourceSkill
 }
 
 async function promotedFileMatches(file: WorkspaceFile, prior: PromotedSourceSkillFile) {
+  const legacy = !Object.hasOwn(prior, "mediaType") && !Object.hasOwn(prior, "metadata")
   return await sha256(file.content) === prior.digest
-    && (fileAttributesUnavailable(file) || (file.mediaType === prior.mediaType
+    && (legacy || fileAttributesUnavailable(file) || (file.mediaType === prior.mediaType
       && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(prior.metadata))))
 }
 
@@ -546,6 +550,7 @@ async function removeStaleMaterializedSourceFiles(
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set(previousSnapshot?.pendingDirectories || [])
   const removedDirectories = new Set<string>()
+  let cleanupBaseline: Promise<string | undefined> | undefined
   // Build cleanup leaves an empty snapshot object; only that missing index needs recovery.
   // With metadata support, an absent snapshot is a first startup with no owned paths.
   const entries = source.mountPath
@@ -561,8 +566,10 @@ async function removeStaleMaterializedSourceFiles(
     if ((currentOwner === undefined || source.materialize === "startup") && previousSnapshot?.items) {
       // Persisted ownership can survive a user edit made outside the Store.
       // Only remove indexed startup files while their materialized content matches.
-      const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
-      if (!file || (recordedDigest && await sha256(file.content) !== recordedDigest) || (!recordedDigest && currentOwner !== source.key)) continue
+      const recorded = previousSnapshot.items[entry.path]
+      if (!file || (recorded?.materializedContentDigest && !await materializedFileMatches(file, recorded))
+        || (recorded?.materializedAttributes && currentOwner === undefined && !fileAttributesUnavailable(file))
+        || (!recorded?.materializedContentDigest && currentOwner !== source.key)) continue
     }
     const overlapsAnotherSource = sources.some(candidate =>
       candidate.key !== source.key
@@ -588,15 +595,16 @@ async function removeStaleMaterializedSourceFiles(
       const latestOwner = latest.metadata?.source
       if (latestOwner !== undefined && latestOwner !== source.key) continue
       if ((latestOwner === undefined || source.materialize === "startup") && previousSnapshot?.items?.[entry.path]) {
-        const digest = previousSnapshot.items[entry.path].materializedContentDigest
-        if (!digest || await sha256(latest.content) !== digest) continue
+        const recorded = previousSnapshot.items[entry.path]
+        if (!await materializedFileMatches(latest, recorded)
+          || (recorded.materializedAttributes && latestOwner === undefined && !fileAttributesUnavailable(latest))) continue
       }
       await control.mutate(() => store.rm(entry.path, {
         force: true,
         ...(store.conditionalRemoval && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
           ? { ifDigest: previousSnapshot.items[entry.path].materializedContentDigest }
           : {}),
-        ...(store.conditionalRemoval && latestOwner ? { ifSource: latestOwner } : {}),
+        ...(store.conditionalRemoval ? { ifSource: latestOwner ?? null } : {}),
       }))
       if (source.materialize === "startup") {
         const removed = !await store.stat(entry.path)
@@ -616,8 +624,16 @@ async function removeStaleMaterializedSourceFiles(
       // A stat followed by unconditional rm can delete a concurrent replacement.
       if (!store.conditionalDirectoryRemoval || !stat.directoryIdentity) continue
       if ((await store.list(path)).length) continue
+      const baseline = source.materialize === "startup"
+        ? await (cleanupBaseline ??= store.diff().then(diff => diff.from))
+        : undefined
       await control.mutate(() => store.rm(path, { force: true, ifDirectoryIdentity: stat.directoryIdentity }))
-      if (!await store.stat(path)) removedDirectories.add(path)
+      if (!await store.stat(path)) {
+        removedDirectories.add(path)
+        if (source.materialize === "startup") {
+          await control.checkpoint(async () => await store.setMeta?.(removedStartupDirectoryMetaKey(workspaceName, path), baseline))
+        }
+      }
     }
     catch (error) {
       if (!hasRuntimeType(error, "object") || error === null || !["ENOENT", "ENOTDIR", "ENOTEMPTY", "EEXIST"].includes(Reflect.get(error, "code"))) throw error
@@ -673,6 +689,7 @@ async function reconcileRemovedStartupSourcesInternal(
       await store.setMeta(legacyStartupSourcesMetaKey, undefined)
     }
   }
+  let cleanupBaseline: Promise<string | undefined> | undefined
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
   const activeOwners = [...activeSources]
@@ -691,12 +708,14 @@ async function reconcileRemovedStartupSourcesInternal(
       const file = await readSourceFile(store, path)
       if (!file) continue
       const owner = file.metadata?.source
-      const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
-      // Legacy Stores may lack per-file metadata; current Stores can retain it
-      // after external edits. In both cases, preserve changed content.
+      const recorded = snapshot?.items?.[path]
+      const recordedDigest = recorded?.materializedContentDigest
+      // Missing legacy attributes permit digest ownership. An observable owner
+      // removal or attribute change releases the current file to the user.
       const removalKey = removedStartupPathMetaKey(workspaceName, path)
-      if ((recordedDigest && await sha256(file.content) !== recordedDigest)
-        || (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest))) {
+      if ((recorded?.materializedContentDigest && !await materializedFileMatches(file, recorded))
+        || (recorded?.materializedAttributes && owner === undefined && !fileAttributesUnavailable(file))
+        || (owner !== source.key && !(owner === undefined && recordedDigest))) {
         await control.checkpoint(async () => await store.setMeta?.(removalKey, undefined))
         continue
       }
@@ -708,7 +727,7 @@ async function reconcileRemovedStartupSourcesInternal(
       await control.mutate(() => store.rm(path, {
         force: true,
         ...(store.conditionalRemoval && recordedDigest ? { ifDigest: recordedDigest } : {}),
-        ...(store.conditionalRemoval && owner ? { ifSource: owner } : {}),
+        ...(store.conditionalRemoval ? { ifSource: owner ?? null } : {}),
       }))
       // Preserve cleanup evidence after the Source snapshot is retired. A
       // conditional removal can leave a concurrent replacement untouched.
@@ -739,7 +758,11 @@ async function reconcileRemovedStartupSourcesInternal(
       if (!store.conditionalDirectoryRemoval || !stat.directoryIdentity) continue
       if ((await store.list(path)).length) continue
       try {
+        const baseline = await (cleanupBaseline ??= store.diff().then(diff => diff.from))
         await control.mutate(() => store.rm(path, { force: true, ifDirectoryIdentity: stat.directoryIdentity }))
+        if (!await store.stat(path)) {
+          await control.checkpoint(async () => await store.setMeta?.(removedStartupDirectoryMetaKey(workspaceName, path), baseline))
+        }
       }
       catch (error) {
         if (!hasRuntimeType(error, "object") || error === null || !["ENOENT", "ENOTDIR", "ENOTEMPTY", "EEXIST"].includes(Reflect.get(error, "code"))) throw error

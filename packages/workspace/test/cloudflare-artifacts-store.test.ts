@@ -122,19 +122,59 @@ afterEach(() => {
 })
 
 describe("Cloudflare Artifacts workspace store", () => {
-  it("changes directory identity after a mount is removed and recreated", async () => {
+  it("omits directory identities that cannot survive reopening", async () => {
     const store = await createStore({ get: vi.fn(async () => artifactsRepo()) })
     const created = vi.fn()
     await store.mkdir("generated", { onCreate: created })
-    const original = (await store.stat("generated"))?.directoryIdentity
-    expect(original).toEqual(expect.any(String))
-    expect(created).toHaveBeenCalledWith("generated", original)
-    await store.mkdir("generated")
-    expect((await store.stat("generated"))?.directoryIdentity).toBe(original)
-    await store.rm("generated")
-    await store.mkdir("generated")
-    expect((await store.stat("generated"))?.directoryIdentity).toEqual(expect.any(String))
-    expect((await store.stat("generated"))?.directoryIdentity).not.toBe(original)
+    expect((await store.stat("generated"))?.directoryIdentity).toBeUndefined()
+    expect(created).toHaveBeenCalledWith("generated")
+  })
+
+  it("reuses a fresh startup Source snapshot after reopening", async () => {
+    type FileEntry = { data: Uint8Array; kind: "file"; mtimeMs: number }
+    let committed = new Map<string, FileEntry>()
+    const binding = { get: vi.fn(async () => artifactsRepo()) }
+    gitMock.listServerRefs
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ oid: "commit-1", ref: "refs/heads/main" }])
+    gitMock.push.mockImplementationOnce(async (options?: unknown) => {
+      const { fs } = options as { fs: { entries: Map<string, FileEntry | { kind: "dir" }> } }
+      committed = new Map(
+        [...fs.entries]
+          .filter((entry): entry is [string, FileEntry] => entry[1].kind === "file")
+          .map(([path, entry]) => [path, { ...entry, data: new Uint8Array(entry.data) }]),
+      )
+      return { refs: { main: "commit-1" } }
+    })
+    gitMock.clone.mockImplementationOnce(async (options?: unknown) => {
+      const { fs } = options as {
+        fs: { promises: { writeFile(path: string, content: Uint8Array): Promise<void> } }
+      }
+      for (const [path, entry] of committed) await fs.promises.writeFile(path, entry.data)
+    })
+    const getKeys = vi.fn(async () => ["guide.md"])
+    const definition = {
+      name: "docs",
+      sources: {
+        generated: custom({
+          mount: "generated",
+          materialize: "startup",
+          cache: { maxAge: 3600 },
+          getKeys,
+          getItem: async (key: string) => ({ key, content: "generated" }),
+        }),
+      },
+    }
+    const writer = await createStore(binding)
+    await materializeWorkspaceSources(definition, writer)
+    await writer.snapshot()
+
+    const reader = await createStore(binding)
+    await materializeWorkspaceSources(definition, reader)
+
+    expect(gitMock.clone).toHaveBeenCalledOnce()
+    expect(getKeys).toHaveBeenCalledOnce()
+    expect(await reader.readFile("generated/guide.md")).toMatchObject({ content: new TextEncoder().encode("generated") })
   })
 
   it("reports only directories created by concurrent mkdir calls", async () => {

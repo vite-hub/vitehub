@@ -2,7 +2,7 @@ import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { normalizeWorkspaceSources } from "../sources/config.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
-import { materializedFileMatches, readCurrentSourceSnapshot, removedStartupPathMetaKey } from "../sources/materialization.ts"
+import { materializedFileMatches, readCurrentSourceSnapshot, removedStartupDirectoryMetaKey, removedStartupPathMetaKey } from "../sources/materialization.ts"
 import { fileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
@@ -61,6 +61,8 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
   }
   const entries: WorkspaceDiff["entries"] = []
   for (const entry of diff.entries) {
+    if (entry.type === "removed" && entry.before?.type === "directory" && diff.from
+      && await store.getMeta?.(removedStartupDirectoryMetaKey(definition.name, entry.path)) === diff.from) continue
     if (entry.type === "removed" && entry.before?.type === "file"
       && entry.before.metadata?.sourceMaterialize === "startup"
       && hasRuntimeType(entry.before.metadata.source, "string")

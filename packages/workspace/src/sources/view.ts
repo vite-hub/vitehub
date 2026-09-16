@@ -14,6 +14,7 @@ import {
   materializedFileMatches,
   materializeWorkspaceSources,
   removedStartupPathMetaKey,
+  removedStartupDirectoryMetaKey,
   readCurrentSourceSnapshot,
   readResolvedSourceFile,
   searchMaterializedStore,
@@ -788,6 +789,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         else await store.writeFile(input.path, file)
         await store.setMeta?.(removedStartupPathMetaKey(definition.name, input.path), undefined)
+        await clearRemovedStartupDirectories(input.path)
         await writePolicy.after(input)
         return input.path
       }
@@ -898,6 +900,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       })
       try {
         await store.mkdir(input.path, options)
+        await clearRemovedStartupDirectories(input.path)
         await writePolicy.after(input)
       }
       catch (error) {
@@ -915,6 +918,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       })
       try {
         await store.rm(input.path, options)
+        await clearRemovedStartupDirectories(input.path)
         await writePolicy.after(input)
       }
       catch (error) {
@@ -922,6 +926,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         throw error
       }
     },
+  }
+
+  async function clearRemovedStartupDirectories(path: string) {
+    const parts = path.split("/")
+    for (let index = 1; index <= parts.length; index++) {
+      await store.setMeta?.(removedStartupDirectoryMetaKey(definition.name, parts.slice(0, index).join("/")), undefined)
+    }
   }
 
   async function pruneLiveSourceStoreEntries(result: Map<string, WorkspaceEntry>, source: ReturnType<typeof normalizeWorkspaceSources>[number]) {
