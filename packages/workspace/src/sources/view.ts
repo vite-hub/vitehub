@@ -214,10 +214,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     if (source.materialize === "startup" && completedSources.has(sourceKey)) {
-      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source)) return
       completedSources.delete(sourceKey)
     }
-    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, source)) {
+    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, definition.name, source)) {
       reusedStartupSources.add(sourceKey)
       return
     }
@@ -344,12 +344,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
       const maxAge = source.cache && source.cache.maxAge
       if (source.materialize === "startup"
-        ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)
-        : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
+        ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source)
+        : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, definition.name, source)) return
       materializedSources.delete(sourceKey)
     }
     if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
-      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, definition.name, source)) return
       completedSources.delete(sourceKey)
       reusedStartupSources.delete(sourceKey)
     }
@@ -385,7 +385,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await pruneLiveSourceStoreEntries(result, source)
         continue
       }
-      if (!normalized && options.recursive && source.materialize !== "startup" && !await hasCurrentSourceSnapshot(store, source)) {
+      if (!normalized && options.recursive && source.materialize !== "startup" && !await hasCurrentSourceSnapshot(store, definition.name, source)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
           const allowed = await currentSourceTreePaths(source, getSourceContext(source))
           for (const key of result.keys()) {
@@ -521,7 +521,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function isSourceBackedStorePath(path: string) {
     // A missing sidecar must not release ownership recorded by the current Source.
     for (const source of allSources) {
-      const snapshot = await readCurrentSourceSnapshot(store, source)
+      const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
       if (Object.keys(snapshot?.items || {}).some(item => item === path || !path || item.startsWith(`${path}/`))) return true
     }
     const file = await store.readFile(path)
@@ -589,7 +589,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         let shouldRefreshCachedLazy = false
         if (resolution.source.materialize === "lazy" && Number.isFinite(cacheMaxAge)) {
           shouldRefreshCachedLazy = materializedSources.has(resolution.sourceKey)
-            || Boolean(await readCurrentSourceSnapshot(store, resolution.source))
+            || Boolean(await readCurrentSourceSnapshot(store, definition.name, resolution.source))
         }
         if (shouldRefreshCachedLazy) {
           await ensureMaterialized(resolution.sourceKey)

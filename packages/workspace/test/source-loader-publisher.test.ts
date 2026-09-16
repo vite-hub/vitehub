@@ -1413,6 +1413,48 @@ describe("sources, loaders, and publishers", () => {
     await expect(store.readFile(path("edited.md"))).resolves.toMatchObject({ content: "user edit" })
   })
 
+  it.each([false, true])("tracks explicit loader ownership across root Sources with reversed order %s", async (reverse) => {
+    const store = createMemoryWorkspaceStore()
+    const entries = ["first", "second"].map(key => [key, custom({ mount: "", files: [] })] as const)
+    const definition: WorkspaceDefinition = {
+      name: "multi-root-loader-output",
+      sources: Object.fromEntries(reverse ? entries.toReversed() : entries),
+      loaders: [{
+        name: "derived",
+        async load(ctx) {
+          for (const source of ctx.sources) {
+            const path = `${source.key}.md`
+            await ctx.store.writeFile(path, { path, content: source.key, metadata: { source: source.key } })
+          }
+        },
+      }],
+    }
+    await syncWorkspaceDefinition(definition, store)
+    for (const key of ["first", "second"]) {
+      await expect(store.readFile(`${key}.md`)).resolves.toMatchObject({ metadata: { workspaceBuildSource: key } })
+    }
+    await syncWorkspaceDefinition({ ...definition, sources: { second: entries[1]![1] } }, store)
+    await expect(store.readFile("first.md")).resolves.toBeUndefined()
+    await expect(store.readFile("second.md")).resolves.toMatchObject({ content: "second", metadata: { workspaceBuildSource: "second" } })
+  })
+
+  it("rejects explicit loader writes with ambiguous root ownership", async () => {
+    const store = createMemoryWorkspaceStore()
+    const definition: WorkspaceDefinition = {
+      name: "ambiguous-root-loader-output",
+      sources: {
+        first: custom({ mount: "", files: [] }),
+        second: custom({ mount: "", files: [] }),
+      },
+      loaders: [{
+        name: "derived",
+        async load(ctx) { await ctx.store.writeFile("derived.md", { path: "derived.md", content: "derived" }) },
+      }],
+    }
+    await expect(syncWorkspaceDefinition(definition, store)).rejects.toThrow("Set metadata.source to the Source key")
+    await expect(store.readFile("derived.md")).resolves.toBeUndefined()
+  })
+
   it("lets build sources read existing workspace files while syncing", async () => {
     const store = createMemoryWorkspaceStore()
     await store.writeFile("data/sync-report.json", {

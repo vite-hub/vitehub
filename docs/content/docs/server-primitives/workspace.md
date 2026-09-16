@@ -331,6 +331,8 @@ This reuses current persisted snapshots of Sources with `materialize: 'startup'`
 
 File `metadata.source` is reserved for the string name of the Source that owns the file. The local Store rejects other values before writing bytes or consuming a content stream, preserving any existing content and metadata.
 
+Explicit loaders that write through `ctx.store` must preserve the input item's `metadata.source` when multiple build Sources share a mount. For derived output within a Source's mount, set it to that Source's key. An ambiguous write fails before storing the file. This lets later synchronization remove only that Source's output.
+
 Each materialized Source reports its provider, cache disposition, revision, duration, and added, updated, unchanged, and removed file counts. Set `details: 'paths'` when the caller is allowed to inspect file names; path details stay out of the result by default.
 
 ## Resolve custom Sources

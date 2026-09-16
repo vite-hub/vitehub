@@ -551,6 +551,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
       const metadata = await ignoreMissingWorkspace(async () => await resolveMetadata.call(workspace))
       if (!metadata && !assets) return
       const target = {
+        workspaceName: metadata?.workspaceName,
         getMeta: metadata?.getMeta?.bind(metadata),
         list: async (path: string, options?: ListOptions) => {
           // SAFETY: The read-only facade's path belongs to this named Workspace's asset path contract.

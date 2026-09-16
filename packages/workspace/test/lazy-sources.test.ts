@@ -569,8 +569,8 @@ describe("lazy sources", () => {
     const retained = source()
     const initial = { name: "shared-empty-startup-mount", sources: { removed: source(), retained } }
     await createWorkspaceSourceView(initial, store).materializeSources()
-    await expect(store.getMeta?.("source:removed:snapshot")).resolves.toMatchObject({ ownsMount: true })
-    await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false, status: "ready" })
+    await expect(store.getMeta?.(`workspace:${initial.name}:source:removed:snapshot`)).resolves.toMatchObject({ ownsMount: true })
+    await expect(store.getMeta?.(`workspace:${initial.name}:source:retained:snapshot`)).resolves.toMatchObject({ ownsMount: false, status: "ready" })
 
     const next = { name: initial.name, sources: { retained } }
     await syncWorkspaceDefinition(next, store)
@@ -599,8 +599,8 @@ describe("lazy sources", () => {
     const retained = source("retained.md")
     const initial = { name: "shared-nonempty-startup-mount", sources: { removed: source("removed.md"), retained } }
     await createWorkspaceSourceView(initial, store).materializeSources()
-    await expect(store.getMeta?.("source:removed:snapshot")).resolves.toMatchObject({ ownsMount: true })
-    await expect(store.getMeta?.("source:retained:snapshot")).resolves.toMatchObject({ ownsMount: false })
+    await expect(store.getMeta?.(`workspace:${initial.name}:source:removed:snapshot`)).resolves.toMatchObject({ ownsMount: true })
+    await expect(store.getMeta?.(`workspace:${initial.name}:source:retained:snapshot`)).resolves.toMatchObject({ ownsMount: false })
 
     const next = { name: initial.name, sources: { retained } }
     await syncWorkspaceDefinition(next, store)
@@ -720,7 +720,7 @@ describe("lazy sources", () => {
 
     await syncWorkspaceDefinition(next, store)
     await expect(store.stat("late.md")).resolves.toBeUndefined()
-    await expect(store.getMeta!("workspace:startup-sources")).resolves.toEqual([])
+    await expect(store.getMeta!(`workspace:${initial.name}:startup-sources`)).resolves.toEqual([])
   })
 
   it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
@@ -812,7 +812,7 @@ describe("lazy sources", () => {
     await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
     await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
 
-    await store.setMeta?.("workspace:startup-sources", [{ key: "skill", mountPath: ".agents/skills/old" }])
+    await store.setMeta?.("workspace:moved-startup-source:startup-sources", [{ key: "skill", mountPath: ".agents/skills/old" }])
     await createWorkspaceSourceView({
       name: "moved-startup-source",
       sources: { skill: source(".agents/skills/new") },
@@ -1579,7 +1579,7 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       sources: [expect.objectContaining({ bytes: 6, files: 2, status: "error" })],
     })
-    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+    await expect(store.getMeta?.("workspace:lazy-keyed-failed-aggregates:source:docs:snapshot")).resolves.toMatchObject({
       bytes: 6,
       files: 2,
       status: "error",
@@ -1651,7 +1651,7 @@ describe("lazy sources", () => {
     cancel = true
     await expect(view.materializeSources({ abortSignal: abort.signal, path: "docs/b.md" })).rejects.toThrow("Canceled")
 
-    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+    await expect(store.getMeta?.("workspace:lazy-scoped-cancel:source:docs:snapshot")).resolves.toMatchObject({
       status: "ready",
       items: {
         "docs/a.md": expect.any(Object),
@@ -1936,7 +1936,7 @@ describe("lazy sources", () => {
     const statuses: string[] = []
     const setMeta = store.setMeta!.bind(store)
     store.setMeta = async (key, value) => {
-      if (key === "source:docs:snapshot" && value && Object.prototype.hasOwnProperty.call(value, "status")) {
+      if (key === "workspace:source-metadata-boundaries:source:docs:snapshot" && value && Object.prototype.hasOwnProperty.call(value, "status")) {
         statuses.push(String(Reflect.get(Object(value), "status")))
       }
       await setMeta(key, value)
@@ -2489,7 +2489,7 @@ describe("lazy sources", () => {
     await view.materializeSources()
 
     await expect(store.stat("docs/generated")).resolves.toBeUndefined()
-    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toMatchObject({
+    await expect(store.getMeta?.(`workspace:${definition.name}:source:generated:snapshot`)).resolves.toMatchObject({
       ownsMount: false,
       ownedDirectories: [],
     })
@@ -2953,7 +2953,7 @@ describe("lazy sources", () => {
     await store.writeFile("replaced.md", { path: "replaced.md", content: "user replacement" })
     await store.writeFile("user.md", { path: "user.md", content: "user" })
     await syncWorkspaceDefinition(definition, store)
-    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toMatchObject({ status: "updating" })
+    await expect(store.getMeta?.(`workspace:${definition.name}:source:generated:snapshot`)).resolves.toMatchObject({ status: "updating" })
     await expect(store.stat("generated/stale.md")).resolves.toBeDefined()
 
     await syncWorkspaceDefinition({
@@ -3089,7 +3089,7 @@ describe("lazy sources", () => {
     await view.materializeSources({ sources: ["generated"] })
     await store.writeFile("user.md", { path: "user.md", content: "user" })
     await syncWorkspaceDefinition(definition, store)
-    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toMatchObject({ status: "updating" })
+    await expect(store.getMeta?.(`workspace:${definition.name}:source:generated:snapshot`)).resolves.toMatchObject({ status: "updating" })
     await expect(store.stat("stale.md")).resolves.toBeDefined()
     keys = ["AGENTS.md"]
 
