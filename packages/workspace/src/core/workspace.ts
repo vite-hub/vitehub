@@ -64,7 +64,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     if (entry.type === "removed" && entry.before?.type === "file"
       && entry.before.metadata?.sourceMaterialize === "startup"
       && hasRuntimeType(entry.before.metadata.source, "string")
-      && await store.getMeta?.(removedStartupPathMetaKey(definition.name, entry.before.metadata.source, entry.path)) === true) continue
+      && await store.getMeta?.(removedStartupPathMetaKey(definition.name, entry.path)) === entry.before.metadata.source) continue
     if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
     if (entry.type === "added" && entry.after?.type === "directory" && generatedDirectories.has(entry.path)) {
       const descendants = await store.list(entry.path, { recursive: true })

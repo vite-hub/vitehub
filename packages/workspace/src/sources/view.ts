@@ -13,6 +13,7 @@ import {
   materializesCompleteSource,
   materializedFileMatches,
   materializeWorkspaceSources,
+  removedStartupPathMetaKey,
   readCurrentSourceSnapshot,
   readResolvedSourceFile,
   searchMaterializedStore,
@@ -786,6 +787,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           await store.writeFileConditional(input.path, file, options.ifDigest)
         }
         else await store.writeFile(input.path, file)
+        await store.setMeta?.(removedStartupPathMetaKey(definition.name, input.path), undefined)
         await writePolicy.after(input)
         return input.path
       }

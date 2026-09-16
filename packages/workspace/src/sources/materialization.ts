@@ -67,6 +67,8 @@ interface MaterializedStartupSource {
 
 interface PromotedSourceSkillFile {
   digest: string
+  mediaType?: string
+  metadata?: Record<string, unknown>
   source: string
   sourcePath: string
   workspace?: string
@@ -75,8 +77,8 @@ interface PromotedSourceSkillFile {
 function startupSourcesMetaKey(workspaceName?: string) {
   return `workspace:${workspaceName || "default"}:startup-sources`
 }
-export function removedStartupPathMetaKey(workspaceName: string | undefined, source: string, path: string) {
-  return `workspace:${workspaceName || "default"}:removed-startup-path:${JSON.stringify([source, path])}`
+export function removedStartupPathMetaKey(workspaceName: string | undefined, path: string) {
+  return `workspace:${workspaceName || "default"}:removed-startup-path:${JSON.stringify(path)}`
 }
 const legacyStartupSourcesMetaKey = "workspace:startup-sources"
 const promotedSourceSkillsMetaKey = "workspace:promoted-source-skills"
@@ -206,6 +208,12 @@ function isPromotedSourceSkillFile(value: unknown): value is PromotedSourceSkill
     && hasRuntimeType(Reflect.get(value, "sourcePath"), "string")
 }
 
+async function promotedFileMatches(file: WorkspaceFile, prior: PromotedSourceSkillFile) {
+  return await sha256(file.content) === prior.digest
+    && (fileAttributesUnavailable(file) || (file.mediaType === prior.mediaType
+      && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(prior.metadata))))
+}
+
 async function readSourceFile(store: WorkspaceStore, path: string) {
   try { return await store.readFile(path) }
   catch (error) {
@@ -282,7 +290,7 @@ async function reconcilePromotedSourceSkills(
     const rootSkillPath = `.agents/skills/${skill}/SKILL.md`
     const existingRootSkill = await store.readFile(rootSkillPath)
     const previousRootSkill = previous[rootSkillPath]
-    const ownsRootSkill = Boolean(previousRootSkill && existingRootSkill && await sha256(existingRootSkill.content) === previousRootSkill.digest)
+    const ownsRootSkill = Boolean(previousRootSkill && existingRootSkill && await promotedFileMatches(existingRootSkill, previousRootSkill))
     if (existingRootSkill && !ownsRootSkill) {
       retainedSkills.add(skill)
       continue
@@ -298,7 +306,7 @@ async function reconcilePromotedSourceSkills(
     const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
     if (!destinationMatch) continue
     const existing = await readSourceFile(store, path)
-    if (existing && await sha256(existing.content) !== prior.digest) retainedSkills.add(destinationMatch[1])
+    if (existing && !await promotedFileMatches(existing, prior)) retainedSkills.add(destinationMatch[1])
   }
 
   const next: Record<string, PromotedSourceSkillFile> = Object.fromEntries(Object.entries(previous).filter(([path, prior]) => {
@@ -311,7 +319,7 @@ async function reconcilePromotedSourceSkills(
     if (!sourceFile) continue
     const existing = await readSourceFile(store, destination)
     const prior = previous[destination]
-    const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await sha256(existing.content) === prior.digest)
+    const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await promotedFileMatches(existing, prior))
     if (existing && !ownsExisting) continue
     const metadata = {
       ...sourceFile.metadata,
@@ -333,14 +341,14 @@ async function reconcilePromotedSourceSkills(
       conflictedDestinations.add(destination)
       continue
     }
-    next[destination] = { ...candidate, digest: await sha256(sourceFile.content), workspace: workspaceName || "default" }
+    next[destination] = { ...candidate, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName || "default" }
   }
   for (const [destination, prior] of Object.entries(previous)) {
     if (next[destination] || conflictedDestinations.has(destination)) continue
     const existing = await readSourceFile(store, destination)
-    if (existing && await sha256(existing.content) === prior.digest) {
+    if (existing && await promotedFileMatches(existing, prior)) {
       const latest = await readSourceFile(store, destination)
-      if (latest && await sha256(latest.content) === prior.digest) {
+      if (latest && await promotedFileMatches(latest, prior)) {
         if (store.conditionalRemoval) {
           await control.mutate(() => store.rm(destination, { force: true, ifDigest: prior.digest }))
         }
@@ -592,7 +600,7 @@ async function removeStaleMaterializedSourceFiles(
       }))
       if (source.materialize === "startup") {
         const removed = !await store.stat(entry.path)
-        await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, source.key, entry.path), removed || undefined))
+        await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), removed ? source.key : undefined))
       }
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
@@ -686,7 +694,7 @@ async function reconcileRemovedStartupSourcesInternal(
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
       // Legacy Stores may lack per-file metadata; current Stores can retain it
       // after external edits. In both cases, preserve changed content.
-      const removalKey = removedStartupPathMetaKey(workspaceName, source.key, path)
+      const removalKey = removedStartupPathMetaKey(workspaceName, path)
       if ((recordedDigest && await sha256(file.content) !== recordedDigest)
         || (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest))) {
         await control.checkpoint(async () => await store.setMeta?.(removalKey, undefined))
@@ -705,7 +713,7 @@ async function reconcileRemovedStartupSourcesInternal(
       // Preserve cleanup evidence after the Source snapshot is retired. A
       // conditional removal can leave a concurrent replacement untouched.
       const removed = !await store.stat(path)
-      await control.checkpoint(async () => await store.setMeta?.(removalKey, removed || undefined))
+      await control.checkpoint(async () => await store.setMeta?.(removalKey, removed ? source.key : undefined))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       // A replaced ancestor can also make stat fail with ENOTDIR. Neither case
@@ -726,7 +734,6 @@ async function reconcileRemovedStartupSourcesInternal(
           ...(path === currentSource.mountPath
             ? path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true } : {}
             : { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }),
-          status: "updating",
         }))
       }
       if (!store.conditionalDirectoryRemoval || !stat.directoryIdentity) continue
@@ -1072,7 +1079,7 @@ async function materializeWorkspaceSourcesInternal(
           }),
         }, previous?.content)
         if (source.materialize === "startup") {
-          await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(definition.name, source.key, path), undefined))
+          await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(definition.name, path), undefined))
         }
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]

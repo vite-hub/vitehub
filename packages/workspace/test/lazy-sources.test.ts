@@ -39,6 +39,55 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["metadata", "mediaType"])("preserves promoted files with user-replaced %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/review/SKILL.md"
+    const sources = { portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Source" }] }) }
+    const view = createWorkspaceSourceView({ name: "promotion-attributes", sources }, store)
+    await view.materializeSources()
+    const file = (await store.readFile(destination))!
+    const replacement = { ...file, ...(attribute === "metadata" ? { metadata: { user: true } } : { mediaType: "text/plain" }) }
+    await store.writeFile(destination, replacement)
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
+    Reflect.deleteProperty(sources, "portal")
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
+  })
+
+  it.each(["shared", "shared/retained"])("keeps retained generated files out of diffs after ownership transfer to %s", async (mount) => {
+    const sources = {
+      removed: custom({ materialize: "startup", mount: "shared", files: [{ path: "removed.md", content: "removed" }] }),
+      retained: custom({ materialize: "startup", mount, files: [{ path: "retained.md", content: "retained" }] }),
+    }
+    registerWorkspace("transfer-diff", defineWorkspace({ store: { provider: "memory" }, sources }))
+    const workspace = await useRegisteredWorkspace("transfer-diff")
+    await workspace.materializeSources?.()
+    Reflect.deleteProperty(sources, "removed")
+    expect((await workspace.diff()).entries.some(entry => entry.path === `${mount}/retained.md`)).toBe(false)
+  })
+
+  it("keeps user deletions visible after recreating a retired startup path", async () => {
+    const sources = { generated: custom({ materialize: "startup", files: [{ path: "file.md", content: "generated" }] }) }
+    const store = createMemoryWorkspaceStore()
+    registerWorkspace("recreated-diff", defineWorkspace({ store, sources }))
+    const workspace = await useRegisteredWorkspace("recreated-diff")
+    await workspace.materializeSources?.()
+    const baseline = await workspace.snapshot()
+    Reflect.deleteProperty(sources, "generated")
+    await workspace.materializeSources?.()
+    const path = "generated/file.md"
+    expect((await workspace.diff()).entries.some(entry => entry.path === path)).toBe(false)
+    resetWorkspaceRegistry()
+    registerWorkspace("recreated-diff", defineWorkspace({ store, sources }))
+    const restarted = await useRegisteredWorkspace("recreated-diff")
+    await restarted.writeFile(path, "user recreation")
+    await restarted.rm(path)
+    for (const diff of [await restarted.diff(), await restarted.diff({ from: baseline })]) {
+      expect(diff.entries).toContainEqual(expect.objectContaining({ path, type: "removed" }))
+    }
+  })
+
   it("promotes complete source skills while preserving their mounted files", async () => {
     const store = createMemoryWorkspaceStore()
     const view = createWorkspaceSourceView({
