@@ -2,7 +2,7 @@ import { expect, it } from "vitest"
 import { custom } from "../src/index.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
-import type { WorkspaceDefinition } from "../src/core/types.ts"
+import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
 for (const mount of ["", "docs"]) {
   for (const explicit of [false, true]) {
@@ -48,3 +48,35 @@ it.each(["", "docs"])("preserves unowned legacy build files at '%s'", async (mou
   await syncWorkspaceDefinition({ name: "first", sources: {} }, store)
   await expect(store.readFile(path)).resolves.toMatchObject({ content: "legacy" })
 })
+
+for (const mount of ["", "docs"]) {
+  for (const omitState of [false, true]) {
+    it.each([false, true].flatMap(explicit => [false, true].map(omitListMetadata => ({ explicit, omitListMetadata }))))(`cleans stale build files at '${mount}' with omitted state=${omitState}, explicit=$explicit, omitted list metadata=$omitListMetadata`, async ({ explicit, omitListMetadata }) => {
+      const store: WorkspaceStore = createMemoryWorkspaceStore()
+      const list = store.list.bind(store)
+      if (omitListMetadata) store.list = async (path, options) => (await list(path, options)).map(entry => ({ ...entry, metadata: undefined }))
+      if (omitState) {
+        store.getMeta = undefined
+        store.setMeta = undefined
+      }
+      const path = (file: string) => [mount, file].filter(Boolean).join("/")
+      let files = ["old.md", "current.md"]
+      const definition = (): WorkspaceDefinition => ({
+        name: "custom-store",
+        sources: { docs: custom({ materialize: "build", mount, files: files.map(file => ({ path: file, content: file })) }) },
+        loaders: explicit ? [{ name: "derived", async load(ctx) {
+          for (const file of files) await ctx.store.writeFile(path(file), { path: path(file), content: file })
+        } }] : undefined,
+      })
+      await syncWorkspaceDefinition(definition(), store)
+      await store.writeFile(path("user.md"), { path: path("user.md"), content: "user" })
+      await store.writeFile(path("other.md"), { path: path("other.md"), content: "other", metadata: { source: "docs", workspaceSourceOwner: "other" } })
+      files = ["current.md"]
+      await syncWorkspaceDefinition(definition(), store)
+      await expect(store.readFile(path("old.md"))).resolves.toBeUndefined()
+      await expect(store.readFile(path("current.md"))).resolves.toMatchObject({ content: "current.md" })
+      await expect(store.readFile(path("user.md"))).resolves.toMatchObject({ content: "user" })
+      await expect(store.readFile(path("other.md"))).resolves.toMatchObject({ content: "other" })
+    })
+  }
+}

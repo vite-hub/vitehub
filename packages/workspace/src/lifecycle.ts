@@ -210,10 +210,8 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
 
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
-    const buildKeys = previousSources.filter(source => source.mountPath === mountPath).map(source => source.key)
-    const removedPaths = (await store.list(mountPath, { recursive: true }))
-      .filter(entry => entry.type === "file" && entry.metadata?.workspaceSourceOwner === definition.name && buildKeys.some(key => entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
-      .map(entry => entry.path)
+    const buildKeys = [...previousSources, ...currentSources].filter(source => source.mountPath === mountPath).map(source => source.key)
+    const removedPaths = await buildSourceFilePaths(store, definition.name, mountPath, buildKeys)
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
       const removesStartupMount = startup.mountPath === mountPath || startup.mountPath.startsWith(`${mountPath}/`)
@@ -231,7 +229,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   const rootSourceKeys = new Set([...previousSources, ...currentSources].filter(source => !source.mountPath).map(source => source.key))
   for (const key of rootSourceKeys) {
     abortSignal?.throwIfAborted()
-    const removedPaths = await rootBuildSourceFilePaths(store, definition.name, key)
+    const removedPaths = await buildSourceFilePaths(store, definition.name, "", [key])
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources) {
       if (!removedPaths.some(path => sourceMountIntersectsPath(startup, path))) continue
@@ -357,11 +355,16 @@ async function readSyncedBuildSources(store: WorkspaceStore, workspace: string):
   return value.filter(isSyncedBuildSource)
 }
 
-async function rootBuildSourceFilePaths(store: WorkspaceStore, workspace: string, key: string) {
-  const entries = await store.list("", { recursive: true })
-  return entries
-    .filter(entry => entry.type === "file" && entry.metadata?.workspaceSourceOwner === workspace && (entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
-    .map(entry => entry.path)
+async function buildSourceFilePaths(store: WorkspaceStore, workspace: string, mountPath: string, keys: string[]) {
+  const paths: string[] = []
+  for (const entry of await store.list(mountPath, { recursive: true })) {
+    if (entry.type !== "file") continue
+    const metadata = entry.metadata ?? (await store.readFile(entry.path))?.metadata
+    if (metadata?.workspaceSourceOwner === workspace && keys.some(key => metadata.source === key || metadata.workspaceBuildSource === key)) {
+      paths.push(entry.path)
+    }
+  }
+  return paths
 }
 
 async function removeRootBuildSourceFiles(store: WorkspaceStore, paths: string[]) {

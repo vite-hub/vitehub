@@ -432,3 +432,23 @@ it.each(["removal", "refresh"])("preserves unowned legacy cached files during %s
   }
   await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "legacy" })
 })
+
+it("restores a keyed Source file after an overlapping Source stops emitting it", async () => {
+  const store = createMemoryWorkspaceStore()
+  let secondKeys = ["shared.md"]
+  const source = (name: string) => ({
+    materialize: "startup" as const,
+    mount: "docs",
+    async getKeys() { return name === "first" ? ["shared.md"] : secondKeys },
+    async getMeta() { return { etag: "stable" } },
+    async getItem(key: string) { return { key, content: name } },
+  })
+  const definition = { name: "overlapping", sources: { first: source("first"), second: source("second") } }
+  await materializeWorkspaceSources(definition, store)
+  await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "second" })
+  secondKeys = []
+  await materializeWorkspaceSources(definition, store)
+  await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({
+    content: "first", metadata: { source: "first", workspaceSourceOwner: "overlapping" },
+  })
+})

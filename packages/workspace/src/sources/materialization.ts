@@ -540,7 +540,7 @@ async function* iterateMaterializationEntries(
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
       const owner = stat?.metadata?.workspaceSourceOwner
-      if (stat?.type === "file" && owner === workspace) {
+      if (stat?.type === "file" && owner === workspace && stat.metadata?.source === source.key) {
         yield {
           metadata: previous,
           path,
