@@ -197,7 +197,7 @@ function isPromotedSourceSkillFile(value: unknown): value is PromotedSourceSkill
     && hasRuntimeType(Reflect.get(value, "sourcePath"), "string")
 }
 
-async function readPromotedFile(store: WorkspaceStore, path: string) {
+async function readSourceFile(store: WorkspaceStore, path: string) {
   try { return await store.readFile(path) }
   catch (error) {
     if (hasRuntimeType(error, "object") && error !== null && (Reflect.get(error, "code") === "EISDIR" || Reflect.get(error, "code") === "ENOTDIR")) return undefined
@@ -266,7 +266,7 @@ async function reconcilePromotedSourceSkills(
     if (!path.includes("/skills/")) continue
     const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
     if (!destinationMatch) continue
-    const existing = await readPromotedFile(store, path)
+    const existing = await readSourceFile(store, path)
     if (existing && await sha256(existing.content) !== prior.digest) retainedSkills.add(destinationMatch[1])
   }
 
@@ -278,7 +278,7 @@ async function reconcilePromotedSourceSkills(
   for (const [destination, candidate] of candidates) {
     const sourceFile = await store.readFile(candidate.sourcePath)
     if (!sourceFile) continue
-    const existing = await readPromotedFile(store, destination)
+    const existing = await readSourceFile(store, destination)
     const prior = previous[destination]
     const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await sha256(existing.content) === prior.digest)
     if (existing && !ownsExisting) continue
@@ -311,9 +311,9 @@ async function reconcilePromotedSourceSkills(
   }
   for (const [destination, prior] of Object.entries(previous)) {
     if (next[destination] || conflictedDestinations.has(destination)) continue
-    const existing = await readPromotedFile(store, destination)
+    const existing = await readSourceFile(store, destination)
     if (existing && await sha256(existing.content) === prior.digest) {
-      const latest = await readPromotedFile(store, destination)
+      const latest = await readSourceFile(store, destination)
       if (latest && await sha256(latest.content) === prior.digest) {
         if (store.conditionalRemoval) {
           await control.mutate(() => store.rm(destination, { force: true, ifDigest: prior.digest }))
@@ -640,7 +640,7 @@ async function reconcileRemovedStartupSourcesInternal(
     const staleDirectories = new Set([...(snapshot?.ownedAncestors || []), ...(snapshot?.ownedDirectories || []).filter(path => sourceOwnsDirectory(source, path))])
     if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
     for (const path of previousPaths) {
-      const file = await store.readFile(path)
+      const file = await readSourceFile(store, path)
       if (!file) continue
       const owner = file.metadata?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
@@ -662,7 +662,10 @@ async function reconcileRemovedStartupSourcesInternal(
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       // A replaced ancestor can also make stat fail with ENOTDIR. Neither case
       // provides current directory evidence for cleanup or ownership transfer.
-      if ((await store.stat(path).catch(() => undefined))?.type !== "directory") continue
+      if ((await store.stat(path).catch((error) => {
+        if (hasRuntimeType(error, "object") && error !== null && ["ENOENT", "ENOTDIR"].includes(Reflect.get(error, "code"))) return undefined
+        throw error
+      }))?.type !== "directory") continue
       for (const currentSource of currentSources) {
         if (!pathContains(path, currentSource.mountPath)) continue
         const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
@@ -677,10 +680,13 @@ async function reconcileRemovedStartupSourcesInternal(
           status: "updating",
         }))
       }
+      if ((await store.list(path)).length) continue
       try {
         await control.mutate(() => store.rm(path, { force: true }))
       }
-      catch {}
+      catch (error) {
+        if (!hasRuntimeType(error, "object") || error === null || !["ENOENT", "ENOTDIR", "ENOTEMPTY", "EEXIST"].includes(Reflect.get(error, "code"))) throw error
+      }
     }
     await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(source.key), {}))
   }

@@ -1008,6 +1008,45 @@ describe("lazy sources", () => {
     await expect(store.readFile("other.md")).resolves.toMatchObject({ content: "other.md" })
   })
 
+  it.each(["directory", "ancestor"])("preserves Local non-file replacements during retirement: %s", async (replacement) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const initial = { name: "retired-replacements", sources: { generated: custom({
+      materialize: "startup", mount: "generated", files: [{ path: "nested/file.md", content: "generated" }],
+    }) } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    const path = replacement === "directory" ? "generated/nested/file.md" : "generated/nested"
+    await rm(join(root, path), { recursive: true })
+    if (replacement === "directory") await mkdir(join(root, path))
+    else await writeFile(join(root, path), "user replacement")
+    const next = { name: initial.name, sources: {} }
+    await syncWorkspaceDefinition(next, store)
+    await createWorkspaceSourceView(next, createLocalWorkspaceStore(root)).list("")
+    await expect(store.stat(path)).resolves.toMatchObject({ type: replacement === "directory" ? "directory" : "file" })
+  })
+
+  it.each(["stat", "list", "rm"] as const)("retains retirement evidence after a directory %s failure", async (operation) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const initial = { name: "retirement-retry", sources: { generated: custom({
+      materialize: "startup", mount: "generated", files: [{ path: "file.md", content: "generated" }],
+    }) } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    const failure = Object.assign(new Error("Store unavailable"), { code: "EIO" })
+    const original = store[operation].bind(store)
+    const spy = vi.spyOn(store, operation).mockImplementation(async (...args: unknown[]) => {
+      if (args[0] === "generated") throw failure
+      return Reflect.apply(original, store, args)
+    })
+    const next = { name: initial.name, sources: {} }
+    await expect(syncWorkspaceDefinition(next, store)).rejects.toThrow("Store unavailable")
+    spy.mockRestore()
+    await expect(store.getMeta?.("source:generated:snapshot")).resolves.toMatchObject({ ownsMount: true })
+    const restarted = createLocalWorkspaceStore(root)
+    await syncWorkspaceDefinition(next, restarted)
+    await expect(restarted.stat("generated")).resolves.toBeUndefined()
+  })
+
   it.each([true, false])("preserves removed startup history through lazy-only refresh with retained source %s", async (retainStartup) => {
     const store = createMemoryWorkspaceStore()
     const source = (materialize: "startup" | "lazy", workspacePath: string) => ({
