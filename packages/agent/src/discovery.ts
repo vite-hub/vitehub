@@ -489,7 +489,14 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         for (let j = index - 2; j >= bodyStart; j--) {
           if (["}", ")", "]"].includes(tokens[j])) nested++
           else if (["{", "(", "["].includes(tokens[j])) { if (nested > 0) nested--; else break }
-          else if (tokens[j] === "?" && nested === 0) return true
+          else if (tokens[j] === "?" && nested === 0) {
+            let qDepth = 0
+            for (let k = bodyStart; k < j; k++) {
+              if (["{", "(", "["].includes(tokens[k])) qDepth++
+              else if (["}", ")", "]"].includes(tokens[k])) qDepth--
+            }
+            return qDepth === returnedDefinitionDepth
+          }
           else if (tokens[j] === ";" && nested === 0) break
         }
         return false
