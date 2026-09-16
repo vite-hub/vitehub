@@ -519,3 +519,36 @@ Capability definitions can declare `inspection: { label, view? }`. Lifecycle hoo
 MCP records server discovery and tool provenance. Title records generation settings, progress, and its result. The Console's Capabilities tab reads these snapshots without invoking either capability. Other capabilities use the default tools/configuration view. Set the Invocation journal's `configuration` to `"content"` to retain inspection state and views independently of other trace content. Metadata-only capture keeps labels. Existing redaction and observation bounds apply.
 
 See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-capabilities#contribute-an-inspection-view) for the catalog and a complete example.
+
+### Required GitHub checks
+
+Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`
+from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
+Supply an authenticated REST reader `(path) => Promise<{ status, data }>`; paths
+are relative to the GitHub API root. The reader combines active branch rules with
+classic branch protection and preserves required GitHub App identities.
+
+```ts
+const policies = createGitHubRequiredCheckPolicyReader(readGitHubRest)
+const policy = await policies.read('acme/app', 'main')
+const result = evaluateGitHubRequiredChecks(policy, {
+  repository: 'acme/app', branch: 'main', headSha,
+  checkRuns, statuses,
+})
+policies.invalidate('acme/app', 'main') // after a protection or ruleset event
+```
+
+Pass complete REST check-run records and commit statuses fetched for the exact
+head. Add the requested SHA as `sha` on each status because GitHub omits it from
+individual status records. The evaluator selects the
+latest matching records on the exact head. Missing requirements return `pending`
+and appear in `missing`; malformed or unavailable policy returns `unknown`, never
+an empty passing policy. Required workflow rules return `unknown` because they
+cannot be represented as check contexts. Policy reads use a five-minute cache,
+with a two-minute cache for unknown results. Set `ttlMs`, `failureTtlMs`, and
+`clock` in the reader options to change this behavior. Invalidation also prevents
+older in-flight reads from restoring stale cache entries.
+
+These results describe scheduling evidence. They do not grant merge authority or
+replace fresh GitHub merge checks. Repository selection, approvals, merge methods,
+and review-provider policy remain application decisions.
