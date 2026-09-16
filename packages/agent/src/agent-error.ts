@@ -20,7 +20,7 @@ export function readAgentErrorProperty(error: unknown, key: PropertyKey): unknow
   }
 }
 
-function isError(error: unknown): boolean {
+export function isError(error: unknown): error is Error {
   if (!hasRuntimeType(error, "object") || error === null) return false
   try {
     return error instanceof Error
@@ -90,7 +90,12 @@ export function agentErrorDetails(error: unknown, fallback = "Unknown error."): 
     }
   }
   if (error === undefined || error === null) return { message: fallback }
-  return { message: String(error) || fallback }
+  try {
+    return { message: String(error) || fallback }
+  }
+  catch {
+    return { message: fallback }
+  }
 }
 
 export function agentErrorMessage(error: unknown, fallback?: string): string {
