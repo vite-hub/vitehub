@@ -524,12 +524,16 @@ See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-
 
 Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`
 from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
-Supply an authenticated REST reader `(path) => Promise<{ status, data }>`; paths
+Supply an authenticated REST reader `(path) => Promise<{ status, data, nextPage? }>`; paths
 are relative to the GitHub API root. The reader combines active branch rules with
 classic branch protection and preserves required GitHub App identities. It requests
-active rules in pages of 100 until a short page confirms completion. A failed
-page or the 1,000-page limit returns unknown policy. The callback must preserve
-query parameters and return each requested page.
+the first rules page with a page size of 100, then follows explicit continuation
+targets. For every successful rules response, the callback must normalize the
+Link header's `rel="next"` URL to an API-relative `nextPage` path, preserving its
+query parameters. Set `nextPage: null` only when the header has no next relation
+(or after fetching all pages). Missing metadata, invalid or repeated targets,
+failed pages, and the 1,000-page limit return unknown policy. Page length does
+not establish completion. Other endpoint responses do not need `nextPage`.
 
 ```ts
 const policies = createGitHubRequiredCheckPolicyReader(readGitHubRest)

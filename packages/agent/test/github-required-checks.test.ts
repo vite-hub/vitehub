@@ -11,7 +11,7 @@ const rule = (context = "CI", integration_id: number | null = 42) => ({
   parameters: { required_status_checks: [{ context, integration_id }] },
 });
 function reader(
-  rules: GitHubCheckPolicyResponse = { status: 200, data: [rule()] },
+  rules: GitHubCheckPolicyResponse = { status: 200, data: [rule()], nextPage: null },
   classic: GitHubCheckPolicyResponse = { status: 200, data: { contexts: [], checks: [] } },
   branch: GitHubCheckPolicyResponse = { status: 200, data: { protected: false } },
 ) {
@@ -61,15 +61,15 @@ describe("required check policy", () => {
     expect(
       (
         await createGitHubRequiredCheckPolicyReader(
-          reader({ status: 200, data: [] }, { status: 404 }),
+          reader({ status: 200, data: [], nextPage: null }, { status: 404 }),
         ).read("acme/app", "main")
       ).status,
     ).toBe("known");
     for (const response of [
       { status: 404 },
       { status: 403 },
-      { status: 200, data: [{ type: "workflows" }] },
-      { status: 200, data: [rule("CI", -3)] },
+      { status: 200, data: [{ type: "workflows" }], nextPage: null },
+      { status: 200, data: [rule("CI", -3)], nextPage: null },
     ]) {
       expect(
         (await createGitHubRequiredCheckPolicyReader(reader(response)).read("acme/app", "main"))
@@ -91,24 +91,49 @@ describe("required check policy", () => {
         if (!path.includes("/rules/")) return { status: 200, data: { contexts: [] } };
         return {
           status: 200,
-          data: path.endsWith("page=1")
-            ? Array.from({ length: 100 }, () => ({ type: "deletion" }))
-            : later,
+          data: path.endsWith("page=1") ? [{ type: "deletion" }] : later,
+          nextPage: path.endsWith("page=1")
+            ? "repos/acme/app/rules/branches/main?per_page=100&page=3"
+            : null,
         };
       });
       const result = await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main");
-      expect(read).toHaveBeenCalledWith("repos/acme/app/rules/branches/main?per_page=100&page=2");
+      expect(read).toHaveBeenCalledWith("repos/acme/app/rules/branches/main?per_page=100&page=3");
       expect(result.status).toBe(later[0]?.type === "workflows" ? "unknown" : "known");
       if (result.status === "known")
         expect(result.required).toEqual([{ context: "later", appId: 42 }]);
     }
+  });
+  it("requires explicit completion and rejects invalid or repeated targets", async () => {
+    for (const nextPage of [
+      undefined,
+      "",
+      "https://other.example/rules?page=2",
+      "repos/other/app/rules/branches/main?page=2",
+      "repos/acme/app/rules/branches/main?per_page=100&page=1",
+    ]) {
+      const read = reader({ status: 200, data: [rule()], nextPage });
+      expect(await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main"))
+        .toMatchObject({ status: "unknown", required: [] });
+      expect(read).toHaveBeenCalledTimes(2);
+    }
+  });
+  it("accepts a full final page when GitHub supplies no next relation", async () => {
+    const read = reader({
+      status: 200,
+      data: Array.from({ length: 100 }, () => rule()),
+      nextPage: null,
+    });
+    expect(await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main"))
+      .toMatchObject({ status: "known", required: [{ context: "CI", appId: 42 }] });
+    expect(read).toHaveBeenCalledTimes(2);
   });
   it("does not cache a partial policy when a later rule page fails", async () => {
     const read = reader();
     read.mockImplementation(async (path) => {
       if (!path.includes("/rules/")) return { status: 200, data: { contexts: [] } };
       return path.endsWith("page=1")
-        ? { status: 200, data: Array.from({ length: 100 }, () => rule()) }
+        ? { status: 200, data: [rule()], nextPage: "repos/acme/app/rules/branches/main?page=2" }
         : { status: 403 };
     });
     expect(
@@ -213,7 +238,7 @@ describe("required check policy", () => {
     const old = cache.read("acme/app", "main");
     cache.invalidate();
     await cache.read("acme/app", "main");
-    release({ status: 200, data: [] });
+    release({ status: 200, data: [], nextPage: null });
     await old;
     expect((await cache.read("acme/app", "main")).required).toHaveLength(1);
   });

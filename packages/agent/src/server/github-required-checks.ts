@@ -10,7 +10,12 @@ export type GitHubRequiredCheckPolicy = {
   reason?: string;
   classicSource?: "protection-endpoint" | "branch-summary" | "unprotected-branch";
 };
-export type GitHubCheckPolicyResponse = { status: number; data?: unknown };
+export type GitHubCheckPolicyResponse = {
+  status: number;
+  data?: unknown;
+  /** Rules only: API-relative rel="next" target, or null when Link has no next relation. */
+  nextPage?: string | null;
+};
 export type GitHubReadCheckPolicy = (path: string) => Promise<GitHubCheckPolicyResponse>;
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue | undefined =>
@@ -88,11 +93,21 @@ export function createGitHubRequiredCheckPolicyReader(
   };
   const requestAllRules = async (path: string): Promise<GitHubCheckPolicyResponse> => {
     const pages: unknown[] = [];
+    let next = `${path}?per_page=100&page=1`;
+    const visited = new Set<string>();
     for (let page = 1; page <= 1000; page++) {
-      const response = await request(`${path}?per_page=100&page=${page}`);
+      if (visited.has(next)) return { status: 0 };
+      visited.add(next);
+      const response = await request(next);
       if (response.status !== 200 || !Array.isArray(response.data)) return response;
       pages.push(...response.data);
-      if (response.data.length < 100) return { status: 200, data: pages };
+      if (response.nextPage === null) return { status: 200, data: pages };
+      if (
+        !hasRuntimeType(response.nextPage, "string") ||
+        !response.nextPage.startsWith(`${path}?`)
+      )
+        return { status: 0 };
+      next = response.nextPage;
     }
     return { status: 0 };
   };
