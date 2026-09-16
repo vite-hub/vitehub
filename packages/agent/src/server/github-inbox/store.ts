@@ -302,7 +302,16 @@ export class PullRequestInbox {
         const wake = (changed || !s.pr) && !pendingCi
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
         else if (changed) s.revision = (s.revision ?? 0) + 1
-        if (s.pr && !this.eligible(repository, s.pr)) { s.status = 'terminal'; s.handled = s.generation }
+        const eligible = this.eligible(repository, s.pr)
+        if (!eligible) {
+          // Filter ineligibility is terminal for this snapshot. Do not retain
+          // an explicit wait across it: recovery must be admitted normally.
+          delete s.wait
+          s.status = 'terminal'; s.handled = s.generation
+        } else if (s.status === 'terminal') {
+          delete s.wait
+          s.status = s.lease ? 'working' : 'ready'
+        }
         this.put(s)
         if (changed || !s.pr) updated.push(number)
         if (wake && !s.wait && s.status !== 'terminal') queued.push(number)
