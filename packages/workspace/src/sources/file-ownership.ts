@@ -1,8 +1,9 @@
 import { normalizeWorkspacePath } from "../core/path.ts"
+import { workspaceStoreIdentity } from "../storage/identity.ts"
 import type { WorkspaceStore } from "../core/types.ts"
 
 // Stores without metadata APIs retain ownership for their lifetime.
-const volatileOwners = new WeakMap<WorkspaceStore, Map<string, WorkspaceFileOwner>>()
+const volatileOwners = new WeakMap<object, Map<string, WorkspaceFileOwner>>()
 
 const fileOwnerMetaKey = (path: string) => `workspace-file-owner:${encodeURIComponent(normalizeWorkspacePath(path))}`
 
@@ -14,10 +15,10 @@ export interface WorkspaceFileOwner {
 
 export async function recordWorkspaceFileOwner(store: WorkspaceStore, path: string, owner: WorkspaceFileOwner): Promise<void> {
   if (!store.getMeta || !store.setMeta) {
-    let owners = volatileOwners.get(store)
+    let owners = volatileOwners.get(workspaceStoreIdentity(store))
     if (!owners) {
       owners = new Map()
-      volatileOwners.set(store, owners)
+      volatileOwners.set(workspaceStoreIdentity(store), owners)
     }
     owners.set(fileOwnerMetaKey(path), owner)
     return
@@ -26,7 +27,7 @@ export async function recordWorkspaceFileOwner(store: WorkspaceStore, path: stri
 }
 
 export async function readWorkspaceFileOwner(store: WorkspaceStore, path: string): Promise<WorkspaceFileOwner | undefined> {
-  const volatile = volatileOwners.get(store)?.get(fileOwnerMetaKey(path))
+  const volatile = volatileOwners.get(workspaceStoreIdentity(store))?.get(fileOwnerMetaKey(path))
   if (volatile) return volatile
   const value = await store.getMeta?.(fileOwnerMetaKey(path))
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Metadata is an untyped persistence boundary.

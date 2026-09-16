@@ -113,7 +113,7 @@ interface GeneratedProviderFile {
   path: string
 }
 
-async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+async function inspectGeneratedProviderFilePath(root: string, path: string) {
   let parent = root
   const directories: string[] = []
   for (const segment of relative(root, dirname(path)).split(/[\\/]/).filter(Boolean)) {
@@ -127,6 +127,11 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   if (entry && !entry.isFile() && !entry.isSymbolicLink()) {
     throw agentDiagnostics.AGENT_R0671({ message: `[vitehub] Generated provider file collides with a non-file entry: ${path}` })
   }
+  return { directories, entry }
+}
+
+async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+  const { directories, entry } = await inspectGeneratedProviderFilePath(root, path)
   const generated = {
     content: entry?.isFile() ? await readFile(path) : undefined,
     directories,
@@ -2554,8 +2559,9 @@ async function* runProvider<
         || !hasRuntimeType(source.workspacePath, "string")) continue
       const target = resolve(root, source.workspacePath)
       if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
-      // Workspace materialization has already resolved explicit Source precedence.
-      if (await lstat(target).catch(() => undefined)) continue
+      // Preserve resolved Workspace Sources only after validating the complete path.
+      const { entry } = await inspectGeneratedProviderFilePath(root, target)
+      if (entry?.isFile()) continue
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))

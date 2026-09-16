@@ -7,8 +7,9 @@ import { workspaceError } from "./core/errors.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { readWorkspaceFileOwner, recordWorkspaceFileOwner } from "./sources/file-ownership.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
-import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotMetaKey, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
+import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
+import { registerWorkspaceStoreAlias } from "./storage/identity.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
@@ -28,12 +29,12 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
   let checkpoint = Promise.resolve()
   const record = (path: string, source: unknown, digest: string) => {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Loader source values are an untyped extension boundary.
-    if (typeof source !== "string" || !store.setMeta) return Promise.resolve()
+    if (typeof source !== "string") return Promise.resolve()
     const normalized = normalizeWorkspacePath(path)
     checkpoint = checkpoint.then(async () => {
       await recordWorkspaceFileOwner(store, normalized, { workspace, source, digest })
       records[normalized] = { source, digest }
-      await store.setMeta!(buildFilesMetaKey(workspace), records)
+      await store.setMeta?.(buildFilesMetaKey(workspace), records)
     })
     return checkpoint
   }
@@ -150,6 +151,7 @@ function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal)
       }
     },
   }) as WorkspaceStore
+  registerWorkspaceStoreAlias(fenced, store)
   return { fenced, idle, track }
 }
 
@@ -242,7 +244,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
       if (!ownedByBuild) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
       // Retain the item index so the next startup can still clean up its stale files.
-      await store.setMeta?.(sourceSnapshotMetaKey(definition.name, source.key), { ...snapshot, status: "updating" })
+      await invalidateSourceSnapshot(store, definition.name, source.key)
       break
     }
   }

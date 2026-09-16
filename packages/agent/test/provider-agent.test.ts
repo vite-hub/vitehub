@@ -4602,9 +4602,64 @@ cli_auth_credentials_store = "keyring"
     }
   })
 
-  it("rejects colocated Skill materialization through Workspace symlinks", async () => {
+  it("replaces a colocated Skill symlink during execution and restores it without changing its external target", async () => {
+    const threadId = "thread-workspace-symlinked-skill-file"
+    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-target-"))
+    const externalFile = join(external, "SKILL.md")
+    await writeFile(externalFile, "# External\n")
+    let root = ""
+    const skillPath = ".agents/skills/review/SKILL.md"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect((await lstat(join(root, skillPath))).isSymbolicLink()).toBe(false)
+        for (const provider of [".agents", ".codex", ".claude"]) {
+          await expect(readFile(`${root}/${provider}/skills/review/SKILL.md`, "utf8")).resolves.toBe("# Review\n")
+        }
+      },
+    })
+    const session = {
+      close: vi.fn(async () => {
+        expect(await readlink(join(root, skillPath))).toBe(externalFile)
+        await expect(readFile(externalFile, "utf8")).resolves.toBe("# External\n")
+      }),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(join(root, skillPath, ".."), { recursive: true })
+        await symlink(externalFile, join(root, skillPath))
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, { workspace })
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "# Review\n", workspacePath: skillPath },
+    })
+
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+      expect(session.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      await rm(external, { force: true, recursive: true })
+    }
+  })
+
+  it.each([false, true])("rejects colocated Skill materialization through Workspace symlinks with existing target %s", async (existingTarget) => {
     const threadId = "thread-workspace-symlinked-skills"
     const runtimeCount = createProviderRuntime.mock.calls.length
+    const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skill-parent-"))
+    if (existingTarget) {
+      await mkdir(join(external, "review"))
+      await writeFile(join(external, "review/SKILL.md"), "# External\n")
+    }
     const session = {
       close: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
@@ -4615,7 +4670,7 @@ cli_auth_credentials_store = "keyring"
     const workspace = {
       fs: {},
       startSession: vi.fn(async (options: { target: string }) => {
-        await symlink("/tmp", `${options.target}/skills`)
+        await symlink(external, `${options.target}/skills`)
         return session
       }),
       tools: {},
@@ -4625,12 +4680,18 @@ cli_auth_credentials_store = "keyring"
       review: { content: "# Review\n", workspacePath: "skills/review/SKILL.md" },
     })
 
-    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("parent must not be a symbolic link")
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await expect(createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)).rejects.toThrow("parent must not be a symbolic link")
 
-    expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
-    expect(session.diff).not.toHaveBeenCalled()
-    expect(session.close).toHaveBeenCalledOnce()
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCount)
+      expect(session.diff).not.toHaveBeenCalled()
+      expect(session.close).toHaveBeenCalledOnce()
+      if (existingTarget) await expect(readFile(join(external, "review/SKILL.md"), "utf8")).resolves.toBe("# External\n")
+    }
+    finally {
+      await rm(external, { force: true, recursive: true })
+    }
   })
 
   it("clears a provider cursor when Workspace write-back fails", async () => {

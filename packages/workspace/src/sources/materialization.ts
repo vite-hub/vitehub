@@ -10,6 +10,7 @@ import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-meta
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import { recordWorkspaceFileOwner, readWorkspaceFileOwner } from "./file-ownership.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
@@ -66,7 +67,8 @@ interface MaterializedStartupSource {
 
 const startupSourcesMetaKey = (workspace: string) => `workspace:${workspace}:startup-sources`
 const startupWorkspacesMetaKey = "workspace:startup-source-workspaces"
-const volatileSnapshots = new WeakMap<Pick<WorkspaceStore, "getMeta">, Map<string, SourceSnapshotMetadata>>()
+const volatileSnapshots = new WeakMap<object, Map<string, SourceSnapshotMetadata | undefined>>()
+const volatileStartupIndexes = new WeakMap<object, Map<string, string[] | MaterializedStartupSource[]>>()
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string, Set<ResolvedWorkspaceSource>>>()
 
@@ -110,8 +112,9 @@ function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: Resol
 }
 
 async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">, workspace: string, sourceKey: string, source?: SourceConfiguration) {
-  const volatile = volatileSnapshots.get(store)?.get(sourceSnapshotMetaKey(workspace, sourceKey))
-  if (volatile) return volatile
+  const volatile = volatileSnapshots.get(workspaceStoreIdentity(store))
+  const key = sourceSnapshotMetaKey(workspace, sourceKey)
+  if (volatile?.has(key)) return volatile.get(key)
   // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
   const snapshot = await store.getMeta?.(sourceSnapshotMetaKey(workspace, sourceKey)) as SourceSnapshotMetadata | undefined
   if (snapshot || !source) return snapshot
@@ -170,10 +173,10 @@ export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, workspace
 
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, workspace: string, metadata: SourceSnapshotMetadata) {
   if (!store.getMeta || !store.setMeta) {
-    let snapshots = volatileSnapshots.get(store)
+    let snapshots = volatileSnapshots.get(workspaceStoreIdentity(store))
     if (!snapshots) {
       snapshots = new Map()
-      volatileSnapshots.set(store, snapshots)
+      volatileSnapshots.set(workspaceStoreIdentity(store), snapshots)
     }
     snapshots.set(sourceSnapshotMetaKey(workspace, metadata.source), metadata)
     return
@@ -429,15 +432,14 @@ async function reconcileRemovedStartupSourcesInternal(
   control: MaterializationControl,
   activeSources: Set<ResolvedWorkspaceSource> = new Set(),
 ) {
-  if (!store.getMeta || !store.setMeta) return
-  const workspaceIndex = await store.getMeta(startupWorkspacesMetaKey)
+  const workspaceIndex = await readStartupIndex(store, startupWorkspacesMetaKey)
   const workspaces = new Set(Array.isArray(workspaceIndex)
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted Workspace names at the untyped Store boundary.
     ? workspaceIndex.filter((name): name is string => typeof name === "string")
     : [])
   workspaces.add(workspace)
-  await control.checkpoint(async () => await store.setMeta?.(startupWorkspacesMetaKey, [...workspaces]))
-  const value = await store.getMeta(startupSourcesMetaKey(workspace))
+  await control.checkpoint(() => writeStartupIndex(store, startupWorkspacesMetaKey, [...workspaces]))
+  const value = await readStartupIndex(store, startupSourcesMetaKey(workspace))
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
   const activeOwners = [...activeSources]
@@ -445,7 +447,7 @@ async function reconcileRemovedStartupSourcesInternal(
   const retainedSources: { workspace: string, source: MaterializedStartupSource }[] = currentSources.map(source => ({ workspace, source }))
   for (const otherWorkspace of workspaces) {
     if (otherWorkspace === workspace) continue
-    const sources = await store.getMeta(startupSourcesMetaKey(otherWorkspace))
+    const sources = await readStartupIndex(store, startupSourcesMetaKey(otherWorkspace))
     if (!Array.isArray(sources)) continue
     for (const source of sources.filter(isMaterializedStartupSource)) retainedSources.push({ workspace: otherWorkspace, source })
   }
@@ -470,7 +472,7 @@ async function reconcileRemovedStartupSourcesInternal(
       if (file.metadata?.source === undefined
         && (!durableOwner?.digest || await sha256(file.content) !== durableOwner.digest)) continue
       // Persisted metadata does not prove that externally edited content is ours.
-      if ((await resolveWorkspaceStoreTarget(store))?.provider === "local" && snapshot?.items
+      if ((!store.getMeta || !store.setMeta || (await resolveWorkspaceStoreTarget(store))?.provider === "local") && snapshot?.items
         && (!recordedDigest || await sha256(file.content) !== recordedDigest)) continue
       if (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest)) continue
       for (const currentSource of currentSources) {
@@ -505,19 +507,47 @@ async function reconcileRemovedStartupSourcesInternal(
       await control.mutate(() => store.rm(path, { force: true }))
     }
     await control.checkpoint(async () => {
-      volatileSnapshots.get(store)?.delete(sourceSnapshotMetaKey(workspace, source.key))
-      await store.setMeta?.(sourceSnapshotMetaKey(workspace, source.key), {})
+      const key = sourceSnapshotMetaKey(workspace, source.key)
+      if (!store.getMeta || !store.setMeta) {
+        let snapshots = volatileSnapshots.get(workspaceStoreIdentity(store))
+        if (!snapshots) {
+          snapshots = new Map()
+          volatileSnapshots.set(workspaceStoreIdentity(store), snapshots)
+        }
+        // A read-only metadata backend can still contain an older snapshot.
+        // Keep a tombstone so it cannot restore ownership in this Store.
+        snapshots.set(key, undefined)
+        return
+      }
+      await store.setMeta(key, {})
     })
   }
   // Register before materialization can persist files, including failed or interrupted attempts.
   // A newer definition must retain owners that can still write or checkpoint files.
   const trackedSources = [...currentSources, ...activeOwners, ...previousSources.filter(isActive)]
   const uniqueSources = trackedSources.filter((source, index) => trackedSources.findIndex(candidate => candidate.key === source.key && candidate.mountPath === source.mountPath) === index)
-  await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey(workspace), uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))))
+  await control.checkpoint(() => writeStartupIndex(store, startupSourcesMetaKey(workspace), uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))))
   if (!uniqueSources.length) {
     workspaces.delete(workspace)
-    await control.checkpoint(async () => await store.setMeta?.(startupWorkspacesMetaKey, [...workspaces]))
+    await control.checkpoint(() => writeStartupIndex(store, startupWorkspacesMetaKey, [...workspaces]))
   }
+}
+
+async function readStartupIndex(store: WorkspaceStore, key: string): Promise<unknown> {
+  return volatileStartupIndexes.get(workspaceStoreIdentity(store))?.get(key) ?? await store.getMeta?.(key)
+}
+
+async function writeStartupIndex(store: WorkspaceStore, key: string, value: string[] | MaterializedStartupSource[]) {
+  if (!store.getMeta || !store.setMeta) {
+    let indexes = volatileStartupIndexes.get(workspaceStoreIdentity(store))
+    if (!indexes) {
+      indexes = new Map()
+      volatileStartupIndexes.set(workspaceStoreIdentity(store), indexes)
+    }
+    indexes.set(key, value)
+    return
+  }
+  await store.setMeta(key, value)
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
