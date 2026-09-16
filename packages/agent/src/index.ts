@@ -2155,11 +2155,11 @@ type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels>
         ? TCapabilities extends undefined
           ? ConfiguredContextDefinition<TDefinition, TCapabilities>
           : ConfiguredContextDefinition<
-              TDefinition extends WorkspaceAgentDefinition<any, any, any, any, any, any, any> ? AgentDefinitionFromWorkspace<TDefinition> : TDefinition,
+              TDefinition,
               TCapabilities
             >
         : ConfiguredContextDefinition<
-            TDefinition extends WorkspaceAgentDefinition<any, any, any, any, any, any, any> ? AgentDefinitionFromWorkspace<TDefinition> : TDefinition,
+            TDefinition,
             TCapabilities
           >
 
@@ -2323,7 +2323,7 @@ export interface DefineAgent {
     },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TOutput>
 
-  <TOptions extends Record<string, unknown>, TDefinition extends AgentDefinition>(options: {
+  <TOptions extends object, TDefinition extends AgentDefinition>(options: {
     options: TOptions
     configure: (options: TOptions) => TDefinition
   }): ConfiguredAgentDefinition<TOptions, TDefinition>
