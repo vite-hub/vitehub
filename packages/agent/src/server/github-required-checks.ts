@@ -104,7 +104,10 @@ export function createGitHubRequiredCheckPolicyReader(
       if (response.nextPage === null) return { status: 200, data: pages };
       if (
         !hasRuntimeType(response.nextPage, "string") ||
-        !response.nextPage.startsWith(`${path}?`)
+        !response.nextPage.trim() ||
+        response.nextPage.startsWith("/") ||
+        response.nextPage.includes("\\") ||
+        /^[a-z][a-z\d+.-]*:/i.test(response.nextPage)
       )
         return { status: 0 };
       next = response.nextPage;

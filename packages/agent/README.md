@@ -529,8 +529,12 @@ are relative to the GitHub API root. The reader combines active branch rules wit
 classic branch protection and preserves required GitHub App identities. It requests
 the first rules page with a page size of 100, then follows explicit continuation
 targets. For every successful rules response, the callback must normalize the
-Link header's `rel="next"` URL to an API-relative `nextPage` path, preserving its
-query parameters. Set `nextPage: null` only when the header has no next relation
+Link header's `rel="next"` URL to an API-relative `nextPage` path without a leading
+slash, preserving its pathname and query parameters. The adapter must validate
+the URL's origin against its configured GitHub API origin before normalization.
+GitHub can change the route to `repositories/{id}/...`; the reader follows these
+paths without requiring the original route prefix.
+Set `nextPage: null` only when the header has no next relation
 (or after fetching all pages). Missing metadata, invalid or repeated targets,
 failed pages, and the 1,000-page limit return unknown policy. Page length does
 not establish completion. Other endpoint responses do not need `nextPage`.

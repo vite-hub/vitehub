@@ -93,12 +93,12 @@ describe("required check policy", () => {
           status: 200,
           data: path.endsWith("page=1") ? [{ type: "deletion" }] : later,
           nextPage: path.endsWith("page=1")
-            ? "repos/acme/app/rules/branches/main?per_page=100&page=3"
+            ? "repositories/123/rules/branches/main?per_page=100&page=3"
             : null,
         };
       });
       const result = await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main");
-      expect(read).toHaveBeenCalledWith("repos/acme/app/rules/branches/main?per_page=100&page=3");
+      expect(read).toHaveBeenCalledWith("repositories/123/rules/branches/main?per_page=100&page=3");
       expect(result.status).toBe(later[0]?.type === "workflows" ? "unknown" : "known");
       if (result.status === "known")
         expect(result.required).toEqual([{ context: "later", appId: 42 }]);
@@ -109,7 +109,8 @@ describe("required check policy", () => {
       undefined,
       "",
       "https://other.example/rules?page=2",
-      "repos/other/app/rules/branches/main?page=2",
+      "//other.example/rules?page=2",
+      "\\\\other.example/rules?page=2",
       "repos/acme/app/rules/branches/main?per_page=100&page=1",
     ]) {
       const read = reader({ status: 200, data: [rule()], nextPage });
