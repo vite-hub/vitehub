@@ -471,6 +471,16 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           if (depth === 0) { end++; break }
         }
       }
+      // Conditional returned expressions may contain multiple defineAgent calls;
+      // extend the scan through the complete expression so every branch is seen.
+      if (callbackDefinition >= 0) {
+        const returnIndex = tokens.lastIndexOf("return", callbackDefinition)
+        if (returnIndex >= bodyStart && tokens.slice(returnIndex, callbackDefinition).includes("?")) {
+          let i = end
+          while (i < callbackEnd && tokens[i] !== ";" && tokens[i] !== "}") i++
+          end = i
+        }
+      }
       const tail = tokens.slice(start, end).join(" ")
       // Configured callbacks may contribute Workspace through a capability or
       // channel rather than returning an inline `workspace` object.
