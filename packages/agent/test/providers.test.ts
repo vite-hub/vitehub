@@ -16875,12 +16875,12 @@ describe("server helpers", () => {
       return result
     })
     const admitted = vi.fn(() => true)
-    const handler = createChannelWebhookRouteHandler(defineAgent({
+    const createHandler = (timeout: number) => createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture constructs the Chat adapter contract for the test.
           adapter: () => createTestChatAdapter() as never,
-          messages: { concurrency: "steer", delivery: "manual", durable: false, filter: admitted, lockScope: "agent", state, timeout: 500, dedupeTtlMs: 1 },
+          messages: { concurrency: "steer", delivery: "manual", durable: false, filter: admitted, lockScope: "agent", state, timeout, dedupeTtlMs: 1 },
         }),
       },
       driver: {
@@ -16898,6 +16898,8 @@ describe("server helpers", () => {
         },
       },
     }) as never)
+    const ownerHandler = createHandler(60_000)
+    const handler = createHandler(500)
     const request = (messageId: number) => {
       const request = chatWebhookRequest(messageId)
       request.headers.set("x-vitehub-delivery-id", String(messageId))
@@ -16911,7 +16913,7 @@ describe("server helpers", () => {
     }
     try {
       await state.connect()
-      pending.push(handler(request(91_120), "telegram", context))
+      pending.push(ownerHandler(request(91_120), "telegram", context))
       await vi.waitFor(() => expect(runs).toBe(1))
       pending.push(handler(request(91_121), "telegram", context))
       await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
@@ -17318,12 +17320,12 @@ describe("server helpers", () => {
     const release = deferred<void>()
     const sendInput = vi.fn(() => "unsupported" as const)
     let runs = 0
-    const agent = defineAgent({
+    const createAgent = (timeout: number) => defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture constructs the Chat adapter contract for the test.
           adapter: () => adapter as never,
-          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 100 },
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout },
         }),
       },
       driver: {
@@ -17343,7 +17345,8 @@ describe("server helpers", () => {
       },
     })
     // SAFETY: This fixture constructs the Agent contract for the test.
-    const handler = createChannelWebhookRouteHandler(agent as never)
+    const handler = createChannelWebhookRouteHandler(createAgent(100) as never)
+    const ownerHandler = createChannelWebhookRouteHandler(createAgent(60_000) as never)
     const pending: Promise<Response>[] = []
     let remoteOwner: Awaited<ReturnType<typeof state.acquireLock>> | undefined
     try {
@@ -17352,7 +17355,7 @@ describe("server helpers", () => {
         remoteOwner = await state.acquireLock("chat:calories:telegram:inline-steer:agent:owner", 60_000)
         expect(remoteOwner).toBeTruthy()
       } else {
-        pending.push(handler(chatWebhookRequest(91_140, 456, "first"), "telegram", { agentIdentity: { name: "calories" } }))
+        pending.push(ownerHandler(chatWebhookRequest(91_140, 456, "first"), "telegram", { agentIdentity: { name: "calories" } }))
         await started.promise
       }
       const followUp = handler(chatWebhookRequest(91_141, 456, "second"), "telegram", { agentIdentity: { name: "calories" } })
