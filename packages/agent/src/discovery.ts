@@ -436,6 +436,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       let callbackDefinitionDepth = Number.POSITIVE_INFINITY
       let returnedDefinition = -1
       let returnedDefinitionDepth = Number.POSITIVE_INFINITY
+      const returnedDefinitions: number[] = []
       let callbackDepth = 0
       let returnExpression = false
       for (let i = bodyStart; i < callbackEnd; i++) {
@@ -445,9 +446,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           // defineAgent calls until the expression terminates rather than only
           // accepting the token immediately following `return`.
           const returned = returnExpression || tokens[i - 1] === "return"
-          if (returned && callbackDepth < returnedDefinitionDepth) {
-            returnedDefinition = i
-            returnedDefinitionDepth = callbackDepth
+          if (returned) {
+            if (callbackDepth < returnedDefinitionDepth) {
+              returnedDefinitions.length = 0
+              returnedDefinitionDepth = callbackDepth
+              returnedDefinition = i
+            }
+            if (callbackDepth === returnedDefinitionDepth) returnedDefinitions.push(i)
           } else if (!returned && returnedDefinition < 0 && callbackDepth < callbackDefinitionDepth) {
             callbackDefinition = i
             callbackDefinitionDepth = callbackDepth
@@ -460,6 +465,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         else if (["}", ")", "]"].includes(token)) callbackDepth--
       }
       if (returnedDefinition >= 0) callbackDefinition = returnedDefinition
+      // A conditional return can yield multiple same-depth definitions. Any
+      // Workspace-producing branch promotes the configured Agent.
+      if (returnedDefinitions.length > 1 && returnedDefinitions.some((index) => ownsWorkspace(index))) return true
       if (callbackDefinition >= 0) start = callbackDefinition
       let end = start
       let depth = 0
