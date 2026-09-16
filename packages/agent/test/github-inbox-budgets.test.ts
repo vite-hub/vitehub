@@ -218,3 +218,26 @@ for (const limits of [{ initial: 5, next: 3 }, { initial: 3, next: 5 }]) {
     assert.equal(peer.summary()[0]?.progressBudget?.limit, limits.next)
   })
 }
+
+test('persisted progress limits apply to workers without local budget configuration', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'inbox-mixed-'))
+  const path = join(directory, 'inbox.sqlite')
+  const inbox = new PullRequestInbox({ path, repositories: ['Vite-Hub/ViteHub'], budgets: { noProgress: 3 } })
+  const peer = new PullRequestInbox({ path, repositories: [repository] })
+  t.onTestFinished(() => { inbox.close(); peer.close(); rmSync(directory, { recursive: true, force: true }) })
+  inbox.seed(repository, pr())
+  peer.finish(peer.claim(1)[0]!, { text: 'unconfigured', progress: { kind: 'no-progress' } })
+  assert.equal(peer.summary()[0]?.progressBudget, undefined)
+  wake(inbox, 1)
+  inbox.finish(inbox.claim(1)[0]!, { text: 'configured', progress: { kind: 'no-progress' } })
+  for (let index = 2; index <= 3; index++) {
+    wake(peer, index)
+    peer.finish(peer.claim(1)[0]!, { text: 'unconfigured', progress: { kind: 'no-progress' } })
+  }
+  assert.equal(peer.summary()[0]?.progressBudget?.count, 3)
+  wake(peer, 4)
+  assert.equal(peer.claim(1).length, 0)
+  assert.equal(inbox.claim(1).length, 0)
+  assert.ok(inbox.resetProgressBudget('Vite-Hub/ViteHub', 7, 'a', 'Operator retry'))
+  assert.equal(peer.claim(1).length, 1)
+})

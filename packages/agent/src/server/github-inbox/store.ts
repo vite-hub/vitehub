@@ -192,7 +192,7 @@ export class PullRequestInbox {
   resetProgressBudget(repository: string, number: number, head: string, reason: string): boolean {
     requireEvidence(reason)
     return this.transaction(() => {
-      const s = this.get(repository, number)
+      const s = this.get(repository.toLowerCase(), number)
       if (!s || s.pr?.head?.sha !== head || s.status === 'terminal' || s.lease) return false
       const limit = this.budgets.noProgress
       if (limit === undefined) throw new Error('Configure budgets.noProgress before resetting progress')
@@ -430,9 +430,9 @@ export class PullRequestInbox {
       const head = s.pr?.head?.sha
       const progress = result.progress
       if (progress?.kind === 'verified') requireEvidence(progress.evidence)
-      if (progress && head && head === claim.snapshot.pr?.head?.sha && this.budgets.noProgress !== undefined) {
-        const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
-        const limit = previous?.limit ?? this.budgets.noProgress
+      const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
+      const limit = previous?.limit ?? this.budgets.noProgress
+      if (progress && head && head === claim.snapshot.pr?.head?.sha && limit !== undefined) {
         const creditedEvidence = previous?.creditedEvidence ?? []
         const verified = progress.kind === 'verified' && !creditedEvidence.includes(progress.evidence)
         const count = verified ? 0 : (previous?.count ?? 0) + 1
