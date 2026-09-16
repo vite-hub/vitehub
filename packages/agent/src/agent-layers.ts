@@ -268,7 +268,9 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const source = value
     const clone = new sharedArrayBuffer(source.byteLength)
     // SAFETY: SharedArrayBuffer is binary-compatible with ArrayBuffer for byte copying.
-    new Uint8Array(clone as unknown as ArrayBuffer).set(new Uint8Array(value as unknown as ArrayBuffer))
+    const cloneBytes = new Uint8Array(clone as unknown as ArrayBuffer)
+    const sourceBytes = new Uint8Array(value as ArrayBuffer)
+    cloneBytes.set(sourceBytes)
     memo.set(value, clone)
     return clone
   }
