@@ -72,6 +72,31 @@ it("rejects opaque namespace Capability values", async () => {
 })
 
 it.each([
+  "channels: importedChannels",
+  "channels: { custom: importedChannel }",
+  "channels: { custom: alias }",
+  "channels: { ...importedChannels }",
+  "channels: { custom: { ...importedChannel } }",
+  "channels: namespace.channels",
+  "channels: { custom: namespace.channel }",
+])("rejects opaque imported Channels: %s", async (settings) => {
+  await expect(discover(`import { importedChannels, importedChannel } from "./channels"; import * as namespace from "./channels"; const alias = importedChannel; export default defineAgent({ options: {}, configure: () => defineAgent({ ${settings} }) })`)).rejects.toThrow("Agent Workspace discovery cannot inspect an imported Channel")
+})
+
+it("accepts an explicit Workspace marker with imported Channels", async () => {
+  const definitions = await discover('import channels from "./channels"; export default defineAgent({ options: {}, configure: () => defineAgent({ workspace: {}, channels }) })')
+  expect(definitions[0]?.workspace).toBe("notes")
+})
+
+it.each([
+  'channels => defineAgent({ channels })',
+  '() => { const channels = {}; return defineAgent({ channels }) }',
+])("allows local bindings to shadow imported Channels: %s", async (configure) => {
+  const definitions = await discover(`import channels from "./channels"; export default defineAgent({ options: {}, configure: ${configure} })`)
+  expect(definitions[0]?.workspace).toBeUndefined()
+})
+
+it.each([
   ["parameter shadows imported factory", 'configure: make => make({ workspace: {} })', false],
   ["local shadows imported factory", 'configure: () => { const make = options => options; return make({ workspace: {} }) }', false],
   ["function shadows imported factory", 'configure: () => { function make(options) { return options }; return make({ workspace: {} }) }', false],

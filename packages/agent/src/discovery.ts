@@ -276,6 +276,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return names
   }
 
+  const destructuredBindings = new Map<number, Set<string>>()
+  for (let i = 0; i < tokens.length; i++) {
+    if (["const", "let", "var"].includes(tokens[i]) && ["[", "{"].includes(tokens[i + 1])) {
+      destructuredBindings.set(i, callbackBindingNames(i + 1, tokens.length))
+    }
+  }
+
   function visibleDeclaration(index: number): number | undefined {
     const visibleScopes: (number | undefined)[] = []
     for (let scope = tokenScopes[index]; scope !== undefined; scope = scopeParents.get(scope)) visibleScopes.push(scope)
@@ -284,7 +291,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     for (const scope of visibleScopes) {
       let binding: number | undefined
       for (let i = parameterScope?.start ?? 0; i < tokens.length; i++) {
-        if (!["const", "let", "var"].includes(tokens[i]) || tokens[i + 1] !== tokens[index]) continue
+        if (!["const", "let", "var"].includes(tokens[i])
+          || (tokens[i + 1] !== tokens[index] && !destructuredBindings.get(i)?.has(tokens[index]))) continue
         const bindingScope = tokens[i] === "var" ? variableScope(i) : tokenScopes[i]
         if (bindingScope !== scope) continue
         if (binding === undefined || i < index) binding = i
@@ -326,6 +334,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     if (!/^[A-Za-z_$][\w$]*$/.test(tokens[index] ?? "")) return false
     if (binding !== undefined) {
+      if (destructuredBindings.has(binding)) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a destructured Capability binding. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
+      }
       // Later declarations shadow outer bindings before their initializer runs.
       if (binding > index) return false
       let initializer = binding + 2
@@ -365,6 +376,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     const binding = visibleDeclaration(index)
     if (binding !== undefined) {
+      if (destructuredBindings.has(binding)) return index
       if (binding > index) return index
       let initializer = binding + 2
       while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
@@ -388,13 +400,21 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
   }
 
-  function properties(index: number): Map<string, number> {
+  function properties(index: number, inspectChannels = false): Map<string, number> {
     const result = new Map<string, number>()
     index = resolveReference(index)
     // Preserve object literals wrapped in value-preserving helpers such as
     // Object.freeze({ ... }).
     if (tokens[index + 1] === "." && tokens[index + 2] === "freeze" && tokens[index + 3] === "(") {
       index = resolveReference(index + 4)
+    }
+    if (inspectChannels && imported.has(tokens[index]) && visibleDeclaration(index) === undefined
+      && !callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) {
+      let referenceEnd = index + 1
+      while (tokens[referenceEnd] === ".") referenceEnd += 2
+      if (!["(", "<"].includes(tokens[referenceEnd])) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Channel. Add workspace: {} to the Agent definition when the Channel owns a Workspace, or define the Channel locally so discovery can inspect it.")
+      }
     }
     if (tokens[index] !== "{") return result
     let depth = 0
@@ -404,7 +424,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (depth === 0 && token === "}") break
       if (depth === 0 && atProperty) {
         if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
-          const spread = properties(i + 3)
+          const spread = properties(i + 3, inspectChannels)
           for (const [key, value] of spread) result.set(key, value)
           i += 2
           atProperty = false
@@ -557,7 +577,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
     const channels = options.get("channels")
     if (channels !== undefined) {
-      for (const channel of properties(channels).values()) {
+      for (const channel of properties(channels, true).values()) {
         let channelOptions = resolveReference(channel, new Set(), true)
         const channelCall = factoryCall(channelOptions, "defineChannel")
         if (channelCall !== undefined) {
@@ -570,7 +590,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             else if (["}", ")", "]"].includes(tokens[i])) depth--
           }
         }
-        const capabilities = properties(channelOptions).get("capabilities")
+        const capabilities = properties(channelOptions, true).get("capabilities")
         if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
       }
     }

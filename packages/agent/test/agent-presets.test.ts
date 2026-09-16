@@ -49,6 +49,42 @@ describe("named Agent presets", () => {
 })
 
 describe("configured Agent presets", () => {
+  it("keeps separate overrides of shared defaults and cycles from child options", () => {
+    const shared = { value: 1 }
+    const child: { value: number, self?: unknown } = { value: 4 }
+    child.self = child
+    const preset = defineAgent({
+      options: { left: shared, right: shared, child: {} as typeof child },
+      configure: () => defineAgent({ driver: "codex" }),
+    })
+    const extended = defineAgent({ extends: preset, options: { left: { value: 2 }, right: { value: 3 }, child } })
+    expect(extended.options.left.value).toBe(2)
+    expect(extended.options.right.value).toBe(3)
+    expect(extended.options.left).not.toBe(extended.options.right)
+    expect(extended.options.child.self).toBe(extended.options.child)
+    expect(extended.options.child).not.toBe(child)
+    expect(shared.value).toBe(1)
+  })
+
+  it.each([{}, { self: undefined }])("preserves inherited option cycles with omitted or undefined overrides: %j", (overrides) => {
+    const defaults: { value: number, self?: unknown, nested: { parent?: unknown } } = { value: 1, nested: {} }
+    defaults.self = defaults
+    defaults.nested.parent = defaults
+    const configure = vi.fn((_options: typeof defaults) => defineAgent({ driver: "codex" }))
+    const preset = defineAgent({ options: defaults, configure })
+    const extended = defineAgent({ extends: preset, options: { value: 2, ...overrides } })
+    const options = extended.options
+    expect(options.self).toBe(options)
+    expect(options.nested.parent).toBe(options)
+    expect(options.value).toBe(2)
+    expect(options).not.toBe(defaults)
+    expect(defaults.value).toBe(1)
+    const callbackOptions = configure.mock.calls.at(-1)?.[0]
+    expect(callbackOptions?.self).toBe(callbackOptions)
+    expect(callbackOptions?.nested.parent).toBe(callbackOptions)
+    expect(callbackOptions?.value).toBe(2)
+  })
+
   it("runs with merged options and preserves overrides through multiple generations", async () => {
     const defaults = { filter: { author: { allow: ["original"] }, labels: { deny: ["blocked"] } }, autoMerge: true }
     const factory = vi.fn((options: typeof defaults) => defineAgent({

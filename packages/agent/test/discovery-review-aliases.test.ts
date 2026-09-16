@@ -103,3 +103,18 @@ it.each([
 it("does not trust another package's Channel constructor", async () => {
   await expect(workspaceFor('import { defineChannel } from "other-package"; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: defineChannel("custom", { capabilities: [storage] }) } }) })')).resolves.toBeUndefined()
 })
+
+it.each([
+  'const [list] = lists',
+  'const { list } = { list: [storage] }',
+  'const { values: list } = { values: [storage] }',
+  'const [[...list]] = lists',
+])("rejects destructured Capability lists before generating Workspace wiring: %s", async (declaration) => {
+  const source = `const storage = defineCapability({ workspace: {} }); const lists = [[storage]]; ${declaration}; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: [...list] }) })`
+  await expect(workspaceFor(source)).rejects.toThrow("Agent Workspace discovery cannot inspect a destructured Capability binding")
+  await expect(workspaceFor(source.replace("capabilities: [...list]", "workspace: {}, capabilities: [...list]"))).resolves.toBe("support")
+})
+
+it("preserves direct bindings that shadow destructured Capability lists", async () => {
+  await expect(workspaceFor('const [list] = [[]]; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => { const list = [storage]; return defineAgent({ capabilities: [...list] }) } })')).resolves.toBe("support")
+})

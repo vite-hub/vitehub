@@ -237,10 +237,11 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   // SAFETY: `child` is narrowed by the optional guard at each use site.
   const childKeys = child as Record<PropertyKey, unknown> | undefined
   for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child ?? {})])) {
-    const value = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined ? childKeys[key] : parentKeys[key]
+    const overridden = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined
+    const value = overridden ? childKeys[key] : parentKeys[key]
     if (record(value)) {
       const parentValue = record(parentKeys[key]) ? parentKeys[key] : (Object.getPrototypeOf(value) === null ? Object.create(null) : {})
-      const merged = mergePresetOptionsWithMemo(parentValue, value, memo, pairMemo, active, activeChildren)
+      const merged = mergePresetOptionsWithMemo(parentValue, overridden ? value : undefined, memo, pairMemo, active, activeChildren)
       Object.defineProperty(result, key, { value: merged, enumerable: true, writable: true, configurable: true })
     } else Object.defineProperty(result, key, { value: clonePresetOption(value, memo), enumerable: true, writable: true, configurable: true })
   }
