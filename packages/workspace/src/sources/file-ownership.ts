@@ -15,6 +15,7 @@ export async function recordWorkspaceFileOwner(store: WorkspaceStore, path: stri
 
 export async function readWorkspaceFileOwner(store: WorkspaceStore, path: string): Promise<WorkspaceFileOwner | undefined> {
   const value = await store.getMeta?.(fileOwnerMetaKey(path))
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Metadata is an untyped persistence boundary.
   if (!value || typeof value !== "object" || !("workspace" in value) || typeof value.workspace !== "string"
     || !("source" in value) || typeof value.source !== "string" || ("digest" in value && value.digest !== undefined && typeof value.digest !== "string")) return undefined
   return { workspace: value.workspace, source: value.source, digest: "digest" in value && typeof value.digest === "string" ? value.digest : undefined }

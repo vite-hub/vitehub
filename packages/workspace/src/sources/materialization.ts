@@ -10,7 +10,7 @@ import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./sou
 import { searchText } from "../core/search.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
-import { recordWorkspaceFileOwner } from "./file-ownership.ts"
+import { recordWorkspaceFileOwner, readWorkspaceFileOwner } from "./file-ownership.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -130,7 +130,9 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
   if (verifyOwnership) {
     for (const path of Object.keys(meta.items || {})) {
       const stat = await store.stat(path)
-      if (stat?.type !== "file" || stat.metadata?.workspaceSourceOwner !== workspace || stat.metadata?.source !== source.key) return false
+      if (stat?.type !== "file") return false
+      const durable = await readWorkspaceFileOwner(store, path)
+      if (!((stat.metadata?.workspaceSourceOwner === workspace && stat.metadata?.source === source.key) || (durable?.workspace === workspace && durable.source === source.key))) return false
     }
   }
   return true
@@ -326,8 +328,9 @@ async function removeStaleMaterializedSourceFiles(
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     // Legacy snapshots can be shared; only file ownership authorizes deletion.
-    if (file?.metadata?.workspaceSourceOwner !== workspace) continue
-    const currentOwner = file?.metadata?.source
+    const durableOwner = await readWorkspaceFileOwner(store, entry.path)
+    if (file?.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) continue
+    const currentOwner = file?.metadata?.source ?? durableOwner?.source
     if (source.materialize === "startup" && store.getMeta && store.setMeta && !previousSnapshot && currentOwner !== undefined) continue
     const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
     // Persisted ownership can outlive an external edit. Preserve changed content.

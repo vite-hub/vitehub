@@ -392,6 +392,7 @@ async function readSyncedBuildSources(store: WorkspaceStore, workspace: string):
 
 async function readBuildFiles(store: WorkspaceStore, workspace: string): Promise<Record<string, BuildFileRecord>> {
   const value = await store.getMeta?.(buildFilesMetaKey(workspace))
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Metadata is an untyped persistence boundary.
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, BuildFileRecord] => {
     const record: unknown = entry[1]
