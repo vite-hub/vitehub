@@ -519,3 +519,29 @@ Capability definitions can declare `inspection: { label, view? }`. Lifecycle hoo
 MCP records server discovery and tool provenance. Title records generation settings, progress, and its result. The Console's Capabilities tab reads these snapshots without invoking either capability. Other capabilities use the default tools/configuration view. Set the Invocation journal's `configuration` to `"content"` to retain inspection state and views independently of other trace content. Metadata-only capture keeps labels. Existing redaction and observation bounds apply.
 
 See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-capabilities#contribute-an-inspection-view) for the catalog and a complete example.
+
+### Bound repeated PR work
+
+The Node inbox accepts `budgets: { providerRetries: 3, noProgress: 3 }`.
+Call `reserveProviderAttempt(accountScope)` immediately before each provider dispatch,
+then `finishProviderAttempt(token, outcome)` exactly once. The initial dispatch plus
+three retries allow four consecutive classified provider failures. Successful
+provider access clears older failures; unrelated errors release their reservation
+without imposing a quota stop. Reservations also bound concurrent dispatches to
+four until they settle. Both pending reservations and failures survive restart.
+A crashed reservation requires inspection and `resetProviderBudget(scope, reason)`;
+there is no automatic cooldown or timer reset. Token generations reject results
+from before a reset. `providerBudget(scope)` exposes pending and failed attempts.
+
+Supply `finish(claim, { text, progress: { kind: 'no-progress' } })` when a host check
+proves no progress, including a completed invocation that merely repeats a wait.
+Three such completions block new claims for that head even after a webhook.
+Use `{ kind: 'verified', evidence: 'thread:123:resolved' }` for a newly verified change;
+credited evidence IDs persist for that head, so replay does not reset the count. A new head has a fresh budget.
+`resetProgressBudget(repository, number, expectedHead, reason)` permits an explicit
+operator retry and rejects active claims or stale heads. `summary()` exposes the
+persisted head, count and exhaustion state. The host verifies evidence and classifies
+errors; Agent text, result status, and elapsed time do not choose this policy.
+
+See [durable retry budgets](https://vitehub.dev/docs/agents/invocations#durable-retry-budgets)
+for a worker example. Budgets are opt-in and do not change existing inbox callers.
