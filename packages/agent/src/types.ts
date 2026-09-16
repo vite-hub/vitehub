@@ -1409,7 +1409,16 @@ export type AgentProviderEnvironment = Record<string, string | undefined>
 export type AgentProviderEnvironmentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<AgentProviderEnvironment, AgentProviderCredentialContext<TRuntimeConfig>>
 
+export interface AgentProviderExitContext {
+  /** Disposable provider working directory, still available during this callback. */
+  cwd: string
+  /** Independent teardown deadline. Stop all I/O when this signal aborts. */
+  abortSignal: AbortSignal
+}
+
 export interface AgentProviderLaunchCommand {
+  /** Host callback after provider shutdown, before Workspace cleanup. Not called by inspection. */
+  onExit?: (context: AgentProviderExitContext) => MaybePromise<void>
   args?: readonly string[]
   command: string
 }

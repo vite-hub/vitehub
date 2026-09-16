@@ -464,7 +464,14 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
   if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(item => hasRuntimeType(item, "string")))) {
     throw agentDiagnostics.AGENT_R0675({ message: "[vitehub] driver.launch args must contain only strings." })
   }
+  if (value.onExit !== undefined && !hasRuntimeType(value.onExit, "function")) {
+    throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch onExit must be a function." })
+  }
   const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (hasRuntimeType(value.onExit, "function")) {
+    // SAFETY: Runtime validation establishes a callable host-supplied lifecycle hook.
+    launch.onExit = value.onExit as AgentProviderLaunchCommand["onExit"]
+  }
   if (value.args !== undefined) launch.args = [...value.args]
   return launch
 }
@@ -2372,6 +2379,7 @@ async function* runProvider<
   }
   let workspaceSession: WorkspaceSession | undefined
   let sourceProvenance: ProviderSourceProvenance[] = []
+  let onProviderExit: AgentProviderLaunchCommand["onExit"]
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
@@ -2664,6 +2672,7 @@ async function* runProvider<
         Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
         effectiveSignal,
       ))
+      onProviderExit = launch.onExit
       if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
       const materializedLauncher = await waitForProviderOperation(
         materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, root),
@@ -2956,8 +2965,30 @@ async function* runProvider<
           : agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver deferred runtime cleanup timed out." }))
       })())
     }
+    let workspaceCommandsSettled = false
+    let exitCallbackPending = false
+    let exitCallbackFailed = false
     let workspaceFinalization: Promise<void> | undefined
     const finalizeWorkspace = () => workspaceFinalization ??= (async () => {
+        // A timed-out or rejected shutdown cannot establish final provider state.
+        if (runtime && runtimeCleanupSettled && workspaceCommandsSettled && !runtimeCleanupFailure && !deferredRuntimeFailure && !cleanupTimedOut && onProviderExit) {
+          exitCallbackPending = true
+          const exitCleanup = createProviderCleanupSignal(undefined)
+          try {
+            await waitForProviderOperation(
+              Promise.resolve().then(() => onProviderExit!({ cwd: root, abortSignal: exitCleanup.signal })),
+              exitCleanup.signal,
+            )
+          }
+          catch (error) {
+            exitCallbackFailed = true
+            cleanupErrors.push(error)
+          }
+          finally {
+            exitCallbackPending = false
+            exitCleanup.dispose()
+          }
+        }
         try {
           for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
         }
@@ -3012,6 +3043,7 @@ async function* runProvider<
       for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
         if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
       }
+      workspaceCommandsSettled = true
       await finalizeWorkspace()
       if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
         try {
@@ -3064,6 +3096,7 @@ async function* runProvider<
             await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : cleanupTimeout))
           }
           finally {
+            await finalizeWorkspace()
             await cleanupRoot()
           }
         })
@@ -3109,7 +3142,7 @@ async function* runProvider<
     else releaseSessionLock?.()
     if (cleanupErrors.length) {
       const cleanupError = new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
-      if (completed && caught === undefined && cleanupErrors.every(providerCleanupTimedOut)) {
+      if (completed && caught === undefined && !exitCallbackPending && !exitCallbackFailed && cleanupErrors.every(providerCleanupTimedOut)) {
         yield { error: cleanupError.message, recoverable: true, type: "error" }
       }
       else throw cleanupError

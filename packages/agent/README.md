@@ -519,3 +519,9 @@ Capability definitions can declare `inspection: { label, view? }`. Lifecycle hoo
 MCP records server discovery and tool provenance. Title records generation settings, progress, and its result. The Console's Capabilities tab reads these snapshots without invoking either capability. Other capabilities use the default tools/configuration view. Set the Invocation journal's `configuration` to `"content"` to retain inspection state and views independently of other trace content. Metadata-only capture keeps labels. Existing redaction and observation bounds apply.
 
 See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-capabilities#contribute-an-inspection-view) for the catalog and a complete example.
+
+### Provider exit evidence
+
+A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the working directory. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.
+
+The callback is skipped when provider shutdown fails or exceeds the cleanup deadline, and during provider inspection. Missing evidence must remain unknown. This callback does not verify model claims, grant push authority, or make closure state durable across host crashes. Validate the checkout in host code and persist the result before returning when durability is required.

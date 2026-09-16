@@ -184,3 +184,9 @@ export default defineAgent({
 The callback receives prepared input, messages, tools, Workspace access, invocation context, and the resolved Actor as both `actor` and `invoker`. A custom run callback may call a model internally, but ViteHub treats that execution and usage as application-owned behavior.
 
 Read [Instructions](/docs/agents/instructions) for model-facing behavior and [Workspace context](/docs/agents/workspace-context) for files and writeback.
+
+### Provider exit evidence
+
+A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the working directory. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.
+
+The callback is skipped when provider shutdown fails or exceeds the cleanup deadline, and during provider inspection. Missing evidence must remain unknown. This callback does not verify model claims, grant push authority, or make closure state durable across host crashes. Validate the checkout in host code and persist the result before returning when durability is required.
