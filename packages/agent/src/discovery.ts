@@ -452,7 +452,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           // without a `return` token; the callbackEnd bound keeps this from
           // capturing unrelated definitions later in the module.
           const expressionBody = arrow >= 0 && callbackDepth === 0 && !returnExpression
-          const returned = (returnExpression && callbackDepth === 0) || expressionBody || tokens[i - 1] === "return" || tokens[i - 1] === "?" || tokens[i - 1] === ":"
+          const returned = (returnExpression && callbackDepth === 0) || expressionBody ||
+            // In an expression-bodied arrow, later comma operands are also
+            // part of the returned expression; only the final operand is the
+            // callback value (the fallback below selects it).
+            (arrow >= 0 && !returnExpression && callbackDepth === 0 && tokens[i - 1] === ",") ||
+            tokens[i - 1] === "return" || tokens[i - 1] === "?" || tokens[i - 1] === ":"
           if (returned) {
             if (callbackDepth < returnedDefinitionDepth) {
               returnedDefinitionDepth = callbackDepth
