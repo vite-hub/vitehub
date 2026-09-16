@@ -504,6 +504,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         return false
       })
       returnedDefinitions.splice(0, returnedDefinitions.length, ...returnedCandidates)
+      // Expression-bodied arrows return their direct definition without a
+      // `return` token; retain that callback result for ownership analysis.
+      if (returnedDefinitions.length === 0 && arrow >= 0 && callbackDefinition >= 0) {
+        returnedDefinitions.push(callbackDefinition)
+      }
       if (returnedDefinition >= 0) callbackDefinition = returnedDefinition
       // A conditional return can yield multiple same-depth definitions. Any
       // Workspace-producing branch promotes the configured Agent.
