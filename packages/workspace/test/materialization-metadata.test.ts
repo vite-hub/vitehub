@@ -433,6 +433,27 @@ it.each(["removal", "refresh"])("preserves unowned legacy cached files during %s
   await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "legacy" })
 })
 
+it.each(["removal", "refresh"].flatMap(operation => [false, true].map(dropMetadata => ({ operation, dropMetadata }))))("preserves edited startup files during $operation with dropped metadata=$dropMetadata", async ({ operation, dropMetadata }) => {
+  const store = createMemoryWorkspaceStore()
+  const writeFile = store.writeFile.bind(store)
+  if (dropMetadata) store.writeFile = async (path, file) => await writeFile(path, { ...file, metadata: undefined })
+  const getKeys = vi.fn(async () => ["edited.md", "stale.md"])
+  const definition = {
+    name: "edited-startup-files",
+    sources: { docs: {
+      materialize: "startup" as const,
+      getKeys,
+      async getItem(key: string) { return { key, content: "generated" } },
+    } },
+  }
+  await materializeWorkspaceSources(definition, store)
+  await store.writeFile("docs/edited.md", { path: "docs/edited.md", content: "user edit" })
+  getKeys.mockResolvedValue([])
+  await materializeWorkspaceSources(operation === "removal" ? { ...definition, sources: {} } : definition, store)
+  await expect(store.readFile("docs/edited.md")).resolves.toMatchObject({ content: "user edit" })
+  await expect(store.readFile("docs/stale.md")).resolves.toBeUndefined()
+})
+
 it("restores a keyed Source file after an overlapping Source stops emitting it", async () => {
   const store = createMemoryWorkspaceStore()
   let secondKeys = ["shared.md"]

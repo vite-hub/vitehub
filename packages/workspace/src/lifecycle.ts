@@ -397,6 +397,7 @@ async function readBuildFiles(store: WorkspaceStore, workspace: string): Promise
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, BuildFileRecord] => {
     const record: unknown = entry[1]
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted entries must validate both ownership fields before authorizing cleanup.
     return !!record && typeof record === "object" && "source" in record && typeof record.source === "string"
       && "digest" in record && typeof record.digest === "string"
   }))

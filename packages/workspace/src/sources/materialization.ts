@@ -339,6 +339,9 @@ async function removeStaleMaterializedSourceFiles(
     // matches the snapshot digest that authorized cleanup.
     if (file?.metadata?.source === undefined && durableOwner?.digest !== undefined
       && recordedDigest !== undefined && durableOwner.digest !== recordedDigest) continue
+    // Durable ownership survives direct writes on every Store, not just local files.
+    if (file?.metadata?.source === undefined
+      && (!durableOwner?.digest || !file || await sha256(file.content) !== durableOwner.digest)) continue
     // Persisted ownership can outlive an external edit. Preserve changed content.
     if (localStore && previousSnapshot?.items && (!recordedDigest || !file || await sha256(file.content) !== recordedDigest)) continue
     if (currentOwner === undefined && previousSnapshot?.items && !recordedDigest) continue
@@ -431,6 +434,9 @@ async function reconcileRemovedStartupSourcesInternal(
       const owner = file.metadata?.source ?? durableOwner?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
       if (file.metadata?.source === undefined && snapshot?.items?.[path]?.migrationPending) continue
+      // A durable owner authorizes cleanup only while its written content remains.
+      if (file.metadata?.source === undefined
+        && (!durableOwner?.digest || await sha256(file.content) !== durableOwner.digest)) continue
       // Persisted metadata does not prove that externally edited content is ours.
       if ((await resolveWorkspaceStoreTarget(store))?.provider === "local" && snapshot?.items
         && (!recordedDigest || await sha256(file.content) !== recordedDigest)) continue
