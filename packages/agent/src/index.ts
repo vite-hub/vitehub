@@ -3077,7 +3077,8 @@ function agentTelemetryUsesContent(registration: { content?: AgentTelemetryConte
 function allowedAgentTelemetryContent(key: string, content: AgentTelemetryContentOptions): boolean {
   if (!isTraceContentAttributeKey(key)) return false
   if (key === "input" || key.startsWith("input.") || key === "tool.input" || key === "approval.input") return content.inputs === true
-  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "message.content" || key === "channel.effect.content" || key === "vitehub.activity.body") return content.outputs === true
+  if (key === "message.content") return content.outputs === true
+  if (key === "output" || key.startsWith("output.") || key === "tool.output" || key === "result" || key.startsWith("result.") || key === "channel.effect.content" || key === "vitehub.activity.body") return content.outputs === true
   return false
 }
 
@@ -3189,6 +3190,7 @@ function agentTelemetryConfigurationForContent(
   }
 }
 
+
 function withAgentTelemetryContentAttributes(
   safe: Record<string, unknown> | undefined,
   full: Record<string, unknown> | undefined,
@@ -3286,7 +3288,7 @@ function agentTelemetryCorrelationRecord(
   if (!first || !last) return
   const correlationEvents = first === last ? [first] : [first, last]
   const metadataRecords = traceEventsToOpenTelemetryLogRecords(correlationEvents, { content: "metadata" })
-  const records = registration.content?.inputs || registration.content?.outputs
+  const records = registration.content && agentTelemetryUsesContent(registration)
     ? withAgentTelemetryLogContent(
         metadataRecords,
         traceEventsToOpenTelemetryLogRecords(correlationEvents, { content: "content" }),
@@ -3321,7 +3323,7 @@ async function exportAgentTelemetryTraces<TRuntimeConfig extends AgentRuntimeCon
   const terminalSequence = run.events.at(-1)!.sequence
   const exports = await Promise.allSettled(telemetry.map(async (item) => {
     const { capabilityId, registration } = item
-    const selectedSpans = registration.content?.inputs || registration.content?.outputs
+    const selectedSpans = registration.content && agentTelemetryUsesContent(registration)
       ? withAgentTelemetryContent(
           metadataSpans,
           contentSpans ||= traceEventsToOpenTelemetrySpans(run.events, { content: "content" }),
@@ -3419,7 +3421,7 @@ async function exportAgentTelemetryLogs<TRuntimeConfig extends AgentRuntimeConfi
         return hasRuntimeType(sequence, "number") && sequence > afterSequence
       })
       const metadataRecords = currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "metadata" }))
-      const records = registration.content?.inputs || registration.content?.outputs
+      const records = registration.content && agentTelemetryUsesContent(registration)
         ? withAgentTelemetryLogContent(
             metadataRecords,
             currentRecords(traceEventsToOpenTelemetryLogRecords(conversionEvents, { content: "content" })),
@@ -3515,7 +3517,7 @@ class AgentTelemetryCapabilityError extends Diagnostic {
     super({
       cause,
       code: "AGENT_R0890",
-      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors",
+      docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
       why: `[vitehub] Capability "${capabilityId}" telemetry export failed.`,
     }, AgentTelemetryCapabilityError)
     this.name = "AgentTelemetryCapabilityError"
@@ -3766,6 +3768,13 @@ async function createAgentInvocationContext<
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const driverKind = internalDefinition?.[baseAgentDriverKind] || "model"
+    if (driverKind === "provider" && input.timeout !== undefined) {
+      if (input.timeout > 2_147_483_647) {
+        throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
+      }
+      const timeoutSignal = AbortSignal.timeout(input.timeout)
+      input = { ...input, abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, timeoutSignal]) : timeoutSignal }
+    }
     const resolveReadiness = async () => {
       if (driverKind !== "provider" || !definition?.status) return undefined
       const readinessController = new AbortController()
@@ -3920,9 +3929,14 @@ async function createAgentInvocationContext<
       invocationContext.set(agentInvocationConfigurationUpdatedContextKey, traceConfiguration, { overwrite: true })
     }
     callbackContext = createAgentCallbackContext(runtimeContext)
-    const preparationController = new AbortController()
-    if (driverKind === "provider" && definition?.status) {
-      input = { ...input, abortSignal: input.abortSignal ? AbortSignal.any([input.abortSignal, preparationController.signal]) : preparationController.signal }
+    // Capabilities with preparation hooks may install runtimes or allocate
+    // resources. Reject known provider failures before starting those hooks.
+    const preflightReadiness = resolvedCapabilityDefinitions.some(capability => capability.prepare)
+    const readiness = preflightReadiness
+      ? await resolveReadiness()
+      : undefined
+    if (readiness?.readiness === "unavailable" && !readiness.stale) {
+      throw agentDiagnostics.AGENT_R0726({ message: readiness.reason || "The provider is unavailable." })
     }
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
@@ -3939,7 +3953,6 @@ async function createAgentInvocationContext<
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
       if (status?.readiness === "unavailable" && !status.stale) {
         const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
-        preparationController.abort(error)
         // Input preparation owns resources even when provider preflight fails.
         const cleanup = capabilities.close()
         context.waitUntil?.(cleanup)
@@ -3988,7 +4001,13 @@ async function createAgentInvocationContext<
         throw error
       }
     }
-    const transformed = await applyCapabilityToolTransforms(capabilities.tools, resolveCapabilityCli ? [] : capabilities.toolTransforms).catch(async (error) => {
+    let transformed: { tools: typeof capabilities.tools, originalNames: Map<string, string> }
+    try {
+      transformed = resolveCapabilityCli
+        ? { tools: capabilities.tools, originalNames: new Map(Object.keys(capabilities.tools || {}).map(name => [name, name])) }
+        : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    }
+    catch (error) {
       try {
         await capabilities.close()
       }
@@ -3996,7 +4015,7 @@ async function createAgentInvocationContext<
         throw new AggregateError([error, closeError], "[vitehub] Agent tool transform failed and cleanup also failed.")
       }
       throw error
-    })
+    }
     const transformedTools = transformed.tools
     const preparedTools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {})
     const tools = Object.keys(transformedTools || {}).length
@@ -4039,10 +4058,10 @@ async function createAgentInvocationContext<
     const toolOwners = new Map(capabilities.driverContributions
       .filter(contribution => contribution.kind === "Capability tools")
       .flatMap(contribution => (contribution.names || []).map(name => [name, contribution.capabilityId] as const)))
-    const inspectedTools = inspectAgentTools(tools)?.map(tool => {
-      const owner = toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name)
-      return { ...tool, ...(owner ? { capabilityId: owner } : {}) }
-    })
+    const inspectedTools = inspectAgentTools(tools)?.map(tool => ({
+      ...tool,
+      ...(toolOwners.has(transformed.originalNames.get(tool.name) ?? tool.name) ? { capabilityId: toolOwners.get(transformed.originalNames.get(tool.name) ?? tool.name) } : {}),
+    }))
     if (capabilities.registries.telemetry.length || invocationJournal) await setAgentTelemetryConfiguration(invocationContext, {
       agent: {
         ...(definition?.name ? { name: definition.name } : {}),
@@ -5668,23 +5687,25 @@ async function finishAgentInvocation<
         const finishEvent = { ...eventBase, extensions }
         const chatFinish = extensions.get("chat")
         if (chatFinish && isRuntimeObject(chatFinish)) {
-          setChatFinishPrimaryReplyTrace(chatFinish, async (capture) => {
-            await traceAgentChannelDeliveryEffect(toTraceContext(context), {
-              kind: "reply",
-              payload: undefined,
-            }, {
-              "channel.effect.primary": true,
-              "channel.effect.supported": true,
-              ...(capture.error ? { "error.message": capture.error } : {}),
-              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
-            })
-          })
           setChatFinishDirectReplyTrace(chatFinish, message => async (capture) => {
             await traceAgentChannelDeliveryEffect(toTraceContext(context), {
               kind: "reply",
               payload: message,
             }, {
               "channel.effect.content": capture.content,
+              "channel.effect.supported": true,
+              ...(capture.error ? { "error.message": capture.error } : {}),
+              ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),
+              ...(capture.truncated ? { "vitehub.observation.truncated": true } : {}),
+            })
+          })
+          setChatFinishPrimaryReplyTrace(chatFinish, async (capture) => {
+            await traceAgentChannelDeliveryEffect(toTraceContext(context), {
+              kind: "reply",
+              payload: "",
+            }, {
+              "channel.effect.content": capture.content,
+              "channel.effect.primary": true,
               "channel.effect.supported": true,
               ...(capture.error ? { "error.message": capture.error } : {}),
               ...(capture.skipped ? { "channel.effect.skipped": capture.skipped } : {}),

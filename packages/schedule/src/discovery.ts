@@ -17,30 +17,40 @@ import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const scheduleSuffixPattern = /\.schedule\.(?:c|m)?[jt]s$/i
 
-function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "runtimeOnly"> {
+function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDefinition, "allowRuntimeSchedules" | "manual" | "runtimeOnly"> {
   const source = readFileSync(file, "utf8")
   const names = ["defineSchedule", "defineScheduleTarget"]
-  const definition = findDefaultExportCall(source, names)
+  const definition = findDefaultExportCall(source, ["defineSchedule"], { positionalOptionsIndex: 2 })
+    ?? findDefaultExportCall(source, ["defineScheduleTarget"])
   const unsupported = (offset: number, message: string): never => {
     const line = source.slice(0, offset).split("\n").length
     throw scheduleErrorDiagnostics.SCHEDULE_B0005({ message: `[vitehub] ${file}:${line}: ${message}` })
   }
   if (!definition) {
     const call = names.flatMap(name => findIdentifierCalls(source, name))[0]
-    if (call) unsupported(call.start, "Schedule discovery requires a direct default export of defineSchedule() or defineScheduleTarget() with an object literal.")
+    if (call) unsupported(call.start, "Schedule discovery requires a direct default export of defineSchedule() or defineScheduleTarget() with literal options.")
     return { allowRuntimeSchedules: false }
   }
   if (definition.name === "defineScheduleTarget") {
     return { allowRuntimeSchedules: true, runtimeOnly: true }
   }
 
+  const positional = definition.arguments.length > 1
+  const options = positional ? stripBoundaryComments(definition.arguments[2] || "{}") : definition.argument
+  if (!options.startsWith("{") || !options.endsWith("}")) {
+    unsupported(definition.start, "Schedule discovery requires an options object literal.")
+  }
   let allowRuntimeSchedules = false
-  for (const entry of splitTopLevel(definition.argument.slice(1, -1))) {
+  let manual = false
+  for (const entry of splitTopLevel(options.slice(1, -1))) {
     const property = stripBoundaryComments(entry)
     if (property.startsWith("...") || property.startsWith("[")) {
       unsupported(definition.start, "Schedule discovery cannot resolve spread or computed options. Declare allowRuntimeSchedules as a literal true or false in the definition object.")
     }
     const value = readObjectProperty(`{${property}}`, "allowRuntimeSchedules")
+    const manualValue = readObjectProperty(`{${property}}`, "manual")
+    if (manualValue === "true" || manualValue === "false") manual = manualValue === "true"
+    else if (manualValue !== undefined || /^(?:(?:get|set)\s+)?manual\b/.test(property)) unsupported(definition.start, "Schedule discovery requires manual to be a literal true or false; it cannot evaluate this expression.")
     if (value === "true" || value === "false") {
       allowRuntimeSchedules = value === "true"
     }
@@ -48,7 +58,7 @@ function readScheduleDiscoveryMetadata(file: string): Pick<DiscoveredScheduleDef
       unsupported(definition.start, "Schedule discovery requires allowRuntimeSchedules to be a literal true or false; it cannot evaluate this expression.")
     }
   }
-  return { allowRuntimeSchedules }
+  return { allowRuntimeSchedules, manual }
 }
 
 function createDiscoveredScheduleDefinition(source: DiscoveredScheduleDefinition["source"]) {

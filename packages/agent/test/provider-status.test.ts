@@ -141,29 +141,54 @@ describe("provider inspection", () => {
 })
 
 describe("invocation preflight", () => {
-  it("checks unavailable capacity after preparation and closes its resources", async () => {
+  it("rejects unavailable capacity before starting capability preparation", async () => {
     const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
-    let release!: () => void
-    let prepared!: () => void
-    const started = new Promise<void>(resolve => { prepared = resolve })
-    const gate = new Promise<void>(resolve => { release = resolve })
+    const prepare = vi.fn(() => { throw new Error("unexpected runtime installation") })
     const close = vi.fn()
-    const background: Promise<unknown>[] = []
     const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({
-      id: "slow-preparation", async prepare() { prepared(); await gate }, close,
+      id: "runtime-preparation", prepare, close,
     })] })
-    const status = vi.spyOn(agent, "status").mockImplementation(async () => {
-      await started
-      return { agent: "test", checkedAt: new Date().toISOString(), readiness: "unavailable", stale: false, reason: "Workspace spend cap reached" }
+    const status = vi.spyOn(agent, "status").mockResolvedValue({
+      agent: "test", checkedAt: new Date().toISOString(), readiness: "unavailable", stale: false, reason: "Workspace spend cap reached",
     })
-    const run = runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => { background.push(task) } }, { prompt: "hello" })
-    await started
-    expect(status).not.toHaveBeenCalled()
-    release()
-    await expect(run).rejects.toMatchObject({ code: "AGENT_R0726", fix: expect.stringContaining("spending limit") })
+    await expect(runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello" }))
+      .rejects.toMatchObject({ code: "AGENT_R0726", fix: expect.stringContaining("spending limit") })
     expect(status).toHaveBeenCalledTimes(1)
-    await Promise.allSettled(background)
-    expect(close).toHaveBeenCalledTimes(1)
+    expect(prepare).not.toHaveBeenCalled()
+    expect(close).not.toHaveBeenCalled()
+  })
+
+  it("applies the provider deadline during capability preparation", async () => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const prepare = vi.fn(async (context: { abortSignal?: AbortSignal }) => {
+      const signal = context.abortSignal
+      expect(signal).toBeInstanceOf(AbortSignal)
+      if (!signal) throw new Error("Missing preparation deadline")
+      await new Promise<void>((_resolve, reject) => {
+        if (signal.aborted) reject(signal.reason)
+        else signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+      })
+    })
+    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({ id: "slow-runtime", prepare })] })
+    vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "ready", checkedAt: new Date().toISOString(), stale: false })
+    await expect(runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello", timeout: 50 }))
+      .rejects.toThrow(/timeout|timed out/i)
+    expect(prepare).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["ready", "unknown", "stale"])("continues preparation for %s provider evidence", async (evidence) => {
+    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const prepare = vi.fn()
+    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({
+      id: "handled-runtime", prepare, input: () => new Response("handled"),
+    })] })
+    const status = vi.spyOn(agent, "status").mockResolvedValue({
+      agent: "test", checkedAt: new Date().toISOString(), readiness: evidence === "stale" ? "unavailable" : evidence === "ready" ? "ready" : "unknown", stale: evidence === "stale",
+    })
+    const result = await runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello" })
+    expect(await (result as Response).text()).toBe("handled")
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(status).toHaveBeenCalledTimes(1)
   })
 
   it("lets handled input respond without checking an unavailable provider", async () => {
