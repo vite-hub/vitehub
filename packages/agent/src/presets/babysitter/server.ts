@@ -193,9 +193,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const { publicUrl, repositories } = options;
     if (!isAccepting()) return;
     const ownerLimit = options.concurrency;
+    // Event-scoped filters cannot be established from the pull-request REST
+    // listing alone.  Seeding those entries would admit PRs that have never
+    // produced an allowed event (for example, `action: synchronize`).
+    const eventScopedBootstrap = Boolean(presetOptions.filter?.actor || presetOptions.filter?.action);
     // Bootstrap once per repository and persist even an empty successful list.
     // Failed reads stay retryable; they must never masquerade as empty success.
     for (const repository of repositories) {
+      if (eventScopedBootstrap) continue;
       const key = `bootstrap-rest-v1:${repository}`;
       // SAFETY: This versioned key is written below only with an ISO timestamp object; absent keys return undefined.
       const previous = pullRequestInbox.meta(key) as { at: string } | undefined;
