@@ -334,6 +334,7 @@ async function removeStaleMaterializedSourceFiles(
     const currentOwner = file?.metadata?.source ?? durableOwner?.source
     if (source.materialize === "startup" && store.getMeta && store.setMeta && !previousSnapshot && currentOwner !== undefined) continue
     const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+    if (file?.metadata?.source === undefined && previousSnapshot?.items?.[entry.path]?.migrationPending) continue
     // During legacy snapshot migration, durable ownership is only valid when it
     // matches the snapshot digest that authorized cleanup.
     if (file?.metadata?.source === undefined && durableOwner?.digest !== undefined
@@ -429,6 +430,7 @@ async function reconcileRemovedStartupSourcesInternal(
       if (file.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) continue
       const owner = file.metadata?.source ?? durableOwner?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
+      if (file.metadata?.source === undefined && snapshot?.items?.[path]?.migrationPending) continue
       // Persisted metadata does not prove that externally edited content is ours.
       if ((await resolveWorkspaceStoreTarget(store))?.provider === "local" && snapshot?.items
         && (!recordedDigest || await sha256(file.content) !== recordedDigest)) continue

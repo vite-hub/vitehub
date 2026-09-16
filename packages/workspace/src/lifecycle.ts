@@ -26,6 +26,7 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
   const records = await readBuildFiles(store, workspace)
   let checkpoint = Promise.resolve()
   const record = (path: string, source: unknown, digest: string) => {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Loader source values are an untyped extension boundary.
     if (typeof source !== "string" || !store.setMeta) return Promise.resolve()
     const normalized = normalizeWorkspacePath(path)
     checkpoint = checkpoint.then(async () => {
