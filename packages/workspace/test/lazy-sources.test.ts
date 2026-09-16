@@ -2791,13 +2791,19 @@ describe("lazy sources", () => {
     })
   })
 
-  it.each(["materialize", "read"])("validates cached ownership before %s on a shared Store", async (operation) => {
+  it.each(["lazy", "startup"].flatMap(materialize =>
+    ["materialize", "read", "read-after-materialize"].flatMap(operation =>
+      ["", "docs"].map(mount => ({ materialize, operation, mount })),
+    ),
+  ))("validates $materialize cached ownership before $operation at mount $mount on a shared Store", async ({ materialize, operation, mount }) => {
+    const path = mount ? `${mount}/shared.md` : "shared.md"
     const store = createMemoryWorkspaceStore()
     const definition = (name: string) => ({
       name,
       sources: {
         docs: custom({
-          materialize: "lazy",
+          mount,
+          materialize: materialize === "startup" ? "startup" : "lazy",
           cache: { maxAge: 3600 },
           files: [{ path: "shared.md", content: name }],
         }),
@@ -2805,14 +2811,14 @@ describe("lazy sources", () => {
     } as const)
     const first = createWorkspaceSourceView(definition("first"), store)
     const second = createWorkspaceSourceView(definition("second"), store)
-    if (operation === "materialize") await first.materializeSources()
-    else await expect(first.readFile("docs/shared.md")).resolves.toBe("first")
+    if (operation !== "read") await first.materializeSources()
+    else await expect(first.readFile(path)).resolves.toBe("first")
     await second.materializeSources()
-    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "second" })
+    await expect(store.readFile(path)).resolves.toMatchObject({ content: "second" })
 
     if (operation === "materialize") await first.materializeSources()
-    else await expect(first.readFile("docs/shared.md")).resolves.toBe("first")
-    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "first" })
+    else await expect(first.readFile(path)).resolves.toBe("first")
+    await expect(store.readFile(path)).resolves.toMatchObject({ content: "first" })
   })
 
   it("restores a missing empty mount before accepting a cached snapshot", async () => {

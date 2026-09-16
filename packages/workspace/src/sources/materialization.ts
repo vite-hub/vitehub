@@ -131,10 +131,20 @@ export async function invalidateSourceSnapshot(store: WorkspaceStore, workspace:
   if (snapshot) await writeSourceSnapshotMetadata(store, workspace, { ...snapshot, status: "updating" })
 }
 
-export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, verifyOwnership = false) {
+export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, verifyOwnership: boolean | "workspace" = false) {
   const configHash = await sourceConfigHash(source, store)
   const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source)
   if (meta?.status !== "ready" || meta.configHash !== configHash) return false
+  if (verifyOwnership === "workspace") {
+    // Normal reads preserve external edits, but cannot reuse files owned by another Workspace.
+    for (const path of Object.keys(meta.items || {})) {
+      const owner = await readWorkspaceFileOwner(store, path)
+      if (!owner || owner.workspace === workspace || !owner.digest) continue
+      const file = await store.readFile(path)
+      if (file && await sha256(file.content) === owner.digest) return false
+    }
+    return true
+  }
   return !verifyOwnership || await snapshotHasCurrentOwners(store, workspace, source, meta)
 }
 

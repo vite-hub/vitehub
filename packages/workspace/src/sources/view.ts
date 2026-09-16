@@ -326,6 +326,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function ensureMaterialized(sourceKey: string) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
+    // Overlapping root Sources validate ownership per path and can fall through to a lazy Source.
+    const verifyOwnership = options.reuseStartupSnapshots ? true
+      : source.mountPath || !sources.some(item => !item.mountPath && item.materialize === "lazy") ? "workspace" : false
     const isUncachedLazySource = source.materialize === "lazy" && source.cache === false
     const pending = pendingBySource.get(sourceKey)
     if (pending?.fullSource) {
@@ -344,12 +347,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
       const maxAge = source.cache && source.cache.maxAge
       if (source.materialize === "startup"
-        ? await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots)
+        ? await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership)
         : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, definition.name, source)) return
       materializedSources.delete(sourceKey)
     }
     if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
-      if (await hasCurrentSourceSnapshot(store, definition.name, source, options.reuseStartupSnapshots)) return
+      if (await hasCurrentSourceSnapshot(store, definition.name, source, verifyOwnership)) return
       completedSources.delete(sourceKey)
       reusedStartupSources.delete(sourceKey)
     }
