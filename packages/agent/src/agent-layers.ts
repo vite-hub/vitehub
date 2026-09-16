@@ -261,6 +261,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       // SAFETY: Uint8Array intrinsic accessor returns a numeric length.
       const sourceLength = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteLength")!.get!.call(sourceBuffer) as number
       // SAFETY: cloning an ArrayBuffer yields an ArrayBuffer.
+      // SAFETY: clonePresetOption returns the same built-in type for ArrayBuffer inputs.
       const clonedBacking = clonePresetOption(sourceBacking, memo) as ArrayBuffer
       const clone = (globalThis as { Buffer: typeof Buffer }).Buffer.from(clonedBacking, sourceOffset, sourceLength)
       memo.set(value, clone)
@@ -268,8 +269,11 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     }
     if (value instanceof DataView) {
       // SAFETY: DataView intrinsic accessors avoid shadowable instance properties.
+      // SAFETY: DataView intrinsic buffer accessor returns an ArrayBuffer.
       const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
+      // SAFETY: DataView intrinsic byteOffset accessor returns a number.
       const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value) as number
+      // SAFETY: DataView intrinsic byteLength accessor returns a number.
       const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value) as number
       // SAFETY: buffer is obtained from the intrinsic DataView accessor and clonePresetOption preserves ArrayBuffer values.
       const clonedBuffer = clonePresetOption(buffer, memo) as ArrayBuffer
@@ -282,6 +286,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const buffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer")!.get!.call(value) as ArrayBuffer
     const byteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")!.get!.call(value)
     const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")!.get!.call(value)
+    // SAFETY: clonePresetOption returns the same built-in type for ArrayBuffer inputs.
     const clonedBuffer = clonePresetOption(buffer, memo) as ArrayBuffer
     // SAFETY: Every entry is a built-in typed-array constructor; filtering removes unavailable BigInt variants.
     const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, "BigInt64Array" in globalThis ? BigInt64Array : undefined, "BigUint64Array" in globalThis ? BigUint64Array : undefined].filter(Boolean) as any[]
