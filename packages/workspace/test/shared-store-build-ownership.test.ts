@@ -1,3 +1,4 @@
+import { setImmediate } from "node:timers/promises"
 import { expect, it } from "vitest"
 import { contentStreamChunks } from "../src/core/path.ts"
 import { custom } from "../src/index.ts"
@@ -301,6 +302,37 @@ it.each([false, true])("shares empty build mount ownership between Workspaces, v
   await syncWorkspaceDefinition({ name: "first", sources: {} }, store)
   await expect(store.stat("parent/docs")).resolves.toMatchObject({ type: "directory" })
   await syncWorkspaceDefinition({ name: "second", sources: {} }, store)
+  await expect(store.stat("parent")).resolves.toBeUndefined()
+})
+
+it.each([
+  { volatile: false, removed: "first", retained: "second" },
+  { volatile: false, removed: "second", retained: "first" },
+  { volatile: true, removed: "first", retained: "second" },
+  { volatile: true, removed: "second", retained: "first" },
+])("shares concurrently registered empty build mount ownership between Workspaces, volatile=$volatile, removed=$removed", async ({ volatile, removed, retained }) => {
+  const store: WorkspaceStore = createMemoryWorkspaceStore()
+  if (volatile) {
+    store.getMeta = undefined
+    store.setMeta = undefined
+  }
+  const stat = store.stat.bind(store)
+  store.stat = async (path) => {
+    const result = await stat(path)
+    // Yield like an asynchronous provider so both syncs can read before either claims.
+    await setImmediate()
+    return result
+  }
+  const definition = (name: string): WorkspaceDefinition => ({ name, sources: {
+    docs: custom({ materialize: "build", mount: "parent/docs", files: [] }),
+  } })
+  await Promise.all([
+    syncWorkspaceDefinition(definition("first"), store, new AbortController().signal),
+    syncWorkspaceDefinition(definition("second"), store, new AbortController().signal),
+  ])
+  await syncWorkspaceDefinition({ name: removed, sources: {} }, store)
+  await expect(store.stat("parent/docs")).resolves.toMatchObject({ type: "directory" })
+  await syncWorkspaceDefinition({ name: retained, sources: {} }, store)
   await expect(store.stat("parent")).resolves.toBeUndefined()
 })
 

@@ -72,6 +72,23 @@ async function missingBuildDirectories(store: WorkspaceStore, paths: string[]): 
   return missing
 }
 
+// Shared claims and pruning use one queue across Store wrappers.
+const buildDirectoryUpdates = new WeakMap<object, Promise<void>>()
+
+async function updateBuildDirectories<T>(store: WorkspaceStore, operation: () => Promise<T>): Promise<T> {
+  const identity = workspaceStoreIdentity(store)
+  const previous = buildDirectoryUpdates.get(identity) ?? Promise.resolve()
+  const pending = previous.then(operation)
+  const settled = pending.then(() => {}, () => {})
+  buildDirectoryUpdates.set(identity, settled)
+  try {
+    return await pending
+  }
+  finally {
+    if (buildDirectoryUpdates.get(identity) === settled) buildDirectoryUpdates.delete(identity)
+  }
+}
+
 async function recordBuildDirectories(store: WorkspaceStore, workspace: string, paths: string[], missing: Set<string>): Promise<void> {
   const owned = new Set(await readBuildDirectories(store, workspace))
   const users = await readBuildDirectoryUsers(store)
@@ -86,32 +103,34 @@ async function recordBuildDirectories(store: WorkspaceStore, workspace: string, 
 }
 
 async function pruneBuildDirectories(store: WorkspaceStore, workspace: string): Promise<void> {
-  const owned = await readBuildDirectories(store, workspace)
-  const users = await readBuildDirectoryUsers(store)
-  const retained: string[] = []
-  for (const path of owned.sort((a, b) => b.length - a.length)) {
-    const others = (Object.hasOwn(users, path) ? users[path]! : []).filter(name => name !== workspace)
-    if (others.length) {
-      users[path] = others
-      continue
-    }
-    if ((await store.stat(path))?.type !== "directory") {
+  await updateBuildDirectories(store, async () => {
+    const owned = await readBuildDirectories(store, workspace)
+    const users = await readBuildDirectoryUsers(store)
+    const retained: string[] = []
+    for (const path of owned.sort((a, b) => b.length - a.length)) {
+      const others = (Object.hasOwn(users, path) ? users[path]! : []).filter(name => name !== workspace)
+      if (others.length) {
+        users[path] = others
+        continue
+      }
+      if ((await store.stat(path))?.type !== "directory") {
+        delete users[path]
+        continue
+      }
+      if ((await store.list(path)).length) {
+        retained.push(path)
+        continue
+      }
+      if (!store.removeEmptyDirectory) {
+        retained.push(path)
+        continue
+      }
+      await store.removeEmptyDirectory(path)
       delete users[path]
-      continue
     }
-    if ((await store.list(path)).length) {
-      retained.push(path)
-      continue
-    }
-    if (!store.removeEmptyDirectory) {
-      retained.push(path)
-      continue
-    }
-    await store.removeEmptyDirectory(path)
-    delete users[path]
-  }
-  await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
-  await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), retained)
+    await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
+    await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), retained)
+  })
 }
 
 interface BuildFileRecord {
@@ -133,7 +152,7 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
   let writes = Promise.resolve()
   const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
     abortSignal?.throwIfAborted()
-    const pending = writes.then(operation)
+    const pending = writes.then(() => updateBuildDirectories(mutationStore, operation))
     writes = pending.then(() => {}, () => {})
     return trackOperation ? trackOperation(pending) : pending
   }
@@ -414,12 +433,12 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
 
   for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].filter(Boolean).sort((a, b) => a.length - b.length)) {
     abortSignal?.throwIfAborted()
-    await mutate(async () => {
+    await mutate(() => updateBuildDirectories(materializationStore, async () => {
       const directories = [...parentPaths(mountPath), mountPath]
       const missing = await missingBuildDirectories(materializationStore, directories)
       await materializationStore.mkdir(mountPath, { recursive: true })
       await recordBuildDirectories(materializationStore, definition.name, directories, missing)
-    })
+    }))
     abortSignal?.throwIfAborted()
   }
 
