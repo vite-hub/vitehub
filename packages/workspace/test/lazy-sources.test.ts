@@ -2675,6 +2675,42 @@ describe("lazy sources", () => {
     })
   })
 
+  it.each(["materialize", "read"])("validates cached ownership before %s on a shared Store", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    const definition = (name: string) => ({
+      name,
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          cache: { maxAge: 3600 },
+          files: [{ path: "shared.md", content: name }],
+        }),
+      },
+    } as const)
+    const first = createWorkspaceSourceView(definition("first"), store)
+    const second = createWorkspaceSourceView(definition("second"), store)
+    if (operation === "materialize") await first.materializeSources()
+    else await expect(first.readFile("docs/shared.md")).resolves.toBe("first")
+    await second.materializeSources()
+    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "second" })
+
+    if (operation === "materialize") await first.materializeSources()
+    else await expect(first.readFile("docs/shared.md")).resolves.toBe("first")
+    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "first" })
+  })
+
+  it("restores a missing empty mount before accepting a cached snapshot", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "empty-cache",
+      sources: { docs: custom({ materialize: "lazy", cache: { maxAge: 3600 }, files: [] }) },
+    }, store)
+    await view.materializeSources()
+    await store.rm("docs", { recursive: true })
+    await view.materializeSources()
+    expect((await store.stat("docs"))?.type).toBe("directory")
+  })
+
   it("reuses cached materialized files within max age", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-05-05T12:00:00Z"))

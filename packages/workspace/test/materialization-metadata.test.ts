@@ -424,7 +424,9 @@ it.each(["removal", "refresh"])("preserves unowned legacy cached files during %s
   await store.setMeta!(sourceSnapshotMetaKey("first", "docs"), undefined)
   await store.writeFile("docs/shared.md", { path: "docs/shared.md", content: "legacy", metadata: { source: "docs" } })
   const second = { name: "second", sources: { docs: source } }
-  await materializeWorkspaceSources(second, store)
+  getKeys.mockRejectedValueOnce(new Error("Source unavailable during ownership migration"))
+  const adoption = await materializeWorkspaceSources(second, store)
+  expect(adoption.sources[0]?.status).toBe("error")
   if (operation === "removal") {
     await materializeWorkspaceSources({ name: "second", sources: {} }, store)
   }

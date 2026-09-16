@@ -128,21 +128,24 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
   const configHash = await sourceConfigHash(source, store)
   const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source)
   if (meta?.status !== "ready" || meta.configHash !== configHash) return false
-  if (verifyOwnership) {
-    if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
-    for (const path of Object.keys(meta.items || {})) {
-      const stat = await store.stat(path)
-      if (stat?.type !== "file") return false
-      const durable = await readWorkspaceFileOwner(store, path)
-      if (!((stat.metadata?.workspaceSourceOwner === workspace && stat.metadata?.source === source.key) || (durable?.workspace === workspace && durable.source === source.key))) return false
-    }
+  return !verifyOwnership || await snapshotHasCurrentOwners(store, workspace, source, meta)
+}
+
+async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, meta: SourceSnapshotMetadata) {
+  if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
+  for (const path of Object.keys(meta.items || {})) {
+    const stat = await store.stat(path)
+    if (stat?.type !== "file") return false
+    const durable = await readWorkspaceFileOwner(store, path)
+    if (!((stat.metadata?.workspaceSourceOwner === workspace && stat.metadata?.source === source.key) || (durable?.workspace === workspace && durable.source === source.key))) return false
   }
   return true
 }
 
 export async function hasFreshSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource) {
   const configHash = await sourceConfigHash(source, store)
-  return isSnapshotFresh(await readSourceSnapshotMetadata(store, workspace, source.key, source), source, configHash)
+  const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source)
+  return !!meta && isSnapshotFresh(meta, source, configHash) && await snapshotHasCurrentOwners(store, workspace, source, meta)
 }
 
 export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, workspace: string, source: SourceConfiguration) {
@@ -678,7 +681,8 @@ async function materializeWorkspaceSourcesInternal(
       continue
     }
     const completeSource = materializesCompleteSource(source, options)
-    const cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
+    const cacheHit = completeSource && !!existing && isSnapshotFresh(existing, source, configHash)
+      && await snapshotHasCurrentOwners(store, workspace, source, existing)
     const cacheStatus = materializationCacheStatus(source, completeSource, cacheHit)
     if (cacheHit) {
       const durationMs = Date.now() - sourceStarted
