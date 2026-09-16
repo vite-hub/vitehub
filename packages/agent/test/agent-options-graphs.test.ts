@@ -265,3 +265,61 @@ it.each([
   expect(inherited.options.nested.instance).toBe(instance)
   expect(configure).toHaveBeenCalledTimes(2)
 })
+
+it.each([
+  new Date("2025-01-01"), new Map(), new Set(), /pattern/g,
+  new URL("https://example.com"), new URLSearchParams("q=value"),
+  new ArrayBuffer(8), new SharedArrayBuffer(8), new DataView(new ArrayBuffer(8)),
+  new Uint8Array([1, 2]), Buffer.from([1, 2]),
+])("preserves application descriptors on built-in options: %s", instance => {
+  const symbol = Symbol("metadata")
+  const shared = { zone: "UTC" }
+  const getter = vi.fn(() => shared)
+  if (instance instanceof Map) instance.set("metadata", shared)
+  if (instance instanceof Set) instance.add(shared)
+  Object.defineProperties(instance, {
+    metadata: { value: shared, enumerable: false, writable: false },
+    self: { value: instance },
+    accessor: { get: getter },
+    [symbol]: { value: shared },
+  })
+  const configure = vi.fn((_options: { instance: typeof instance, shared: typeof shared }) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options: { instance, shared }, configure })
+  const inherited = defineAgent({ extends: preset })
+  for (const options of [preset.options, inherited.options, ...configure.mock.calls.map(([options]) => options)]) {
+    expect(options.instance).not.toBe(instance)
+    expect(Object.getOwnPropertyDescriptor(options.instance, "metadata")).toEqual({ value: options.shared, enumerable: false, writable: false, configurable: false })
+    expect(Object.getOwnPropertyDescriptor(options.instance, "self")?.value).toBe(options.instance)
+    expect(Object.getOwnPropertyDescriptor(options.instance, symbol)?.value).toBe(options.shared)
+    expect(Object.getOwnPropertyDescriptor(options.instance, "accessor")?.get).toBe(getter)
+    expect(options.shared).not.toBe(shared)
+    if (options.instance instanceof Map) expect(options.instance.get("metadata")).toBe(options.shared)
+    if (options.instance instanceof Set) expect(options.instance.has(options.shared)).toBe(true)
+  }
+  expect(getter).not.toHaveBeenCalled()
+})
+
+it.each([false, true])("preserves cycles between view properties and backing stores (view first: %s)", viewFirst => {
+  const buffer = new ArrayBuffer(8)
+  const view = new Uint8Array(buffer, 2, 3)
+  const data = new DataView(buffer, 1, 4)
+  view[0] = 42
+  Object.defineProperty(buffer, "view", { value: view })
+  Object.defineProperty(view, "data", { value: data })
+  Object.defineProperty(data, "view", { value: view })
+  const options = viewFirst ? { view, buffer, data } : { buffer, view, data }
+  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options, configure })
+  const inherited = defineAgent({ extends: preset })
+  for (const clone of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
+    expect(clone.buffer).not.toBe(buffer)
+    expect(clone.view.buffer).toBe(clone.buffer)
+    expect(clone.data.buffer).toBe(clone.buffer)
+    expect(clone.view.byteOffset).toBe(2)
+    expect(clone.view.byteLength).toBe(3)
+    expect(clone.view[0]).toBe(42)
+    expect(Object.getOwnPropertyDescriptor(clone.buffer, "view")?.value).toBe(clone.view)
+    expect(Object.getOwnPropertyDescriptor(clone.view, "data")?.value).toBe(clone.data)
+    expect(Object.getOwnPropertyDescriptor(clone.data, "view")?.value).toBe(clone.view)
+  }
+})

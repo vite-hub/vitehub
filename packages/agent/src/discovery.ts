@@ -392,6 +392,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (!parameterScope && imported.has(tokens[index]) && !["(", "<"].includes(tokens[referenceEnd])) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Capability. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or define the Capability locally so discovery can inspect it.")
     }
+    if (!parameterScope && !imported.has(tokens[index]) && (tokens[index] === "new" || (tokens[index] === "Array" && tokens[memberCallEnd(index)] === "(") || [".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === "."))) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
+    }
     return false
   }
 
@@ -695,7 +698,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             else if (["}", ")", "]"].includes(tokens[i])) depth--
           }
         }
-        const capabilities = properties(channelOptions, true).get("capabilities")
+        const channelProperties = properties(channelOptions, true)
+        if (channelCall === undefined && ((tokens[channelOptions] !== "{" && tokens[memberCallEnd(channelOptions)] !== "(") || (tokens[channelOptions] === "{" && tokens[channelOptions - 1] === ")"))) {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Channel factory or opaque Channel value. Use a local Channel object, or add workspace: {} to the Agent definition when the Channel owns a Workspace.")
+        }
+        const capabilities = channelProperties.get("capabilities")
         if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
       }
     }

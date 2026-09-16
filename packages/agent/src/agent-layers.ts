@@ -250,130 +250,113 @@ function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Reco
   return result
 }
 
+function clonePresetDescriptors(source: object, target: object, memo: WeakMap<object, unknown>, active: WeakMap<object, unknown>): void {
+  for (const key of Reflect.ownKeys(source)) {
+    const descriptor = Object.getOwnPropertyDescriptor(source, key)
+    if (!descriptor) continue
+    if ("value" in descriptor) {
+      // SAFETY: Data descriptors contain arbitrary option values.
+      descriptor.value = clonePresetOption(descriptor.value as unknown, memo, active)
+    }
+    Object.defineProperty(target, key, descriptor)
+  }
+}
+
+function clonePresetBacking(value: ArrayBufferLike): ArrayBufferLike {
+  const clone = value instanceof ArrayBuffer ? new ArrayBuffer(value.byteLength) : new SharedArrayBuffer(value.byteLength)
+  new Uint8Array(clone).set(new Uint8Array(value))
+  return clone
+}
+
 function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>(), active = new WeakMap<object, unknown>()): unknown {
-  if (value === null || (!hasRuntimeType(value, "object") && !hasRuntimeType(value, "function"))) return value
-  // Functions are atomic option values; preserve callback identity rather than
-  // rejecting them as unsupported objects.
-  if (hasRuntimeType(value, "function")) return value
+  if (value === null || !hasRuntimeType(value, "object")) return value
   if (active.has(value)) return active.get(value)
   if (memo.has(value)) return memo.get(value)
-  if (Array.isArray(value)) {
-    if (Object.getPrototypeOf(value) !== Array.prototype) return value
-    // SAFETY: Array construction with the source length produces an indexed option container.
-    const clone = new Array(value.length) as unknown[]
+  const finish = (clone: object) => {
     memo.set(value, clone)
-    for (const key of Reflect.ownKeys(value)) {
-      if (key === "length") continue
-      const descriptor = Object.getOwnPropertyDescriptor(value, key)
-      if (!descriptor) continue
-      if ("value" in descriptor) {
-        // SAFETY: Data descriptors contain arbitrary option values.
-        descriptor.value = clonePresetOption(descriptor.value as unknown, memo, active)
-      }
-      Object.defineProperty(clone, key, descriptor)
-    }
-    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length")
-    if (lengthDescriptor) Object.defineProperty(clone, "length", lengthDescriptor)
+    clonePresetDescriptors(value, clone, memo, active)
     return clone
   }
-  if (value instanceof Date) { if (Object.getPrototypeOf(value) !== Date.prototype) return value; const clone = new Date(value.getTime()); memo.set(value, clone); return clone }
+  if (Array.isArray(value)) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return value
+    return finish(new Array(value.length))
+  }
+  if (value instanceof Date) {
+    if (Object.getPrototypeOf(value) !== Date.prototype) return value
+    return finish(new Date(Date.prototype.getTime.call(value)))
+  }
   if (value instanceof Map) {
     if (Object.getPrototypeOf(value) !== Map.prototype) return value
-    const clone = new Map()
+    const clone = new Map<unknown, unknown>()
     memo.set(value, clone)
-    for (const [key, entry] of value) clone.set(clonePresetOption(key, memo, active), clonePresetOption(entry, memo, active))
-    return clone
+    for (const [key, entry] of Map.prototype.entries.call(value)) clone.set(clonePresetOption(key, memo, active), clonePresetOption(entry, memo, active))
+    return finish(clone)
   }
   if (value instanceof Set) {
     if (Object.getPrototypeOf(value) !== Set.prototype) return value
-    const clone = new Set()
+    const clone = new Set<unknown>()
     memo.set(value, clone)
-    for (const entry of value) clone.add(clonePresetOption(entry, memo, active))
-    return clone
+    for (const entry of Set.prototype.values.call(value)) clone.add(clonePresetOption(entry, memo, active))
+    return finish(clone)
   }
-  if (value instanceof RegExp) { if (Object.getPrototypeOf(value) !== RegExp.prototype) return value; const clone = new RegExp(value.source, value.flags); clone.lastIndex = value.lastIndex; memo.set(value, clone); return clone }
-  if (value instanceof URL) { if (Object.getPrototypeOf(value) !== URL.prototype) return value; const clone = new URL(value.href); memo.set(value, clone); return clone }
-  if (value instanceof URLSearchParams) { if (Object.getPrototypeOf(value) !== URLSearchParams.prototype) return value; const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
-  if (value instanceof ArrayBuffer) { if (Object.getPrototypeOf(value) !== ArrayBuffer.prototype) return value; const clone = value.slice(0); memo.set(value, clone); return clone }
-  const sharedArrayBuffer = globalThis.SharedArrayBuffer
-  if (sharedArrayBuffer && value instanceof sharedArrayBuffer) {
-    if (Object.getPrototypeOf(value) !== sharedArrayBuffer.prototype) return value
-    const source = value
-    const clone = new sharedArrayBuffer(source.byteLength)
-    const cloneBytes = new Uint8Array(clone)
-    const sourceBytes = new Uint8Array(value)
-    cloneBytes.set(sourceBytes)
-    memo.set(value, clone)
-    return clone
+  if (value instanceof RegExp) {
+    if (Object.getPrototypeOf(value) !== RegExp.prototype) return value
+    return finish(new RegExp(value.source, value.flags))
+  }
+  if (value instanceof URL) {
+    if (Object.getPrototypeOf(value) !== URL.prototype) return value
+    return finish(new URL(value.href))
+  }
+  if (value instanceof URLSearchParams) {
+    if (Object.getPrototypeOf(value) !== URLSearchParams.prototype) return value
+    return finish(new URLSearchParams(URLSearchParams.prototype.toString.call(value)))
+  }
+  if (value instanceof ArrayBuffer) {
+    if (Object.getPrototypeOf(value) !== ArrayBuffer.prototype) return value
+    return finish(clonePresetBacking(value))
+  }
+  if (globalThis.SharedArrayBuffer && value instanceof SharedArrayBuffer) {
+    if (Object.getPrototypeOf(value) !== SharedArrayBuffer.prototype) return value
+    return finish(clonePresetBacking(value))
   }
   if (ArrayBuffer.isView(value)) {
-    // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
-    if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) {
-      // SAFETY: Buffer values are Uint8Array views by the preceding intrinsic check.
-      const sourceBuffer = value as Uint8Array
-      // SAFETY: Uint8Array intrinsic accessor returns the backing ArrayBuffer.
-      const sourceBacking = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "buffer")!.get!.call(sourceBuffer) as ArrayBuffer
-      // SAFETY: Uint8Array intrinsic accessor returns a numeric offset.
-      const sourceOffset = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteOffset")!.get!.call(sourceBuffer) as number
-      // SAFETY: Uint8Array intrinsic accessor returns a numeric length.
-      const sourceLength = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteLength")!.get!.call(sourceBuffer) as number
-      // SAFETY: cloning an ArrayBuffer yields an ArrayBuffer.
-      // SAFETY: clonePresetOption returns the same built-in type for ArrayBuffer inputs.
-      const clonedBacking = clonePresetOption(sourceBacking, memo, active) as ArrayBuffer
-      // SAFETY: Node's Buffer binding is present in this branch and accepts the cloned backing range.
-      const clone = (globalThis as { Buffer: typeof Buffer }).Buffer.from(clonedBacking, sourceOffset, sourceLength)
-      memo.set(value, clone)
-      return clone
-    }
-    if (value instanceof DataView) {
-      if (Object.getPrototypeOf(value) !== DataView.prototype) return value
-      // SAFETY: DataView intrinsic accessors avoid shadowable instance properties.
-      // SAFETY: DataView intrinsic buffer accessor returns an ArrayBuffer.
-      const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
-      // SAFETY: DataView intrinsic byteOffset accessor returns a number.
-      const byteOffset = Object.getOwnPropertyDescriptor(DataView.prototype, "byteOffset")!.get!.call(value) as number
-      // SAFETY: DataView intrinsic byteLength accessor returns a number.
-      const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value) as number
-      // SAFETY: buffer is obtained from the intrinsic DataView accessor and clonePresetOption preserves ArrayBuffer values.
-      const clonedBuffer = clonePresetOption(buffer, memo, active) as ArrayBuffer
-      const clone = new DataView(clonedBuffer, byteOffset, byteLength)
-      memo.set(value, clone)
-      return clone
-    }
-    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype)
-    // SAFETY: %TypedArray% intrinsic accessors work for every typed-array view.
-    const buffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer")!.get!.call(value) as ArrayBuffer
-    const byteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")!.get!.call(value)
-    const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")!.get!.call(value)
-    // SAFETY: clonePresetOption returns the same built-in type for ArrayBuffer inputs.
-    const clonedBuffer = clonePresetOption(buffer, memo, active) as ArrayBuffer
-    // SAFETY: Every entry is a built-in typed-array constructor; filtering removes unavailable BigInt variants.
-    const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, "BigInt64Array" in globalThis ? BigInt64Array : undefined, "BigUint64Array" in globalThis ? BigUint64Array : undefined].filter(Boolean) as any[]
-    const TypedArray = constructors.find((ctor) => value instanceof ctor)
-    if (!TypedArray) throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
-    if (Object.getPrototypeOf(value) !== TypedArray.prototype) return value
-    const clone = new TypedArray(clonedBuffer, byteOffset, byteLength / TypedArray.BYTES_PER_ELEMENT)
+    const typedArrayPrototype: object = Object.getPrototypeOf(Uint8Array.prototype)
+    const constructors: {
+      new (buffer: ArrayBufferLike, byteOffset?: number, length?: number): ArrayBufferView
+      readonly prototype: object
+      readonly BYTES_PER_ELEMENT: number
+    }[] = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, BigInt64Array, BigUint64Array]
+    const TypedArray = constructors.find(ctor => Object.getPrototypeOf(value) === ctor.prototype)
+    const isBuffer = typeof Buffer !== "undefined" && Object.getPrototypeOf(value) === Buffer.prototype
+    const isDataView = Object.getPrototypeOf(value) === DataView.prototype
+    if (!TypedArray && !isBuffer && !isDataView) return value
+    const prototype = isDataView ? DataView.prototype : typedArrayPrototype
+    // SAFETY: Intrinsic view accessors return the backing buffer and numeric range without invoking application properties.
+    const buffer = Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value) as ArrayBufferLike
+    // SAFETY: The intrinsic byteOffset accessor returns a number.
+    const byteOffset = Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value) as number
+    // SAFETY: The intrinsic byteLength accessor returns a number.
+    const byteLength = Object.getOwnPropertyDescriptor(prototype, "byteLength")!.get!.call(value) as number
+    const bufferPrototype = Object.getPrototypeOf(buffer)
+    const standardBuffer = bufferPrototype === ArrayBuffer.prototype || (globalThis.SharedArrayBuffer && bufferPrototype === SharedArrayBuffer.prototype)
+    const populateBacking = standardBuffer && !memo.has(buffer) && !active.has(buffer)
+    // Allocate the backing store before traversing its properties. It may point back to this view.
+    // SAFETY: Buffer clones and existing memo entries retain the backing store type.
+    const clonedBuffer = (populateBacking ? clonePresetBacking(buffer) : active.get(buffer) ?? memo.get(buffer) ?? buffer) as ArrayBufferLike
+    if (populateBacking) memo.set(buffer, clonedBuffer)
+    const clone = isBuffer ? Buffer.from(clonedBuffer, byteOffset, byteLength)
+      : isDataView ? new DataView(clonedBuffer, byteOffset, byteLength)
+      : new TypedArray!(clonedBuffer, byteOffset, byteLength / TypedArray!.BYTES_PER_ELEMENT)
     memo.set(value, clone)
-    return clone
+    if (populateBacking) clonePresetDescriptors(buffer, clonedBuffer, memo, active)
+    return finish(clone)
   }
   if (record(value)) {
-    const prototype = Object.getPrototypeOf(value)
-    // SAFETY: Object values are cloned with their prototype and own descriptors.
     // SAFETY: The prototype is restricted to plain objects or null above.
-    const clone = Object.create(prototype) as Record<string, unknown>
-    memo.set(value, clone)
-    for (const key of Reflect.ownKeys(value)) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key)
-      if (!descriptor) continue
-      if ("value" in descriptor) {
-        // SAFETY: Value descriptors expose an arbitrary option value for recursive cloning.
-        descriptor.value = clonePresetOption(descriptor.value as unknown, memo, active)
-      }
-      Object.defineProperty(clone, key, descriptor)
-    }
-    return clone
+    const clone: object = Object.create(Object.getPrototypeOf(value)) as object
+    return finish(clone)
   }
-  // Preserve internal slots and identity for other branded option values.
+  // Preserve callbacks, internal slots, and identity for other branded option values.
   return value
 }
 

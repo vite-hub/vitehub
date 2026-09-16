@@ -262,3 +262,35 @@ it.each([String.raw`"\x77orkspace"`, String.raw`'\u{77}orkspace'`, String.raw`["
 it.each(["void 0 || {}", "void 0 ?? {}", "void 0 ? {} : {}"])("rejects compound void Workspace expressions: %s", async (workspace) => {
   await expect(discover(`export default defineAgent({ options: {}, configure: () => defineAgent({ workspace: ${workspace} }) })`)).rejects.toThrow("cannot inspect a compound void expression")
 })
+
+it.each([
+  '() => ({ kind: "custom", capabilities: [storage] })',
+  '(options) => ({ kind: "custom", capabilities: [storage] })',
+  'function custom() { return { kind: "custom", capabilities: [storage] } }',
+])("requires a Workspace marker for local Channel factories: %s", async (factory) => {
+  const declaration = `const storage = defineCapability({ workspace: {} }); const custom = ${factory};`
+  for (const channel of [factory, "custom"]) {
+    const settings = `options: {}, configure: () => defineAgent({ channels: { custom: ${channel} } })`
+    await expect(discover(`${declaration} export default defineAgent({ ${settings} })`)).rejects.toThrow("cannot inspect a local Channel factory")
+    const definitions = await discover(`${declaration} export default defineAgent({ workspace: {}, ${settings} })`)
+    expect(definitions[0]?.workspace).toBe("notes")
+  }
+})
+
+it.each(["Array.of(storage)", "Array.from([storage])", "Array['of'](storage)", "Array(storage)", "new Array(storage)"])("requires a Workspace marker for constructed Capability lists: %s", async (capabilities) => {
+  const declaration = `const storage = defineCapability({ workspace: {} }); const list = ${capabilities};`
+  for (const value of [capabilities, "list"]) {
+    const settings = `options: {}, configure: () => defineAgent({ capabilities: ${value} })`
+    await expect(discover(`${declaration} export default defineAgent({ ${settings} })`)).rejects.toThrow("cannot inspect an opaque Capability expression")
+    const definitions = await discover(`${declaration} export default defineAgent({ workspace: {}, ${settings} })`)
+    expect(definitions[0]?.workspace).toBe("notes")
+  }
+})
+
+it.each(["custom", '["custom"]'])("requires a Workspace marker for Channel method %s", async (key) => {
+  const declaration = "const storage = defineCapability({ workspace: {} });"
+  const settings = `options: {}, configure: () => defineAgent({ channels: { ${key}() { return { kind: "custom", capabilities: [storage] } } } })`
+  await expect(discover(`${declaration} export default defineAgent({ ${settings} })`)).rejects.toThrow("cannot inspect a local Channel factory")
+  const definitions = await discover(`${declaration} export default defineAgent({ workspace: {}, ${settings} })`)
+  expect(definitions[0]?.workspace).toBe("notes")
+})
