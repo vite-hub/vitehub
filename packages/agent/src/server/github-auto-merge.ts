@@ -208,7 +208,10 @@ export function createGitHubPullRequestOperations(
     // Recheck admission after the paginated eligibility reads. GitHub compares the
     // expected head atomically with enabling auto-merge, including concurrent pushes.
     const finalState = await snapshot()
-    if (finalState.pullRequest.headRefOid !== pullRequest.headRefOid) throw new Error("Pull request head changed during auto-merge admission.")
+    if (finalState.pullRequest.headRefOid !== pullRequest.headRefOid
+      || finalState.pullRequest.baseRefName !== pullRequest.baseRefName) {
+      throw new Error("Pull request ref changed during auto-merge admission.")
+    }
     if (finalState.pullRequest.isDraft) return { status: "blocked", reason: "draft" }
     if (finalState.pullRequest.reviewDecision === "CHANGES_REQUESTED"
       || finalState.pullRequest.latestOpinionatedReviews.nodes.some(review => review.state === "CHANGES_REQUESTED" && review.author?.__typename !== "Bot")) return { status: "blocked", reason: "changes-requested" }
