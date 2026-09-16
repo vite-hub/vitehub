@@ -532,10 +532,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           end = i
         }
       }
+      // Inspect only the definition expression(s) that can actually be
+      // returned. Searching the raw source tail would include nested settings
+      // objects and falsely promote the outer Agent.
+      if (returnedDefinitions.some((index) => ownsWorkspace(index))) return true
       const tail = tokens.slice(start, end).join(" ")
-      // Configured callbacks may contribute Workspace through a capability or
-      // channel rather than returning an inline `workspace` object.
-      if (/\bworkspace\s*:|\bworkspace(?:Capability|Channel)\b/.test(tail)) return true
       // Resolve locally declared capability aliases instead of relying on
       // identifier naming conventions. A capability whose definition carries
       // a Workspace contribution promotes the configured Agent at runtime.
