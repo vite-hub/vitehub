@@ -69,6 +69,13 @@ it.each(["values.storage", 'values["storage"]', "values[key]", "values?.storage"
   expect(definitions[0]?.workspace).toBe("notes")
 })
 
+it.each(["values.storage()", 'values["storage"]()', "values[key]()", "values?.storage()", "values.storage?.()", "values?.[key]?.()"])("rejects opaque local Capability member calls: %s", async (member) => {
+  const source = `const values = { storage: () => defineCapability({ workspace: {} }) }; const key = "storage"; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: [${member}] }) })`
+  await expect(discover(source)).rejects.toThrow("cannot inspect a local Capability member")
+  const definitions = await discover(source.replace("capabilities:", "workspace: {}, capabilities:"))
+  expect(definitions[0]?.workspace).toBe("notes")
+})
+
 it("allows callback parameters to shadow imported Capabilities", async () => {
   const definitions = await discover('import { storage } from "./storage"; export default defineAgent({ options: {}, configure: storage => defineAgent({ capabilities: [storage] }) })')
   expect(definitions[0]?.workspace).toBeUndefined()

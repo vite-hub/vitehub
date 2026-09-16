@@ -6,6 +6,9 @@ import { discoverAgentDefinitions } from "../src/discovery.ts"
 
 it.each([
   "{ name: 'shared' }",
+  "void 0",
+  "(void 0)",
+  "void sideEffect()",
   "options.prod ? { name: 'prod' } : { name: 'dev' }",
   "options.prod ? 'prod' : 'dev'",
 ])("keeps configured Workspace references separate from owned storage: %s", async (workspace) => {
@@ -36,6 +39,10 @@ it.each([
   ["undefined name owns Workspace", "return defineAgent({ workspace: { name: undefined } })", true],
   ["aliased undefined name owns Workspace", "const name = undefined; return defineAgent({ workspace: { name } })", true],
   ["aliased string name references Workspace", "const name = 'shared'; return defineAgent({ workspace: { name } })", false],
+  ["void Capability Workspace stays plain", "const plain = defineCapability({ id: 'plain', workspace: void 0 }); return defineAgent({ capabilities: [plain] })", false],
+  ["aliased void Workspace stays plain", "const omitted = void 0; return defineAgent({ workspace: omitted })", false],
+  ["void Workspace keeps Capability ownership", "return defineAgent({ workspace: void 0, capabilities: [storage] })", true],
+  ["void name owns Workspace", "return defineAgent({ workspace: { name: void 0 } })", true],
   ["undefined Workspace stays plain", "return defineAgent({ driver: 'codex', workspace: undefined })", false],
   ["undefined Workspace keeps Capability ownership", "return defineAgent({ workspace: undefined, capabilities: [storage] })", true],
   ["later var shadows module", "return defineAgent({ capabilities: [storage] }); var storage = defineCapability({ id: 'plain' })", false],

@@ -50,9 +50,12 @@ it.each([
   ['import { defineCapability as capability } from "@vite-hub/agent"', 'capability => defineAgent({ capabilities: [capability({ workspace: {} })] })'],
   ['import * as hub from "@vite-hub/agent"', 'hub => defineAgent({ channels: { custom: { capabilities: [hub.defineCapability({ workspace: {} })] } } })'],
   ['import { defineCapability as capability } from "@vite-hub/agent"', '() => { const capability = () => ({}); return defineAgent({ capabilities: [capability({ workspace: {} })] }) }'],
-  ['import * as hub from "@vite-hub/agent"', '() => { const hub = {}; return defineAgent({ capabilities: [hub.defineCapability({ workspace: {} })] }) }'],
 ])("honors shadowed Capability factories: %s", async (imports, configure) => {
   await expect(workspaceFor(`${imports}; export default defineAgent({ options: {}, configure: ${configure} })`)).resolves.toBeUndefined()
+})
+
+it("rejects an opaque local member that shadows a Capability namespace", async () => {
+  await expect(workspaceFor('import * as hub from "@vite-hub/agent"; export default defineAgent({ options: {}, configure: () => { const hub = {}; return defineAgent({ capabilities: [hub.defineCapability({ workspace: {} })] }) } })')).rejects.toThrow("cannot inspect a local Capability member")
 })
 
 it.each([

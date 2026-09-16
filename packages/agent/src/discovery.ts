@@ -369,7 +369,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (tokens[capabilityCall] === "(") {
       const options = properties(capabilityCall + 1)
       const workspace = options.get("workspace")
-      if (workspace !== undefined && tokens[resolveReference(workspace)] !== "undefined") return true
+      if (workspace !== undefined && !["undefined", "void"].includes(tokens[resolveReference(workspace)])) return true
       const nested = options.get("capabilities")
       return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
     }
@@ -378,7 +378,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (destructuredBindings.has(binding)) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect a destructured Capability binding. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
       }
-      if (tokens[memberCallEnd(index)] !== "(" && ([".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === "."))) {
+      if ([".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === ".")) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Capability member. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
       }
       // Later declarations shadow outer bindings before their initializer runs.
@@ -626,7 +626,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     const options = properties(call + 1)
     const workspace = options.get("workspace")
-    if (workspace !== undefined && tokens[resolveReference(workspace)] !== "undefined") {
+    if (workspace !== undefined && !["undefined", "void"].includes(tokens[resolveReference(workspace)])) {
       function workspaceOwnsDefinition(index: number): boolean {
         const value = resolveReference(index)
         const branches = conditionalBranches(value)
@@ -635,11 +635,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           const name = properties(value).get("name")
           if (name === undefined) return true
           const nameValue = resolveReference(name)
-          if (tokens[nameValue] === "undefined") return true
+          if (["undefined", "void"].includes(tokens[nameValue])) return true
           if (/^["'`]/.test(tokens[nameValue] ?? "")) return false
           throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic Workspace name. Use a statically known string reference or workspace: {} ownership marker.")
         }
-        if (tokens[value] === "undefined" || /^["'`]/.test(tokens[value] ?? "")) return false
+        if (["undefined", "void"].includes(tokens[value]) || /^["'`]/.test(tokens[value] ?? "")) return false
         // A dynamic member may resolve to either a named reference or owned
         // storage. Require an explicit contract instead of guessing ownership.
         const optionBinding = callbackParameters.some(scope => value >= scope.start && value < scope.end && scope.names.has(tokens[value]))

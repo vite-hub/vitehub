@@ -284,7 +284,13 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     for (const [key, entry] of value) clone.set(clonePresetOption(key, memo, active), clonePresetOption(entry, memo, active))
     return clone
   }
-  if (value instanceof Set) { const clone = new Set(); memo.set(value, clone); for (const entry of value) clone.add(clonePresetOption(entry, memo, active)); return clone }
+  if (value instanceof Set) {
+    if (Object.getPrototypeOf(value) !== Set.prototype) return value
+    const clone = new Set()
+    memo.set(value, clone)
+    for (const entry of value) clone.add(clonePresetOption(entry, memo, active))
+    return clone
+  }
   if (value instanceof RegExp) { const clone = new RegExp(value.source, value.flags); clone.lastIndex = value.lastIndex; memo.set(value, clone); return clone }
   if (value instanceof URL) { const clone = new URL(value.href); memo.set(value, clone); return clone }
   if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
