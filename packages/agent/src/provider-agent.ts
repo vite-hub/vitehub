@@ -464,7 +464,14 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
   if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(item => hasRuntimeType(item, "string")))) {
     throw agentDiagnostics.AGENT_R0675({ message: "[vitehub] driver.launch args must contain only strings." })
   }
+  if (value.onExit !== undefined && !hasRuntimeType(value.onExit, "function")) {
+    throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch onExit must be a function." })
+  }
   const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (hasRuntimeType(value.onExit, "function")) {
+    // SAFETY: Runtime validation establishes a callable host-supplied lifecycle hook.
+    launch.onExit = value.onExit as AgentProviderLaunchCommand["onExit"]
+  }
   if (value.args !== undefined) launch.args = [...value.args]
   return launch
 }
@@ -2372,6 +2379,7 @@ async function* runProvider<
   }
   let workspaceSession: WorkspaceSession | undefined
   let sourceProvenance: ProviderSourceProvenance[] = []
+  let onProviderExit: AgentProviderLaunchCommand["onExit"]
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
@@ -2664,6 +2672,7 @@ async function* runProvider<
         Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
         effectiveSignal,
       ))
+      onProviderExit = launch.onExit
       if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
       const materializedLauncher = await waitForProviderOperation(
         materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, root),
@@ -2951,36 +2960,39 @@ async function* runProvider<
         ])
         if (timeout) clearTimeout(timeout)
         if (stopped) runtimeCleanupSettled = true
+        else cleanupTimedOut = true
         await releaseCodexCredentialHome(stopped
           ? deferredRuntimeFailure
           : agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver deferred runtime cleanup timed out." }))
       })())
     }
+    let exitCallbackPending = false
+    let exitCallbackFailed = false
     let workspaceFinalization: Promise<void> | undefined
-    const finalizeWorkspace = () => workspaceFinalization ??= (async () => {
-        try {
-          for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-        try {
-          await closeWorkspace(
-            context,
-            workspaceSession,
-            caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
-            cleanup.signal,
-          )
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-        finally {
-          releaseWorkspaceCleanup?.()
-        }
-      })()
+    const finalizeWorkspace = (signal = cleanup.signal) => workspaceFinalization ??= (async () => {
+      try {
+        for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      try {
+        await closeWorkspace(
+          context,
+          workspaceSession,
+          caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
+          signal,
+        )
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      finally {
+        releaseWorkspaceCleanup?.()
+      }
+    })()
     const toolCleanup = Promise.resolve().then(() => toolServer?.close())
-    const cleanupTask = (async () => {
+    const shutdownTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
         ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
         : Promise.resolve()
@@ -3012,18 +3024,51 @@ async function* runProvider<
       for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
         if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
       }
-      await finalizeWorkspace()
-      if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+    })()
+    const exitCallbackTask = shutdownTask.then(async () => {
+      if (onProviderExit && !isAuxiliaryAgentAdapterContext(context) && !runtimeCleanupFailure && !deferredRuntimeFailure && !cleanupTimedOut) {
+        exitCallbackPending = true
+        const exitCleanup = createProviderCleanupSignal(undefined)
         try {
-          await cleanupRoot()
+          await waitForProviderOperation(
+            Promise.resolve().then(() => onProviderExit!({ cwd: root, abortSignal: exitCleanup.signal })),
+            exitCleanup.signal,
+          )
         }
         catch (error) {
+          exitCallbackFailed = true
           cleanupErrors.push(error)
         }
+        finally {
+          exitCallbackPending = false
+          exitCleanup.dispose()
+        }
       }
-    })()
+    })
+    const cleanupTask = exitCallbackTask.then(async () => {
+      const finalizationCleanup = createProviderCleanupSignal(undefined)
+      const finalizationTask = (async () => {
+        await finalizeWorkspace(finalizationCleanup.signal)
+        if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+          try {
+            await cleanupRoot()
+          }
+          catch (error) {
+            cleanupErrors.push(error)
+          }
+        }
+      })()
+      try {
+        await waitForProviderOperation(finalizationTask, finalizationCleanup.signal)
+      }
+      finally {
+        finalizationCleanup.dispose()
+      }
+    })
     try {
-      await waitForProviderOperation(cleanupTask, cleanup.signal)
+      await waitForProviderOperation(shutdownTask, cleanup.signal)
+      cleanup.dispose()
+      await cleanupTask
       if (codexCredentialHome) {
         try {
           await releaseCodexCredentialHome()
@@ -3047,7 +3092,7 @@ async function* runProvider<
         }
         forcedRootCleanup = toolCleanup
           .catch(() => undefined)
-          .then(finalizeWorkspace)
+          .then(() => finalizeWorkspace())
           .finally(cleanupRoot)
         observeLateCleanup(forcedRootCleanup)
         void cleanupTask.catch(() => undefined)
@@ -3056,14 +3101,18 @@ async function* runProvider<
         let timeout: ReturnType<typeof setTimeout> | undefined
         const cleanupTimeout = agentDiagnostics.AGENT_R0725({ message: "[vitehub] Provider Agent Driver invocation cleanup timed out." })
         invocationCleanupDeferred = Promise.race([
-          cleanupTask,
-          new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
-        ]).finally(async () => {
+          shutdownTask.then(() => true),
+          new Promise<false>(resolve => timeout = setTimeout(() => resolve(false), providerCleanupTimeoutMs)),
+        ]).then(async (stopped) => {
+          if (stopped) await exitCallbackTask
+          else cleanupTimedOut = true
+        }).finally(async () => {
           if (timeout) clearTimeout(timeout)
           try {
             await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : cleanupTimeout))
           }
           finally {
+            await finalizeWorkspace()
             await cleanupRoot()
           }
         })
@@ -3109,7 +3158,7 @@ async function* runProvider<
     else releaseSessionLock?.()
     if (cleanupErrors.length) {
       const cleanupError = new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
-      if (completed && caught === undefined && cleanupErrors.every(providerCleanupTimedOut)) {
+      if (completed && caught === undefined && !exitCallbackPending && !exitCallbackFailed && cleanupErrors.every(providerCleanupTimedOut)) {
         yield { error: cleanupError.message, recoverable: true, type: "error" }
       }
       else throw cleanupError
