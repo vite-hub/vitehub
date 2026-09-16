@@ -508,6 +508,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         return false
       })
       returnedDefinitions.splice(0, returnedDefinitions.length, ...returnedCandidates)
+      // An expression-bodied arrow returns the final operand of a comma
+      // expression; earlier operands are evaluated only for side effects.
+      if (arrow >= 0 && !tokens.slice(bodyStart, callbackEnd).includes("return") &&
+          !tokens.slice(bodyStart, callbackEnd).includes("?") && returnedDefinitions.length > 1) {
+        returnedDefinitions.splice(0, returnedDefinitions.length, returnedDefinitions.at(-1)!)
+      }
       // Expression-bodied arrows return their direct definition without a
       // `return` token; retain that callback result for ownership analysis.
       if (returnedDefinitions.length === 0 && arrow >= 0 && callbackDefinition >= 0) {
