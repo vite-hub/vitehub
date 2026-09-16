@@ -115,7 +115,7 @@ async function createDeploymentRuntimeFixture(
   declaredWorkspaceName?: string,
   explicitSourceRoot = false,
   explicitInstructions = false,
-  explicitSkill: false | "same key" | "destination" = false,
+  explicitSkill: false | "same key" | "destination" | "capability" = false,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
@@ -133,6 +133,7 @@ async function createDeploymentRuntimeFixture(
     "import { defineAgent } from '@vite-hub/agent'",
     "export default defineAgent({",
     "  description: 'support',",
+    ...(explicitSkill === "capability" ? ["  capabilities: [{ id: 'review', workspaceSources: { explicitSkill: { content: 'Explicit skill', materialize: 'startup', mount: '.agents/skills/review', workspacePath: 'SKILL.md' } } }],"] : []),
     "  driver: { model: {} },",
     ...(declaredWorkspaceName ? [`  name: ${JSON.stringify(declaredWorkspaceName)},`] : []),
     "  runtime: false,",
@@ -141,7 +142,7 @@ async function createDeploymentRuntimeFixture(
     ...(explicitSourceRoot ? [`    sourceRootDir: ${JSON.stringify(supportRoot)},`] : []),
     "    sources: {",
     ...(explicitInstructions ? ["      __vitehubAgentInstructions: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' },"] : []),
-    ...(explicitSkill ? [`      ${JSON.stringify(explicitSkill === "same key" ? "__vitehubAgentSkill:.agents/skills/review/SKILL.md" : "explicitSkill")}: { content: 'Explicit skill', materialize: 'startup', mount: '.agents/skills/review', workspacePath: 'SKILL.md' },`] : []),
+    ...(explicitSkill && explicitSkill !== "capability" ? [`      ${JSON.stringify(explicitSkill === "same key" ? "__vitehubAgentSkill:.agents/skills/review/SKILL.md" : "explicitSkill")}: { content: 'Explicit skill', materialize: 'startup', mount: '.agents/skills/review', workspacePath: 'SKILL.md' },`] : []),
     "    },",
     "  },",
     "})",
@@ -490,7 +491,7 @@ describe("generated Agent deployment catalog", () => {
     })
   })
 
-  it.each((["nitro", "deno", "netlify"] as const).flatMap(adapter => (["same key", "destination"] as const).map(collision => ({ adapter, collision }))))("preserves explicit Skill sources in $adapter deployment fallback metadata ($collision)", async ({ adapter, collision }) => {
+  it.each((["nitro", "deno", "netlify"] as const).flatMap(adapter => (["same key", "destination", "capability"] as const).map(collision => ({ adapter, collision }))))("preserves explicit Skill sources in $adapter deployment fallback metadata ($collision)", async ({ adapter, collision }) => {
     await runtime!.close()
     if (adapter === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
     runtime = await createDeploymentRuntimeFixture(adapter, "support", true, undefined, undefined, false, false, collision)

@@ -9,7 +9,7 @@ export type ColocatedAgentSkills = Record<string, WorkspaceSourceInput>
 
 export function filterColocatedAgentSkills(skills: ColocatedAgentSkills, explicitSources: ColocatedAgentSkills = {}): ColocatedAgentSkills {
   const explicitPaths = normalizeWorkspaceSourcesMetadata(explicitSources).flatMap(source => {
-    if (source.requestOnly) return []
+    if (source.requestOnly || source.probeKeys?.length === 0) return []
     // Sources without static item paths own their mount for fallback purposes.
     const recursive = !source.probeKeys?.length
     const paths = recursive ? [source.mountPath] : workspaceSourceGrantPaths(source.key, explicitSources[source.key]!)

@@ -50,6 +50,18 @@ describe("Memory Store conditional removal", () => {
     expect(await store.readFile("doc.md")).toEqual(removed ? undefined : expect.objectContaining({ content: "user content" }))
   })
 
+  it("requires matching Workspace ownership even when Source and content match", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("doc.md", { path: "doc.md", content: "content", metadata: { source: "docs", workspace: "second" } })
+    const digest = (await store.stat("doc.md"))!.digest!
+    await store.rm("doc.md", { ifDigest: digest, ifSource: "docs", ifWorkspace: "first" })
+    expect(await store.readFile("doc.md")).toBeDefined()
+    await store.rm("doc.md", { ifDigest: digest, ifSource: "docs", ifWorkspace: null })
+    expect(await store.readFile("doc.md")).toBeDefined()
+    await store.rm("doc.md", { ifDigest: digest, ifSource: "docs", ifWorkspace: "second" })
+    expect(await store.readFile("doc.md")).toBeUndefined()
+  })
+
   it("requires both digest and source conditions to match", async () => {
     const store = createMemoryWorkspaceStore()
     await store.writeFile("doc.md", { path: "doc.md", content: "content", metadata: { source: "docs" } })

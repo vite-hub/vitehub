@@ -168,6 +168,15 @@ describe("local workspace store", () => {
     await expect(readFile(`${retiredRoot}/${retired}`, "utf8")).resolves.toBe("first replacement")
   })
 
+  it("checks Workspace ownership during conditional removal", async () => {
+    const store = await createStore()
+    await store.writeFile("doc.md", { path: "doc.md", content: "content", metadata: { source: "docs", workspace: "second" } })
+    await store.rm("doc.md", { ifSource: "docs", ifWorkspace: "first" })
+    expect(await store.readFile("doc.md")).toBeDefined()
+    await store.rm("doc.md", { ifSource: "docs", ifWorkspace: "second" })
+    expect(await store.readFile("doc.md")).toBeUndefined()
+  })
+
   it.each([true, false])("completes digest-conditional removal with a matching digest: %s", async (matches) => {
     const store = await createStore()
     await store.writeFile("generated.md", { path: "generated.md", content: "generated" })

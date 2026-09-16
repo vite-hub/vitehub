@@ -857,24 +857,25 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const normalized = normalizeWorkspacePath(path)
     let conditionalCurrent: WorkspaceFile | undefined
     const absolute = resolveInside(this.root, normalized)
-    const conditionalInfo = options.ifDigest !== undefined || options.ifSource !== undefined
+    const conditionalInfo = options.ifDigest !== undefined || options.ifSource !== undefined || options.ifWorkspace !== undefined
       ? await lstat(absolute).catch((error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return undefined
           throw error
         })
       : undefined
-    if (options.ifDigest !== undefined || options.ifSource !== undefined) {
+    if (options.ifDigest !== undefined || options.ifSource !== undefined || options.ifWorkspace !== undefined) {
       if (!conditionalInfo?.isFile()) return
       if ((await this.#stat(normalized, false))?.type !== "file") return
       conditionalCurrent = await this.#readFile(normalized)
       if (!conditionalCurrent) return
       if (options.ifDigest !== undefined && await sha256(conditionalCurrent.content) !== options.ifDigest) return
       if (options.ifSource !== undefined && (conditionalCurrent.metadata?.source ?? null) !== options.ifSource) return
+      if (options.ifWorkspace !== undefined && (conditionalCurrent.metadata?.workspace ?? null) !== options.ifWorkspace) return
     }
     // Retire the checked inode first. This closes the final race with writers
     // that do not participate in the workspace path lock: a replacement at
     // the public pathname is never removed by the cleanup operation.
-    if (options.ifDigest !== undefined || options.ifSource !== undefined) {
+    if (options.ifDigest !== undefined || options.ifSource !== undefined || options.ifWorkspace !== undefined) {
       // Keep recovery artifacts inside the private metadata tree so a failed
       // restoration can never appear as user workspace content.
       const retiredRelative = `.vitehub/retired/${randomUUID()}`

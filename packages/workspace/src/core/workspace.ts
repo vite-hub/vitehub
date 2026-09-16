@@ -1,15 +1,17 @@
+import { removedStartupDirectoryMatches } from "../sources/startup-directory-evidence.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { normalizeWorkspaceSources } from "../sources/config.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
-import { materializedFileMatches, readCurrentSourceSnapshot, removedStartupDirectoryMetaKey, removedStartupPathMetaKey } from "../sources/materialization.ts"
+import { materializedFileMatches, readCurrentSourceSnapshot, removedStartupPathMetaKey } from "../sources/materialization.ts"
 import { fileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
-import { workspaceMetadataTarget } from "../storage/metadata-target.ts"
+import { workspaceMetadataName, workspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
+import type { WorkspaceMetadataTargetCarrier } from "../storage/metadata-target.ts"
 import type {
   Workspace,
   WorkspaceDefinition,
@@ -35,7 +37,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
   const generatedEmptyDirectories = new Set<string>()
   for (const source of normalizeWorkspaceSources(definition.sources)) {
     if (source.materialize !== "startup") continue
-    const snapshot = await readCurrentSourceSnapshot(store, source)
+    const snapshot = await readCurrentSourceSnapshot(store, source, definition.name)
     if (snapshot?.status !== "ready") continue
     if (source.mountPath && snapshot.ownsMount && snapshot.mountIdentity
       && (await store.stat(source.mountPath))?.directoryIdentity === snapshot.mountIdentity
@@ -62,7 +64,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
   const entries: WorkspaceDiff["entries"] = []
   for (const entry of diff.entries) {
     if (entry.type === "removed" && entry.before?.type === "directory" && diff.from
-      && await store.getMeta?.(removedStartupDirectoryMetaKey(definition.name, entry.path)) === diff.from) continue
+      && await removedStartupDirectoryMatches(store, definition.name, entry.path, diff.from)) continue
     if (entry.type === "removed" && entry.before?.type === "file"
       && entry.before.metadata?.sourceMaterialize === "startup"
       && hasRuntimeType(entry.before.metadata.source, "string")
@@ -87,8 +89,9 @@ export function createWorkspace(definition: WorkspaceDefinition, options: { reus
   const store = getStore(definition)
   const files = createWorkspaceSourceView(definition, store, options)
 
-  const workspace: Workspace & { [workspaceMetadataTarget]: () => WorkspaceStore } = {
+  const workspace: Workspace & WorkspaceMetadataTargetCarrier & { [workspaceMetadataTarget]: () => WorkspaceStore } = {
     [workspaceMetadataTarget]: () => store,
+    [workspaceMetadataName]: definition.name,
     name: definition.name,
     async capabilities() {
       return { conditionalWrites: hasRuntimeType(store.writeFileConditional, "function") }

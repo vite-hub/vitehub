@@ -115,10 +115,11 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       const node = this.#nodes.get(normalized)
       if (options.ifDirectoryIdentity !== undefined
         && (node?.type !== "directory" || node.directoryIdentity !== options.ifDirectoryIdentity)) return
-      if (options.ifDigest !== undefined || options.ifSource !== undefined) {
+      if (options.ifDigest !== undefined || options.ifSource !== undefined || options.ifWorkspace !== undefined) {
         if (node?.type !== "file") return
         if (options.ifDigest !== undefined && (await this.#entry(normalized, node)).digest !== options.ifDigest) return
         if (options.ifSource !== undefined && (node.metadata?.source ?? null) !== options.ifSource) return
+        if (options.ifWorkspace !== undefined && (node.metadata?.workspace ?? null) !== options.ifWorkspace) return
       }
       if (!node) {
         if (options.force) return

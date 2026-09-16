@@ -64,6 +64,8 @@ export interface RmOptions {
   ifDigest?: string
   /** With ifDigest, also require this Source owner (null means unowned). */
   ifSource?: string | null
+  /** Also require this Workspace owner (null means unowned). */
+  ifWorkspace?: string | null
 }
 
 export type WorkspaceWriteOperation = "writeFile" | "mkdir" | "rm"
@@ -327,7 +329,7 @@ export interface WorkspaceRebaseOptions {
 }
 
 export interface WorkspaceStore {
-  /** rm atomically checks SHA-256 content and Source ownership before removing a file. */
+  /** rm atomically checks SHA-256 content, Source, and Workspace ownership before removing a file. */
   readonly conditionalRemoval?: boolean
   /** rm atomically checks directory identity before removing an empty directory. */
   readonly conditionalDirectoryRemoval?: boolean

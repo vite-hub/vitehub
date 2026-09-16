@@ -6,6 +6,7 @@ import { isWorkspaceConflict, workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
+import { captureStartupDirectoryRemoval, removedStartupDirectoryMetaKey } from "./startup-directory-evidence.ts"
 import { normalizeSourceFileMetadata } from "./file-metadata.ts"
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
@@ -51,10 +52,12 @@ export interface LazyMaterializedMetadata {
 
 interface SourceSnapshotMetadata extends Omit<WorkspaceSourceMaterializationStatus, "cacheStatus" | "counts" | "durationMs" | "paths" | "provider"> {
   configHash: string
+  workspace?: string
   cacheMaxAge?: number
   ownsMount?: boolean
   mountIdentity?: string
   ownedAncestors?: string[]
+  directoryIdentities?: Record<string, string>
   ownedDirectories?: string[]
   pendingDirectories?: string[]
   items?: Record<string, LazyMaterializedMetadata>
@@ -80,13 +83,11 @@ function startupSourcesMetaKey(workspaceName?: string) {
 export function removedStartupPathMetaKey(workspaceName: string | undefined, path: string) {
   return `workspace:${workspaceName || "default"}:removed-startup-path:${JSON.stringify(path)}`
 }
-export function removedStartupDirectoryMetaKey(workspaceName: string | undefined, path: string) {
-  return `workspace:${workspaceName || "default"}:removed-startup-directory:${JSON.stringify(path)}`
-}
+export { removedStartupDirectoryMetaKey } from "./startup-directory-evidence.ts"
 const legacyStartupSourcesMetaKey = "workspace:startup-sources"
 const promotedSourceSkillsMetaKey = "workspace:promoted-source-skills"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
-const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Set<ResolvedWorkspaceSource>>()
+const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string | undefined, Set<ResolvedWorkspaceSource>>>()
 const promotionReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 
 export interface MaterializationControl {
@@ -95,8 +96,8 @@ export interface MaterializationControl {
   checkpoint<T>(operation: () => Promise<T>): Promise<T>
 }
 
-export function sourceSnapshotMetaKey(sourceKey: string) {
-  return `source:${sourceKey}:snapshot`
+export function sourceSnapshotMetaKey(sourceKey: string, workspaceName?: string) {
+  return workspaceName === undefined ? `source:${sourceKey}:snapshot` : `workspace:${JSON.stringify(workspaceName)}:source:${sourceKey}:snapshot`
 }
 
 type SourceConfiguration = Pick<ResolvedWorkspaceSource, "cache" | "key" | "materialize" | "mountPath" | "source">
@@ -124,29 +125,29 @@ function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: Resol
   return Date.now() - Date.parse(meta.materializedAt) <= maxAge * 1000
 }
 
-async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">, sourceKey: string) {
+async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">, sourceKey: string, workspaceName?: string) {
   // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
-  return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey)) as SourceSnapshotMetadata | undefined
+  return await store.getMeta?.(sourceSnapshotMetaKey(sourceKey, workspaceName)) as SourceSnapshotMetadata | undefined
 }
 
-export async function invalidateSourceSnapshot(store: WorkspaceStore, sourceKey: string) {
-  const snapshot = await readSourceSnapshotMetadata(store, sourceKey)
+export async function invalidateSourceSnapshot(store: WorkspaceStore, sourceKey: string, workspaceName?: string) {
+  const snapshot = await readSourceSnapshotMetadata(store, sourceKey, workspaceName)
   // Configuration changes invalidate reuse, but old file digests still prove cleanup ownership.
-  if (snapshot) await store.setMeta?.(sourceSnapshotMetaKey(sourceKey), { ...snapshot, status: "updating" })
+  if (snapshot) await store.setMeta?.(sourceSnapshotMetaKey(sourceKey, workspaceName), { ...snapshot, status: "updating" })
 }
 
-export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
+export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource, workspaceName?: string) {
   const configHash = await sourceConfigHash(source)
-  const meta = await readSourceSnapshotMetadata(store, source.key)
+  const meta = await readSourceSnapshotMetadata(store, source.key, workspaceName)
   return meta?.status === "ready" && meta.configHash === configHash
 }
 
-export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource) {
+export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: ResolvedWorkspaceSource, workspaceName?: string) {
   const configHash = await sourceConfigHash(source)
-  const snapshot = await readSourceSnapshotMetadata(store, source.key)
+  const snapshot = await readSourceSnapshotMetadata(store, source.key, workspaceName)
   if (!isSnapshotFresh(snapshot, source, configHash)) return false
   if (await sourceSnapshotFilesMatch(store, snapshot)) return true
-  await invalidateSourceSnapshot(store, source.key)
+  await invalidateSourceSnapshot(store, source.key, workspaceName)
   return false
 }
 
@@ -170,21 +171,21 @@ async function sourceSnapshotFilesMatch(store: WorkspaceStore, snapshot: SourceS
   return true
 }
 
-export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, source: SourceConfiguration) {
+export async function readCurrentSourceSnapshot(store: Pick<WorkspaceStore, "getMeta">, source: SourceConfiguration, workspaceName?: string) {
   const configHash = await sourceConfigHash(source)
-  const snapshot = await readSourceSnapshotMetadata(store, source.key)
+  const snapshot = await readSourceSnapshotMetadata(store, source.key, workspaceName)
   return snapshot?.configHash === configHash ? snapshot : undefined
 }
 
-export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, sourceKey: string, paths: Iterable<string>): Promise<boolean | undefined> {
-  const meta = await readSourceSnapshotMetadata(store, sourceKey)
+export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, sourceKey: string, paths: Iterable<string>, workspaceName?: string): Promise<boolean | undefined> {
+  const meta = await readSourceSnapshotMetadata(store, sourceKey, workspaceName)
   if (!meta || meta.status !== "ready") return undefined
   const ownedPaths = new Set(Object.keys(meta.items || {}))
   return [...paths].some(path => ownedPaths.has(normalizeWorkspacePath(path)))
 }
 
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: SourceSnapshotMetadata) {
-  await store.setMeta?.(sourceSnapshotMetaKey(metadata.source), metadata)
+  await store.setMeta?.(sourceSnapshotMetaKey(metadata.source, metadata.workspace), metadata)
 }
 
 const sourceSkillRoots = [".agents", ".claude", ".codex"] as const
@@ -246,7 +247,7 @@ async function reconcilePromotedSourceSkills(
   const sortedSources = [...sources].sort((left, right) =>
     right.mountPath.length - left.mountPath.length || left.key.localeCompare(right.key))
   for (const source of sortedSources) {
-    const snapshot = await readSourceSnapshotMetadata(store, source.key)
+    const snapshot = await readSourceSnapshotMetadata(store, source.key, workspaceName)
     if (snapshot && snapshot.status === "ready") {
       const currentHash = await sourceConfigHash(source)
       if (snapshot.configHash !== currentHash) continue
@@ -546,6 +547,7 @@ async function removeStaleMaterializedSourceFiles(
   onRemoved?: (path: string, bytes: number) => void,
   onPendingDirectories?: (paths: string[]) => void,
 ) {
+  if (!store.conditionalRemoval) return new Set<string>()
   const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set(previousSnapshot?.pendingDirectories || [])
@@ -562,6 +564,7 @@ async function removeStaleMaterializedSourceFiles(
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     const currentOwner = file?.metadata?.source
+    if (file?.metadata?.workspace !== undefined && file.metadata.workspace !== workspaceName) continue
     if (source.materialize === "startup" && previousSnapshot?.configHash && !previousPaths.has(entry.path)) continue
     if ((currentOwner === undefined || source.materialize === "startup") && previousSnapshot?.items) {
       // Persisted ownership can survive a user edit made outside the Store.
@@ -584,7 +587,7 @@ async function removeStaleMaterializedSourceFiles(
       onPendingDirectories?.([...staleDirectories])
       for (const candidate of sources) {
         if (candidate.key === source.key) continue
-        const retainedSnapshot = await readSourceSnapshotMetadata(store, candidate.key)
+        const retainedSnapshot = await readSourceSnapshotMetadata(store, candidate.key, workspaceName)
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[entry.path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
@@ -593,6 +596,7 @@ async function removeStaleMaterializedSourceFiles(
       const latest = await store.readFile(entry.path)
       if (!latest) continue
       const latestOwner = latest.metadata?.source
+      if (latest.metadata?.workspace !== undefined && latest.metadata.workspace !== workspaceName) continue
       if (latestOwner !== undefined && latestOwner !== source.key) continue
       if ((latestOwner === undefined || source.materialize === "startup") && previousSnapshot?.items?.[entry.path]) {
         const recorded = previousSnapshot.items[entry.path]
@@ -604,7 +608,8 @@ async function removeStaleMaterializedSourceFiles(
         ...(store.conditionalRemoval && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
           ? { ifDigest: previousSnapshot.items[entry.path].materializedContentDigest }
           : {}),
-        ...(store.conditionalRemoval ? { ifSource: latestOwner ?? null } : {}),
+        ifSource: latestOwner ?? null,
+        ifWorkspace: hasRuntimeType(latest.metadata?.workspace, "string") ? latest.metadata.workspace : null,
       }))
       if (source.materialize === "startup") {
         const removed = !await store.stat(entry.path)
@@ -617,21 +622,22 @@ async function removeStaleMaterializedSourceFiles(
   onPendingDirectories?.(pendingDirectories)
   for (const path of pendingDirectories.sort((a, b) => b.length - a.length)) {
     try {
-      const stat = await store.stat(path)
-      if (stat?.type !== "directory") continue
-      if (path === source.mountPath && previousSnapshot?.mountIdentity
-        && stat.directoryIdentity !== previousSnapshot.mountIdentity) continue
-      // A stat followed by unconditional rm can delete a concurrent replacement.
-      if (!store.conditionalDirectoryRemoval || !stat.directoryIdentity) continue
-      if ((await store.list(path)).length) continue
       const baseline = source.materialize === "startup"
         ? await (cleanupBaseline ??= store.diff().then(diff => diff.from))
         : undefined
+      const removalEvidence = await captureStartupDirectoryRemoval(store, workspaceName, path, baseline)
+      const stat = await store.stat(path)
+      if (stat?.type !== "directory") continue
+      const ownedIdentity = path === source.mountPath ? previousSnapshot?.mountIdentity : previousSnapshot?.directoryIdentities?.[path]
+      if (!ownedIdentity || stat.directoryIdentity !== ownedIdentity) continue
+      // A stat followed by unconditional rm can delete a concurrent replacement.
+      if (!store.conditionalDirectoryRemoval || !stat.directoryIdentity) continue
+      if ((await store.list(path)).length) continue
       await control.mutate(() => store.rm(path, { force: true, ifDirectoryIdentity: stat.directoryIdentity }))
       if (!await store.stat(path)) {
         removedDirectories.add(path)
         if (source.materialize === "startup") {
-          await control.checkpoint(async () => await store.setMeta?.(removedStartupDirectoryMetaKey(workspaceName, path), baseline))
+          await control.checkpoint(async () => await store.setMeta?.(removedStartupDirectoryMetaKey(workspaceName, path), removalEvidence))
         }
       }
     }
@@ -658,7 +664,7 @@ export async function reconcileRemovedStartupSources(
   const previous = startupReconciliationByStore.get(materializationStore)
   const current = (async () => {
     await previous
-    await reconcileRemovedStartupSourcesInternal(store, currentSources, control, activeStartupSourcesByStore.get(materializationStore), workspaceName)
+    await reconcileRemovedStartupSourcesInternal(store, currentSources, control, activeStartupSourcesByStore.get(materializationStore)?.get(workspaceName), workspaceName)
   })()
   const tail = current.catch(() => {})
   startupReconciliationByStore.set(materializationStore, tail)
@@ -695,7 +701,7 @@ async function reconcileRemovedStartupSourcesInternal(
   const activeOwners = [...activeSources]
   const isActive = (source: MaterializedStartupSource) => activeOwners.some(active => active.key === source.key && active.mountPath === source.mountPath)
   for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath && !isActive(source))) {
-    const snapshot = await readSourceSnapshotMetadata(store, source.key)
+    const snapshot = await readSourceSnapshotMetadata(store, source.key, workspaceName)
     const invalidatedSnapshot = snapshot && snapshot.mountPath === undefined && snapshot.items === undefined
     if (snapshot?.mountPath !== source.mountPath && !invalidatedSnapshot) continue
     // Build synchronization can clear the index while owned files remain outside its mount.
@@ -705,9 +711,11 @@ async function reconcileRemovedStartupSourcesInternal(
     const staleDirectories = new Set([...(snapshot?.ownedAncestors || []), ...(snapshot?.ownedDirectories || []).filter(path => sourceOwnsDirectory(source, path))])
     if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
     for (const path of previousPaths) {
+      if (!store.conditionalRemoval) continue
       const file = await readSourceFile(store, path)
       if (!file) continue
       const owner = file.metadata?.source
+      if (file.metadata?.workspace !== undefined && file.metadata.workspace !== workspaceName) continue
       const recorded = snapshot?.items?.[path]
       const recordedDigest = recorded?.materializedContentDigest
       // Missing legacy attributes permit digest ownership. An observable owner
@@ -720,14 +728,15 @@ async function reconcileRemovedStartupSourcesInternal(
         continue
       }
       for (const currentSource of currentSources) {
-        const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
+        const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key, workspaceName)
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
       await control.mutate(() => store.rm(path, {
         force: true,
         ...(store.conditionalRemoval && recordedDigest ? { ifDigest: recordedDigest } : {}),
-        ...(store.conditionalRemoval ? { ifSource: owner ?? null } : {}),
+        ifSource: owner ?? null,
+        ifWorkspace: hasRuntimeType(file.metadata?.workspace, "string") ? file.metadata.workspace : null,
       }))
       // Preserve cleanup evidence after the Source snapshot is retired. A
       // conditional removal can leave a concurrent replacement untouched.
@@ -735,6 +744,8 @@ async function reconcileRemovedStartupSourcesInternal(
       await control.checkpoint(async () => await store.setMeta?.(removalKey, removed ? source.key : undefined))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
+      const baseline = await (cleanupBaseline ??= store.diff().then(diff => diff.from))
+      const removalEvidence = await captureStartupDirectoryRemoval(store, workspaceName, path, baseline)
       // A replaced ancestor can also make stat fail with ENOTDIR. Neither case
       // provides current directory evidence for cleanup or ownership transfer.
       const stat = await store.stat(path).catch((error) => {
@@ -742,33 +753,34 @@ async function reconcileRemovedStartupSourcesInternal(
         throw error
       })
       if (stat?.type !== "directory") continue
+      const ownedIdentity = path === source.mountPath ? snapshot?.mountIdentity : snapshot?.directoryIdentities?.[path]
+      if (!ownedIdentity || stat.directoryIdentity !== ownedIdentity) continue
       for (const currentSource of currentSources) {
         if (!pathContains(path, currentSource.mountPath)) continue
-        const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key)
+        const retainedSnapshot = await readSourceSnapshotMetadata(store, currentSource.key, workspaceName)
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
         // Retained files can keep this directory nonempty. Carry its ownership
         // forward even when the removal below cannot delete the shared mount.
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, {
           ...retainedSnapshot,
           ...(path === currentSource.mountPath
-            ? path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true } : {}
-            : { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }),
+            ? path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true, mountIdentity: ownedIdentity } : {}
+            : { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])], directoryIdentities: { ...retainedSnapshot.directoryIdentities, [path]: ownedIdentity } }),
         }))
       }
       if (!store.conditionalDirectoryRemoval || !stat.directoryIdentity) continue
       if ((await store.list(path)).length) continue
       try {
-        const baseline = await (cleanupBaseline ??= store.diff().then(diff => diff.from))
         await control.mutate(() => store.rm(path, { force: true, ifDirectoryIdentity: stat.directoryIdentity }))
         if (!await store.stat(path)) {
-          await control.checkpoint(async () => await store.setMeta?.(removedStartupDirectoryMetaKey(workspaceName, path), baseline))
+          await control.checkpoint(async () => await store.setMeta?.(removedStartupDirectoryMetaKey(workspaceName, path), removalEvidence))
         }
       }
       catch (error) {
         if (!hasRuntimeType(error, "object") || error === null || !["ENOENT", "ENOTDIR", "ENOTEMPTY", "EEXIST"].includes(Reflect.get(error, "code"))) throw error
       }
     }
-    await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(source.key), {}))
+    await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(source.key, workspaceName), {}))
   }
   // Register before materialization can persist files, including failed or interrupted attempts.
   // A newer definition must retain owners that can still write or checkpoint files.
@@ -890,17 +902,20 @@ export async function materializeWorkspaceSources(
     async checkpoint(operation) { return await operation() },
   },
 ): Promise<WorkspaceMaterializeSourcesResult> {
-  const activeSources = activeStartupSourcesByStore.get(store) ?? new Set<ResolvedWorkspaceSource>()
+  const workspaceSources = activeStartupSourcesByStore.get(store) ?? new Map<string | undefined, Set<ResolvedWorkspaceSource>>()
+  const activeSources = workspaceSources.get(definition.name) ?? new Set<ResolvedWorkspaceSource>()
   const selectedSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "startup" && shouldMaterializeSource(source, options))
   for (const source of selectedSources) activeSources.add(source)
-  activeStartupSourcesByStore.set(store, activeSources)
+  workspaceSources.set(definition.name, activeSources)
+  activeStartupSourcesByStore.set(store, workspaceSources)
   try {
     return await materializeWorkspaceSourcesInternal(definition, store, options, control)
   }
   finally {
     for (const source of selectedSources) activeSources.delete(source)
-    if (!activeSources.size) activeStartupSourcesByStore.delete(store)
+    if (!activeSources.size) workspaceSources.delete(definition.name)
+    if (!workspaceSources.size) activeStartupSourcesByStore.delete(store)
   }
 }
 
@@ -940,7 +955,7 @@ async function materializeWorkspaceSourcesInternal(
     let cacheHit: boolean
     try {
       configHash = await sourceConfigHash(source)
-      existing = await readSourceSnapshotMetadata(store, source.key)
+      existing = await readSourceSnapshotMetadata(store, source.key, definition.name)
       cacheHit = completeSource && isSnapshotFresh(existing, source, configHash) && await sourceSnapshotFilesMatch(store, existing)
     }
     catch (error) {
@@ -992,6 +1007,7 @@ async function materializeWorkspaceSourcesInternal(
       && Boolean(await store.stat(source.mountPath))
     let mountIdentity = existing?.mountPath === source.mountPath ? existing.mountIdentity : undefined
     const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
+    const directoryIdentities = { ...(existing?.mountPath === source.mountPath ? existing.directoryIdentities : undefined) }
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let pendingDirectories = existing?.pendingDirectories
     let revision = existing?.revision
@@ -1004,12 +1020,14 @@ async function materializeWorkspaceSourcesInternal(
       assertCurrent()
       await control.mutate(() => writeSourceSnapshotMetadata(store, {
         configHash,
+        workspace: definition.name,
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
         mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
+        directoryIdentities,
         status: "updating",
         revision,
         items: checkpointItems(itemMetadata),
@@ -1074,6 +1092,7 @@ async function materializeWorkspaceSourcesInternal(
           ...metadata,
           ...entry.metadata,
           source: source.key,
+          workspace: definition.name,
           sourceMaterialize: source.materialize,
         })
         const missingDirectories: string[] = []
@@ -1096,7 +1115,11 @@ async function materializeWorkspaceSourcesInternal(
               // Stores can create parents before a write fails. Check only after
               // an attempted mutation, so a pre-write abort claims nothing.
               for (const directory of missingDirectories) {
-                if ((await store.stat(directory))?.type === "directory") ownedDirectories.add(directory)
+                const stat = await store.stat(directory)
+                if (stat?.type === "directory") {
+                  ownedDirectories.add(directory)
+                  if (stat.directoryIdentity) directoryIdentities[directory] = stat.directoryIdentity
+                }
               }
             }
           }),
@@ -1150,7 +1173,10 @@ async function materializeWorkspaceSourcesInternal(
         paths.push({ path, status: "removed" })
       }, (paths) => { pendingDirectories = paths })
       if (removedDirectories.has(source.mountPath)) ownsMount = false
-      for (const directory of removedDirectories) ownedDirectories.delete(directory)
+      for (const directory of removedDirectories) {
+        ownedDirectories.delete(directory)
+        delete directoryIdentities[directory]
+      }
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
         return metadata ? [[path, metadata] as const] : []
@@ -1158,12 +1184,14 @@ async function materializeWorkspaceSourcesInternal(
 
       const ready: SourceSnapshotMetadata = {
         configHash,
+        workspace: definition.name,
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
         mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
+        directoryIdentities,
         status: "ready",
         revision,
         materializedAt: new Date().toISOString(),
@@ -1179,6 +1207,7 @@ async function materializeWorkspaceSourcesInternal(
           ...existing,
           ownsMount,
           ownedDirectories: [...ownedDirectories],
+          directoryIdentities,
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
           files: scopedItems ? Object.keys(scopedItems).length : 0,
           items: scopedItems,
@@ -1221,12 +1250,14 @@ async function materializeWorkspaceSourcesInternal(
       const failed: SourceSnapshotMetadata = {
         pendingDirectories,
         configHash,
+        workspace: definition.name,
         source: source.key,
         mountPath: source.mountPath,
         ownsMount,
         mountIdentity,
         ownedAncestors,
         ownedDirectories: [...ownedDirectories],
+        directoryIdentities,
         status: "error",
         revision,
         error: error instanceof Error ? error.message : String(error),
@@ -1239,7 +1270,7 @@ async function materializeWorkspaceSourcesInternal(
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? { ...existing, pendingDirectories, ownedDirectories: [...ownedDirectories], items: checkpointItemsMetadata }
+            ? { ...existing, pendingDirectories, ownedDirectories: [...ownedDirectories], directoryIdentities, items: checkpointItemsMetadata }
             : source.materialize === "startup" ? { ...failed, status: "updating" as const, error: undefined } : undefined
         : failed
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, checkpoint))

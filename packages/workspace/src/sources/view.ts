@@ -1,3 +1,4 @@
+import { invalidateStartupDirectoryRemoval } from "./startup-directory-evidence.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isWorkspaceConflict, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
@@ -14,7 +15,6 @@ import {
   materializedFileMatches,
   materializeWorkspaceSources,
   removedStartupPathMetaKey,
-  removedStartupDirectoryMetaKey,
   readCurrentSourceSnapshot,
   readResolvedSourceFile,
   searchMaterializedStore,
@@ -220,10 +220,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     if (source.materialize === "startup" && completedSources.has(sourceKey)) {
-      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source, definition.name)) return
       completedSources.delete(sourceKey)
     }
-    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, source)) {
+    if (source.materialize === "startup" && options.reuseStartupSnapshots && await hasCurrentSourceSnapshot(store, source, definition.name)) {
       reusedStartupSources.add(sourceKey)
       return
     }
@@ -351,15 +351,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (isUncachedLazySource ? uncachedMaterializedSources.has(sourceKey) : materializedSources.has(sourceKey)) {
       const maxAge = source.cache && source.cache.maxAge
       if (source.materialize === "startup"
-        ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)
-        : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source)) return
+        ? !persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source, definition.name)
+        : !Number.isFinite(maxAge) || await hasFreshSourceSnapshot(store, source, definition.name)) return
       if (source.materialize !== "startup" && persistsSourceSnapshots) {
-        await invalidateSourceSnapshot(store, sourceKey)
+        await invalidateSourceSnapshot(store, sourceKey, definition.name)
       }
       materializedSources.delete(sourceKey)
     }
     if (completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
-      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source)) return
+      if (!persistsSourceSnapshots || await hasCurrentSourceSnapshot(store, source, definition.name)) return
       completedSources.delete(sourceKey)
       reusedStartupSources.delete(sourceKey)
     }
@@ -372,13 +372,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       // the indexed file with a directory since the previous invocation.
       const existing = await store.stat(path)
       if (existing && existing.type !== "file") {
-        const previous = await readCurrentSourceSnapshot(store, source)
+        const previous = await readCurrentSourceSnapshot(store, source, definition.name)
         if (previous?.items?.[path]) return false
       }
       const initial = await ensureMaterialized(source.key)
       if (initial?.sources.some(item => item.status === "error")) return false
       const entry = await store.stat(path)
-      const snapshot = await readCurrentSourceSnapshot(store, source)
+      const snapshot = await readCurrentSourceSnapshot(store, source, definition.name)
       const item = snapshot?.items?.[path]
       // A directory replacing an indexed file belongs to the external writer.
       // Keep it intact and report the Source file as unavailable.
@@ -418,7 +418,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     // Capture reusable files before any overlapping lower-priority Source writes.
     if (options.reuseStartupSnapshots) {
       for (const source of items) {
-        const snapshot = await readCurrentSourceSnapshot(store, source)
+        const snapshot = await readCurrentSourceSnapshot(store, source, definition.name)
         if (snapshot?.status !== "ready") continue
         if (source.mountPath) {
           let mount
@@ -450,7 +450,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
             if (file && item.materializedContentDigest) {
               for (const owner of items.slice(0, items.indexOf(source))) {
                 if (!preserved.has(owner.key)) continue
-                const ownerSnapshot = await readCurrentSourceSnapshot(store, owner)
+                const ownerSnapshot = await readCurrentSourceSnapshot(store, owner, definition.name)
                 const ownerItem = ownerSnapshot?.items?.[path]
                 if (ownerItem && await materializedFileMatches(file, ownerItem)) {
                   shadowed = true
@@ -491,7 +491,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           refreshedSources.push(source)
           // Restore persisted content, even after a partial failed refresh, without
           // asking the higher-priority provider for a newer inspection snapshot.
-          const refreshedSnapshot = await readCurrentSourceSnapshot(store, source)
+          const refreshedSnapshot = await readCurrentSourceSnapshot(store, source, definition.name)
           for (const owner of items.slice(0, items.indexOf(source)).reverse()) {
             for (const file of preserved.get(owner.key) || []) {
               if (source.mountPath && !sourceMountContainsPath(source, file.path)) continue
@@ -537,7 +537,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await pruneLiveSourceStoreEntries(result, source)
         continue
       }
-      if (!normalized && options.recursive && source.materialize !== "startup" && !await hasCurrentSourceSnapshot(store, source)) {
+      if (!normalized && options.recursive && source.materialize !== "startup" && !await hasCurrentSourceSnapshot(store, source, definition.name)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
           const allowed = await currentSourceTreePaths(source, getSourceContext(source))
           for (const key of result.keys()) {
@@ -677,7 +677,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function isSourceBackedStorePath(path: string) {
     // A missing sidecar must not release ownership recorded by the current Source.
     for (const source of allSources) {
-      const snapshot = await readCurrentSourceSnapshot(store, source)
+      const snapshot = await readCurrentSourceSnapshot(store, source, definition.name)
       if (Object.keys(snapshot?.items || {}).some(item => item === path || !path || item.startsWith(`${path}/`))) return true
     }
     const file = await store.readFile(path)
@@ -750,7 +750,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         let shouldRefreshCachedLazy = false
         if (resolution.source.materialize === "lazy" && Number.isFinite(cacheMaxAge)) {
           shouldRefreshCachedLazy = materializedSources.has(resolution.sourceKey)
-            || Boolean(await readCurrentSourceSnapshot(store, resolution.source))
+            || Boolean(await readCurrentSourceSnapshot(store, resolution.source, definition.name))
         }
         if (shouldRefreshCachedLazy) {
           await ensureMaterialized(resolution.sourceKey)
@@ -789,7 +789,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         else await store.writeFile(input.path, file)
         await store.setMeta?.(removedStartupPathMetaKey(definition.name, input.path), undefined)
-        await clearRemovedStartupDirectories(input.path)
+        await invalidateStartupDirectoryRemoval(store, definition.name, input.path)
         await writePolicy.after(input)
         return input.path
       }
@@ -900,7 +900,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       })
       try {
         await store.mkdir(input.path, options)
-        await clearRemovedStartupDirectories(input.path)
+        await invalidateStartupDirectoryRemoval(store, definition.name, input.path)
         await writePolicy.after(input)
       }
       catch (error) {
@@ -918,7 +918,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       })
       try {
         await store.rm(input.path, options)
-        await clearRemovedStartupDirectories(input.path)
+        await invalidateStartupDirectoryRemoval(store, definition.name, input.path)
         await writePolicy.after(input)
       }
       catch (error) {
@@ -926,13 +926,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         throw error
       }
     },
-  }
-
-  async function clearRemovedStartupDirectories(path: string) {
-    const parts = path.split("/")
-    for (let index = 1; index <= parts.length; index++) {
-      await store.setMeta?.(removedStartupDirectoryMetaKey(definition.name, parts.slice(0, index).join("/")), undefined)
-    }
   }
 
   async function pruneLiveSourceStoreEntries(result: Map<string, WorkspaceEntry>, source: ReturnType<typeof normalizeWorkspaceSources>[number]) {

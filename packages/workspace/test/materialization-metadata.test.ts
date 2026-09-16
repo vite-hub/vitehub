@@ -13,7 +13,8 @@ import { workspaceStoreTarget } from "../src/storage/target.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { useWorkspace } from "../src/core/use.ts"
 import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
-import { readWorkspaceSourceMaterializationStatus } from "../src/source-metadata.ts"
+import { listMaterializedWorkspaceSourceEntries, readWorkspaceSourceMaterializationStatus } from "../src/source-metadata.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 
 it.each(["sidecar", "tree"])("keeps cached Source paths read-only after losing the metadata %s", async (missing) => {
@@ -81,7 +82,7 @@ it.each([
     const source = normalizeWorkspaceSources(definition.sources)[0]!
     if (legacy) {
       // Reproduce a restart from the pre-sidecar snapshot format.
-      const snapshotKey = sourceSnapshotMetaKey(source.key)
+      const snapshotKey = sourceSnapshotMetaKey(source.key, definition.name)
       const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
       const configHash = await sha256({
         cache: source.cache, key: source.key, materialize: source.materialize,
@@ -137,15 +138,15 @@ it.each(["cloudflare-artifacts", "vercel-blob", "github"])("preserves legacy %s 
     cache: source.cache, key: source.key, materialize: source.materialize,
     mountPath: source.mountPath, source: source.source.fingerprint,
   })
-  const snapshotKey = sourceSnapshotMetaKey(source.key)
+  const snapshotKey = sourceSnapshotMetaKey(source.key, definition.name)
   const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
   await store.setMeta!(snapshotKey, { ...snapshot, configHash })
   getKeys.mockRejectedValue(new Error("Source unavailable"))
   getItem.mockRejectedValue(new Error("Source unavailable"))
 
-  await expect(hasCurrentSourceSnapshot(store, source)).resolves.toBe(true)
-  await expect(hasFreshSourceSnapshot(store, source)).resolves.toBe(true)
-  await expect(readCurrentSourceSnapshot(store, source)).resolves.toMatchObject({ configHash })
+  await expect(hasCurrentSourceSnapshot(store, source, definition.name)).resolves.toBe(true)
+  await expect(hasFreshSourceSnapshot(store, source, definition.name)).resolves.toBe(true)
+  await expect(readCurrentSourceSnapshot(store, source, definition.name)).resolves.toMatchObject({ configHash })
   const result = await materializeWorkspaceSources(definition, store)
   expect(result.sources[0]?.status).toBe("ready")
   expect(getKeys).toHaveBeenCalledTimes(1)
@@ -181,7 +182,7 @@ it.each([3600, 0])("restores Source attributes after sidecar loss with cache max
       cache: source.cache, key: source.key, materialize: source.materialize,
       mountPath: source.mountPath, source: source.source.fingerprint,
     })
-    const snapshotKey = sourceSnapshotMetaKey(source.key)
+    const snapshotKey = sourceSnapshotMetaKey(source.key, definition.name)
     const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
     await store.setMeta!(snapshotKey, {
       ...snapshot, configHash,
@@ -199,7 +200,7 @@ it.each([3600, 0])("restores Source attributes after sidecar loss with cache max
     })
     await materializeWorkspaceSources(definition, createLocalWorkspaceStore(root))
     expect(getItem).toHaveBeenCalledTimes(2)
-    await expect(readCurrentSourceSnapshot(restarted, source)).resolves.toMatchObject({
+    await expect(readCurrentSourceSnapshot(restarted, source, definition.name)).resolves.toMatchObject({
       items: { "file.txt": { source: "docs", materializedContentDigest: expect.any(String) } },
     })
   }
@@ -237,7 +238,7 @@ it.each([3600, 0])("retains scoped snapshot ownership after sidecar loss with ca
       cache: source.cache, key: source.key, materialize: source.materialize,
       mountPath: source.mountPath, source: source.source.fingerprint,
     })
-    const snapshotKey = sourceSnapshotMetaKey(source.key)
+    const snapshotKey = sourceSnapshotMetaKey(source.key, definition.name)
     const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
     await store.setMeta!(snapshotKey, {
       ...snapshot, configHash,
@@ -299,7 +300,7 @@ it.each(["enumeration", "item"])("retains snapshot ownership after failed %s and
       cache: source.cache, key: source.key, materialize: source.materialize,
       mountPath: source.mountPath, source: source.source.fingerprint,
     })
-    const snapshotKey = sourceSnapshotMetaKey(source.key)
+    const snapshotKey = sourceSnapshotMetaKey(source.key, definition.name)
     const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
     await store.setMeta!(snapshotKey, { ...snapshot, configHash })
     await rm(join(root, ".vitehub/file-metadata"), { recursive: true })
@@ -308,7 +309,7 @@ it.each(["enumeration", "item"])("retains snapshot ownership after failed %s and
       const restarted = createLocalWorkspaceStore(root)
       const result = await materializeWorkspaceSources(definition, restarted)
       expect(result.sources[0]?.status).toBe("error")
-      await expect(readCurrentSourceSnapshot(restarted, source)).resolves.toMatchObject({
+      await expect(readCurrentSourceSnapshot(restarted, source, definition.name)).resolves.toMatchObject({
         items: {
           "kept.txt": { source: "docs", materializedContentDigest: expect.any(String) },
           "removed.txt": { source: "docs", materializedContentDigest: expect.any(String) },
@@ -324,8 +325,9 @@ it.each(["enumeration", "item"])("retains snapshot ownership after failed %s and
     const result = await materializeWorkspaceSources(definition, restarted)
     expect(result.sources[0]?.status).toBe("ready")
     await expect(restarted.readFile("kept.txt")).resolves.toMatchObject({ content: new TextEncoder().encode("original") })
-    await expect(restarted.readFile("removed.txt")).resolves.toBeUndefined()
-    const ready = await readCurrentSourceSnapshot(restarted, source)
+    // The lost sidecar cannot prove Workspace ownership for conditional deletion.
+    await expect(restarted.readFile("removed.txt")).resolves.toMatchObject({ content: new TextEncoder().encode("original"), metadata: undefined })
+    const ready = await readCurrentSourceSnapshot(restarted, source, definition.name)
     expect(ready?.items?.["kept.txt"]).toMatchObject({ source: "docs", materializedContentDigest: expect.any(String) })
     expect(ready?.items).not.toHaveProperty("removed.txt")
   }
@@ -343,13 +345,13 @@ it.each(["EACCES", "ETIMEDOUT", "ABORT_ERR", "INVALID_METADATA"])("preserves laz
   } } }
   const view = createWorkspaceSourceView(definition, store)
   await view.readFile("file.txt")
-  const snapshot = await store.getMeta!(sourceSnapshotMetaKey("docs"))
+  const snapshot = await store.getMeta!(sourceSnapshotMetaKey("docs", definition.name))
   const error = Object.assign(new Error("storage unavailable"), { code })
   const probe = vi.spyOn(store, "readFile").mockRejectedValueOnce(error)
   await expect(view.readFile("file.txt")).rejects.toBe(error)
   probe.mockRestore()
   expect(getItem).toHaveBeenCalledTimes(1)
-  await expect(store.getMeta!(sourceSnapshotMetaKey("docs"))).resolves.toEqual(snapshot)
+  await expect(store.getMeta!(sourceSnapshotMetaKey("docs", definition.name))).resolves.toEqual(snapshot)
   await expect(view.readFile("file.txt")).resolves.toBe("original")
   const materializationProbe = vi.spyOn(store, "readFile").mockRejectedValueOnce(error)
   try {
@@ -361,7 +363,7 @@ it.each(["EACCES", "ETIMEDOUT", "ABORT_ERR", "INVALID_METADATA"])("preserves laz
     materializationProbe.mockRestore()
   }
   expect(getItem).toHaveBeenCalledTimes(1)
-  await expect(store.getMeta!(sourceSnapshotMetaKey("docs"))).resolves.toEqual(snapshot)
+  await expect(store.getMeta!(sourceSnapshotMetaKey("docs", definition.name))).resolves.toEqual(snapshot)
 })
 
 it.each(["ENOENT", "ENOTDIR", "EISDIR"])("invalidates cached evidence after a %s path replacement", async (code) => {
@@ -375,11 +377,70 @@ it.each(["ENOENT", "ENOTDIR", "EISDIR"])("invalidates cached evidence after a %s
   const source = normalizeWorkspaceSources(definition.sources)[0]!
   const probe = vi.spyOn(store, "readFile").mockRejectedValueOnce(Object.assign(new Error("replaced path"), { code }))
   try {
-    await expect(hasFreshSourceSnapshot(store, source)).resolves.toBe(false)
+    await expect(hasFreshSourceSnapshot(store, source, definition.name)).resolves.toBe(false)
   }
   finally {
     probe.mockRestore()
   }
-  await expect(store.getMeta!(sourceSnapshotMetaKey("docs"))).resolves.toMatchObject({ status: "updating" })
+  await expect(store.getMeta!(sourceSnapshotMetaKey("docs", definition.name))).resolves.toMatchObject({ status: "updating" })
   await expect(materializeWorkspaceSources(definition, store)).resolves.toMatchObject({ sources: [{ status: "ready" }] })
+})
+
+it.each(["raw", "read", "write", "read-overlay", "write-overlay"] as const)("reads namespaced Source evidence through a %s Workspace", async (kind) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-namespaced-facade-"))
+  const definition = {
+    name: `namespaced-facade-${crypto.randomUUID()}`,
+    store: { provider: "local" as const, root },
+    sources: { docs: {
+      mount: "",
+      materialize: "startup" as const,
+      async getKeys() { return ["file.txt"] },
+      async getItem(key: string) { return { key, content: "original" } },
+    } },
+  }
+  registerWorkspace(definition.name, { store: definition.store, sources: definition.sources })
+  try {
+    await materializeWorkspaceSources(definition, createLocalWorkspaceStore(root))
+    const facade = kind.startsWith("write") ? useWorkspace(definition.name, { mode: "write" }) : useWorkspace(definition.name)
+    const workspace = kind === "raw" ? createWorkspace(definition) : kind.endsWith("overlay")
+      ? (await createWorkspaceSourceResolutionFacade(facade, definition, {
+          overlay: true,
+          invocation: { context: {
+            entries: () => new Map<string, unknown>().entries(),
+            get: () => undefined,
+            has: () => false,
+            toJSON: () => ({}),
+          } },
+        })).workspace
+      : facade
+    const source = normalizeWorkspaceSources(definition.sources)[0]!
+    await expect(readWorkspaceSourceMaterializationStatus(workspace, source)).resolves.toMatchObject({ status: "ready" })
+    await expect(listMaterializedWorkspaceSourceEntries(workspace, source)).resolves.toEqual([
+      expect.objectContaining({ path: "file.txt", type: "file" }),
+    ])
+  }
+  finally {
+    resetWorkspaceRegistry()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("rematerializes an unscoped legacy snapshot before reporting Workspace evidence", async () => {
+  const store = createMemoryWorkspaceStore()
+  const getItem = vi.fn(async (key: string) => ({ key, content: "original" }))
+  const definition = { name: "unscoped-migration", sources: { docs: {
+    cache: { maxAge: 3600 }, materialize: "startup" as const, mount: "",
+    async getKeys() { return ["file.txt"] }, getItem,
+  } } }
+  const source = normalizeWorkspaceSources(definition.sources)[0]!
+  await materializeWorkspaceSources(definition, store)
+  const scopedKey = sourceSnapshotMetaKey(source.key, definition.name)
+  const snapshot = await store.getMeta!(scopedKey)
+  await store.setMeta!(sourceSnapshotMetaKey(source.key), snapshot)
+  await store.setMeta!(scopedKey, undefined)
+
+  await expect(readCurrentSourceSnapshot(store, source, definition.name)).resolves.toBeUndefined()
+  await materializeWorkspaceSources(definition, store)
+  expect(getItem).toHaveBeenCalledTimes(2)
+  await expect(readCurrentSourceSnapshot(store, source, definition.name)).resolves.toMatchObject({ status: "ready" })
 })

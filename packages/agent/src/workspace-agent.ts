@@ -271,8 +271,9 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
   // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
   const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
+  const remainingSkills = colocatedSkills && filterColocatedAgentSkills(colocatedSkills, workspaceDefinitionFromOptions(options).sources)
   const sources: Record<string, WorkspaceSourceInput> = {
-    ...colocatedSkills,
+    ...remainingSkills,
     ...ownedWorkspace.sources,
   }
   if (colocatedInstructions && !Object.hasOwn(sources, "__vitehubAgentInstructions")) {
@@ -296,8 +297,7 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   // Explicit Workspace sources take precedence over colocated Skills. Keep the
   // legacy symbol in sync so provider-side fallback materialization cannot
   // overwrite an explicit source.
-  if (colocatedSkills) {
-    const remainingSkills = filterColocatedAgentSkills(colocatedSkills, ownedWorkspace.sources)
+  if (remainingSkills) {
     if (Object.keys(remainingSkills).length) {
       Object.defineProperty(decoratedAgent, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })
     } else {

@@ -79,6 +79,8 @@ export default defineEventHandler(async () => {
 
 `useWorkspace(name)` returns read access. For read-only inspection of an existing Workspace, use `useWorkspace("docs", { refresh: false })` to reuse current persisted snapshots of Sources with `materialize: "startup"`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior.
 
+Source snapshot ownership is scoped to the Workspace name. Cleanup removes stale Source files only when the Store supports atomic conditional removal. Stores without that capability, including the Local Store, retain stale files to protect concurrent user edits. Directory cleanup also requires the original directory identity; replaced directories remain intact.
+
 `refresh: false` applies only to read mode. It does not disable refreshes for other Sources or change explicit `sync()` and `materializeSources()` calls on a writable facade. `useWorkspace(name, { mode: "write" })` keeps normal refresh behavior.
 
 Serve a constrained Workspace subtree without custom route plumbing:

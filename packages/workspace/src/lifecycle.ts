@@ -123,7 +123,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   const startupSources = sources.filter(source => source.materialize === "startup")
   await reconcileRemovedStartupSources(store, startupSources, undefined, materializationStore, definition.name)
   abortSignal?.throwIfAborted()
-  const startupBaseline = await captureStartupFiles(store, startupSources)
+  const startupBaseline = await captureStartupFiles(store, startupSources, definition.name)
   const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
   const bundledBuildSources = !hasExplicitLoaders
@@ -179,10 +179,10 @@ async function startupFileEvidence(store: WorkspaceStore, path: string) {
   return file ? { digest: await sha256(file.content), mediaType: file.mediaType, metadata: structuredClone(file.metadata) } : undefined
 }
 
-async function captureStartupFiles(store: WorkspaceStore, sources: ResolvedWorkspaceSource[]) {
+async function captureStartupFiles(store: WorkspaceStore, sources: ResolvedWorkspaceSource[], workspaceName?: string) {
   const baseline = new Map<string, Awaited<ReturnType<typeof startupFileEvidence>>>()
   for (const source of sources) {
-    const snapshot = await readCurrentSourceSnapshot(store, source)
+    const snapshot = await readCurrentSourceSnapshot(store, source, workspaceName)
     for (const path of Object.keys(snapshot?.items || {})) {
       const key = `${source.key}\0${path}`
       // Capture shared paths once, for the highest-precedence source. Lower-precedence
@@ -195,7 +195,7 @@ async function captureStartupFiles(store: WorkspaceStore, sources: ResolvedWorks
 
 async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, startupSources: ResolvedWorkspaceSource[], baseline: Awaited<ReturnType<typeof captureStartupFiles>>) {
   for (const source of startupSources) {
-    const snapshot = await readCurrentSourceSnapshot(store, source)
+    const snapshot = await readCurrentSourceSnapshot(store, source, definition.name)
     if (!snapshot) continue
     for (const [path, recorded] of Object.entries(snapshot.items || {})) {
       const baselineKey = `${source.key}\0${path}`
@@ -206,7 +206,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
       const file = await readStartupSnapshotFile(store, path)
       if (await materializedFileMatches(file, recorded)) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
-      const current = await readCurrentSourceSnapshot(store, source)
+      const current = await readCurrentSourceSnapshot(store, source, definition.name)
       if (!current) break
       const items = { ...current.items }
       for (const [itemPath, recordedItem] of Object.entries(items)) {
@@ -217,7 +217,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
           && !await materializedFileMatches(item, recordedItem)) delete items[itemPath]
       }
       // Keep cleanup evidence for paths that build synchronization did not replace.
-      await store.setMeta?.(sourceSnapshotMetaKey(source.key), { ...current, items, status: "updating" })
+      await store.setMeta?.(sourceSnapshotMetaKey(source.key, definition.name), { ...current, items, status: "updating" })
       break
     }
   }
@@ -241,12 +241,12 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
       const removesStartupMount = startup.mountPath === mountPath || startup.mountPath.startsWith(`${mountPath}/`)
-      if (!removesStartupMount && await sourceSnapshotOwnsAnyPath(store, startup.key, removedPaths) === false) continue
+      if (!removesStartupMount && await sourceSnapshotOwnsAnyPath(store, startup.key, removedPaths, definition.name) === false) continue
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
     for (const source of affected) {
-      await invalidateSourceSnapshot(store, source.key)
+      await invalidateSourceSnapshot(store, source.key, definition.name)
     }
     abortSignal?.throwIfAborted()
     await store.rm(mountPath, { recursive: true, force: true })
@@ -259,12 +259,12 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources) {
       if (!removedPaths.some(path => sourceMountIntersectsPath(startup, path))) continue
-      if (await sourceSnapshotOwnsAnyPath(store, startup.key, removedPaths) === false) continue
+      if (await sourceSnapshotOwnsAnyPath(store, startup.key, removedPaths, definition.name) === false) continue
       affected.push(startup)
     }
     await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
     for (const startup of affected) {
-      await invalidateSourceSnapshot(store, startup.key)
+      await invalidateSourceSnapshot(store, startup.key, definition.name)
     }
     abortSignal?.throwIfAborted()
     await removeRootBuildSourceFiles(store, removedPaths)

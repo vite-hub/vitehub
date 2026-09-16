@@ -39,6 +39,26 @@ describe("colocated Agent Skills", () => {
     expect(Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)).toEqual(skills)
   })
 
+  it.each(["review", "colocated"])("filters fallback for capability Workspace Source %s", (key) => {
+    const agent = withColocatedAgentSkills(defineAgent({
+      capabilities: [{ id: "review", workspaceSources: { [key]: { content: "Explicit", workspacePath: destination } } }],
+      workspace: {},
+      driver: { model: {} as never },
+    }), { colocated: { content: "Colocated", workspacePath: destination } })
+    expect(Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)).toBeUndefined()
+  })
+
+  it.each([{ files: [] }, { files: [{ path: "README.md", content: "Readme" }] }, { files: [{ path: destination, content: "Explicit" }] }])("retains unrelated fallback for finite root Source files %j", ({ files }) => {
+    const unrelated = { content: "Other skill", workspacePath: ".agents/skills/other/SKILL.md" }
+    const agent = withColocatedAgentSkills(defineAgent({
+      workspace: { sources: { explicit: custom({ mount: "", files }) } },
+      driver: { model: {} as never },
+    }), { colocated: { content: "Colocated", workspacePath: destination }, unrelated })
+    const remaining = Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)
+    expect(remaining).toHaveProperty("unrelated", unrelated)
+    expect(Object.hasOwn(remaining, "colocated")).toBe(!files.some(file => file.path === destination))
+  })
+
   afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
   })
