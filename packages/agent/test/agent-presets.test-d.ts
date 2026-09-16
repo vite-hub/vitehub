@@ -99,6 +99,8 @@ it("accepts interface options and rejects non-record roots", () => {
   expectTypeOf(defineAgent({ extends: preset, options: { enabled: false } }).options.enabled).toEqualTypeOf<boolean>()
   // @ts-expect-error The root options value must be a record, not an array.
   defineAgent({ options: [], configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error Promise roots are not plain option records.
+  defineAgent({ options: Promise.resolve({ enabled: true }), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Callback values may only be nested in a record.
   defineAgent({ options: () => true, configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Built-in instances may only be nested in a record.

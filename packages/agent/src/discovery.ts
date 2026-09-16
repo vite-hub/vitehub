@@ -403,6 +403,19 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return index
   }
 
+  function memberCallEnd(index: number): number {
+    let end = index + 1
+    while (tokens[end] === "." || tokens[end] === "[") {
+      if (tokens[end] === ".") { end += 2; continue }
+      let depth = 1
+      for (end++; end < tokens.length && depth > 0; end++) {
+        if (tokens[end] === "[") depth++
+        else if (tokens[end] === "]") depth--
+      }
+    }
+    return tokens[end] === "<" ? skipTypeArguments(end) : end
+  }
+
   function resolveReference(index: number, seen = new Set<number>(), preserveCalls = false): number {
     while (tokens[index] === "(" || tokens[index] === "<") {
       index = tokens[index] === "<" ? skipTypeArguments(index) : index + 1
@@ -410,9 +423,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (seen.has(index)) return index
     seen.add(index)
     if (preserveCalls) {
-      let call = index + 1
-      while (tokens[call] === ".") call += 2
-      if (tokens[call] === "<") call = skipTypeArguments(call)
+      const call = memberCallEnd(index)
       if (tokens[call] === "(") return index
     }
     const binding = visibleDeclaration(index)
@@ -441,7 +452,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
   }
 
-  function properties(index: number, inspectChannels = false): Map<string, number> {
+  function properties(index: number, inspectChannels = false, inspectSettings = false): Map<string, number> {
     const result = new Map<string, number>()
     index = resolveReference(index)
     // Preserve object literals wrapped in value-preserving helpers such as
@@ -457,7 +468,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Channel. Add workspace: {} to the Agent definition when the Channel owns a Workspace, or define the Channel locally so discovery can inspect it.")
       }
     }
-    if (tokens[index] !== "{") return result
+    if (tokens[index] !== "{") {
+      if (inspectSettings) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect opaque Agent settings. Define settings locally, or add an explicit workspace: {} ownership marker or named Workspace reference to the Agent definition.")
+      }
+      return result
+    }
     let depth = 0
     let atProperty = true
     for (let i = index + 1; i < tokens.length; i++) {
@@ -465,7 +481,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (depth === 0 && token === "}") break
       if (depth === 0 && atProperty) {
         if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
-          const spread = properties(i + 3, inspectChannels)
+          const spread = properties(i + 3, inspectChannels, inspectSettings)
           for (const [key, value] of spread) result.set(key, value)
           i += 2
           atProperty = false
@@ -594,6 +610,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       return workspaceOwnsDefinition(workspace)
     }
 
+    // Unknown spreads can supply Workspace settings even when no visible field does.
+    // An explicit Workspace marker above provides the required ownership contract.
+    properties(call + 1, false, true)
     const capabilities = options.get("capabilities")
     if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
     const channels = options.get("channels")
@@ -749,9 +768,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const token = tokens[i]
         const inCallbackScope = variableScope(i) === callbackScope
         const reference = resolveReference(i, new Set(), true)
-        let callEnd = reference + 1
-        while (tokens[callEnd] === ".") callEnd += 2
-        if (tokens[callEnd] === "<") callEnd = skipTypeArguments(callEnd)
+        const callEnd = memberCallEnd(reference)
         const opaqueCall = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "") && tokens[callEnd] === "("
           && conditionalBranches(reference) === undefined
         if (inCallbackScope && (factoryCall(reference) !== undefined || opaqueCall)) {

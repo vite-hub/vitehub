@@ -154,3 +154,38 @@ it.each([
 it("rejects a module-local helper returned by an expression callback", async () => {
   await expect(discover('const build = () => defineAgent({ workspace: {} }); export default defineAgent({ options: {}, configure: () => build() })')).rejects.toThrow("Agent Workspace discovery cannot inspect a configure result factory")
 })
+
+it.each([
+  'builders["workspace"]()',
+  'builders[keys["workspace"]]()',
+  'builders.group["workspace"]()',
+  'builders["group"].workspace()',
+])("rejects computed configure result factories: %s", async (result) => {
+  const source = `const keys = { workspace: "workspace" }; const workspace = () => defineAgent({ workspace: {} }); const builders = { workspace, group: { workspace } }; export default defineAgent({ options: {}, configure: () => ${result} })`
+  await expect(discover(source)).rejects.toThrow("cannot inspect a configure result factory")
+  for (const workspace of ['{}', '"shared"']) {
+    const definitions = await discover(source.replace("options: {}", `options: {}, workspace: ${workspace}`))
+    expect(definitions[0]?.workspace).toBe(workspace === '{}' ? "notes" : undefined)
+  }
+})
+
+it.each([
+  '...importedSettings',
+  '...namespace.settings',
+  '...alias',
+  '...{ ...importedSettings }',
+])("rejects opaque Agent settings spreads: %s", async (settings) => {
+  const source = `import importedSettings from "./settings"; import * as namespace from "./settings"; const alias = importedSettings; export default defineAgent({ options: {}, configure: () => defineAgent({ ${settings} }) })`
+  await expect(discover(source)).rejects.toThrow("cannot inspect opaque Agent settings")
+  for (const workspace of ['{}', '"shared"']) {
+    const definitions = await discover(source.replace(settings, `${settings}, workspace: ${workspace}`))
+    expect(definitions[0]?.workspace).toBe(workspace === '{}' ? "notes" : undefined)
+  }
+})
+
+it("inspects local settings spreads and respects local import shadowing", async () => {
+  const definitions = await discover('import settings from "./settings"; export default defineAgent({ options: {}, configure: () => { const settings = { workspace: {} }; return defineAgent({ ...settings }) } })')
+  expect(definitions[0]?.workspace).toBe("notes")
+  const plain = await discover('const settings = { description: "plain" }; export default defineAgent({ options: {}, configure: () => defineAgent({ ...settings }) })')
+  expect(plain[0]?.workspace).toBeUndefined()
+})
