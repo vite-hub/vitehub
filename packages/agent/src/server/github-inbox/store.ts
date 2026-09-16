@@ -175,7 +175,10 @@ export class PullRequestInbox {
     }
     s.refresh = false
     if (pr.state === 'closed') s.status = 'terminal'
-    else if (s.status === 'terminal') s.status = s.lease ? 'working' : 'ready'
+    else if (s.status === 'terminal') {
+      delete s.wait
+      s.status = s.lease ? 'working' : 'ready'
+    }
     return true
   }
   eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
@@ -188,8 +191,9 @@ export class PullRequestInbox {
     return this.transaction(() => {
       const s = this.get(repository, pr.number) ?? this.empty(repository, pr.number)
       if (this.updatePr(s, pr)) this.dirty(s, 'bootstrap')
-      if (!this.eligible(repository, s.pr)) { s.status = 'terminal'; s.handled = s.generation }
+      if (!this.eligible(repository, s.pr)) { delete s.wait; s.status = 'terminal'; s.handled = s.generation }
       else if (s.status === 'terminal') {
+        delete s.wait
         s.status = 'ready'
         if (s.generation <= s.handled) this.dirty(s, 'bootstrap-recovery')
       }
@@ -303,7 +307,7 @@ export class PullRequestInbox {
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
         else if (changed) s.revision = (s.revision ?? 0) + 1
         const eligible = this.eligible(repository, s.pr)
-        if (!eligible) {
+        if (s.pr && !eligible) {
           // Filter ineligibility is terminal for this snapshot. Do not retain
           // an explicit wait across it: recovery must be admitted normally.
           delete s.wait

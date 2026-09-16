@@ -112,3 +112,26 @@ test('a PR closed during work stays terminal when stale wait completion releases
   assert.equal(inbox.get(repository, 7)!.status, 'terminal')
   assert.equal(inbox.claim(1).length, 0)
 })
+
+for (const source of ['seed', 'webhook'] as const) {
+  test(`${source} filter transitions clear waits and admit recovered PRs`, t => {
+    const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], filter: { labels: { deny: ['hold'] } } })
+    t.onTestFinished(() => inbox.close())
+    inbox.seed(repository, pr)
+    assert.equal(inbox.finish(inbox.claim(1)[0]!, { text: 'waiting', wait }), true)
+    const update = (labels: string[]) => source === 'seed'
+      ? inbox.seed(repository, { ...pr, labels })
+      : inbox.ingest(`labels:${labels.join(',')}`, 'pull_request', {
+          repository: { full_name: repository }, action: labels.length ? 'labeled' : 'unlabeled',
+          pull_request: { ...pr, labels },
+        })
+    update(['hold'])
+    assert.equal(inbox.get(repository, 7)!.status, 'terminal')
+    assert.equal(inbox.get(repository, 7)!.wait, undefined)
+    assert.equal(inbox.claim(1).length, 0)
+    update([])
+    assert.equal(inbox.get(repository, 7)!.status, 'ready')
+    assert.equal(inbox.get(repository, 7)!.wait, undefined)
+    assert.equal(inbox.claim(1).length, 1)
+  })
+}
