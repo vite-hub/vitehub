@@ -77,7 +77,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-`useWorkspace(name)` returns read access. For read-only inspection of an existing Workspace, use `useWorkspace("docs", { refresh: false })` to reuse current persisted snapshots of Sources with `materialize: "startup"`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior.
+`useWorkspace(name)` returns read access. For read-only inspection of an existing Workspace, use `useWorkspace("docs", { refresh: false })` to reuse current persisted snapshots of Sources with `materialize: "startup"`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior. Custom Stores that omit `getMeta` or `setMeta` retain ownership and Source snapshots only for the lifetime of the Store instance.
 
 `refresh: false` applies only to read mode. It does not disable refreshes for other Sources or change explicit `sync()` and `materializeSources()` calls on a writable facade. `useWorkspace(name, { mode: "write" })` keeps normal refresh behavior.
 

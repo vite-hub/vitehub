@@ -289,11 +289,15 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
-  it.each(["readFile", "stat", "exists"] as const)("preserves root startup precedence without file metadata after %s", async (operation) => {
+  it.each((["readFile", "stat", "exists"] as const).flatMap(operation => ["inline", "durable"].map(metadata => ({ operation, metadata }))))("preserves root startup precedence with $metadata metadata after $operation", async ({ operation, metadata }) => {
     for (const reuseStartupSnapshots of [false, true]) {
       const store = createMemoryWorkspaceStore()
       const writeFile = store.writeFile.bind(store)
-      vi.spyOn(store, "writeFile").mockImplementation((path, file) => writeFile(path, { ...file, metadata: undefined }))
+      if (metadata === "durable") vi.spyOn(store, "writeFile").mockImplementation((path, file) => writeFile(path, { ...file, metadata: undefined }))
+      else {
+        store.getMeta = undefined
+        store.setMeta = undefined
+      }
       const getLazyKeys = vi.fn(async () => ["AGENTS.md", "lazy.md"])
       const definition = {
         name: "startup-root-precedence",
@@ -362,8 +366,12 @@ describe("lazy sources", () => {
     expect(getLazyKeys).toHaveBeenCalledOnce()
   })
 
-  it.each(["content", "workspace"] as const)("rejects stale inline startup ownership after replacing %s", async (replacement) => {
+  it.each(["content", "workspace"].flatMap(replacement => [false, true].map(durable => ({ replacement, durable }))))("rejects stale inline startup ownership after replacing $replacement with durable metadata=$durable", async ({ replacement, durable }) => {
     const store = createMemoryWorkspaceStore()
+    if (!durable) {
+      store.getMeta = undefined
+      store.setMeta = undefined
+    }
     const getLazyKeys = vi.fn(async () => ["AGENTS.md"])
     const definition = {
       name: "inline-startup-root-owner",

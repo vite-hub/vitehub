@@ -66,6 +66,7 @@ interface MaterializedStartupSource {
 
 const startupSourcesMetaKey = (workspace: string) => `workspace:${workspace}:startup-sources`
 const startupWorkspacesMetaKey = "workspace:startup-source-workspaces"
+const volatileSnapshots = new WeakMap<Pick<WorkspaceStore, "getMeta">, Map<string, SourceSnapshotMetadata>>()
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string, Set<ResolvedWorkspaceSource>>>()
 
@@ -109,6 +110,8 @@ function isSnapshotFresh(meta: SourceSnapshotMetadata | undefined, source: Resol
 }
 
 async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">, workspace: string, sourceKey: string, source?: SourceConfiguration) {
+  const volatile = volatileSnapshots.get(store)?.get(sourceSnapshotMetaKey(workspace, sourceKey))
+  if (volatile) return volatile
   // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
   const snapshot = await store.getMeta?.(sourceSnapshotMetaKey(workspace, sourceKey)) as SourceSnapshotMetadata | undefined
   if (snapshot || !source) return snapshot
@@ -122,7 +125,7 @@ async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">
 export async function invalidateSourceSnapshot(store: WorkspaceStore, workspace: string, sourceKey: string) {
   const snapshot = await readSourceSnapshotMetadata(store, workspace, sourceKey)
   // Configuration changes invalidate reuse, but old file digests still prove cleanup ownership.
-  if (snapshot) await store.setMeta?.(sourceSnapshotMetaKey(workspace, sourceKey), { ...snapshot, status: "updating" })
+  if (snapshot) await writeSourceSnapshotMetadata(store, workspace, { ...snapshot, status: "updating" })
 }
 
 export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, verifyOwnership = false) {
@@ -166,7 +169,16 @@ export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, workspace
 }
 
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, workspace: string, metadata: SourceSnapshotMetadata) {
-  await store.setMeta?.(sourceSnapshotMetaKey(workspace, metadata.source), metadata)
+  if (!store.getMeta || !store.setMeta) {
+    let snapshots = volatileSnapshots.get(store)
+    if (!snapshots) {
+      snapshots = new Map()
+      volatileSnapshots.set(store, snapshots)
+    }
+    snapshots.set(sourceSnapshotMetaKey(workspace, metadata.source), metadata)
+    return
+  }
+  await store.setMeta(sourceSnapshotMetaKey(workspace, metadata.source), metadata)
 }
 
 function materializedItemMeta(
@@ -486,16 +498,16 @@ async function reconcileRemovedStartupSourcesInternal(
               : { ownedDirectories: [...new Set([...(retainedSnapshot.ownedDirectories || []), path])] }),
         }))
       }
-      try {
-        await control.mutate(() => store.rm(path, { force: true }))
-      }
-      catch (error) {
-        // Only retained content makes directory removal optional. Other failures
-        // must keep this Source's snapshot and index available for a retry.
-        if ((await store.stat(path))?.type !== "directory" || !(await store.list(path)).length) throw error
-      }
+      // Files left after ownership cleanup belong to retained Sources or users.
+      // Decide whether removal is needed before calling the Store, so an actual
+      // removal failure always preserves the snapshot and index for a retry.
+      if ((await store.stat(path))?.type === "directory" && (await store.list(path)).length) continue
+      await control.mutate(() => store.rm(path, { force: true }))
     }
-    await control.checkpoint(async () => await store.setMeta?.(sourceSnapshotMetaKey(workspace, source.key), {}))
+    await control.checkpoint(async () => {
+      volatileSnapshots.get(store)?.delete(sourceSnapshotMetaKey(workspace, source.key))
+      await store.setMeta?.(sourceSnapshotMetaKey(workspace, source.key), {})
+    })
   }
   // Register before materialization can persist files, including failed or interrupted attempts.
   // A newer definition must retain owners that can still write or checkpoint files.

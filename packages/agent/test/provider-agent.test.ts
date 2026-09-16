@@ -4443,6 +4443,56 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it("preserves Workspace Source precedence over colocated Skills and keeps provider edits", async () => {
+    const threadId = "thread-workspace-colocated-skill-override"
+    const skillPath = ".agents/skills/review/SKILL.md"
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        for (const provider of [".agents", ".codex", ".claude"]) {
+          await expect(readFile(`${root}/${provider}/skills/review/SKILL.md`, "utf8")).resolves.toBe("# Explicit Source\n")
+        }
+        await writeFile(join(root, skillPath), "# Provider edit\n")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => {
+        await expect(readFile(join(root, skillPath), "utf8")).resolves.toBe("# Provider edit\n")
+        return { entries: [] }
+      }),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const source = { content: "# Explicit Source\n", workspacePath: skillPath }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(join(root, skillPath, ".."), { recursive: true })
+        await writeFile(join(root, skillPath), source.content)
+        return session
+      }),
+      tools: {},
+    }
+    const runContext = context(threadId, {
+      workspace,
+      workspaceAutoCommit: true,
+      workspaceDefinition: { mode: "write", name: "docs", sources: { review: source } },
+      workspaceMode: "write",
+    })
+    runContext.context.set("agent.colocatedSkills", {
+      review: { content: "# Colocated Skill\n", workspacePath: skillPath },
+    })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("makes canonical and legacy Skill directories mutually readable without overwriting collisions", async () => {
     const { gmail } = await import("../src/capabilities/gmail.ts")
     const capability = gmail()
