@@ -249,8 +249,13 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
   if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
   // SAFETY: globalThis is the only supported source for an optional SharedArrayBuffer constructor.
-  const sharedArrayBuffer = (globalThis as { SharedArrayBuffer?: { new (length: number): ArrayBuffer; prototype: ArrayBuffer } }).SharedArrayBuffer
-  if (sharedArrayBuffer && value instanceof sharedArrayBuffer) { const clone = new sharedArrayBuffer(value.byteLength); new Uint8Array(clone).set(new Uint8Array(value)); memo.set(value, clone); return clone }
+  const sharedArrayBuffer = (globalThis as unknown as { SharedArrayBuffer?: { new (length: number): object } }).SharedArrayBuffer
+  if (sharedArrayBuffer && value instanceof sharedArrayBuffer) {
+    const clone = new sharedArrayBuffer(value.byteLength) as ArrayBuffer
+    new Uint8Array(clone).set(new Uint8Array(value as ArrayBuffer))
+    memo.set(value, clone)
+    return clone
+  }
   if (ArrayBuffer.isView(value)) {
     // SAFETY: Node exposes Buffer as a constructor with the documented isBuffer/from API.
     if ("Buffer" in globalThis && (globalThis as { Buffer: typeof Buffer }).Buffer.isBuffer(value)) {
