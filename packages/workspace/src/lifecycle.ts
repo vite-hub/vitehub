@@ -9,9 +9,26 @@ import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
-import type { LoaderContext, SourceContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceLoaderSource, WorkspacePublishOptions, WorkspaceSnapshot, WorkspaceStore } from "./core/types.ts"
+import type { LoaderContext, SourceContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceFile, WorkspaceLoaderSource, WorkspacePublishOptions, WorkspaceSnapshot, WorkspaceStore, WorkspaceStreamFile } from "./core/types.ts"
 
 const buildSourcesMetaKey = "workspace:build-sources"
+
+function createBuildLoaderStore(store: WorkspaceStore, sources: ResolvedWorkspaceSource[]): WorkspaceStore {
+  const mounts = [...sources].sort((a, b) => b.mountPath.length - a.mountPath.length)
+  const tag = <T extends WorkspaceFile | WorkspaceStreamFile>(path: string, file: T): T => {
+    const normalized = normalizeWorkspacePath(path)
+    const source = mounts.find(source => !source.mountPath || normalized.startsWith(`${source.mountPath}/`))
+    return source ? { ...file, metadata: { ...file.metadata, workspaceBuildSource: source.key } } : file
+  }
+  return new Proxy(store, {
+    get(target, property) {
+      if (property === "writeFile") return (path: string, file: WorkspaceFile) => target.writeFile(path, tag(path, file))
+      if (property === "writeFileConditional" && target.writeFileConditional) return (path: string, file: WorkspaceFile, digest: string | null) => target.writeFileConditional!(path, tag(path, file), digest)
+      if (property === "writeFileStream" && target.writeFileStream) return (path: string, file: WorkspaceStreamFile) => target.writeFileStream!(path, tag(path, file))
+      return Reflect.get(target, property, target)?.bind(target)
+    },
+  })
+}
 
 interface SyncedBuildSource {
   key: string
@@ -143,7 +160,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
     rootDir: ctxSource.rootDir,
     sourceRootDir: ctxSource.sourceRootDir,
     sources: normalizedSources,
-    store,
+    store: hasExplicitLoaders ? createBuildLoaderStore(store, buildSources) : store,
     parseData: async input => input.data,
     generateDigest: input => JSON.stringify(input),
     logger: console,
@@ -165,7 +182,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
     if (snapshot?.status !== "ready") continue
     for (const path of Object.keys(snapshot.items || {})) {
       const file = await store.readFile(path)
-      if (!buildSources.some(buildSource => buildSource.key === file?.metadata?.source)) continue
+      if (!buildSources.some(buildSource => buildSource.key === file?.metadata?.source || buildSource.key === file?.metadata?.workspaceBuildSource)) continue
       await invalidateWorkspaceSourceMaterialization(definition, materializationStore, [source.key])
       // Retain the item index so the next startup can still clean up its stale files.
       await store.setMeta?.(sourceSnapshotMetaKey(source.key), { ...snapshot, status: "updating" })
@@ -186,9 +203,9 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
 
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
-    const buildKeys = new Set(previousSources.filter(source => source.mountPath === mountPath).map(source => source.key))
+    const buildKeys = previousSources.filter(source => source.mountPath === mountPath).map(source => source.key)
     const removedPaths = (await store.list(mountPath, { recursive: true }))
-      .filter(entry => entry.type === "file" && typeof entry.metadata?.source === "string" && buildKeys.has(entry.metadata.source))
+      .filter(entry => entry.type === "file" && buildKeys.some(key => entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
       .map(entry => entry.path)
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
@@ -336,7 +353,7 @@ async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuil
 async function rootBuildSourceFilePaths(store: WorkspaceStore, key: string) {
   const entries = await store.list("", { recursive: true })
   return entries
-    .filter(entry => entry.type === "file" && entry.metadata?.source === key)
+    .filter(entry => entry.type === "file" && (entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
     .map(entry => entry.path)
 }
 

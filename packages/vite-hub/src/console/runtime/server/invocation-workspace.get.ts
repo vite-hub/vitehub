@@ -23,7 +23,7 @@ function visiblePath(path: string): boolean {
     && !path.split("/").some(part => !part || part === ".." || part === "." || /^(?:\.git|\.ssh|\.env(?:\..*)?|auth\.json|credentials(?:\..*)?)$/i.test(part))
 }
 
-export default async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Promise<{ paths: string[], repository: string, revision: string } | { content: string, path: string, revision: string, size: number }> {
+export default async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Promise<{ paths: string[], repository: string, revision: string } | { content: string, path: string, provenance?: { source: string }, revision: string, size: number }> {
   assertConsoleRequest(event)
   const id = event.context?.params?.id ?? ""
   const path = consoleRequestURL(event).searchParams.get("path")
@@ -46,6 +46,7 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
   const revision = "current"
   if (path !== null) {
     if (!visiblePath(path)) throw failure(400, "Choose a visible file inside this Workspace.")
+    if (!await workspace.fs.exists(path)) throw failure(404, "This file is not in the mounted Workspace.")
     const stat = await workspace.fs.stat(path)
     if (stat.type !== "file") throw failure(400, "Choose a file to preview.")
     if (stat.size !== undefined && stat.size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
@@ -53,6 +54,8 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
     const size = new TextEncoder().encode(content).byteLength
     if (size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
     if (content.includes("\0")) throw failure(415, "Binary files cannot be previewed as text.")
+    const source = v.safeParse(v.string(), stat.metadata?.source)
+    if (source.success) return { content, path, revision, size, provenance: { source: source.output } }
     return { content, path, revision, size }
   }
   const entries = await workspace.fs.glob("**/*")

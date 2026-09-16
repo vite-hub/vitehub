@@ -2941,7 +2941,7 @@ describe("lazy sources", () => {
           materialize: "startup",
           mount: "",
           files: [
-            { path: "docs/generated.md", content: "generated" },
+            { path: "docs/index.md", content: "generated" },
             { path: "generated/stale.md", content: "stale" },
             { path: "replaced.md", content: "original" },
           ],
@@ -3071,7 +3071,7 @@ describe("lazy sources", () => {
   })
 
   it("removes stale root startup files after build cleanup invalidates their snapshot", async () => {
-    let keys = ["docs/generated.md", "stale.md", "AGENTS.md"]
+    let keys = ["docs/index.md", "stale.md", "AGENTS.md"]
     const definition = {
       name: "startup-cleared-snapshot-cleanup",
       sources: {

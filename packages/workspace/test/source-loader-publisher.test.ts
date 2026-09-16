@@ -1145,6 +1145,7 @@ describe("sources, loaders, and publishers", () => {
   it("waits for an accepted Store removal before cancellation settles", async () => {
     const base = createMemoryWorkspaceStore()
     await base.setMeta?.("workspace:build-sources", [{ key: "docs", mountPath: "docs" }])
+    await base.writeFile("docs/stale.md", { path: "docs/stale.md", content: "stale", metadata: { source: "docs" } })
     let releaseRemoval!: () => void
     const removalBlocked = new Promise<void>((resolve) => { releaseRemoval = resolve })
     let removalStarted!: () => void
@@ -1382,7 +1383,34 @@ describe("sources, loaders, and publishers", () => {
       name: "stale-build-sources",
       sources: {},
     }, store)
-    await expect(store.list("", { recursive: true })).resolves.toEqual([])
+    expect((await store.list("", { recursive: true })).filter(entry => entry.type === "file")).toEqual([])
+  })
+
+  it.each(["", "docs"])("cleans explicit loader outputs at '%s' while preserving unowned files", async (mount) => {
+    const store = createMemoryWorkspaceStore()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    let emit = true
+    const definition: WorkspaceDefinition = {
+      name: "derived-build-output",
+      sources: { docs: custom({ mount, files: [{ path: "input.md", content: "input" }] }) },
+      loaders: [{
+        name: "derived",
+        async load(ctx) {
+          if (!emit) return
+          await ctx.store.writeFile(path("derived.md"), { path: path("derived.md"), content: "derived" })
+          await ctx.store.writeFile(path("edited.md"), { path: path("edited.md"), content: "generated" })
+        },
+      }],
+    }
+    await store.writeFile(path("user.md"), { path: path("user.md"), content: "user" })
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile(path("derived.md"))).resolves.toMatchObject({ content: "derived" })
+    await store.writeFile(path("edited.md"), { path: path("edited.md"), content: "user edit" })
+    emit = false
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile(path("derived.md"))).resolves.toBeUndefined()
+    await expect(store.readFile(path("user.md"))).resolves.toMatchObject({ content: "user" })
+    await expect(store.readFile(path("edited.md"))).resolves.toMatchObject({ content: "user edit" })
   })
 
   it("lets build sources read existing workspace files while syncing", async () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), stat: vi.fn(), readFile: vi.fn(), useWorkspace: vi.fn() }))
+const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), exists: vi.fn(), stat: vi.fn(), readFile: vi.fn(), useWorkspace: vi.fn() }))
 vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/api/_vitehub/console/invocations/:id/workspace", getAgentHostWorkspaceInspector: mocks.inspector }))
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
@@ -13,6 +13,7 @@ beforeEach(() => {
   mocks.definition.mockReturnValue({ workspace: { name: "bot" } })
   mocks.glob.mockResolvedValue([{ path: "AGENTS.md", type: "file" }, { path: ".env", type: "file" }, { path: "repo/.git/config", type: "file" }, { path: "src", type: "directory" }])
   mocks.stat.mockResolvedValue({ type: "file", size: 4 })
+  mocks.exists.mockResolvedValue(true)
   mocks.readFile.mockResolvedValue("test")
 })
 describe("invocation Workspace inspection", () => {
@@ -45,6 +46,35 @@ describe("invocation Workspace inspection", () => {
   })
   it("reads a visible file", async () => {
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
+    expect(mocks.exists).toHaveBeenCalledWith("AGENTS.md")
+    expect(mocks.glob).not.toHaveBeenCalled()
+  })
+  it("returns 404 for a missing file without enumerating other Sources", async () => {
+    mocks.exists.mockResolvedValue(false)
+    await expect(handler(request("missing.md"))).rejects.toMatchObject({ statusCode: 404, statusMessage: "This file is not in the mounted Workspace." })
+    expect(mocks.exists).toHaveBeenCalledWith("missing.md")
+    expect(mocks.stat).not.toHaveBeenCalled()
+    expect(mocks.readFile).not.toHaveBeenCalled()
+    expect(mocks.glob).not.toHaveBeenCalled()
+  })
+  it("rejects directories with the file-selection response", async () => {
+    mocks.stat.mockResolvedValue({ type: "directory" })
+    await expect(handler(request("src"))).rejects.toMatchObject({ statusCode: 400, statusMessage: "Choose a file to preview." })
+    expect(mocks.readFile).not.toHaveBeenCalled()
+  })
+  it.each(["exists", "stat", "readFile"] as const)("preserves provider failures from %s", async operation => {
+    const error = new Error("Source authorization failed")
+    mocks[operation].mockRejectedValue(error)
+    await expect(handler(request("AGENTS.md"))).rejects.toBe(error)
+    expect(mocks.glob).not.toHaveBeenCalled()
+  })
+  it("includes the source label for a source-backed file", async () => {
+    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source: "repository", private: "hidden" } })
+    expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current", provenance: { source: "repository" } })
+  })
+  it.each([42, { name: "repository" }, null])("omits invalid source provenance %j", async source => {
+    mocks.stat.mockResolvedValue({ type: "file", size: 4, metadata: { source } })
+    expect(await handler(request("AGENTS.md"))).not.toHaveProperty("provenance")
   })
   it.each(["../secret", "/etc/passwd", "repo/../../secret", "repo\\secret", ".env.local", "repo/.git/config", "auth.json"])("rejects unsafe path %s before reading", async path => {
     await expect(handler(request(path))).rejects.toMatchObject({ statusCode: 400 })
