@@ -415,7 +415,11 @@ existing PRs still receive lifecycle evidence that can cancel their active work.
 `claim(limit)` grants exclusive two-hour leases. `hydrateSnapshot()` fills gaps
 through a caller-supplied paginated REST reader and optional thread reader.
 `finish()` parks completed work or schedules a retry; feedback and terminal CI
-results wake it. Pending CI updates persist without starting another pass.
+results wake it by default. Pending CI updates persist without starting another pass.
+For explicit durable waits, pass `wait: { reason, evidenceKey }` to `finish()`.
+The inbox binds the wait to the current head and excludes it from claims until
+`wake(observedSnapshot, evidenceKey)` sees changed evidence. See the
+[host reconciliation contract](../../docs/content/docs/reference/github-inbox-waits.md).
 `recoverLeases()` releases expired leases only, including after a process restart.
 `createClaimStopCheck()` checks lease, PR state, and head changes, and accepts a
 repair push only when the provider Git HEAD proves the new head. Call `close()`
@@ -525,3 +529,66 @@ See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-
 A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the working directory. Auxiliary runs, such as title generation, do not call it. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.
 
 The callback is skipped when provider shutdown fails or exceeds the cleanup deadline, and during provider inspection. Missing evidence must remain unknown. This callback does not verify model claims, grant push authority, or make closure state durable across host crashes. Validate the checkout in host code and persist the result before returning when durability is required.
+
+### Required GitHub checks
+
+Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`
+from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
+Supply an authenticated REST reader `(path) => Promise<{ status, data, nextPage? }>`; paths
+are relative to the GitHub API root. The reader combines active branch rules with
+classic branch protection and preserves required GitHub App identities. It requests
+the first rules page with a page size of 100, then follows explicit continuation
+targets. For every successful rules response, the callback must normalize the
+Link header's `rel="next"` URL to an API-relative `nextPage` path without a leading
+slash, relative to the complete configured API base URL, including its pathname.
+For GitHub Enterprise Server, `https://host/api/v3/repositories/123/rules/branches/main?page=2`
+becomes `repositories/123/rules/branches/main?page=2`, without repeating `api/v3`.
+The adapter must reject URLs with a different origin or outside the API base path,
+and preserve query parameters. For example, normalize a parsed next URL with:
+
+```ts
+function normalizeNextPage(nextUrl: string, apiBase: string): string {
+  const base = new URL(apiBase);
+  const prefix = base.pathname.replace(/\/$/, "") + "/";
+  const next = new URL(nextUrl);
+  if (next.origin !== base.origin || !next.pathname.startsWith(prefix)) {
+    throw new Error("Pagination URL is outside the GitHub API base");
+  }
+  return next.pathname.slice(prefix.length) + next.search;
+}
+```
+
+GitHub can change the route to `repositories/{id}/...`; the reader follows these
+paths without requiring the original route prefix.
+Set `nextPage: null` only when the header has no next relation
+(or after fetching all pages). Missing metadata, invalid or repeated targets,
+failed pages, and the 1,000-page limit return unknown policy. Page length does
+not establish completion. Other endpoint responses do not need `nextPage`.
+
+```ts
+const policies = createGitHubRequiredCheckPolicyReader(readGitHubRest)
+const policy = await policies.read('acme/app', 'main')
+const result = evaluateGitHubRequiredChecks(policy, {
+  repository: 'acme/app', branch: 'main', headSha,
+  checkRuns, statuses,
+})
+policies.invalidate('acme/app', 'main') // after a protection or ruleset event
+```
+
+Pass complete REST check-run records and commit statuses fetched for the exact
+head. Add the requested SHA as `sha` on each status because GitHub omits it from
+individual status records. The evaluator selects the
+latest matching records on the exact head. A successful same-context commit status
+for an App-bound requirement returns `unknown` because REST statuses do not identify
+the source App, unless a matching check run already proves failure. Failing and
+pending statuses retain their blocking states. Missing requirements return `pending`
+and appear in `missing`; malformed or unavailable policy returns `unknown`, never
+an empty passing policy. Required workflow rules return `unknown` because they
+cannot be represented as check contexts. Policy reads use a five-minute cache,
+with a two-minute cache for unknown results. Set `ttlMs`, `failureTtlMs`, and
+`clock` in the reader options to change this behavior. Invalidation also prevents
+older in-flight reads from restoring stale cache entries.
+
+These results describe scheduling evidence. They do not grant merge authority or
+replace fresh GitHub merge checks. Repository selection, approvals, merge methods,
+and review-provider policy remain application decisions.

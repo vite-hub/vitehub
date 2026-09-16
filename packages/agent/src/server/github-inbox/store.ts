@@ -1,3 +1,4 @@
+import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
@@ -11,6 +12,7 @@ export type Snapshot = {
   repository: string; number: number; pr: GitHubPullRequestRecord | null
   generation: number; handled: number; dirtyAt: number; nextAt: number; revision?: number
   status: 'ready' | 'working' | 'waiting' | 'terminal'
+  wait?: PullRequestWait
   lease: string | null; leaseUntil: number; attempts: number
   hydrated: boolean; refresh: boolean; feedbackRefresh: boolean
   comments: Record<string, GitHubEvidence>; reviews: Record<string, GitHubEvidence>
@@ -21,6 +23,7 @@ export type SnapshotPatch = Partial<Pick<Snapshot, 'pr' | 'comments' | 'reviews'
 export interface GitHubInboxDeliveryResult { accepted: true; duplicate?: boolean; queued: number[]; updated: number[]; ignored?: boolean; reason?: string }
 export interface GitHubInboxSummary {
   repository: string; number: number; head?: string; generation: number; handled: number; status: Snapshot['status']; reasons: string[]
+  wait?: PullRequestWait
   dirty: boolean; attempts: number; nextAt: number; lastResult?: string
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot }
@@ -64,6 +67,7 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   if (value.threadsHydrated !== undefined && typeof value.threadsHydrated !== 'boolean') throw new Error('Invalid stored snapshot')
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   if (value.lastResult !== undefined && typeof value.lastResult !== 'string') throw new Error('Invalid stored snapshot')
+  if (value.wait !== undefined) parseWait(value.wait)
   // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Runtime validation establishes the persisted shape.
   return value as Snapshot
 }
@@ -143,7 +147,7 @@ export class PullRequestInbox {
     if (s.generation === s.handled) s.dirtyAt = this.clock()
     s.generation++; s.nextAt = 0; s.attempts = 0
     s.revision = (s.revision ?? 0) + 1
-    if (!s.lease) s.status = 'ready'
+    if (!s.lease) s.status = s.wait ? 'waiting' : 'ready'
     s.reasons = [...new Set([...s.reasons, reason])]
   }
   private updatePr(s: Snapshot, pr: GitHubPullRequestRecord) {
@@ -162,6 +166,7 @@ export class PullRequestInbox {
       return false
     }
     const newHead = previous?.head?.sha !== pr.head?.sha
+    if (newHead || pr.state === 'closed') delete s.wait
     s.pr = { ...previous, ...pr }
     if (newHead) {
       s.checks = Object.fromEntries(Object.entries(s.checks).filter(([, check]) => check.head_sha === pr.head?.sha))
@@ -170,7 +175,10 @@ export class PullRequestInbox {
     }
     s.refresh = false
     if (pr.state === 'closed') s.status = 'terminal'
-    else if (s.status === 'terminal') s.status = s.lease ? 'working' : 'ready'
+    else if (s.status === 'terminal') {
+      delete s.wait
+      s.status = s.lease ? 'working' : 'ready'
+    }
     return true
   }
   eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
@@ -183,8 +191,9 @@ export class PullRequestInbox {
     return this.transaction(() => {
       const s = this.get(repository, pr.number) ?? this.empty(repository, pr.number)
       if (this.updatePr(s, pr)) this.dirty(s, 'bootstrap')
-      if (!this.eligible(repository, s.pr)) { s.status = 'terminal'; s.handled = s.generation }
+      if (!this.eligible(repository, s.pr)) { delete s.wait; s.status = 'terminal'; s.handled = s.generation }
       else if (s.status === 'terminal') {
+        delete s.wait
         s.status = 'ready'
         if (s.generation <= s.handled) this.dirty(s, 'bootstrap-recovery')
       }
@@ -297,10 +306,19 @@ export class PullRequestInbox {
         const wake = (changed || !s.pr) && !pendingCi
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
         else if (changed) s.revision = (s.revision ?? 0) + 1
-        if (s.pr && !this.eligible(repository, s.pr)) { s.status = 'terminal'; s.handled = s.generation }
+        const eligible = this.eligible(repository, s.pr)
+        if (s.pr && !eligible) {
+          // Filter ineligibility is terminal for this snapshot. Do not retain
+          // an explicit wait across it: recovery must be admitted normally.
+          delete s.wait
+          s.status = 'terminal'; s.handled = s.generation
+        } else if (s.status === 'terminal') {
+          delete s.wait
+          s.status = s.lease ? 'working' : 'ready'
+        }
         this.put(s)
         if (changed || !s.pr) updated.push(number)
-        if (wake && s.status !== 'terminal') queued.push(number)
+        if (wake && !s.wait && s.status !== 'terminal') queued.push(number)
       }
       return finish(numbers.size ? undefined : 'no matching PR head')
     })
@@ -310,7 +328,7 @@ export class PullRequestInbox {
       const now = this.clock(), all = this.all(), claims: Claim[] = []
       for (const s of all.sort((a,b) => a.dirtyAt - b.dirtyAt || a.number - b.number)) {
         if (claims.length >= limit) break
-        if (s.lease && s.leaseUntil > now || s.status === 'terminal' || s.generation <= s.handled || s.nextAt > now) continue
+        if (s.wait || s.lease && s.leaseUntil > now || s.status === 'terminal' || s.generation <= s.handled || s.nextAt > now) continue
         if (s.pr && !this.eligible(s.repository, s.pr)) continue
         // Stack children remain local; a parent merge's base push wakes them.
         if (s.pr?.base?.ref && all.some(parent => parent.repository === s.repository && parent.number !== s.number && String(parent.pr?.state).toLowerCase() === 'open' && parent.pr?.head?.ref === s.pr?.base?.ref)) continue
@@ -357,10 +375,22 @@ export class PullRequestInbox {
       this.put(s); return true
     })
   }
-  finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean }): boolean {
+  finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean; wait?: Omit<PullRequestWait, 'headSha'> }): boolean {
     return this.transaction(() => {
       const s = this.get(claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token) return false
+      if (result.wait) {
+        if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
+        if (s.status === 'terminal' || !s.pr?.head?.sha || s.pr.head.sha !== claim.snapshot.pr?.head?.sha
+          || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) {
+          s.lease = null; s.leaseUntil = 0
+          if (s.status !== 'terminal') { s.status = 'ready'; s.nextAt = 0 }
+          this.put(s)
+          return false
+        }
+        s.wait = parseWait({ ...result.wait, headSha: s.pr.head.sha })
+        s.revision = (s.revision ?? 0) + 1
+      }
       s.lease = null; s.leaseUntil = 0; s.lastResult = result.text
       if (s.status === 'terminal' || result.terminal && s.generation === claim.generation) { s.status = 'terminal'; s.handled = s.generation }
       else if (s.generation !== claim.generation) { s.status = 'ready'; s.handled = Math.max(s.handled, claim.generation); s.nextAt = 0 }
@@ -372,6 +402,20 @@ export class PullRequestInbox {
       }
       else { s.status = 'waiting'; s.handled = s.generation; s.reasons = [] }
       this.put(s); return true
+    })
+  }
+  /** Re-evaluate structured evidence outside an Agent invocation before calling this method. */
+  wake(observed: Snapshot, evidenceKey: string): boolean {
+    return this.transaction(() => {
+      const s = this.get(observed.repository, observed.number)
+      if (!s?.wait || s.lease || s.status === 'terminal' || s.generation !== observed.generation
+        || (s.revision ?? 0) !== (observed.revision ?? 0) || s.pr?.head?.sha !== observed.pr?.head?.sha) return false
+      parseWait({ ...s.wait, evidenceKey })
+      if (s.wait.evidenceKey === evidenceKey) return false
+      delete s.wait
+      this.dirty(s, 'wait:evidence-changed')
+      this.put(s)
+      return true
     })
   }
   recoverLeases(): void {
@@ -388,6 +432,6 @@ export class PullRequestInbox {
   summary(): GitHubInboxSummary[] {
     return this.all().map(s => ({ repository: s.repository, number: s.number, head: s.pr?.head?.sha,
       generation: s.generation, handled: s.handled, status: s.status, reasons: s.reasons,
-      dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult }))
+      wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult }))
   }
 }
