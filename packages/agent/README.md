@@ -540,7 +540,9 @@ Use `{ kind: 'verified', evidence: 'thread:123:resolved' }` for a newly verified
 credited evidence IDs persist for that head, so replay does not reset the count. A new head has a fresh budget.
 `resetProgressBudget(repository, number, expectedHead, reason)` permits an explicit
 operator retry and rejects active claims or stale heads. `summary()` exposes the
-persisted head, count and exhaustion state. The host verifies evidence and classifies
+persisted head, limit, count and exhaustion state. The first progress outcome saves
+the configured limit for that head. Configuration changes and restarts retain it;
+an explicit reset or a new head adopts the current limit. The host verifies evidence and classifies
 errors; Agent text, result status, and elapsed time do not choose this policy.
 
 See [durable retry budgets](https://vitehub.dev/docs/agents/invocations#durable-retry-budgets)

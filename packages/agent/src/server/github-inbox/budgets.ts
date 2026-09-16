@@ -13,10 +13,10 @@ export function parseProviderBudget(value: unknown): ProviderBudget { return v.p
 export type ProviderAttempt = { provider: string; generation: string; attempt: number }
 export type ProviderAttemptOutcome = 'success' | 'retryable-failure' | 'other-failure'
 const progressBudgetSchema = v.object({
-  head: v.string(), count, exhausted: v.boolean(), evidence: v.optional(v.string()),
+  head: v.string(), limit: v.pipe(count, v.minValue(1)), count, exhausted: v.boolean(), evidence: v.optional(v.string()),
   creditedEvidence: v.array(v.string()), resetReason: v.optional(v.string()),
 })
-export interface ProgressBudget { head: string; count: number; exhausted: boolean; evidence?: string; creditedEvidence: string[]; resetReason?: string }
+export interface ProgressBudget { head: string; limit: number; count: number; exhausted: boolean; evidence?: string; creditedEvidence: string[]; resetReason?: string }
 export function parseProgressBudget(value: unknown): ProgressBudget { return v.parse(progressBudgetSchema, value) }
 /** The host verifies progress from GitHub/provider state, never from Agent prose. */
 export type ProgressOutcome = { kind: 'no-progress' } | { kind: 'verified'; evidence: string }

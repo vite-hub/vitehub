@@ -410,13 +410,19 @@ try {
 }
 inbox.finishProviderAttempt(token, 'success')
 
-// Compare GitHub/provider state before and after the invocation. Do not parse prose.
-const evidence = await verifyNewProgress(claim, result)
-inbox.finish(claim, {
-  text: result.text,
-  retry: !evidence,
-  progress: evidence ? { kind: 'verified', evidence } : { kind: 'no-progress' },
-})
+try {
+  // Compare GitHub/provider state before and after the invocation. Do not parse prose.
+  const evidence = await verifyNewProgress(claim, result)
+  inbox.finish(claim, {
+    text: result.text,
+    retry: !evidence,
+    progress: evidence ? { kind: 'verified', evidence } : { kind: 'no-progress' },
+  })
+}
+catch (error) {
+  inbox.release(claim)
+  throw error
+}
 ```
 
 `invokeRepairAgent`, `isRetryableProviderFailure`, and `verifyNewProgress` above are
@@ -430,7 +436,10 @@ not progress.
 Three no-progress completions stop claims for the same head, even if result status
 is completed or another webhook arrives. New head state starts with a fresh budget.
 Stale claim completions cannot charge or reset the new head. `summary()` exposes
-`progressBudget` with its head, count, exhaustion state and last verified evidence.
+`progressBudget` with its head, limit, count, exhaustion state and last verified evidence.
+The first recorded progress outcome saves the configured limit for that head.
+Workers retain this limit across configuration changes and restarts until an explicit
+reset adopts the current limit. A new head uses the current configuration.
 
 Provider successes clear only failures from earlier dispatches; late responses
 cannot clear newer failures. Other errors release their reservation without

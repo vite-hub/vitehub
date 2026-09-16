@@ -180,3 +180,41 @@ test('nonconsecutive evidence replay cannot reset a head budget across restart o
   assert.equal(budget?.evidence, 'thread:456:resolved')
   assert.deepEqual(budget?.creditedEvidence, ['thread:123:resolved', 'thread:456:resolved'])
 })
+
+for (const limits of [{ initial: 5, next: 3 }, { initial: 3, next: 5 }]) {
+  test(`head limit ${limits.initial} survives reopen with ${limits.next} until reset`, t => {
+    const directory = mkdtempSync(join(tmpdir(), 'inbox-limit-'))
+    const path = join(directory, 'inbox.sqlite')
+    const open = (noProgress: number) => new PullRequestInbox({ path, repositories: [repository], budgets: { noProgress } })
+    let inbox = open(limits.initial)
+    const peer = open(limits.next)
+    t.onTestFinished(() => { inbox.close(); peer.close(); rmSync(directory, { recursive: true, force: true }) })
+    inbox.seed(repository, pr())
+    inbox.finish(inbox.claim(1)[0]!, { text: 'waiting', progress: { kind: 'no-progress' } })
+    inbox.close(); inbox = open(limits.next)
+    for (let index = 1; index < limits.initial; index++) {
+      wake(inbox, index)
+      const worker = index % 2 ? peer : inbox
+      const claim = worker.claim(1)[0]
+      assert.ok(claim)
+      worker.finish(claim, { text: 'waiting', progress: { kind: 'no-progress' } })
+      assert.equal(worker.summary()[0]?.progressBudget?.limit, limits.initial)
+    }
+    wake(peer, 20)
+    assert.equal(inbox.claim(1).length, 0)
+    assert.equal(peer.claim(1).length, 0)
+    assert.ok(inbox.resetProgressBudget(repository, 7, 'a', 'Operator adopted new limit'))
+    assert.equal(peer.summary()[0]?.progressBudget?.limit, limits.next)
+    for (let index = 0; index < limits.next; index++) {
+      wake(peer, 30 + index)
+      const claim = peer.claim(1)[0]
+      assert.ok(claim)
+      peer.finish(claim, { text: 'waiting', progress: { kind: 'no-progress' } })
+    }
+    wake(inbox, 40)
+    assert.equal(peer.claim(1).length, 0)
+    inbox.seed(repository, pr('b'))
+    inbox.finish(inbox.claim(1)[0]!, { text: 'waiting', progress: { kind: 'no-progress' } })
+    assert.equal(peer.summary()[0]?.progressBudget?.limit, limits.next)
+  })
+}
