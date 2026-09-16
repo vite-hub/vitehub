@@ -296,3 +296,15 @@ it("removes Workspace access for equal branded and enum Capability IDs", () => {
   // @ts-expect-error Distinct enums can have the same runtime string.
   void enumReplaced.__vitehubWorkspaceAgent
 })
+
+it("retains Workspace access for disjoint branded literal Capability IDs", () => {
+  const workspace = defineCapability({ id: "workspace" as "workspace" & { brand: "parent" }, workspace: {} })
+  const unrelated = defineCapability({ id: "unrelated" as "unrelated" & { brand: "child" }, metadata: {} })
+  const same = defineCapability({ id: "workspace" as "workspace" & { brand: "child" }, metadata: {} })
+  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [workspace] }) })
+  const retained = defineAgent({ extends: preset, capabilities: [unrelated] })
+  expectTypeOf(retained.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const replaced = defineAgent({ extends: preset, capabilities: [same] })
+  // @ts-expect-error Equal literal values replace each other despite distinct brands.
+  void replaced.__vitehubWorkspaceAgent
+})

@@ -214,6 +214,8 @@ it.each([
 it.each([
   '({ key }) => defineAgent({ [key]: {} })',
   'options => defineAgent({ [options.key]: {} })',
+  '() => { const key = "workspace"; return defineAgent({ [`${key}`]: {} }) }',
+  '() => { const key = `work${"space"}`; return defineAgent({ [key]: {} }) }',
 ])("rejects opaque computed settings keys: %s", async (configure) => {
   const source = `export default defineAgent({ options: { key: "workspace" }, configure: ${configure} })`
   await expect(discover(source)).rejects.toThrow("cannot inspect a computed Agent settings key")

@@ -2162,7 +2162,9 @@ type ConfiguredCapabilityMembers<TCapabilities> = TCapabilities extends readonly
 
 // Brands are erased at runtime; enum members compare by their string values.
 type ConfiguredCapabilityString<TId> = TId extends string
-  ? Exclude<keyof TId, keyof string> extends never ? `${TId}` : string
+  ? TId extends infer TValue & Pick<TId, Exclude<keyof TId, keyof string>>
+    ? TValue extends string ? `${TValue}` : string
+    : string
   : never
 
 type RetainedConfiguredCapabilityMembers<TParent, TChildId> = TParent extends { id: infer TParentId }
