@@ -506,7 +506,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
               if (["{", "(", "["].includes(tokens[k])) qDepth++
               else if (["}", ")", "]"].includes(tokens[k])) qDepth--
             }
-            return qDepth === returnedDefinitionDepth
+            // Parenthesized conditional branches may sit deeper than the
+            // outer returned call. Keep the branch when its question mark is
+            // at or above the selected return depth; nested settings
+            // conditionals remain deeper and are excluded.
+            return qDepth <= returnedDefinitionDepth
           }
           else if (tokens[j] === ";" && nested === 0) break
         }
