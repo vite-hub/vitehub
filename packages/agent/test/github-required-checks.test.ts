@@ -305,8 +305,8 @@ describe("required check evidence", () => {
       }).state,
     ).toBe("passed");
   });
-  it("keeps App-bound statuses unknown without verifiable source identity", () => {
-    for (const state of ["success", "failure", "pending"]) {
+  it("preserves blocking App-bound statuses without trusting successful source identity", () => {
+    for (const state of ["success", "failure", "error", "pending"]) {
       for (const checkRuns of [[], [run]]) {
         expect(
           evaluateGitHubRequiredChecks(policy, {
@@ -314,7 +314,10 @@ describe("required check evidence", () => {
             checkRuns,
             statuses: [{ id: 2, sha: "head", context: "CI", state }],
           }),
-        ).toMatchObject({ state: "unknown", missing: [] });
+        ).toMatchObject({
+          state: state === "success" ? "unknown" : state === "pending" ? "pending" : "failed",
+          missing: [],
+        });
       }
     }
     expect(

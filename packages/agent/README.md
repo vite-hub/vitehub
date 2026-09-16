@@ -568,10 +568,10 @@ policies.invalidate('acme/app', 'main') // after a protection or ruleset event
 Pass complete REST check-run records and commit statuses fetched for the exact
 head. Add the requested SHA as `sha` on each status because GitHub omits it from
 individual status records. The evaluator selects the
-latest matching records on the exact head. A same-context commit status for an
-App-bound requirement returns `unknown` because REST statuses do not identify
-the source App, unless a matching check run already proves failure. Missing
-requirements return `pending`
+latest matching records on the exact head. A successful same-context commit status
+for an App-bound requirement returns `unknown` because REST statuses do not identify
+the source App, unless a matching check run already proves failure. Failing and
+pending statuses retain their blocking states. Missing requirements return `pending`
 and appear in `missing`; malformed or unavailable policy returns `unknown`, never
 an empty passing policy. Required workflow rules return `unknown` because they
 cannot be represented as check contexts. Policy reads use a five-minute cache,

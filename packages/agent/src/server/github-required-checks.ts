@@ -324,15 +324,13 @@ export function evaluateGitHubRequiredChecks(
       // Both record types must pass. REST statuses cannot prove their source App.
       if (status)
         states.push(
-          required.appId !== null
-            ? "unknown"
-            : status.state === "pending"
-              ? "pending"
-              : status.state === "success"
+          status.state === "pending"
+            ? "pending"
+            : ["failure", "error"].includes(status.state)
+              ? "failed"
+              : status.state === "success" && required.appId === null
                 ? "passed"
-                : ["failure", "error"].includes(status.state)
-                  ? "failed"
-                  : "unknown",
+                : "unknown",
         );
       if (!states.length) missing.push(required.context);
       return {
