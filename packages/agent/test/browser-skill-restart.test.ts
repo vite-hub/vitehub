@@ -46,7 +46,12 @@ describe("browser skill ownership across process restarts", () => {
       content: expected,
       ownership: { capabilityId: "browser", path, digest: createHash("sha256").update(expected).digest("hex") },
     })
-    expect(await invoke(root, updated)).toEqual(result)
+    const nextGuidance = "# Browser\nInstructions after another restart.\n"
+    const next = browserSkillContent(nextGuidance)
+    expect(await invoke(root, nextGuidance)).toEqual({
+      content: next,
+      ownership: { capabilityId: "browser", path, digest: createHash("sha256").update(next).digest("hex") },
+    })
     await expect(readFile(unrelated, "utf8")).resolves.toBe("User notes")
   }, 30_000)
 
