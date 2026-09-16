@@ -369,7 +369,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (tokens[capabilityCall] === "(") {
       const options = properties(capabilityCall + 1)
       const workspace = options.get("workspace")
-      if (workspace !== undefined && !["undefined", "void"].includes(tokens[resolveReference(workspace)])) return true
+      if (workspace !== undefined && !undefinedValue(workspace)) return true
       const nested = options.get("capabilities")
       return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
     }
@@ -447,7 +447,15 @@ function isWorkspaceAgentDefinition(source: string): boolean {
 
   function resolveReference(index: number, seen = new Set<number>(), preserveCalls = false): number {
     while (tokens[index] === "(" || tokens[index] === "<") {
-      index = tokens[index] === "<" ? skipTypeArguments(index) : index + 1
+      if (tokens[index] === "<") { index = skipTypeArguments(index); continue }
+      let last = index + 1
+      let depth = 1
+      for (let i = index + 1; i < tokens.length && depth > 0; i++) {
+        if (["(", "[", "{"].includes(tokens[i])) depth++
+        else if ([")", "]", "}"].includes(tokens[i])) depth--
+        else if (depth === 1 && tokens[i] === ",") last = i + 1
+      }
+      index = last
     }
     if (seen.has(index)) return index
     seen.add(index)
@@ -468,6 +476,22 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return reference === undefined ? index : resolveReference(reference, seen, preserveCalls)
   }
 
+  function undefinedValue(index: number): boolean {
+    index = resolveReference(index)
+    if (tokens[index] !== "void") return tokens[index] === "undefined"
+    let depth = 0
+    for (let i = index + 1; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (depth === 0 && [",", ";", ")", "]", "}"].includes(token)) break
+      if (depth === 0 && ["|", "&", "?", "+", "-", "*", "/", "%", "<", ">", "=", "!"].includes(token)) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a compound void expression. Use a direct Workspace value or an explicit ownership marker.")
+      }
+      if (["(", "[", "{"].includes(token)) depth++
+      else if ([")", "]", "}"].includes(token)) depth--
+    }
+    return true
+  }
+
   function propertyName(token: string): string {
     if (!/^["'`]/.test(token)) return token
     if (token[0] === '`') return token.slice(1, -1)
@@ -477,7 +501,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         : JSON.parse(`"${token.slice(1, -1).replace(/\\"/g, '\\\\"')}"`)
       return parse(string(), value)
     } catch {
-      return token.slice(1, -1)
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an escaped settings key. Use an unescaped literal key.")
     }
   }
 
@@ -626,7 +650,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     const options = properties(call + 1)
     const workspace = options.get("workspace")
-    if (workspace !== undefined && !["undefined", "void"].includes(tokens[resolveReference(workspace)])) {
+    if (workspace !== undefined && !undefinedValue(workspace)) {
       function workspaceOwnsDefinition(index: number): boolean {
         const value = resolveReference(index)
         const branches = conditionalBranches(value)
@@ -635,11 +659,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           const name = properties(value).get("name")
           if (name === undefined) return true
           const nameValue = resolveReference(name)
-          if (["undefined", "void"].includes(tokens[nameValue])) return true
+          if (undefinedValue(nameValue)) return true
           if (/^["'`]/.test(tokens[nameValue] ?? "")) return false
           throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic Workspace name. Use a statically known string reference or workspace: {} ownership marker.")
         }
-        if (["undefined", "void"].includes(tokens[value]) || /^["'`]/.test(tokens[value] ?? "")) return false
+        if (undefinedValue(value) || /^["'`]/.test(tokens[value] ?? "")) return false
         // A dynamic member may resolve to either a named reference or owned
         // storage. Require an explicit contract instead of guessing ownership.
         const optionBinding = callbackParameters.some(scope => value >= scope.start && value < scope.end && scope.names.has(tokens[value]))

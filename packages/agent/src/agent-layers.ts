@@ -276,7 +276,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     if (lengthDescriptor) Object.defineProperty(clone, "length", lengthDescriptor)
     return clone
   }
-  if (value instanceof Date) { const clone = new Date(value.getTime()); memo.set(value, clone); return clone }
+  if (value instanceof Date) { if (Object.getPrototypeOf(value) !== Date.prototype) return value; const clone = new Date(value.getTime()); memo.set(value, clone); return clone }
   if (value instanceof Map) {
     if (Object.getPrototypeOf(value) !== Map.prototype) return value
     const clone = new Map()
@@ -291,12 +291,13 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     for (const entry of value) clone.add(clonePresetOption(entry, memo, active))
     return clone
   }
-  if (value instanceof RegExp) { const clone = new RegExp(value.source, value.flags); clone.lastIndex = value.lastIndex; memo.set(value, clone); return clone }
-  if (value instanceof URL) { const clone = new URL(value.href); memo.set(value, clone); return clone }
-  if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
-  if (value instanceof ArrayBuffer) { const clone = value.slice(0); memo.set(value, clone); return clone }
+  if (value instanceof RegExp) { if (Object.getPrototypeOf(value) !== RegExp.prototype) return value; const clone = new RegExp(value.source, value.flags); clone.lastIndex = value.lastIndex; memo.set(value, clone); return clone }
+  if (value instanceof URL) { if (Object.getPrototypeOf(value) !== URL.prototype) return value; const clone = new URL(value.href); memo.set(value, clone); return clone }
+  if (value instanceof URLSearchParams) { if (Object.getPrototypeOf(value) !== URLSearchParams.prototype) return value; const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
+  if (value instanceof ArrayBuffer) { if (Object.getPrototypeOf(value) !== ArrayBuffer.prototype) return value; const clone = value.slice(0); memo.set(value, clone); return clone }
   const sharedArrayBuffer = globalThis.SharedArrayBuffer
   if (sharedArrayBuffer && value instanceof sharedArrayBuffer) {
+    if (Object.getPrototypeOf(value) !== sharedArrayBuffer.prototype) return value
     const source = value
     const clone = new sharedArrayBuffer(source.byteLength)
     const cloneBytes = new Uint8Array(clone)
@@ -325,6 +326,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       return clone
     }
     if (value instanceof DataView) {
+      if (Object.getPrototypeOf(value) !== DataView.prototype) return value
       // SAFETY: DataView intrinsic accessors avoid shadowable instance properties.
       // SAFETY: DataView intrinsic buffer accessor returns an ArrayBuffer.
       const buffer = Object.getOwnPropertyDescriptor(DataView.prototype, "buffer")!.get!.call(value) as ArrayBuffer
@@ -349,6 +351,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, "BigInt64Array" in globalThis ? BigInt64Array : undefined, "BigUint64Array" in globalThis ? BigUint64Array : undefined].filter(Boolean) as any[]
     const TypedArray = constructors.find((ctor) => value instanceof ctor)
     if (!TypedArray) throw new TypeError("[vitehub] Agent preset options must contain cloneable built-in values.")
+    if (Object.getPrototypeOf(value) !== TypedArray.prototype) return value
     const clone = new TypedArray(clonedBuffer, byteOffset, byteLength / TypedArray.BYTES_PER_ELEMENT)
     memo.set(value, clone)
     return clone

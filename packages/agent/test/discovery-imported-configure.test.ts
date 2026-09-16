@@ -254,3 +254,11 @@ it.each(['options.workspaceName', 'options["workspaceName"]'])("rejects ambiguou
 it("rejects a destructured option Workspace reference", async () => {
   await expect(discover('export default defineAgent({ options: { workspaceName: "shared" }, configure: ({ workspaceName }) => defineAgent({ workspace: workspaceName }) })')).rejects.toThrow("cannot inspect a dynamic Workspace value")
 })
+
+it.each([String.raw`"\x77orkspace"`, String.raw`'\u{77}orkspace'`, String.raw`["\x77orkspace"]`])("rejects unsupported escaped settings keys: %s", async (key) => {
+  await expect(discover(`export default defineAgent({ options: {}, configure: () => defineAgent({ ${key}: {} }) })`)).rejects.toThrow("cannot inspect an escaped settings key")
+})
+
+it.each(["void 0 || {}", "void 0 ?? {}", "void 0 ? {} : {}"])("rejects compound void Workspace expressions: %s", async (workspace) => {
+  await expect(discover(`export default defineAgent({ options: {}, configure: () => defineAgent({ workspace: ${workspace} }) })`)).rejects.toThrow("cannot inspect a compound void expression")
+})

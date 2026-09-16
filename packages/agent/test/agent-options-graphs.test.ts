@@ -243,3 +243,25 @@ it("preserves branded option values through configuration and extension", () => 
     expect(options.nested.error).toBe(expected.error)
   }
 })
+
+it.each([
+  ["Date", new class extends Date { #label = "date"; summary() { return this.#label } }()],
+  ["RegExp", new class extends RegExp { #label = "regexp"; summary() { return this.#label } }("pattern")],
+  ["URL", new class extends URL { #label = "url"; summary() { return this.#label } }("https://example.com")],
+  ["URLSearchParams", new class extends URLSearchParams { #label = "params"; summary() { return this.#label } }("q=value")],
+  ["ArrayBuffer", new class extends ArrayBuffer { #label = "buffer"; summary() { return this.#label } }(8)],
+  ["SharedArrayBuffer", new class extends SharedArrayBuffer { #label = "shared"; summary() { return this.#label } }(8)],
+  ["DataView", new class extends DataView<ArrayBuffer> { #label = "view"; summary() { return this.#label } }(new ArrayBuffer(8))],
+  ["Uint8Array", new class extends Uint8Array { #label = "bytes"; summary() { return this.#label } }(8)],
+] as const)("preserves custom %s instances through configuration and extension", (_name, instance) => {
+  const configure = vi.fn((options: { nested: { instance: typeof instance } }) => {
+    expect(options.nested.instance).toBe(instance)
+    expect(options.nested.instance.summary()).toBe(instance.summary())
+    return defineAgent({ driver: "codex" })
+  })
+  const preset = defineAgent({ options: { nested: { instance } }, configure })
+  const inherited = defineAgent({ extends: preset })
+  expect(preset.options.nested.instance).toBe(instance)
+  expect(inherited.options.nested.instance).toBe(instance)
+  expect(configure).toHaveBeenCalledTimes(2)
+})
