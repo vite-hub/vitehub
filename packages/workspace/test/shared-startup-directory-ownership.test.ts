@@ -122,3 +122,77 @@ it("transfers shared directory ownership after reopening a persistent Store", as
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+it.each(["docs", "parent"])("preserves a user file replacing startup directory %s", async (replacement) => {
+  const store = createMemoryWorkspaceStore()
+  const mount = replacement === "parent" ? "parent/docs" : "docs"
+  const definition = { name: "replaced-directory", sources: {
+    docs: custom({ materialize: "startup", mount, files: [{ path: "file.md", content: "generated" }] }),
+  } }
+  await materializeWorkspaceSources(definition, store)
+  await store.rm(replacement, { recursive: true })
+  await store.writeFile(replacement, { path: replacement, content: "user file" })
+  await reconcileRemovedStartupSources(definition.name, store, [])
+  await expect(store.readFile(replacement)).resolves.toMatchObject({ content: "user file" })
+})
+
+
+it.each([false, true])("preserves a startup directory replaced after inspection, remove=%s", async (remove) => {
+  const store = createMemoryWorkspaceStore()
+  const definition = { name: "concurrent-directory", sources: {
+    docs: custom({ materialize: "startup", mount: "docs", files: [{ path: "nested/file.md", content: "generated" }] }),
+  } }
+  await materializeWorkspaceSources(definition, store)
+  const list = store.list.bind(store)
+  let replaced = false
+  store.list = async (path, options) => {
+    const entries = await list(path, options)
+    if (path === "docs/nested" && !entries.length && !replaced) {
+      replaced = true
+      await store.rm(path)
+      await store.writeFile(path, { path, content: "concurrent replacement" })
+    }
+    return entries
+  }
+  if (remove) await reconcileRemovedStartupSources(definition.name, store, [])
+  else await materializeWorkspaceSources({ ...definition, sources: {
+    docs: custom({ materialize: "startup", mount: "docs", files: [] }),
+  } }, store)
+  expect(replaced).toBe(true)
+  await expect(store.readFile("docs/nested")).resolves.toMatchObject({ content: "concurrent replacement" })
+})
+
+it("retries directory cleanup when both removal and recovery inspection fail", async () => {
+  const store = createMemoryWorkspaceStore()
+  const definition = { name: "directory-recovery", sources: {
+    docs: custom({ materialize: "startup", mount: "docs", files: [{ path: "nested/file.md", content: "generated" }] }),
+  } }
+  await materializeWorkspaceSources(definition, store)
+  // Reproduce legacy snapshots that reconstruct directory ownership from items.
+  const key = "workspace:directory-recovery:source:docs:snapshot"
+  const snapshot = await store.getMeta!(key)
+  if (!snapshot || typeof snapshot !== "object") throw new Error("Missing startup snapshot")
+  await store.setMeta!(key, { ...snapshot, ownedDirectories: [] })
+  const empty = { ...definition, sources: { docs: custom({ materialize: "startup", mount: "docs", files: [] }) } }
+  const rm = store.rm.bind(store)
+  const list = store.list.bind(store)
+  let failInspection = false
+  store.rm = async (path, options) => {
+    if (path === "docs/nested") {
+      failInspection = true
+      throw new Error("removal unavailable")
+    }
+    return rm(path, options)
+  }
+  store.list = async (path, options) => {
+    if (failInspection && path === "docs/nested") throw new Error("inspection unavailable")
+    return list(path, options)
+  }
+  await expect(materializeWorkspaceSources(empty, store)).resolves.toMatchObject({ sources: [{ status: "error" }] })
+  await expect(store.stat("docs/nested/file.md")).resolves.toBeUndefined()
+  store.rm = rm
+  store.list = list
+  await expect(materializeWorkspaceSources(empty, store)).resolves.toMatchObject({ sources: [{ status: "ready" }] })
+  await expect(store.stat("docs/nested")).resolves.toBeUndefined()
+})

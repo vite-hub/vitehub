@@ -1,4 +1,5 @@
 import { expect, it } from "vitest"
+import { contentStreamChunks } from "../src/core/path.ts"
 import { custom } from "../src/index.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 import { registerWorkspace, useWorkspace } from "../src/runtime.ts"
@@ -198,4 +199,89 @@ it("preserves a same-byte startup overwrite when the Store drops file metadata",
   await expect(useWorkspace(name).fs.readFile("shared.md", { encoding: "utf8" })).resolves.toBe("same")
   await syncWorkspaceDefinition({ name: "build-owner", sources: {} }, store)
   await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "same" })
+})
+
+
+it.each(["", "docs"])("cleans volatile build output at '%s' without metadata APIs", async (mount) => {
+  const store = createMemoryWorkspaceStore()
+  store.getMeta = undefined
+  store.setMeta = undefined
+  const write = store.writeFile.bind(store)
+  store.writeFile = (path, file) => write(path, { ...file, metadata: undefined })
+  const path = (file: string) => [mount, file].filter(Boolean).join("/")
+  const definition = (files: string[]): WorkspaceDefinition => ({
+    name: "volatile-build",
+    sources: { docs: custom({ materialize: "build", mount, files: files.map(path => ({ path, content: path })) }) },
+  })
+  await syncWorkspaceDefinition(definition(["stale.md", "edited.md", "current.md"]), store)
+  await store.writeFile(path("edited.md"), { path: path("edited.md"), content: "user edit" })
+  await syncWorkspaceDefinition(definition(["current.md"]), store)
+  await expect(store.stat(path("stale.md"))).resolves.toBeUndefined()
+  await expect(store.readFile(path("edited.md"))).resolves.toMatchObject({ content: "user edit" })
+  await syncWorkspaceDefinition({ name: "volatile-build", sources: {} }, store)
+  await expect(store.stat(path("current.md"))).resolves.toBeUndefined()
+})
+
+it.each([false, true])("prunes owned build directories and preserves existing directories, remove=%s", async (remove) => {
+  const store = createMemoryWorkspaceStore()
+  await store.mkdir("docs/existing", { recursive: true })
+  const definition: WorkspaceDefinition = {
+    name: "build-directories",
+    sources: { docs: custom({ materialize: "build", mount: "docs", files: [
+      { path: "existing/file.md", content: "generated" },
+      { path: "owned/deep/file.md", content: "generated" },
+      { path: "retained/file.md", content: "generated" },
+    ] }) },
+  }
+  await syncWorkspaceDefinition(definition, store)
+  await store.writeFile("docs/retained/user.md", { path: "docs/retained/user.md", content: "user" })
+  await syncWorkspaceDefinition({ ...definition, sources: remove ? {} : {
+    docs: custom({ materialize: "build", mount: "docs", files: [] }),
+  } }, store)
+  await expect(store.stat("docs/owned")).resolves.toBeUndefined()
+  await expect(store.stat("docs/existing")).resolves.toMatchObject({ type: "directory" })
+  await expect(store.readFile("docs/retained/user.md")).resolves.toMatchObject({ content: "user" })
+})
+
+it("prunes a removed build mount and its created ancestors", async () => {
+  const store = createMemoryWorkspaceStore()
+  await syncWorkspaceDefinition({ name: "build-mount", sources: {
+    docs: custom({ materialize: "build", mount: "parent/docs", files: [{ path: "nested/file.md", content: "generated" }] }),
+  } }, store)
+  await syncWorkspaceDefinition({ name: "build-mount", sources: {} }, store)
+  await expect(store.stat("parent")).resolves.toBeUndefined()
+})
+
+it.each(["writeFile", "writeFileConditional", "writeFileStream"] as const)("checkpoints an accepted %s after cancellation", async (method) => {
+  const store: WorkspaceStore = createMemoryWorkspaceStore()
+  const write = store.writeFile.bind(store)
+  const controller = new AbortController()
+  const commit = async (path: string, file: Parameters<WorkspaceStore["writeFile"]>[1]) => {
+    await write(path, { ...file, metadata: undefined })
+    controller.abort(new Error("cancelled after write"))
+  }
+  store.writeFile = commit
+  store.writeFileConditional = commit
+  store.writeFileStream = async (path, file) => {
+    for await (const chunk of contentStreamChunks(file.content)) {
+      await commit(path, { path, content: chunk })
+    }
+    return { path, type: "file", digest: "unused", size: 9 }
+  }
+  const definition: WorkspaceDefinition = {
+    name: "cancelled-build",
+    sources: { docs: custom({ materialize: "build", mount: "docs", files: [] }) },
+    loaders: [{ name: "write", async load(ctx) {
+      const file = { path: "docs/file.md", content: "generated" }
+      if (method === "writeFileStream") {
+        await ctx.store.writeFileStream!(file.path, { ...file, content: (async function* () { yield new TextEncoder().encode(file.content) })() })
+      }
+      else if (method === "writeFileConditional") await ctx.store.writeFileConditional!(file.path, file, null)
+      else await ctx.store.writeFile(file.path, file)
+    } }],
+  }
+  await expect(syncWorkspaceDefinition(definition, store, controller.signal)).rejects.toThrow("cancelled after write")
+  await expect(store.readFile("docs/file.md")).resolves.toBeDefined()
+  await syncWorkspaceDefinition({ name: definition.name, sources: {} }, store)
+  await expect(store.stat("docs/file.md")).resolves.toBeUndefined()
 })

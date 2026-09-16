@@ -404,18 +404,32 @@ async function removeStaleMaterializedSourceFiles(
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
   }
-  for (const path of [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)) {
-    if ((await store.stat(path))?.type === "file" || (await store.list(path)).length) continue
-    try {
-      await control.mutate(() => store.rm(path, { force: true }))
+  const cleanupDirectories = [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)
+  // Checkpoint every selected directory even if inspection or removal fails.
+  for (const path of cleanupDirectories) ownedDirectories.add(path)
+  for (const path of cleanupDirectories) {
+    if ((await store.stat(path))?.type === "file") {
+      ownedDirectories.delete(path)
       removedDirectories.add(path)
+      continue
+    }
+    if ((await store.list(path)).length) continue
+    try {
+      const removed = await control.mutate(async () => {
+        // Mutation admission can wait while another writer replaces the path.
+        if ((await store.list(path)).length) return false
+        if ((await store.stat(path))?.type !== "directory") return true
+        await store.rm(path, { force: true })
+        return true
+      })
+      if (removed) {
+        ownedDirectories.delete(path)
+        removedDirectories.add(path)
+      }
     }
     catch (error) {
-      // A concurrent write may make the directory nonempty after the check.
-      if (!(await store.list(path)).length) {
-        ownedDirectories.add(path)
-        throw error
-      }
+      // Keep cleanup authority if this recovery inspection also fails.
+      if (!(await store.list(path)).length) throw error
     }
   }
   return removedDirectories
@@ -527,8 +541,11 @@ async function reconcileRemovedStartupSourcesInternal(
       // Files left after ownership cleanup belong to retained Sources or users.
       // Decide whether removal is needed before calling the Store, so an actual
       // removal failure always preserves the snapshot and index for a retry.
-      if ((await store.stat(path))?.type === "directory" && (await store.list(path)).length) continue
-      await control.mutate(() => store.rm(path, { force: true }))
+      if ((await store.stat(path))?.type !== "directory" || (await store.list(path)).length) continue
+      await control.mutate(async () => {
+        if ((await store.list(path)).length || (await store.stat(path))?.type !== "directory") return
+        await store.rm(path, { force: true })
+      })
     }
     await control.checkpoint(async () => {
       const key = sourceSnapshotMetaKey(workspace, source.key)

@@ -9,7 +9,7 @@ import { readWorkspaceFileOwner, recordWorkspaceFileOwner } from "./sources/file
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
-import { registerWorkspaceStoreAlias } from "./storage/identity.ts"
+import { workspaceStoreIdentity, registerWorkspaceStoreAlias } from "./storage/identity.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
@@ -19,24 +19,82 @@ const buildSourcesMetaKey = (workspace: string) => `workspace:${encodeURICompone
 
 const buildFilesMetaKey = (workspace: string) => `workspace:${encodeURIComponent(workspace)}:build-files`
 
+// Metadata-limited Stores retain build state for the same lifetime as file ownership.
+const volatileBuildMetadata = new WeakMap<object, Map<string, unknown>>()
+
+async function readBuildMetadata(store: WorkspaceStore, key: string): Promise<unknown> {
+  const state = volatileBuildMetadata.get(workspaceStoreIdentity(store))
+  return state?.has(key) ? state.get(key) : await store.getMeta?.(key)
+}
+
+async function writeBuildMetadata(store: WorkspaceStore, key: string, value: unknown): Promise<void> {
+  if (store.getMeta && store.setMeta) {
+    await store.setMeta(key, value)
+    return
+  }
+  const identity = workspaceStoreIdentity(store)
+  let state = volatileBuildMetadata.get(identity)
+  if (!state) {
+    state = new Map()
+    volatileBuildMetadata.set(identity, state)
+  }
+  state.set(key, value)
+}
+
+const buildDirectoriesMetaKey = (workspace: string) => `workspace:${encodeURIComponent(workspace)}:build-directories`
+
+function parentPaths(path: string): string[] {
+  const parts = normalizeWorkspacePath(path).split("/")
+  return parts.slice(0, -1).map((_part, index) => parts.slice(0, index + 1).join("/"))
+}
+
+async function readBuildDirectories(store: WorkspaceStore, workspace: string): Promise<string[]> {
+  const value = await readBuildMetadata(store, buildDirectoriesMetaKey(workspace))
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Directory ownership is an untyped persistence boundary.
+  return Array.isArray(value) ? value.filter((path): path is string => typeof path === "string" && !!path) : []
+}
+
+async function recordBuildDirectories(store: WorkspaceStore, workspace: string, paths: string[]): Promise<void> {
+  const owned = new Set(await readBuildDirectories(store, workspace))
+  for (const path of paths) {
+    if (!await store.stat(path)) owned.add(path)
+  }
+  await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), [...owned])
+}
+
+async function pruneBuildDirectories(store: WorkspaceStore, workspace: string): Promise<void> {
+  const owned = await readBuildDirectories(store, workspace)
+  const retained: string[] = []
+  for (const path of owned.sort((a, b) => b.length - a.length)) {
+    if ((await store.stat(path))?.type !== "directory") continue
+    if ((await store.list(path)).length) retained.push(path)
+    else if ((await store.stat(path))?.type === "directory") await store.rm(path, { force: true })
+  }
+  await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), retained)
+}
+
 interface BuildFileRecord {
   source: string
   digest: string
 }
 
-async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, sources: ResolvedWorkspaceSource[]): Promise<WorkspaceStore> {
+async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, sources: ResolvedWorkspaceSource[], mutationStore = store, abortSignal?: AbortSignal, trackOperation?: TrackLifecycleOperation): Promise<WorkspaceStore> {
   const records = await readBuildFiles(store, workspace)
-  let checkpoint = Promise.resolve()
-  const record = (path: string, source: unknown, digest: string) => {
+  const record = async (path: string, source: unknown, digest: string) => {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Loader source values are an untyped extension boundary.
-    if (typeof source !== "string") return Promise.resolve()
+    if (typeof source !== "string") return
     const normalized = normalizeWorkspacePath(path)
-    checkpoint = checkpoint.then(async () => {
-      await recordWorkspaceFileOwner(store, normalized, { workspace, source, digest })
-      records[normalized] = { source, digest }
-      await store.setMeta?.(buildFilesMetaKey(workspace), records)
-    })
-    return checkpoint
+    await recordWorkspaceFileOwner(mutationStore, normalized, { workspace, source, digest })
+    records[normalized] = { source, digest }
+    await writeBuildMetadata(mutationStore, buildFilesMetaKey(workspace), records)
+  }
+  // Once accepted, a write and its ownership checkpoint settle together before abort returns.
+  let writes = Promise.resolve()
+  const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
+    abortSignal?.throwIfAborted()
+    const pending = writes.then(operation)
+    writes = pending.then(() => {}, () => {})
+    return trackOperation ? trackOperation(pending) : pending
   }
   const mounts = [...sources].sort((a, b) => b.mountPath.length - a.mountPath.length)
   const tag = <T extends WorkspaceFile | WorkspaceStreamFile>(path: string, file: T): T => {
@@ -52,17 +110,19 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
   }
   return new Proxy(store, {
     get(target, property) {
-      if (property === "writeFile") return async (path: string, file: WorkspaceFile) => {
+      if (property === "writeFile") return async (path: string, file: WorkspaceFile) => await mutate(async () => {
         const tagged = tag(path, file)
-        await target.writeFile(path, tagged)
+        await recordBuildDirectories(mutationStore, workspace, parentPaths(path))
+        await mutationStore.writeFile(path, tagged)
         await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
-      }
-      if (property === "writeFileConditional" && target.writeFileConditional) return async (path: string, file: WorkspaceFile, digest: string | null) => {
+      })
+      if (property === "writeFileConditional" && target.writeFileConditional) return async (path: string, file: WorkspaceFile, digest: string | null) => await mutate(async () => {
         const tagged = tag(path, file)
-        await target.writeFileConditional!(path, tagged, digest)
+        await recordBuildDirectories(mutationStore, workspace, parentPaths(path))
+        await mutationStore.writeFileConditional!(path, tagged, digest)
         await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
-      }
-      if (property === "writeFileStream" && target.writeFileStream) return async (path: string, file: WorkspaceStreamFile) => {
+      })
+      if (property === "writeFileStream" && target.writeFileStream) return async (path: string, file: WorkspaceStreamFile) => await mutate(async () => {
         const tagged = tag(path, file)
         const hash = createHash("sha256")
         const content = (async function* () {
@@ -71,10 +131,11 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
             yield chunk
           }
         })()
-        const written = await target.writeFileStream!(path, { ...tagged, content })
+        await recordBuildDirectories(mutationStore, workspace, parentPaths(path))
+        const written = await mutationStore.writeFileStream!(path, { ...tagged, content })
         await record(path, tagged.metadata?.workspaceBuildSource, hash.digest("hex"))
         return written
-      }
+      })
       return Reflect.get(target, property, target)?.bind(target)
     },
   })
@@ -190,7 +251,7 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
   abortSignal?.throwIfAborted()
   const hasBuildSourceState = await reconcileBuildSourceMounts(definition, store, materializationStore, buildSources, startupSources, abortSignal)
   abortSignal?.throwIfAborted()
-  const buildStore = await createBuildLoaderStore(definition.name, store, buildSources)
+  const buildStore = await createBuildLoaderStore(definition.name, store, buildSources, materializationStore, abortSignal, trackOperation)
   const bundledBuildSources = !hasExplicitLoaders
     ? await syncRuntimeBuildAssets(definition, buildStore, buildSources, abortSignal)
     : undefined
@@ -297,15 +358,18 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     abortSignal?.throwIfAborted()
   }
 
+  await pruneBuildDirectories(store, definition.name)
+
   for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].filter(Boolean).sort((a, b) => a.length - b.length)) {
     abortSignal?.throwIfAborted()
+    await recordBuildDirectories(store, definition.name, [...parentPaths(mountPath), mountPath])
     await store.mkdir(mountPath, { recursive: true })
     abortSignal?.throwIfAborted()
   }
 
   abortSignal?.throwIfAborted()
-  await store.setMeta?.(buildFilesMetaKey(definition.name), {})
-  await store.setMeta?.(buildSourcesMetaKey(definition.name), currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
+  await writeBuildMetadata(store, buildFilesMetaKey(definition.name), {})
+  await writeBuildMetadata(store, buildSourcesMetaKey(definition.name), currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
   return hasBuildSourceState
 }
 
@@ -403,13 +467,13 @@ function findBuildSourceForPath(path: string, sources: ResolvedWorkspaceSource[]
 }
 
 async function readSyncedBuildSources(store: WorkspaceStore, workspace: string): Promise<SyncedBuildSource[]> {
-  const value = await store.getMeta?.(buildSourcesMetaKey(workspace))
+  const value = await readBuildMetadata(store, buildSourcesMetaKey(workspace))
   if (!Array.isArray(value)) return []
   return value.filter(isSyncedBuildSource)
 }
 
 async function readBuildFiles(store: WorkspaceStore, workspace: string): Promise<Record<string, BuildFileRecord>> {
-  const value = await store.getMeta?.(buildFilesMetaKey(workspace))
+  const value = await readBuildMetadata(store, buildFilesMetaKey(workspace))
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Metadata is an untyped persistence boundary.
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, BuildFileRecord] => {
@@ -428,11 +492,13 @@ async function buildSourceFilePaths(store: WorkspaceStore, workspace: string, mo
     const file = entry.metadata ? undefined : await store.readFile(entry.path)
     const metadata = entry.metadata ?? file?.metadata
     if (metadata?.workspaceSourceOwner !== undefined && metadata.workspaceSourceOwner !== workspace) continue
-    const record = records[entry.path]
+    const owner = await readWorkspaceFileOwner(store, entry.path)
+    const record = records[entry.path] ?? (owner?.workspace === workspace && owner.digest
+      ? { source: owner.source, digest: owner.digest }
+      : undefined)
     if (record && keys.includes(record.source)) {
       // Partial legacy ownership tags cannot authorize a metadata fallback.
       if (metadata?.workspaceSourceOwner === undefined && (metadata?.source !== undefined || metadata?.workspaceBuildSource !== undefined)) continue
-      const owner = await readWorkspaceFileOwner(store, entry.path)
       if (owner?.workspace !== workspace || owner.source !== record.source || owner.digest !== record.digest) continue
       if (entry.digest !== record.digest) {
         const current = file ?? await store.readFile(entry.path)
