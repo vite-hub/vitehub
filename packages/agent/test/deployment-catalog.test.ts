@@ -114,7 +114,7 @@ async function createDeploymentRuntimeFixture(
   discordGatewayRoute?: true | string,
   declaredWorkspaceName?: string,
   explicitSourceRoot = false,
-  explicitInstructions = false,
+  explicitInstructions: boolean | "destination" = false,
   explicitSkill: false | "same key" | "destination" | "capability" = false,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
@@ -141,7 +141,7 @@ async function createDeploymentRuntimeFixture(
     "    mode: 'write',",
     ...(explicitSourceRoot ? [`    sourceRootDir: ${JSON.stringify(supportRoot)},`] : []),
     "    sources: {",
-    ...(explicitInstructions ? ["      __vitehubAgentInstructions: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' },"] : []),
+    ...(explicitInstructions ? [`      ${explicitInstructions === "destination" ? "explicitInstructions" : "__vitehubAgentInstructions"}: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' },`] : []),
     ...(explicitSkill && explicitSkill !== "capability" ? [`      ${JSON.stringify(explicitSkill === "same key" ? "__vitehubAgentSkill:.agents/skills/review/SKILL.md" : "explicitSkill")}: { content: 'Explicit skill', materialize: 'startup', mount: '.agents/skills/review', workspacePath: 'SKILL.md' },`] : []),
     "    },",
     "  },",
@@ -474,6 +474,15 @@ describe("generated Agent deployment catalog", () => {
     })
     expect(runtime!.capture.lastAgent).toBe(runtime!.capture.registeredAgent)
     expect(runtime!.capture.registeredWorkspaceName).toBe("support")
+  })
+
+  it.each(["nitro", "deno", "netlify"] as const)("preserves explicit instruction destinations in %s deployment fallback", async (adapter) => {
+    await runtime!.close()
+    if (adapter === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    runtime = await createDeploymentRuntimeFixture(adapter, "support", true, undefined, undefined, true, "destination")
+    const workspace = await runtime.workspace("support")
+    expect(workspace.sources).not.toHaveProperty("__vitehubAgentInstructions")
+    expect(workspace.sources).toMatchObject({ explicitInstructions: { content: "Explicit instructions" } })
   })
 
   it.each([false, true])("keeps startup instructions with an explicit source root and explicit override %s", async (explicitInstructions) => {

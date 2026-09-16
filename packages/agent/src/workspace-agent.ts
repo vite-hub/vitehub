@@ -271,13 +271,16 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
   // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
   const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
-  const remainingSkills = colocatedSkills && filterColocatedAgentSkills(colocatedSkills, workspaceDefinitionFromOptions(options).sources)
+  const explicitSources = withCapabilityWorkspaceSources(normalizeWorkspaceOptions(options.workspace), staticAgentCapabilities(options.capabilities)).sources
+  const remainingSkills = colocatedSkills && filterColocatedAgentSkills(colocatedSkills, explicitSources)
   const sources: Record<string, WorkspaceSourceInput> = {
     ...remainingSkills,
     ...ownedWorkspace.sources,
   }
-  if (colocatedInstructions && !Object.hasOwn(sources, "__vitehubAgentInstructions")) {
-    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
+  if (colocatedInstructions) {
+    Object.assign(sources, filterColocatedAgentSkills({
+      [colocatedAgentInstructionsSourceKey]: { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" },
+    }, explicitSources))
   }
   const workspaceOptions = {
     ...options,
@@ -418,12 +421,14 @@ function withColocatedAgentInstructions(workspace: NormalizedWorkspaceOptions): 
   return {
     ...workspace,
     sources: {
-      [colocatedAgentInstructionsSourceKey]: {
-        materialize: "build",
-        mount: "",
-        path: colocatedAgentInstructionsPath,
-        workspacePath: colocatedAgentInstructionsWorkspacePath,
-      },
+      ...filterColocatedAgentSkills({
+        [colocatedAgentInstructionsSourceKey]: {
+          materialize: "build",
+          mount: "",
+          path: colocatedAgentInstructionsPath,
+          workspacePath: colocatedAgentInstructionsWorkspacePath,
+        },
+      }, workspace.sources),
       ...workspace.sources,
     },
   }

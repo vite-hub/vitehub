@@ -11,7 +11,14 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it.each(["after-cleanup", "checkpoint", "before-removal"])("keeps recursive user removals visible during %s", async (mutationPhase) => {
+it.each([
+  ["after-cleanup", "directory-evidence"],
+  ["checkpoint", "directory-evidence"],
+  ["before-removal", "directory-evidence"],
+  ["after-cleanup", "other-workspace"],
+  ["checkpoint", "other-workspace"],
+  ["before-removal", "other-workspace"],
+])("keeps recursive user removals visible during %s through %s", async (mutationPhase, writerName) => {
   const store = createMemoryWorkspaceStore()
   const sources = { generated: custom({ materialize: "startup", files: [{ path: "nested/file.md", content: "generated" }] }) }
   registerWorkspace("directory-evidence", defineWorkspace({ store, sources }))
@@ -19,7 +26,7 @@ it.each(["after-cleanup", "checkpoint", "before-removal"])("keeps recursive user
   await workspace.materializeSources?.()
   await workspace.snapshot()
   Reflect.deleteProperty(sources, "generated")
-  const writer = createWorkspaceSourceView({ name: "directory-evidence", sources: {} }, store)
+  const writer = createWorkspaceSourceView({ name: writerName, sources: {} }, store)
   let checkpointed = false
   const recreateAndRemove = async () => {
     if (mutationPhase === "after-cleanup") {
@@ -30,9 +37,9 @@ it.each(["after-cleanup", "checkpoint", "before-removal"])("keeps recursive user
     // These mutations have already passed the view's startup reconciliation
     // barrier when cleanup yields to the Store operation below.
     await store.mkdir("generated/nested", { recursive: true })
-    await invalidateStartupDirectoryRemoval(store, "directory-evidence", "generated/nested")
+    await invalidateStartupDirectoryRemoval(store, "generated/nested")
     await store.rm("generated", { recursive: true })
-    await invalidateStartupDirectoryRemoval(store, "directory-evidence", "generated")
+    await invalidateStartupDirectoryRemoval(store, "generated")
   }
   const setMeta = store.setMeta!.bind(store)
   if (mutationPhase === "checkpoint") {

@@ -625,7 +625,7 @@ async function removeStaleMaterializedSourceFiles(
       const baseline = source.materialize === "startup"
         ? await (cleanupBaseline ??= store.diff().then(diff => diff.from))
         : undefined
-      const removalEvidence = await captureStartupDirectoryRemoval(store, workspaceName, path, baseline)
+      const removalEvidence = await captureStartupDirectoryRemoval(store, path, baseline)
       const stat = await store.stat(path)
       if (stat?.type !== "directory") continue
       const ownedIdentity = path === source.mountPath ? previousSnapshot?.mountIdentity : previousSnapshot?.directoryIdentities?.[path]
@@ -745,7 +745,7 @@ async function reconcileRemovedStartupSourcesInternal(
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       const baseline = await (cleanupBaseline ??= store.diff().then(diff => diff.from))
-      const removalEvidence = await captureStartupDirectoryRemoval(store, workspaceName, path, baseline)
+      const removalEvidence = await captureStartupDirectoryRemoval(store, path, baseline)
       // A replaced ancestor can also make stat fail with ENOTDIR. Neither case
       // provides current directory evidence for cleanup or ownership transfer.
       const stat = await store.stat(path).catch((error) => {

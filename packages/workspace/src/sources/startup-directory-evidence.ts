@@ -6,8 +6,10 @@ export function removedStartupDirectoryMetaKey(workspaceName: string | undefined
   return `workspace:${workspaceName || "default"}:removed-startup-directory:${JSON.stringify(path)}`
 }
 
-function mutationKey(workspaceName: string | undefined, path: string, kind: "path" | "tree") {
-  return `workspace:${workspaceName || "default"}:startup-directory-mutation:${kind}:${JSON.stringify(path)}`
+// Mutations belong to the shared Store tree, while removal evidence belongs
+// to the Workspace that recorded it. Every writer must invalidate that evidence.
+function mutationKey(path: string, kind: "path" | "tree") {
+  return `workspace:startup-directory-mutation:${kind}:${JSON.stringify(path)}`
 }
 
 function ancestors(path: string) {
@@ -17,22 +19,22 @@ function ancestors(path: string) {
 
 // Capture before removal. A checkpoint may run after a user has recreated and
 // removed the directory, so its time of publication cannot prove ownership.
-export async function captureStartupDirectoryRemoval(store: WorkspaceStore, workspaceName: string | undefined, path: string, baseline: string | undefined) {
-  const keys = [mutationKey(workspaceName, path, "path"), ...ancestors(path).map(parent => mutationKey(workspaceName, parent, "tree"))]
+export async function captureStartupDirectoryRemoval(store: WorkspaceStore, path: string, baseline: string | undefined) {
+  const keys = [mutationKey(path, "path"), ...ancestors(path).map(parent => mutationKey(parent, "tree"))]
   return { baseline, mutations: await Promise.all(keys.map(async key => await store.getMeta?.(key) ?? null)) }
 }
 
 export async function removedStartupDirectoryMatches(store: WorkspaceStore, workspaceName: string | undefined, path: string, baseline: string) {
   const evidence = await store.getMeta?.(removedStartupDirectoryMetaKey(workspaceName, path))
-  return isDeepStrictEqual(evidence, await captureStartupDirectoryRemoval(store, workspaceName, path, baseline))
+  return isDeepStrictEqual(evidence, await captureStartupDirectoryRemoval(store, path, baseline))
 }
 
-export async function invalidateStartupDirectoryRemoval(store: WorkspaceStore, workspaceName: string | undefined, path: string) {
+export async function invalidateStartupDirectoryRemoval(store: WorkspaceStore, path: string) {
   const mutation = randomUUID()
   // The tree token invalidates descendants even after recursive removal has
   // made them impossible to enumerate. Path tokens invalidate parent evidence.
-  await store.setMeta?.(mutationKey(workspaceName, path, "tree"), mutation)
+  await store.setMeta?.(mutationKey(path, "tree"), mutation)
   for (const parent of ancestors(path)) {
-    await store.setMeta?.(mutationKey(workspaceName, parent, "path"), mutation)
+    await store.setMeta?.(mutationKey(parent, "path"), mutation)
   }
 }

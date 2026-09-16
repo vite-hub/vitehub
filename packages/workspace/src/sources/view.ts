@@ -789,7 +789,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         }
         else await store.writeFile(input.path, file)
         await store.setMeta?.(removedStartupPathMetaKey(definition.name, input.path), undefined)
-        await invalidateStartupDirectoryRemoval(store, definition.name, input.path)
+        await invalidateStartupDirectoryRemoval(store, input.path)
         await writePolicy.after(input)
         return input.path
       }
@@ -900,7 +900,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       })
       try {
         await store.mkdir(input.path, options)
-        await invalidateStartupDirectoryRemoval(store, definition.name, input.path)
+        await invalidateStartupDirectoryRemoval(store, input.path)
         await writePolicy.after(input)
       }
       catch (error) {
@@ -918,7 +918,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       })
       try {
         await store.rm(input.path, options)
-        await invalidateStartupDirectoryRemoval(store, definition.name, input.path)
+        await invalidateStartupDirectoryRemoval(store, input.path)
         await writePolicy.after(input)
       }
       catch (error) {
