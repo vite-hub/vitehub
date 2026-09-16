@@ -475,7 +475,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           if (["{", "(", "["].includes(tokens[i])) depth++
           else if (["}", ")", "]"].includes(tokens[i])) depth--
         }
-        return depth === returnedDefinitionDepth
+        // Keep the outer returned call and direct conditional branch calls;
+        // nested calls inside its argument object are never callback results.
+        return depth === returnedDefinitionDepth || tokens[index - 1] === "?" || tokens[index - 1] === ":"
       })
       returnedDefinitions.splice(0, returnedDefinitions.length, ...returnedCandidates)
       if (returnedDefinition >= 0) callbackDefinition = returnedDefinition
