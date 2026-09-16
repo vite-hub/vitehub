@@ -526,7 +526,10 @@ Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks
 from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
 Supply an authenticated REST reader `(path) => Promise<{ status, data }>`; paths
 are relative to the GitHub API root. The reader combines active branch rules with
-classic branch protection and preserves required GitHub App identities.
+classic branch protection and preserves required GitHub App identities. It requests
+active rules in pages of 100 until a short page confirms completion. A failed
+page or the 1,000-page limit returns unknown policy. The callback must preserve
+query parameters and return each requested page.
 
 ```ts
 const policies = createGitHubRequiredCheckPolicyReader(readGitHubRest)

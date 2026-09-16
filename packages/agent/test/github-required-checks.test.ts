@@ -84,6 +84,64 @@ describe("required check policy", () => {
       ).status,
     ).toBe("unknown");
   });
+  it("reads later rule pages before declaring a policy known", async () => {
+    for (const later of [[rule("later")], [{ type: "workflows" }]]) {
+      const read = reader();
+      read.mockImplementation(async (path) => {
+        if (!path.includes("/rules/")) return { status: 200, data: { contexts: [] } };
+        return {
+          status: 200,
+          data: path.endsWith("page=1")
+            ? Array.from({ length: 100 }, () => ({ type: "deletion" }))
+            : later,
+        };
+      });
+      const result = await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main");
+      expect(read).toHaveBeenCalledWith("repos/acme/app/rules/branches/main?per_page=100&page=2");
+      expect(result.status).toBe(later[0]?.type === "workflows" ? "unknown" : "known");
+      if (result.status === "known")
+        expect(result.required).toEqual([{ context: "later", appId: 42 }]);
+    }
+  });
+  it("does not cache a partial policy when a later rule page fails", async () => {
+    const read = reader();
+    read.mockImplementation(async (path) => {
+      if (!path.includes("/rules/")) return { status: 200, data: { contexts: [] } };
+      return path.endsWith("page=1")
+        ? { status: 200, data: Array.from({ length: 100 }, () => rule()) }
+        : { status: 403 };
+    });
+    expect(
+      await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main"),
+    ).toMatchObject({ status: "unknown", required: [] });
+  });
+  it("accepts absent classic checks but rejects malformed protection summaries", async () => {
+    for (const protection of [
+      { enabled: true },
+      { enabled: true, required_status_checks: null },
+      { enabled: true, required_status_checks: [] },
+      { enabled: true, required_status_checks: {} },
+      {},
+      null,
+    ]) {
+      const read = reader(
+        undefined,
+        { status: 404 },
+        {
+          status: 200,
+          data: { protected: true, protection },
+        },
+      );
+      const result = await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main");
+      expect(result.status).toBe(
+        protection?.enabled === true && !("required_status_checks" in protection)
+          ? "known"
+          : "unknown",
+      );
+      if (result.status === "known")
+        expect(result.required).toEqual([{ context: "CI", appId: 42 }]);
+    }
+  });
   it("requires complete bindings in the branch protection fallback", async () => {
     const protection = {
       enabled: true,

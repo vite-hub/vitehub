@@ -86,6 +86,16 @@ export function createGitHubRequiredCheckPolicyReader(
       return { status: 0 };
     }
   };
+  const requestAllRules = async (path: string): Promise<GitHubCheckPolicyResponse> => {
+    const pages: unknown[] = [];
+    for (let page = 1; page <= 1000; page++) {
+      const response = await request(`${path}?per_page=100&page=${page}`);
+      if (response.status !== 200 || !Array.isArray(response.data)) return response;
+      pages.push(...response.data);
+      if (response.data.length < 100) return { status: 200, data: pages };
+    }
+    return { status: 0 };
+  };
   async function fetch(repository: string, branch: string): Promise<GitHubRequiredCheckPolicy> {
     const base: GitHubRequiredCheckPolicy = {
       repository,
@@ -98,7 +108,7 @@ export function createGitHubRequiredCheckPolicyReader(
     const prefix = `repos/${repository}`,
       encodedBranch = encodeURIComponent(branch);
     const [rules, classic] = await Promise.all([
-      request(`${prefix}/rules/branches/${encodedBranch}`),
+      requestAllRules(`${prefix}/rules/branches/${encodedBranch}`),
       request(`${prefix}/branches/${encodedBranch}/protection/required_status_checks`),
     ]);
     try {
@@ -118,31 +128,34 @@ export function createGitHubRequiredCheckPolicyReader(
         else {
           const protection = record(branch?.protection);
           const summary = record(protection?.required_status_checks);
-          if (
-            branch?.protected !== true ||
-            protection?.enabled !== true ||
-            !summary ||
-            !Array.isArray(summary.contexts) ||
-            !Array.isArray(summary.checks) ||
-            !["everyone", "non_admins", "off"].includes(String(summary.enforcement_level))
-          )
-            throw new Error(
-              "Classic protection response is ambiguous; branch summary is incomplete",
-            );
-          if (
-            summary.enforcement_level === "off" &&
-            (summary.contexts.length || summary.checks.length)
-          )
-            throw new Error("Disabled status-check summary contains ambiguous requirements");
-          const checks = summary.checks;
-          if (
-            summary.contexts.some(
-              (context) => !checks.some((item) => record(item)?.context === context),
-            )
-          )
-            throw new Error("Branch summary omits required-check integration bindings");
-          required.push(...classicChecks(summary));
+          if (branch?.protected !== true || protection?.enabled !== true)
+            throw new Error("Branch protection summary is incomplete");
           classicSource = "branch-summary";
+          // Other classic protection rules do not imply required status checks.
+          if ("required_status_checks" in protection) {
+            if (
+              !summary ||
+              !Array.isArray(summary.contexts) ||
+              !Array.isArray(summary.checks) ||
+              !["everyone", "non_admins", "off"].includes(String(summary.enforcement_level))
+            )
+              throw new Error(
+                "Classic protection response is ambiguous; branch summary is incomplete",
+              );
+            if (
+              summary.enforcement_level === "off" &&
+              (summary.contexts.length || summary.checks.length)
+            )
+              throw new Error("Disabled status-check summary contains ambiguous requirements");
+            const checks = summary.checks;
+            if (
+              summary.contexts.some(
+                (context) => !checks.some((item) => record(item)?.context === context),
+              )
+            )
+              throw new Error("Branch summary omits required-check integration bindings");
+            required.push(...classicChecks(summary));
+          }
         }
       } else throw new Error(`Classic protection unavailable (HTTP ${classic.status})`);
       return {
