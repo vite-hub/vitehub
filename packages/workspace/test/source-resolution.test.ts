@@ -1067,8 +1067,8 @@ describe("Workspace Source Resolution", () => {
     })
 
     await expect(workspace.fs.readFile("docs/ready.md")).resolves.toBe("prepared\n")
-    // Local snapshots must attempt replay to persist ownership before reuse.
-    expect(getItem).toHaveBeenCalledTimes(provider === "local" ? 2 : 1)
+    // Read-only inspection reuses matching snapshots after local sidecar loss.
+    expect(getItem).toHaveBeenCalledTimes(1)
   })
 
   it("masks removed startup snapshot files after an overlay refresh", async () => {

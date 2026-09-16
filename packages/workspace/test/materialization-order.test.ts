@@ -33,3 +33,28 @@ it.each([false, true])("returns Source statuses in resolution order with a faile
     ["root", "ready"],
   ])
 })
+
+it.each([
+  { change: "content", mount: "" },
+  { change: "attributes", mount: "" },
+  { change: "content", mount: "docs" },
+  { change: "attributes", mount: "docs" },
+])("restores cached startup precedence after overlapping $change writes at '$mount'", async ({ change, mount }) => {
+  const store = createMemoryWorkspaceStore()
+  const source = (priority: string, cache: false | { maxAge: number }) => ({
+    cache,
+    materialize: "startup" as const,
+    mount: { path: priority === "high" ? mount : "" },
+    async getKeys() { return [priority === "low" && mount ? `${mount}/shared.txt` : "shared.txt"] },
+    async getMeta() { return priority === "high" ? { etag: "unchanged" } : undefined },
+    async getItem(key: string) {
+      return { key, content: change === "content" ? priority : "same", metadata: { priority } }
+    },
+  })
+  const definition = { name: "cached-precedence", sources: { alpha: source("high", { maxAge: 3600 }), zeta: source("low", false) } }
+  await materializeWorkspaceSources(definition, store)
+  await materializeWorkspaceSources(definition, store)
+  await expect(store.readFile(mount ? `${mount}/shared.txt` : "shared.txt")).resolves.toMatchObject({
+    content: change === "content" ? "high" : "same", metadata: { priority: "high", source: "alpha" },
+  })
+})

@@ -934,7 +934,7 @@ describe("lazy sources", () => {
 
     await syncWorkspaceDefinition(next, store)
     await expect(store.stat("late.md")).resolves.toBeUndefined()
-    await expect(store.getMeta!("workspace:startup-sources")).resolves.toEqual([])
+    await expect(store.getMeta!("workspace:active-startup-removal:startup-sources")).resolves.toEqual([])
   })
 
   it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
@@ -3372,6 +3372,29 @@ describe("lazy sources", () => {
     await expect(restarted.stat(path("new.md"))).resolves.toBeUndefined()
     await expect(readFile(join(root, path("edited.md")), "utf8")).resolves.toBe("user edit")
     await expect(restarted.readFile(path("claimed.md"))).resolves.toMatchObject({ metadata: { source: "other" } })
+  })
+
+  it("preserves released user edits after an empty startup refresh and removal", async () => {
+    const root = await createRoot()
+    const definition = {
+      name: "empty-startup-refresh",
+      sources: { docs: {
+        ...custom({ materialize: "startup", mount: "docs", files: [{ path: "edited.md", content: "original" }] }),
+        fingerprint: { version: 1 },
+      } },
+    }
+    await createWorkspaceSourceView(definition, createLocalWorkspaceStore(root)).materializeSources()
+    await writeFile(join(root, "docs/edited.md"), "user edit")
+    const empty = { ...definition, sources: { docs: {
+      ...custom({ materialize: "startup", mount: "docs", files: [] }),
+      fingerprint: { version: 2 },
+    } } }
+    for (let restart = 0; restart < 2; restart++) {
+      await createWorkspaceSourceView(empty, createLocalWorkspaceStore(root)).materializeSources()
+      await expect(readFile(join(root, "docs/edited.md"), "utf8")).resolves.toBe("user edit")
+    }
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, createLocalWorkspaceStore(root))
+    await expect(readFile(join(root, "docs/edited.md"), "utf8")).resolves.toBe("user edit")
   })
 
   it("removes stale root startup files after build cleanup invalidates their snapshot", async () => {

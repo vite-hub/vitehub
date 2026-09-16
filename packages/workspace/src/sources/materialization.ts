@@ -135,18 +135,23 @@ export async function hasFreshSourceSnapshot(store: WorkspaceStore, source: Reso
   const configHash = await sourceConfigHash(source)
   const snapshot = await readSourceSnapshotMetadata(store, source.key)
   if (!isSnapshotFresh(snapshot, source, configHash)) return false
-  for (const path of Object.keys(snapshot?.items || {})) {
+  if (await sourceSnapshotFilesMatch(store, snapshot)) return true
+  await invalidateSourceSnapshot(store, source.key)
+  return false
+}
+
+async function sourceSnapshotFilesMatch(store: WorkspaceStore, snapshot: SourceSnapshotMetadata | undefined) {
+  for (const [path, item] of Object.entries(snapshot?.items || {})) {
+    let file
     try {
-      if (!await store.readFile(path)) {
-        await invalidateSourceSnapshot(store, source.key)
-        return false
-      }
-    } catch {
-      // A replaced file/ancestor can surface as EISDIR/ENOTDIR on local stores.
-      // Treat it as stale evidence so normal materialization can reconcile it.
-      await invalidateSourceSnapshot(store, source.key)
-      return false
+      file = await store.readFile(path)
     }
+    catch (error) {
+      const code = hasRuntimeType(error, "object") && error !== null ? Reflect.get(error, "code") : undefined
+      if (code === "ENOENT" || code === "ENOTDIR" || code === "EISDIR") return false
+      throw error
+    }
+    if (!await materializedFileMatches(file, item)) return false
   }
   return true
 }
@@ -519,6 +524,7 @@ async function removeStaleMaterializedSourceFiles(
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     const currentOwner = file?.metadata?.source
+    if (source.materialize === "startup" && previousSnapshot?.configHash && !previousPaths.has(entry.path)) continue
     if ((currentOwner === undefined || source.materialize === "startup") && previousSnapshot?.items) {
       // Persisted ownership can survive a user edit made outside the Store.
       // Only remove indexed startup files while their materialized content matches.
@@ -631,7 +637,7 @@ async function reconcileRemovedStartupSourcesInternal(
     const invalidatedSnapshot = snapshot && snapshot.mountPath === undefined && snapshot.items === undefined
     if (snapshot?.mountPath !== source.mountPath && !invalidatedSnapshot) continue
     // Build synchronization can clear the index while owned files remain outside its mount.
-    const previousPaths = invalidatedSnapshot || !Object.keys(snapshot?.items || {}).length
+    const previousPaths = invalidatedSnapshot
       ? (await store.list(source.mountPath, { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)
       : Object.keys(snapshot?.items || {})
     const staleDirectories = new Set([...(snapshot?.ownedAncestors || []), ...(snapshot?.ownedDirectories || []).filter(path => sourceOwnsDirectory(source, path))])
@@ -721,6 +727,9 @@ function createMaterializationEntry(
   upstreamMeta: Record<string, unknown> | undefined,
 ): MaterializationEntry {
   const { path, sourcePath } = normalizeSourceItemPath(source, item, { operation: "source materialization" })
+  // Validate descriptors before reading digest/etag fields, which may be accessors.
+  item = { ...item, metadata: normalizeSourceFileMetadata(item.metadata || {}) }
+  upstreamMeta = upstreamMeta && normalizeSourceFileMetadata(upstreamMeta)
   return {
     item,
     metadata: createLazyMaterializedMetadata({
@@ -774,7 +783,7 @@ async function* iterateMaterializationEntries(
     const previous = materializedItemMeta(snapshot, configHash, path)
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
-      if (stat?.type === "file") {
+      if (stat?.type === "file" && await materializedFileMatches(await store.readFile(path), previous)) {
         yield {
           metadata: previous,
           path,
@@ -844,9 +853,12 @@ async function materializeWorkspaceSourcesInternal(
     await reportMaterializationProgress(options, source, { status: "started" })
     let configHash: string
     let existing: SourceSnapshotMetadata | undefined
+    const completeSource = materializesCompleteSource(source, options)
+    let cacheHit: boolean
     try {
       configHash = await sourceConfigHash(source)
       existing = await readSourceSnapshotMetadata(store, source.key)
+      cacheHit = completeSource && isSnapshotFresh(existing, source, configHash) && await sourceSnapshotFilesMatch(store, existing)
     }
     catch (error) {
       const durationMs = Date.now() - sourceStarted
@@ -860,8 +872,6 @@ async function materializeWorkspaceSourcesInternal(
       if (options.abortSignal?.aborted) throw error
       continue
     }
-    const completeSource = materializesCompleteSource(source, options)
-    const cacheHit = completeSource && isSnapshotFresh(existing, source, configHash)
     const cacheStatus = materializationCacheStatus(source, completeSource, cacheHit)
     if (cacheHit) {
       const durationMs = Date.now() - sourceStarted
