@@ -551,3 +551,66 @@ errors; Agent text, result status, and elapsed time do not choose this policy.
 
 See [durable retry budgets](https://vitehub.dev/docs/agents/invocations#durable-retry-budgets)
 for a worker example. Budgets are opt-in and do not change existing inbox callers.
+
+### Required GitHub checks
+
+Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`
+from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
+Supply an authenticated REST reader `(path) => Promise<{ status, data, nextPage? }>`; paths
+are relative to the GitHub API root. The reader combines active branch rules with
+classic branch protection and preserves required GitHub App identities. It requests
+the first rules page with a page size of 100, then follows explicit continuation
+targets. For every successful rules response, the callback must normalize the
+Link header's `rel="next"` URL to an API-relative `nextPage` path without a leading
+slash, relative to the complete configured API base URL, including its pathname.
+For GitHub Enterprise Server, `https://host/api/v3/repositories/123/rules/branches/main?page=2`
+becomes `repositories/123/rules/branches/main?page=2`, without repeating `api/v3`.
+The adapter must reject URLs with a different origin or outside the API base path,
+and preserve query parameters. For example, normalize a parsed next URL with:
+
+```ts
+function normalizeNextPage(nextUrl: string, apiBase: string): string {
+  const base = new URL(apiBase);
+  const prefix = base.pathname.replace(/\/$/, "") + "/";
+  const next = new URL(nextUrl);
+  if (next.origin !== base.origin || !next.pathname.startsWith(prefix)) {
+    throw new Error("Pagination URL is outside the GitHub API base");
+  }
+  return next.pathname.slice(prefix.length) + next.search;
+}
+```
+
+GitHub can change the route to `repositories/{id}/...`; the reader follows these
+paths without requiring the original route prefix.
+Set `nextPage: null` only when the header has no next relation
+(or after fetching all pages). Missing metadata, invalid or repeated targets,
+failed pages, and the 1,000-page limit return unknown policy. Page length does
+not establish completion. Other endpoint responses do not need `nextPage`.
+
+```ts
+const policies = createGitHubRequiredCheckPolicyReader(readGitHubRest)
+const policy = await policies.read('acme/app', 'main')
+const result = evaluateGitHubRequiredChecks(policy, {
+  repository: 'acme/app', branch: 'main', headSha,
+  checkRuns, statuses,
+})
+policies.invalidate('acme/app', 'main') // after a protection or ruleset event
+```
+
+Pass complete REST check-run records and commit statuses fetched for the exact
+head. Add the requested SHA as `sha` on each status because GitHub omits it from
+individual status records. The evaluator selects the
+latest matching records on the exact head. A successful same-context commit status
+for an App-bound requirement returns `unknown` because REST statuses do not identify
+the source App, unless a matching check run already proves failure. Failing and
+pending statuses retain their blocking states. Missing requirements return `pending`
+and appear in `missing`; malformed or unavailable policy returns `unknown`, never
+an empty passing policy. Required workflow rules return `unknown` because they
+cannot be represented as check contexts. Policy reads use a five-minute cache,
+with a two-minute cache for unknown results. Set `ttlMs`, `failureTtlMs`, and
+`clock` in the reader options to change this behavior. Invalidation also prevents
+older in-flight reads from restoring stale cache entries.
+
+These results describe scheduling evidence. They do not grant merge authority or
+replace fresh GitHub merge checks. Repository selection, approvals, merge methods,
+and review-provider policy remain application decisions.
