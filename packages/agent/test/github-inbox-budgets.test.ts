@@ -241,3 +241,39 @@ test('persisted progress limits apply to workers without local budget configurat
   assert.ok(inbox.resetProgressBudget('Vite-Hub/ViteHub', 7, 'a', 'Operator retry'))
   assert.equal(peer.claim(1).length, 1)
 })
+
+test('explicit waits and exhausted budgets must both clear before admission', t => {
+  const inbox = memory(t)
+  inbox.seed(repository, pr())
+  const wait = { reason: 'Required checks pending', evidenceKey: 'checks:pending' }
+  for (let index = 0; index < 3; index++) {
+    const claim = inbox.claim(1)[0]!
+    assert.ok(claim)
+    assert.equal(inbox.finish(claim, { text: 'No progress', progress: { kind: 'no-progress' }, wait }), true)
+    if (index < 2) assert.equal(inbox.wake(inbox.get(repository, 7)!, `checks:${index}`), true)
+  }
+  assert.equal(inbox.summary()[0]!.progressBudget?.exhausted, true)
+  assert.equal(inbox.summary()[0]!.wait?.evidenceKey, wait.evidenceKey)
+  assert.equal(inbox.wake(inbox.get(repository, 7)!, 'checks:passed'), true)
+  assert.equal(inbox.claim(1).length, 0)
+  assert.equal(inbox.resetProgressBudget(repository, 7, 'a', 'Operator verified progress'), true)
+  const claim = inbox.claim(1)[0]!
+  assert.ok(claim)
+  inbox.finish(claim, { text: 'Waiting', progress: { kind: 'no-progress' }, wait })
+  assert.equal(inbox.resetProgressBudget(repository, 7, 'a', 'Operator reset budget'), true)
+  assert.equal(inbox.claim(1).length, 0)
+  assert.equal(inbox.wake(inbox.get(repository, 7)!, 'checks:passed'), true)
+  assert.equal(inbox.claim(1).length, 1)
+})
+
+test('stale wait completion releases its claim without charging progress', t => {
+  const inbox = memory(t)
+  inbox.seed(repository, pr())
+  const claim = inbox.claim(1)[0]!
+  wake(inbox, 500)
+  assert.equal(inbox.finish(claim, { text: 'Stale', progress: { kind: 'no-progress' },
+    wait: { reason: 'Checks pending', evidenceKey: 'checks:pending' } }), false)
+  assert.equal(inbox.get(repository, 7)!.progressBudget, undefined)
+  assert.equal(inbox.get(repository, 7)!.wait, undefined)
+  assert.equal(inbox.claim(1).length, 1)
+})

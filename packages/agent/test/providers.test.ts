@@ -12422,6 +12422,7 @@ describe("server helpers", () => {
               errorFallbackText: null,
               state,
               stream: false,
+              timeout: 60_000,
               triggerHistory: { maxMessages: 2, source: "thread" },
             },
           }),
@@ -13152,7 +13153,8 @@ describe("server helpers", () => {
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(({ input }) => {
-      expect(input.timeout).toBe(20)
+      expect(input.timeout).toBeGreaterThan(0)
+      expect(input.timeout).toBeLessThanOrEqual(50_000)
       return '{"internal":"structured output"}'
     })
     const agent = defineAgent({
@@ -13163,7 +13165,7 @@ describe("server helpers", () => {
           messages: {
             delivery: "manual",
             fallbackStreamingPlaceholderText: "Analyzing photo…",
-            timeout: 20,
+            timeout: 50_000,
           },
         }),
       },
@@ -16873,12 +16875,12 @@ describe("server helpers", () => {
       return result
     })
     const admitted = vi.fn(() => true)
-    const handler = createChannelWebhookRouteHandler(defineAgent({
+    const createHandler = (timeout: number) => createChannelWebhookRouteHandler(defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture constructs the Chat adapter contract for the test.
           adapter: () => createTestChatAdapter() as never,
-          messages: { concurrency: "steer", delivery: "manual", durable: false, filter: admitted, lockScope: "agent", state, timeout: 500, dedupeTtlMs: 1 },
+          messages: { concurrency: "steer", delivery: "manual", durable: false, filter: admitted, lockScope: "agent", state, timeout, dedupeTtlMs: 1 },
         }),
       },
       driver: {
@@ -16896,6 +16898,8 @@ describe("server helpers", () => {
         },
       },
     }) as never)
+    const ownerHandler = createHandler(60_000)
+    const handler = createHandler(500)
     const request = (messageId: number) => {
       const request = chatWebhookRequest(messageId)
       request.headers.set("x-vitehub-delivery-id", String(messageId))
@@ -16909,7 +16913,7 @@ describe("server helpers", () => {
     }
     try {
       await state.connect()
-      pending.push(handler(request(91_120), "telegram", context))
+      pending.push(ownerHandler(request(91_120), "telegram", context))
       await vi.waitFor(() => expect(runs).toBe(1))
       pending.push(handler(request(91_121), "telegram", context))
       await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
@@ -17316,12 +17320,12 @@ describe("server helpers", () => {
     const release = deferred<void>()
     const sendInput = vi.fn(() => "unsupported" as const)
     let runs = 0
-    const agent = defineAgent({
+    const createAgent = (timeout: number) => defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
           // SAFETY: This fixture constructs the Chat adapter contract for the test.
           adapter: () => adapter as never,
-          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout: 100 },
+          messages: { concurrency: "steer", delivery: "manual", durable: false, lockScope: "agent", state, timeout },
         }),
       },
       driver: {
@@ -17341,7 +17345,8 @@ describe("server helpers", () => {
       },
     })
     // SAFETY: This fixture constructs the Agent contract for the test.
-    const handler = createChannelWebhookRouteHandler(agent as never)
+    const handler = createChannelWebhookRouteHandler(createAgent(100) as never)
+    const ownerHandler = createChannelWebhookRouteHandler(createAgent(60_000) as never)
     const pending: Promise<Response>[] = []
     let remoteOwner: Awaited<ReturnType<typeof state.acquireLock>> | undefined
     try {
@@ -17350,7 +17355,7 @@ describe("server helpers", () => {
         remoteOwner = await state.acquireLock("chat:calories:telegram:inline-steer:agent:owner", 60_000)
         expect(remoteOwner).toBeTruthy()
       } else {
-        pending.push(handler(chatWebhookRequest(91_140, 456, "first"), "telegram", { agentIdentity: { name: "calories" } }))
+        pending.push(ownerHandler(chatWebhookRequest(91_140, 456, "first"), "telegram", { agentIdentity: { name: "calories" } }))
         await started.promise
       }
       const followUp = handler(chatWebhookRequest(91_141, 456, "second"), "telegram", { agentIdentity: { name: "calories" } })
@@ -18828,7 +18833,7 @@ describe("server helpers", () => {
     }
   })
 
-  it("preserves the manual error fallback when the cleanup edit finishes after the deadline", async () => {
+  it.each([false, true])("preserves the manual error fallback when the cleanup edit finishes after the deadline, Cloudflare: %s", { timeout: 30_000 }, async (cloudflare) => {
     vi.useFakeTimers()
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -18848,7 +18853,6 @@ describe("server helpers", () => {
             delivery: "manual",
             errorFallbackText: "Please try again.",
             fallbackStreamingPlaceholderText: "Analyzing photo…",
-            timeout: 50_000,
           },
         }),
       },
@@ -18861,11 +18865,11 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const responseError = handler(chatWebhookRequest(91_030), "telegram", {
-        cloudflare: { env: {} },
+      const responseError = handler(chatWebhookRequest(cloudflare ? 91_030 : 98_030), "telegram", {
+        cloudflare: cloudflare ? { env: {} } : undefined,
         waitUntil: () => undefined,
       }).catch((error) => error)
-      await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.waitFor(() => expect(adapter.editMessage).toHaveBeenCalledOnce(), { interval: 0 })
       await vi.advanceTimersByTimeAsync(29_000)
 
       await expect(responseError).resolves.toMatchObject({
@@ -19028,6 +19032,64 @@ describe("server helpers", () => {
       expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
     } finally {
       consoleError.mockRestore()
+    }
+  })
+
+  it.each([
+    { delivery: "manual" as const, timeout: undefined },
+    { delivery: "manual" as const, timeout: 50_000 },
+    { delivery: undefined, timeout: undefined },
+    { delivery: undefined, timeout: 50_000 },
+  ])("bounds a stalled custom Driver without a host deadline: %j", async ({ delivery, timeout }) => {
+    vi.useFakeTimers()
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let invocationAbortSignal: AbortSignal | undefined
+    const run = vi.fn(async ({ input }) => {
+      invocationAbortSignal = input.abortSignal
+      expect(input.timeout).toBe(timeout ?? 28_000)
+      await new Promise(() => undefined)
+      return { text: "" }
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            delivery,
+            durable: false,
+            timeout,
+            errorFallbackText: "Please try again.",
+            fallbackStreamingPlaceholderText: "Thinking…",
+          },
+        }),
+      },
+      driver: { run },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    try {
+      const responseError = handler(chatWebhookRequest(98_040 + (delivery === "manual" ? 0 : 2) + (timeout === undefined ? 0 : 1)), "telegram").catch((error) => error)
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.advanceTimersByTimeAsync((timeout ?? 28_000) - 1)
+      expect(invocationAbortSignal?.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(responseError).resolves.toMatchObject({
+        message: `Chat invocation timed out after ${timeout ?? 28_000}ms.`,
+      })
+      expect(invocationAbortSignal?.aborted).toBe(true)
+      if (delivery === "manual") {
+        expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", "Please try again.")
+      } else {
+        expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "Please try again.")
+      }
+    } finally {
+      consoleError.mockRestore()
+      vi.useRealTimers()
     }
   })
 
