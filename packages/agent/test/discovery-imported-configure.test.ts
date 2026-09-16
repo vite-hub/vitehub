@@ -189,3 +189,47 @@ it("inspects local settings spreads and respects local import shadowing", async 
   const plain = await discover('const settings = { description: "plain" }; export default defineAgent({ options: {}, configure: () => defineAgent({ ...settings }) })')
   expect(plain[0]?.workspace).toBeUndefined()
 })
+
+it.each([
+  'build!()',
+  'build?.()',
+  'builders?.["workspace"]()',
+  '(build as Factory)()',
+  '(build satisfies Factory)()',
+  '(build as (() => Agent))()',
+  '(build)!()',
+  'builders["workspace"]!()',
+])("rejects asserted configure result factories: %s", async (result) => {
+  const source = `const build = () => defineAgent({ workspace: {} }); const builders = { workspace: build }; export default defineAgent({ options: {}, configure: () => ${result} })`
+  await expect(discover(source)).rejects.toThrow("cannot inspect a configure result factory")
+  for (const workspace of ['{}', '"shared"']) {
+    const definitions = await discover(source.replace("options: {}", `options: {}, workspace: ${workspace}`))
+    expect(definitions[0]?.workspace).toBe(workspace === '{}' ? "notes" : undefined)
+  }
+})
+
+it.each([
+  '({ key }) => defineAgent({ [key]: {} })',
+  'options => defineAgent({ [options.key]: {} })',
+])("rejects opaque computed settings keys: %s", async (configure) => {
+  const source = `export default defineAgent({ options: { key: "workspace" }, configure: ${configure} })`
+  await expect(discover(source)).rejects.toThrow("cannot inspect a computed Agent settings key")
+  for (const workspace of ['{}', '"shared"']) {
+    const definitions = await discover(source.replace('options:', `workspace: ${workspace}, options:`))
+    expect(definitions[0]?.workspace).toBe(workspace === '{}' ? "notes" : undefined)
+  }
+})
+
+it.each(['options.workspaceName', 'options["workspaceName"]'])("rejects ambiguous option Workspace values: %s", async (workspace) => {
+  const source = `export default defineAgent({ options: { workspaceName: "shared" }, configure: options => defineAgent({ workspace: ${workspace} }) })`
+  await expect(discover(source)).rejects.toThrow("cannot inspect a dynamic Workspace value")
+  for (const marker of ['{}', '"shared"']) {
+    const definitions = await discover(source.replace('options:', `workspace: ${marker}, options:`))
+    expect(definitions[0]?.workspace).toBe(marker === '{}' ? "notes" : undefined)
+  }
+})
+
+
+it("rejects a destructured option Workspace reference", async () => {
+  await expect(discover('export default defineAgent({ options: { workspaceName: "shared" }, configure: ({ workspaceName }) => defineAgent({ workspace: workspaceName }) })')).rejects.toThrow("cannot inspect a dynamic Workspace value")
+})

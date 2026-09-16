@@ -405,15 +405,41 @@ function isWorkspaceAgentDefinition(source: string): boolean {
 
   function memberCallEnd(index: number): number {
     let end = index + 1
-    while (tokens[end] === "." || tokens[end] === "[") {
-      if (tokens[end] === ".") { end += 2; continue }
-      let depth = 1
-      for (end++; end < tokens.length && depth > 0; end++) {
-        if (tokens[end] === "[") depth++
-        else if (tokens[end] === "]") depth--
+    let wrappers = 0
+    for (let i = index - 1; tokens[i] === "("; i--) wrappers++
+    while (end < tokens.length) {
+      if (tokens[end] === "!") { end++; continue }
+      if (tokens[end] === "?" && tokens[end + 1] === ".") {
+        end += 2
+        if (!["(", "["].includes(tokens[end])) end++
+        continue
       }
+      if (tokens[end] === ".") { end += 2; continue }
+      if (tokens[end] === "[") {
+        let depth = 1
+        for (end++; end < tokens.length && depth > 0; end++) {
+          if (tokens[end] === "[") depth++
+          else if (tokens[end] === "]") depth--
+        }
+        continue
+      }
+      if (tokens[end] === "<") { end = skipTypeArguments(end); continue }
+      if (tokens[end] === "as" || tokens[end] === "satisfies") {
+        // A parenthesized assertion preserves the callable expression. Skip
+        // its type, including nested function types, until the wrapper closes.
+        let depth = 0
+        for (end++; end < tokens.length; end++) {
+          const token = tokens[end]
+          if (depth === 0 && [")", ",", ";", "}"].includes(token)) break
+          if (["(", "[", "{", "<"].includes(token)) depth++
+          else if ([")", "]", "}", ">"].includes(token) && tokens[end - 1] !== "=") depth--
+        }
+        continue
+      }
+      if (tokens[end] === ")" && wrappers > 0) { wrappers--; end++; continue }
+      break
     }
-    return tokens[end] === "<" ? skipTypeArguments(end) : end
+    return end
   }
 
   function resolveReference(index: number, seen = new Set<number>(), preserveCalls = false): number {
@@ -524,6 +550,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
                 valueIndex++
               }
             }
+            if (key === undefined && inspectSettings) {
+              throw new Error("[vitehub] Agent Workspace discovery cannot inspect a computed Agent settings key. Use a literal key, or add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
+            }
             if (key !== undefined) result.set(key, valueIndex)
             // Account for a computed method parameter list explicitly. The
             // opener is consumed while locating the key, so seed depth before
@@ -604,7 +633,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
           return !properties(value).has("name")
         }
         if (tokens[value] === "undefined" || /^["'`]/.test(tokens[value] ?? "")) return false
-        // Workspace definitions and unresolved configuration bindings own storage.
+        // A dynamic member may resolve to either a named reference or owned
+        // storage. Require an explicit contract instead of guessing ownership.
+        const optionBinding = callbackParameters.some(scope => value >= scope.start && value < scope.end && scope.names.has(tokens[value]))
+        if (optionBinding || tokens[value + 1] === "." || tokens[value + 1] === "[") {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic Workspace value. Add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
+        }
         return true
       }
       return workspaceOwnsDefinition(workspace)
