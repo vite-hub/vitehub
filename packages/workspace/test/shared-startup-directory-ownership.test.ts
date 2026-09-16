@@ -2,13 +2,57 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { custom } from "../src/index.ts"
 import { registerWorkspace, useWorkspace } from "../src/runtime.ts"
 import { materializeWorkspaceSources, reconcileRemovedStartupSources } from "../src/sources/materialization.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+
+it.each([false, true])("cleans nested mount ancestors while preserving existing parents (%j)", async (existingParent) => {
+  const store = createMemoryWorkspaceStore()
+  if (existingParent) await store.mkdir("shared")
+  const name = crypto.randomUUID()
+  registerWorkspace(name, {
+    sources: { docs: custom({ files: [{ path: "file.md", content: "generated" }], materialize: "startup", mount: "shared/nested/deep" }) },
+    store,
+  })
+  await useWorkspace(name).fs.list("")
+  registerWorkspace(name, { sources: {}, store })
+  await useWorkspace(name).fs.list("")
+  await expect(store.stat("shared/nested")).resolves.toBeUndefined()
+  if (existingParent) await expect(store.stat("shared")).resolves.toMatchObject({ type: "directory" })
+  else await expect(store.stat("shared")).resolves.toBeUndefined()
+})
+
+it("reuses retained snapshots after transferring directory ownership with the Source offline", async () => {
+  const store = createMemoryWorkspaceStore()
+  const first = crypto.randomUUID()
+  const second = crypto.randomUUID()
+  const prepare = vi.fn(async () => {})
+  const getKeys = vi.fn(async () => ["second.md"])
+  registerWorkspace(first, {
+    sources: { docs: custom({ files: [{ path: "first.md", content: "first" }], materialize: "startup", mount: "shared" }) },
+    store,
+  })
+  registerWorkspace(second, {
+    sources: { docs: custom({ prepare, getKeys, async getItem(key) { return { key, content: "second" } }, materialize: "startup", mount: "shared" }) },
+    store,
+  })
+  await useWorkspace(first).fs.list("")
+  await useWorkspace(second).fs.list("")
+  prepare.mockClear().mockRejectedValue(new Error("Source offline"))
+  getKeys.mockClear()
+  registerWorkspace(first, { sources: {}, store })
+  await useWorkspace(first).fs.list("")
+  await expect(useWorkspace(second, { refresh: false }).fs.readFile("shared/second.md", { encoding: "utf8" })).resolves.toBe("second")
+  expect(prepare).not.toHaveBeenCalled()
+  expect(getKeys).not.toHaveBeenCalled()
+  registerWorkspace(second, { sources: {}, store })
+  await useWorkspace(second).fs.list("")
+  await expect(store.stat("shared")).resolves.toBeUndefined()
+})
 
 it.each(["shared", ""])("removes shared startup directories after both Workspaces remove their Sources at mount %j", async (mount) => {
   const store = createMemoryWorkspaceStore()

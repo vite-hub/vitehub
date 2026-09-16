@@ -554,7 +554,8 @@ describe("lazy sources", () => {
     if (userFile) await expect(store.readFile("docs/generated/user.md")).resolves.toMatchObject({ content: "keep" })
     if (preexisting || userFile) await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
     else await expect(store.stat("docs/generated")).resolves.toBeUndefined()
-    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    if (preexisting || userFile || moved) await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat("docs")).resolves.toBeUndefined()
     if (moved) await expect(store.stat("docs/moved")).resolves.toMatchObject({ type: "directory" })
   })
 
@@ -613,7 +614,7 @@ describe("lazy sources", () => {
 
     await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
     await expect(store.stat("docs/generated")).resolves.toBeUndefined()
-    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    await expect(store.stat("docs")).resolves.toBeUndefined()
   })
 
   it.each([

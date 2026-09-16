@@ -469,6 +469,7 @@ async function reconcileRemovedStartupSourcesInternal(
         if (!containsMount && !Object.keys(retainedSnapshot.items || {}).some(item => pathContains(path, item))) continue
         // Retained files can keep this directory nonempty. Carry its ownership
         // forward even when the removal below cannot delete the shared mount.
+        // This metadata-only transfer preserves the retained snapshot's validity.
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, retainedWorkspace, {
           ...retainedSnapshot,
           ...(path === currentSource.mountPath
@@ -476,7 +477,6 @@ async function reconcileRemovedStartupSourcesInternal(
             : containsMount
               ? { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }
               : { ownedDirectories: [...new Set([...(retainedSnapshot.ownedDirectories || []), path])] }),
-          status: "updating",
         }))
       }
       try {
@@ -714,7 +714,7 @@ async function materializeWorkspaceSourcesInternal(
     let ownsMount = Boolean(source.mountPath)
       && existing?.mountPath === source.mountPath && existing.ownsMount === true
       && Boolean(await store.stat(source.mountPath))
-    const ownedAncestors = existing?.mountPath === source.mountPath ? existing.ownedAncestors : undefined
+    const ownedAncestors = [...(existing?.mountPath === source.mountPath ? existing.ownedAncestors || [] : [])]
     const ownedDirectories = new Set(existing?.mountPath === source.mountPath ? existing.ownedDirectories : [])
     let revision = existing?.revision
     const retainPriorItems = existing?.configHash === configHash
@@ -753,8 +753,15 @@ async function materializeWorkspaceSourcesInternal(
       if (source.mountPath) {
         await control.mutate(async () => {
           const mountExists = Boolean(await store.stat(source.mountPath))
+          const missingAncestors = []
+          for (const path of parentDirectoryPaths(source.mountPath)) {
+            if (!await store.stat(path)) missingAncestors.push(path)
+          }
           await store.mkdir(source.mountPath, { recursive: true })
           ownsMount = ownsMount || !mountExists
+          for (const path of missingAncestors) {
+            if (!ownedAncestors.includes(path)) ownedAncestors.push(path)
+          }
         })
       }
 
@@ -887,6 +894,7 @@ async function materializeWorkspaceSourcesInternal(
         await control.mutate(() => writeSourceSnapshotMetadata(store, workspace, {
           ...existing,
           ownsMount,
+          ownedAncestors,
           ownedDirectories: [...ownedDirectories],
           bytes: Math.max(0, (existing.bytes || 0) + persistedBytesDelta),
           files: scopedItems ? Object.keys(scopedItems).length : 0,
@@ -947,7 +955,7 @@ async function materializeWorkspaceSourcesInternal(
         ? completeSource
           ? { ...failed, status: "updating" as const, error: undefined }
           : existing?.configHash === configHash
-            ? { ...existing, ownedDirectories: [...ownedDirectories], items: checkpointItemsMetadata }
+            ? { ...existing, ownsMount, ownedAncestors, ownedDirectories: [...ownedDirectories], items: checkpointItemsMetadata }
             : source.materialize === "startup" ? { ...failed, status: "updating" as const, error: undefined } : undefined
         : failed
       if (checkpoint && control.isCurrent()) await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, checkpoint))
