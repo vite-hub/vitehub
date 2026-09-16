@@ -1,6 +1,6 @@
 import { createRuntimeContext } from "@vite-hub/runtime"
 import { describe, expect, it, vi } from "vitest"
-import { defineAgent, runAgent } from "../src/index.ts"
+import { defineAgent, runAgent, workflow } from "../src/index.ts"
 
 function deferred() {
   let resolve!: () => void
@@ -9,6 +9,61 @@ function deferred() {
 }
 
 describe("standalone Agent invocations", () => {
+  it("rejects host Workflow discovery before running the Driver", async () => {
+    const run = vi.fn(() => "inline output")
+    const [error, result] = await runAgent(defineAgent({ driver: { run } }), {})
+    expect(result).toBeNull()
+    expect(error?.message).toContain("cannot discover an Agent Workflow without a host context")
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("preserves explicit Workflow execution without a host context", async () => {
+    const { getWorkflowRun } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    try {
+      const agent = defineAgent({
+        driver: { run: () => "workflow output" },
+        runtime: workflow("standalone-explicit"),
+      })
+      const [error, result] = await runAgent(agent, {})
+      expect(error).toBeNull()
+      expect(result).toMatchObject({ provider: "vercel", id: expect.any(String) })
+      // SAFETY: The assertion above verifies that this explicit Workflow returned a Run ID.
+      const completed = await getWorkflowRun("standalone-explicit", (result as { id: string }).id)
+      expect(completed.status).toBe("completed")
+      if (!(completed.result instanceof Response)) throw new Error("Expected a Workflow Response")
+      await expect(completed.result.text()).resolves.toBe("workflow output")
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
+  })
+
+  it("normalizes hostile background failures without losing the thrown value", async () => {
+    const objectProxy = Proxy.revocable({}, {})
+    const functionProxy = Proxy.revocable(() => {}, {})
+    objectProxy.revoke()
+    functionProxy.revoke()
+    const hostileFunction = Object.assign(() => {}, {
+      [Symbol.toPrimitive]() { throw new Error("conversion failed") },
+    })
+    for (const thrown of [objectProxy.proxy, functionProxy.proxy, hostileFunction]) {
+      const agent = defineAgent({
+        driver: { run(context) {
+          context.waitUntil(Promise.reject(thrown))
+          return "done"
+        } },
+        runtime: false,
+      })
+      const [error, result] = await runAgent(agent, {})
+      expect(result).toBeNull()
+      expect(error).toBeInstanceOf(Error)
+      expect(error?.message).toBe("Unknown error.")
+      expect(error?.cause === thrown).toBe(true)
+    }
+  })
+
   it("returns the output and forwards invocation input", async () => {
     const controller = new AbortController()
     const run = vi.fn(context => `received ${context.prompt}`)

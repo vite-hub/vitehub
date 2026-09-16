@@ -13,7 +13,7 @@ import { createBoundedTextAccumulator } from "./internal/bounded-text.ts"
 import { validateAgentOutput } from "./internal/agent-structured-output.ts"
 import { loadAgentWorkflowModule, loadAgentWorkflowRuntimeStateModule } from "./internal/workflow-runtime-loaders.ts"
 import { cloneWorkflowJsonValue, portableWorkflowCapabilityMask, workflowBytesToBase64 } from "./internal/workflow-portability.ts"
-import { agentErrorDetails, agentErrorMessage, toAgentPublicError } from "./agent-error.ts"
+import { agentErrorDetails, agentErrorMessage, isError, toAgentPublicError } from "./agent-error.ts"
 import { agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryTracker, agentChannelDeliveryWorkflowContextKey, isAgentChannelDeliveryWorkflowBinding } from "./internal/channel-delivery.ts"
 import {
   createBackedAgentInvocationController,
@@ -7252,6 +7252,10 @@ export async function runAgent<
     waitUntil: runtime.waitUntil,
   }
   try {
+    const binding = resolveAgentWorkflowRuntimeBinding(agent)
+    if (binding && "discoveryDefault" in binding) {
+      throw agentDiagnostics.AGENT_R0421({ message: "[vitehub] Standalone runAgent() cannot discover an Agent Workflow without a host context. Set runtime: false for inline execution, configure an explicit workflow(\"name\") binding, or use runAgent(agent, runtimeContext, input)." })
+    }
     // SAFETY: The two-argument overload requires invocation input as its second argument.
     const result = await runAgentWithContext(agent, context, contextOrInput as AgentRunInput<CALL_OPTIONS>)
     await runtime.flushWaitUntil()
@@ -7260,7 +7264,7 @@ export async function runAgent<
   catch (error) {
     // Finish owned background work without replacing the invocation's original failure.
     await runtime.flushWaitUntil().catch(() => {})
-    return [error instanceof Error ? error : new Error(agentErrorMessage(error), { cause: error }), null]
+    return [isError(error) ? error : new Error(agentErrorMessage(error), { cause: error }), null]
   }
 }
 
