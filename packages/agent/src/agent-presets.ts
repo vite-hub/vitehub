@@ -7,7 +7,7 @@ export type AgentPresetOptions<T> = T extends (...args: never[]) => unknown ? T
       // Only record-shaped option objects support recursive overrides. Branded
       // instances and classes remain atomic values so they cannot be replaced
       // by partial plain objects that violate their runtime contract.
-      : T extends Record<string, unknown> ? { [K in keyof T]?: AgentPresetOptions<T[K]> }
+      : T extends object ? { [K in keyof T]?: AgentPresetOptions<T[K]> }
         : T
 
 /** An ordinary Agent Definition with typed preset configuration. */
