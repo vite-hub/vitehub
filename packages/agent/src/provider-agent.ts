@@ -2971,25 +2971,6 @@ async function* runProvider<
     let exitCallbackFailed = false
     let workspaceFinalization: Promise<void> | undefined
     const finalizeWorkspace = () => workspaceFinalization ??= (async () => {
-        // A timed-out or rejected shutdown cannot establish final provider state.
-        if (runtime && runtimeCleanupSettled && workspaceCommandsSettled && !runtimeCleanupFailure && !deferredRuntimeFailure && !cleanupTimedOut && onProviderExit) {
-          exitCallbackPending = true
-          const exitCleanup = createProviderCleanupSignal(undefined)
-          try {
-            await waitForProviderOperation(
-              Promise.resolve().then(() => onProviderExit!({ cwd: root, abortSignal: exitCleanup.signal })),
-              exitCleanup.signal,
-            )
-          }
-          catch (error) {
-            exitCallbackFailed = true
-            cleanupErrors.push(error)
-          }
-          finally {
-            exitCallbackPending = false
-            exitCleanup.dispose()
-          }
-        }
         try {
           for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
         }
@@ -3057,6 +3038,24 @@ async function* runProvider<
     })()
     try {
       await waitForProviderOperation(cleanupTask, cleanup.signal)
+      if (onProviderExit && !runtimeCleanupFailure && !deferredRuntimeFailure && !cleanupTimedOut) {
+        exitCallbackPending = true
+        const exitCleanup = createProviderCleanupSignal(undefined)
+        try {
+          await waitForProviderOperation(
+            Promise.resolve().then(() => onProviderExit!({ cwd: root, abortSignal: exitCleanup.signal })),
+            exitCleanup.signal,
+          )
+        }
+        catch (error) {
+          exitCallbackFailed = true
+          cleanupErrors.push(error)
+        }
+        finally {
+          exitCallbackPending = false
+          exitCleanup.dispose()
+        }
+      }
       if (codexCredentialHome) {
         try {
           await releaseCodexCredentialHome()
