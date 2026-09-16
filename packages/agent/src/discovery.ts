@@ -442,7 +442,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       let returnExpression = false
       for (let i = bodyStart; i < callbackEnd; i++) {
         const token = tokens[i]
-        if (token === "defineAgent") {
+        const isDefineAgent = token === "defineAgent" || importedAgentBindings.has(token) ||
+          (tokens[i + 1] === "." && tokens[i + 2] === "defineAgent" && importedNamespaces.has(token))
+        if (isDefineAgent) {
           // A returned expression may contain conditional branches; keep all
           // defineAgent calls until the expression terminates rather than only
           // accepting the token immediately following `return`.
