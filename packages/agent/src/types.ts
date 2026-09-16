@@ -1417,7 +1417,7 @@ export interface AgentProviderExitContext {
 }
 
 export interface AgentProviderLaunchCommand {
-  /** Host callback after provider shutdown, before Workspace cleanup. Not called by inspection. */
+  /** Host callback after provider shutdown, before Workspace cleanup. Not called by inspection or auxiliary runs. */
   onExit?: (context: AgentProviderExitContext) => MaybePromise<void>
   args?: readonly string[]
   command: string

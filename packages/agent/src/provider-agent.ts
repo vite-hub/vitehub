@@ -2966,34 +2966,33 @@ async function* runProvider<
           : agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver deferred runtime cleanup timed out." }))
       })())
     }
-    let workspaceCommandsSettled = false
     let exitCallbackPending = false
     let exitCallbackFailed = false
     let workspaceFinalization: Promise<void> | undefined
-    const finalizeWorkspace = () => workspaceFinalization ??= (async () => {
-        try {
-          for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-        try {
-          await closeWorkspace(
-            context,
-            workspaceSession,
-            caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
-            cleanup.signal,
-          )
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-        finally {
-          releaseWorkspaceCleanup?.()
-        }
-      })()
+    const finalizeWorkspace = (signal = cleanup.signal) => workspaceFinalization ??= (async () => {
+      try {
+        for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      try {
+        await closeWorkspace(
+          context,
+          workspaceSession,
+          caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
+          signal,
+        )
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      finally {
+        releaseWorkspaceCleanup?.()
+      }
+    })()
     const toolCleanup = Promise.resolve().then(() => toolServer?.close())
-    const cleanupTask = (async () => {
+    const shutdownTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
         ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
         : Promise.resolve()
@@ -3025,20 +3024,9 @@ async function* runProvider<
       for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
         if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
       }
-      workspaceCommandsSettled = true
-      await finalizeWorkspace()
-      if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
-        try {
-          await cleanupRoot()
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-      }
     })()
-    try {
-      await waitForProviderOperation(cleanupTask, cleanup.signal)
-      if (onProviderExit && !runtimeCleanupFailure && !deferredRuntimeFailure && !cleanupTimedOut) {
+    const exitCallbackTask = shutdownTask.then(async () => {
+      if (onProviderExit && !isAuxiliaryAgentAdapterContext(context) && !runtimeCleanupFailure && !deferredRuntimeFailure && !cleanupTimedOut) {
         exitCallbackPending = true
         const exitCleanup = createProviderCleanupSignal(undefined)
         try {
@@ -3056,6 +3044,31 @@ async function* runProvider<
           exitCleanup.dispose()
         }
       }
+    })
+    const cleanupTask = exitCallbackTask.then(async () => {
+      const finalizationCleanup = createProviderCleanupSignal(undefined)
+      const finalizationTask = (async () => {
+        await finalizeWorkspace(finalizationCleanup.signal)
+        if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+          try {
+            await cleanupRoot()
+          }
+          catch (error) {
+            cleanupErrors.push(error)
+          }
+        }
+      })()
+      try {
+        await waitForProviderOperation(finalizationTask, finalizationCleanup.signal)
+      }
+      finally {
+        finalizationCleanup.dispose()
+      }
+    })
+    try {
+      await waitForProviderOperation(shutdownTask, cleanup.signal)
+      cleanup.dispose()
+      await cleanupTask
       if (codexCredentialHome) {
         try {
           await releaseCodexCredentialHome()
@@ -3079,7 +3092,7 @@ async function* runProvider<
         }
         forcedRootCleanup = toolCleanup
           .catch(() => undefined)
-          .then(finalizeWorkspace)
+          .then(() => finalizeWorkspace())
           .finally(cleanupRoot)
         observeLateCleanup(forcedRootCleanup)
         void cleanupTask.catch(() => undefined)
@@ -3088,9 +3101,12 @@ async function* runProvider<
         let timeout: ReturnType<typeof setTimeout> | undefined
         const cleanupTimeout = agentDiagnostics.AGENT_R0725({ message: "[vitehub] Provider Agent Driver invocation cleanup timed out." })
         invocationCleanupDeferred = Promise.race([
-          cleanupTask,
-          new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
-        ]).finally(async () => {
+          shutdownTask.then(() => true),
+          new Promise<false>(resolve => timeout = setTimeout(() => resolve(false), providerCleanupTimeoutMs)),
+        ]).then(async (stopped) => {
+          if (stopped) await exitCallbackTask
+          else cleanupTimedOut = true
+        }).finally(async () => {
           if (timeout) clearTimeout(timeout)
           try {
             await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : cleanupTimeout))

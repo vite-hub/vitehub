@@ -634,10 +634,12 @@ describe("Provider Agent Driver", () => {
       expect(provider.close).toHaveBeenCalledOnce()
       expect(abortSignal.aborted).toBe(false)
       root = cwd
+      expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toContain("exit evidence instructions")
       evidence = await readFile(join(cwd, "proof.txt"), "utf8")
       if (fail) throw new Error("evidence failed")
     })
     const adapter = createProviderAgentAdapter({
+      instructions: "exit evidence instructions",
       launch: async ({ cwd, command }) => {
         await writeFile(join(cwd, "proof.txt"), "verified by host")
         return { command, onExit }
@@ -651,6 +653,50 @@ describe("Provider Agent Driver", () => {
     expect(evidence).toBe("verified by host")
     expect(onExit).toHaveBeenCalledOnce()
     await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each([false, true])("skips auxiliary exit evidence with a launch resolver: %s", async (resolver) => {
+    const threadId = `thread-auxiliary-exit-${resolver}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const onExit = vi.fn()
+    const launch = { command: process.execPath, onExit }
+    const adapter = createProviderAgentAdapter({ launch: resolver ? () => launch : launch, provider: "codex" })
+    // SAFETY: This fixture marks the minimal provider context as an auxiliary title run.
+    await adapter.generate(markAuxiliaryMessageChannelInstructionContext(context(threadId)) as never)
+    expect(onExit).not.toHaveBeenCalled()
+  })
+
+  it("gives exit evidence a full deadline after slow shutdown", async () => {
+    vi.useFakeTimers()
+    try {
+      const threadId = "thread-exit-slow-shutdown"
+      const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+      let closing!: () => void
+      const closeStarted = new Promise<void>(resolve => closing = resolve)
+      provider.close.mockImplementationOnce(async () => {
+        closing()
+        await new Promise(resolve => setTimeout(resolve, 9_000))
+      })
+      let started!: () => void
+      const exitStarted = new Promise<void>(resolve => started = resolve)
+      const onExit = vi.fn(async ({ cwd, abortSignal }: { cwd: string, abortSignal: AbortSignal }) => {
+        started()
+        await new Promise(resolve => setTimeout(resolve, 2_000))
+        expect(abortSignal.aborted).toBe(false)
+        await access(cwd)
+      })
+      // SAFETY: This fixture supplies the minimal provider request context.
+      const result = createProviderAgentAdapter({ launch: { command: process.execPath, onExit }, provider: "codex" }).generate(context(threadId) as never)
+      await closeStarted
+      await vi.advanceTimersByTimeAsync(9_000)
+      await exitStarted
+      await vi.advanceTimersByTimeAsync(2_000)
+      await result
+      expect(onExit).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("bounds an exit callback and fails instead of reporting successful evidence", async () => {
