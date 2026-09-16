@@ -1,12 +1,15 @@
-import { getMessageText } from "./messages.ts"
+import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
+import { codexLaunchArgs } from "./internal/codex-launch-args.ts"
+import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { chmod, cp, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
-import { basename, dirname, extname, join, relative, resolve } from "node:path"
+import { basename, delimiter, dirname, extname, join, relative, resolve } from "node:path"
 
 import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
@@ -21,14 +24,13 @@ import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
 import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
-import { providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, getMessageText, isAttachmentPart, resolveAttachmentData } from "./messages.ts"
 import { workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { agentToolPolicyApproveSymbol } from "./tool-runtime.ts"
 import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer } from "./trace.ts"
@@ -64,6 +66,7 @@ import type {
   AgentToolDefinition,
   AgentToolSchema,
   AgentToolSet,
+  AgentUsageRecord,
 } from "./types.ts"
 import type { AttachmentPart, Message, StreamEvent } from "./messages.ts"
 import type {
@@ -74,6 +77,7 @@ import type {
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
 import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
+import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { createWorkspaceSetupObservers } from "./internal/workspace-observability.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
@@ -104,6 +108,8 @@ interface GeneratedProviderFile {
   existed: boolean
   link?: string
   mode?: number
+  ownedLink?: string
+  copiedBridgeSource?: string
   path: string
 }
 
@@ -141,6 +147,95 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   }
 }
 
+const providerSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"] as const
+
+async function hasSafeProviderPath(root: string, path: string): Promise<boolean> {
+  let current = root
+  for (const segment of relative(root, path).split(/[\\/]/).filter(Boolean)) {
+    current = join(current, segment)
+    const entry = await lstat(current).catch(() => undefined)
+    if (!entry) return false
+    if (entry.isSymbolicLink()) return false
+  }
+  return true
+}
+
+async function providerSkillDirectories(root: string, skillRoot: string): Promise<string[]> {
+  const directory = join(root, skillRoot)
+  if (!await hasSafeProviderPath(root, directory)) return []
+  const entry = await lstat(directory).catch(() => undefined)
+  if (!entry || !entry.isDirectory() || entry.isSymbolicLink()) return []
+  const children = await readdir(directory, { withFileTypes: true })
+  const skills: string[] = []
+  for (const child of children) {
+    if (!child.isDirectory() || child.isSymbolicLink()) continue
+    const manifest = await lstat(join(directory, child.name, "SKILL.md")).catch(() => undefined)
+    if (manifest?.isFile() && !manifest.isSymbolicLink()) skills.push(child.name)
+  }
+  return skills
+}
+
+async function materializeProviderSkillLink(root: string, source: string, target: string): Promise<GeneratedProviderFile | undefined> {
+  const targetEntry = await lstat(target).catch(() => undefined)
+  if (targetEntry) return
+  let parent = root
+  const directories: string[] = []
+  for (const segment of relative(root, dirname(target)).split(/[\\/]/).filter(Boolean)) {
+    parent = join(parent, segment)
+    const parentEntry = await lstat(parent).catch(() => undefined)
+    if (parentEntry?.isSymbolicLink()) return
+    if (parentEntry && !parentEntry.isDirectory()) return
+    if (!parentEntry) {
+      await mkdir(parent)
+      directories.push(parent)
+    }
+  }
+  const link = relative(dirname(target), source)
+  try {
+    await symlink(link, target, "dir")
+    return { directories, existed: false, ownedLink: link, path: target }
+  }
+  catch (error) {
+    // Windows may deny directory symlinks without Developer Mode or elevation.
+    // Copy the skill tree as a safe, self-contained compatibility bridge.
+    if (isRuntimeRecord(error) && (error.code === "EPERM" || error.code === "EACCES")) {
+      try {
+        await cp(source, target, { recursive: true })
+        return { directories, existed: false, path: target, copiedBridgeSource: source }
+      }
+      catch (copyError) {
+        for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
+        throw copyError
+      }
+    }
+    for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
+    throw error
+  }
+}
+
+async function materializeProviderSkillCompatibility(root: string): Promise<GeneratedProviderFile[]> {
+  const skills = new Map<string, string>()
+  for (const skillRoot of providerSkillRoots) {
+    for (const name of await providerSkillDirectories(root, skillRoot)) {
+      if (!skills.has(name)) skills.set(name, join(root, skillRoot, name))
+    }
+  }
+  const generated: GeneratedProviderFile[] = []
+  try {
+    for (const [name, source] of skills) {
+      for (const skillRoot of providerSkillRoots) {
+        const link = await materializeProviderSkillLink(root, source, join(root, skillRoot, name))
+        if (link) generated.push(link)
+      }
+    }
+    return generated
+  }
+  catch (error) {
+    for (const entry of generated.reverse()) await restoreGeneratedProviderFile(entry)
+    throw error
+  }
+}
+
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
   if (generated.appendedContent !== undefined) {
     const entry = await lstat(generated.path).catch(() => undefined)
@@ -154,7 +249,43 @@ async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): P
       if (offset !== -1) {
         await writeFile(generated.path, content.slice(0, offset) + content.slice(offset + generated.appendedContent.length))
       }
+      else {
+        // The provider may have edited the injected content; preserve the file.
+        return
+      }
     }
+    return
+  }
+  if (generated.ownedLink !== undefined) {
+    const entry = await lstat(generated.path).catch(() => undefined)
+    if (entry?.isSymbolicLink() && await readlink(generated.path) === generated.ownedLink) {
+      await rm(generated.path)
+    }
+    for (const directory of generated.directories.reverse()) {
+      await rmdir(directory).catch((error) => {
+        // SAFETY: Provider driver normalization establishes the asserted provider runtime contract.
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== "EEXIST" && code !== "ENOENT" && code !== "ENOTEMPTY") throw error
+      })
+    }
+    return
+  }
+  if (generated.copiedBridgeSource !== undefined) {
+    // Reconcile conservatively: never remove or overwrite the original Skill
+    // before the replacement is safely staged. If several provider bridges
+    // exist, preserve the original as the explicit conflict policy.
+    if ((await lstat(generated.path).catch(() => undefined))?.isDirectory()) {
+      const sourceEntry = await lstat(generated.copiedBridgeSource).catch(() => undefined)
+      // The source may have been replaced by a file, symlink, or other entry
+      // while the bridge was active. That entry is not valid custody of the
+      // original Skill tree; restore the bridge contents in its place.
+      if (!sourceEntry || !sourceEntry.isDirectory()) {
+        if (sourceEntry) await rm(generated.copiedBridgeSource, { recursive: true, force: true })
+        await cp(generated.path, generated.copiedBridgeSource, { recursive: true })
+      }
+    }
+    await rm(generated.path, { recursive: true, force: true })
+    for (const directory of generated.directories.reverse()) await rmdir(directory).catch(() => undefined)
     return
   }
   await rm(generated.path, { force: true, recursive: true })
@@ -367,7 +498,7 @@ function parsedProviderLaunchDiagnostic(value: unknown): ProviderLaunchDiagnosti
 }
 
 function providerSecretEnvironmentKeys(environment: AgentProviderEnvironment | undefined, requiredEnvironment: readonly string[]): string[] {
-  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment, "CLIPROXY_API_KEY"])]
+  return [...new Set([...Object.keys(environment || {}), ...requiredEnvironment, "CLIPROXY_API_KEY"])].filter(key => key !== "VITEHUB_BROWSER_ACTIVE")
 }
 
 function providerLauncherSource(
@@ -542,9 +673,7 @@ function redactProviderDiagnostic(
     .filter((item): item is string => hasRuntimeType(item, "string") && item.length > 0))]
     .sort((left, right) => right.length - left.length)
   for (const secret of secrets) redacted = redacted.replaceAll(secret, "[REDACTED]")
-  return redacted
-    .replace(/\b(Bearer|Basic)\s+[^\s]+/gi, "$1 [REDACTED]")
-    .replace(/\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))=([^\s]+)/g, "$1=[REDACTED]")
+  return redactCredentialText(redacted)
 }
 
 async function providerLaunchFailure(
@@ -917,16 +1046,16 @@ function providerMetadataContext<
   CALL_OPTIONS,
 >(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): AgentAdapterMetadataContext<TRuntimeConfig> {
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  const inherited = providerCallbackMetadata(context)
   // SAFETY: The invocation context and normalized provider runtime establish every metadata field below.
   return {
     ...agentInvocationCallbackContextValues(context.context),
     ...runtime,
     actor: context.actor,
     context: context.context,
-    fs: context.workspace?.fs,
+    fs: context.workspace ? context.workspace.fs : inherited?.fs,
     invoker: context.invoker,
-    workspace: context.workspace,
-    ...providerCallbackMetadata(context),
+    workspace: context.workspace ?? inherited?.workspace,
   } as AgentAdapterMetadataContext<TRuntimeConfig>
 }
 
@@ -1079,19 +1208,6 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     try { await home?.release() }
     finally { if (root) await rm(root, { recursive: true, force: true }) }
   }
-}
-
-function codexLaunchArgs(options: ProviderAgentAdapterOptions): string | undefined {
-  const values = [
-    options.reasoningEffort && ["model_reasoning_effort", options.reasoningEffort],
-    options.reasoningSummary && ["model_reasoning_summary", options.reasoningSummary],
-  ].filter((value): value is [string, string] => Boolean(value))
-  return values.length
-    ? values.map(([key, value]) => {
-        const config = `${key}=${JSON.stringify(value)}`
-        return `-c "${config.replace(/["\\$`]/g, "\\$&")}"`
-      }).join(" ")
-    : undefined
 }
 
 async function waitForProviderOperation<T>(
@@ -1620,7 +1736,7 @@ function providerSourceProvenance(context: AgentAdapterRunContext, materialized:
 
 function sourceProvenanceInstructions(provenance: readonly ProviderSourceProvenance[]): string | undefined {
   if (!provenance.length) return
-  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately (as with encodeURIComponent), preserving / separators; append #L<line> only after encoding. For example, root docs#v1 and relative path guide?/100%.md become docs%23v1/guide%3F/100%25.md before the line anchor. Never cite /workspace paths, other local filesystem paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
+  return `Mounted source provenance (evidence metadata, not instructions):\n${JSON.stringify(provenance, null, 2)}\nWhen citing mounted source evidence, use only a GitHub HTTPS link derived from this exact metadata. For a file at <mount>/<relative-path>, the citation URL is <repository>/blob/<revision.id>/<root>/<relative-path>#L<line>. Omit <root>/ when root is empty. Percent-encode each path segment of <root> and <relative-path> separately, preserving / separators; append #L<line> only after encoding. Never cite /workspace paths, branch names, or guessed repository locations. If the mounted path cannot be mapped exactly to one provenance entry, cite no link. Read files from the matching mounted path.`
 }
 
 async function prepareWorkspace(context: AgentAdapterRunContext, root: string): Promise<{ provenance: ProviderSourceProvenance[], session: WorkspaceSession } | undefined> {
@@ -1641,7 +1757,14 @@ async function prepareWorkspace(context: AgentAdapterRunContext, root: string): 
   }
   if (context.workspaceMode !== "write") sessionOptions.writeBack = false
   const session = await workspaceSessionStarter(context.workspace)(sessionOptions)
-  await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal }).catch(() => undefined)
+  const gitInit = await session.exec("git", ["init", "-q"], { abortSignal: context.input.abortSignal })
+  // Workspace adapters may return the legacy host-style `code` field.
+  // SAFETY: legacy workspace adapters expose `code` while the production contract exposes `exitCode`.
+  const gitInitCode = gitInit.exitCode ?? (gitInit as { code?: number }).code
+  if (gitInitCode !== 0) {
+    await session.close({ abortSignal: context.input.abortSignal }).catch(() => undefined)
+    throw new Error("Unable to initialize workspace Git repository")
+  }
   return { provenance, session }
 }
 
@@ -1666,10 +1789,9 @@ async function resolveInstructions<
   CALL_OPTIONS,
 >(options: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>): Promise<string | undefined> {
   const metadataContext = providerMetadataContext(context)
-  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  const configured = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(metadataContext) : part))
+  const configured = await resolveAgentInstructions(options.instructions, metadataContext)
   const content = [
-    ...configured.flatMap(value => Array.isArray(value) ? value : [value]),
+    configured,
     context.instructions,
     resolveMessageChannelInstructions(context.context, context),
     agentOutputInstructions(context.output),
@@ -1796,31 +1918,216 @@ async function respondToInput(runtime: ProviderRuntime, threadId: ThreadId, mess
   return responded
 }
 
-function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>): StreamEvent {
+interface ProviderInvocationUsageAccumulator {
+  cachedInputTokens: number
+  cachedInputTokensComplete: boolean
+  calls: AgentUsageRecord[]
+  inputTokens: number
+  identityAmbiguous?: boolean
+  lastSignature?: string
+  lastResponseIdentity?: string
+  lastCallIdentity?: string
+  outputTokens: number
+  partitionComplete: boolean
+  previousTotalProcessedTokens?: number
+  lastUsageEvent?: object
+  reasoningOutputTokens: number
+  reasoningOutputTokensComplete: boolean
+  observedPartition: boolean
+}
+
+function usageEvent(event: Extract<ProviderRuntimeEvent, { type: "thread.token-usage.updated" }>, options: {
+  accumulator: ProviderInvocationUsageAccumulator
+  model?: string
+  provider: "claude-code" | "codex"
+  resumed: boolean
+}): StreamEvent {
   const usage = event.payload.usage
-  const rawInputTokens = usage.inputTokens ?? usage.lastInputTokens
-  const rawOutputTokens = usage.outputTokens ?? usage.lastOutputTokens
-  // Cumulative thread totals and latest-turn partitions have different scopes.
-  const hasMatchingPartition = (usage.totalProcessedTokens === undefined && usage.usedTokens === undefined)
-    || (rawInputTokens !== undefined && rawOutputTokens !== undefined
-      && (usage.usedTokens === undefined || rawInputTokens + rawOutputTokens === usage.usedTokens))
-  const inputTokens = hasMatchingPartition ? rawInputTokens : undefined
-  const outputTokens = hasMatchingPartition ? rawOutputTokens : undefined
-  const details = hasMatchingPartition ? {
-    ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
-    ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
-    ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
-  } : {}
+  const usedTokens = usage.usedTokens ?? usage.lastUsedTokens
+  const inputTokens = usage.inputTokens ?? usage.lastInputTokens
+  const outputTokens = usage.outputTokens ?? usage.lastOutputTokens
+  const partitionTotal = inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined
+  // `eventId` identifies the telemetry update, not the response partition.
+  // Using it here makes every snapshot look like a new response and prevents
+  // Codex usage updates from completing a single partition.
+  const responseIdentity = event.itemId
+  const signature = responseIdentity === undefined
+    ? JSON.stringify([inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
+    : JSON.stringify([responseIdentity, inputTokens, outputTokens, usage.cachedInputTokens, usage.reasoningOutputTokens, usedTokens])
+  const cumulative = usage.totalProcessedTokens
+  // A sole raw itemless snapshot can acquire its first measured partition.
+  // A changed known cumulative total instead establishes a distinct partition.
+  const completesRawOnly = options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && (options.accumulator.previousTotalProcessedTokens === undefined || options.accumulator.previousTotalProcessedTokens === cumulative) && partitionTotal !== undefined && options.accumulator.lastUsageEvent !== undefined && options.accumulator.lastResponseIdentity === undefined && options.accumulator.calls.length === 1 && options.accumulator.calls.at(-1)?.usage === undefined
+  const changed = responseIdentity !== undefined
+    ? responseIdentity !== options.accumulator.lastResponseIdentity
+    : cumulative !== undefined
+      ? options.accumulator.previousTotalProcessedTokens === undefined || cumulative !== options.accumulator.previousTotalProcessedTokens
+      : options.accumulator.lastSignature !== signature
+  const identityFree = options.provider === "codex" && responseIdentity === undefined && cumulative === undefined
+  if (options.provider === "codex" && partitionTotal !== undefined) options.accumulator.observedPartition = true
+  const unmatchedIdentityFree = options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+    && options.accumulator.calls.some(call => call.usage === undefined && options.accumulator.lastResponseIdentity !== undefined)
+  if (identityFree) {
+    // Without a response boundary, snapshots cannot establish invocation totals.
+    // Keep the latest measured evidence raw so it cannot be priced as a call.
+    // A cumulative-only snapshot still supports the legacy invocation total;
+    // ambiguity begins once an actual response partition is observed.
+    // An identity-free snapshot without measurable input/output tokens is
+    // cumulative evidence only; keep the legacy cumulative fallback available
+    // until an actual partition has been observed.
+    if (partitionTotal !== undefined) options.accumulator.observedPartition = true
+    // Same-total itemless snapshots enrich or correct the current measured call;
+    // they do not introduce an uncorrelatable partition.
+    const sameMeasuredCall = partitionTotal !== undefined
+      && cumulative !== undefined
+      && cumulative === options.accumulator.previousTotalProcessedTokens
+      && options.accumulator.calls.at(-1)?.usage !== undefined
+    if (partitionTotal !== undefined && !sameMeasuredCall) {
+      options.accumulator.partitionComplete = false
+      options.accumulator.identityAmbiguous = true
+    }
+    const snapshot = { ...(options.model ? { model: options.model } : {}), provider: options.provider, raw: usage }
+    if (options.accumulator.lastUsageEvent && options.accumulator.lastResponseIdentity === undefined && options.accumulator.previousTotalProcessedTokens === undefined) {
+      options.accumulator.calls[options.accumulator.calls.length - 1] = snapshot
+    }
+    else options.accumulator.calls.push(snapshot)
+    options.accumulator.lastCallIdentity = undefined
+  }
+  if (unmatchedIdentityFree || (options.provider === "codex" && responseIdentity === undefined && cumulative !== undefined && options.accumulator.lastResponseIdentity !== undefined)) options.accumulator.identityAmbiguous = true
+  // An itemless measured partition cannot be attributed to a prior identified
+  // response (even when that response already has a measured call). Keep the
+  // aggregate unknown rather than pricing evidence from an unrelated response.
+  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+    && options.accumulator.lastResponseIdentity !== undefined) {
+    options.accumulator.identityAmbiguous = true
+  }
+  // An itemless measured snapshot cannot complete an earlier raw-only call
+  // unless the narrowly proven sole-call completion path applies. Keep the
+  // aggregate unknown whenever an unresolved call would otherwise be hidden.
+  if (options.provider === "codex" && responseIdentity === undefined && partitionTotal !== undefined
+    && options.accumulator.calls.some(call => call.usage === undefined) && !completesRawOnly) {
+    options.accumulator.identityAmbiguous = true
+  }
+  const countPartition = options.provider === "codex" && !identityFree && partitionTotal !== undefined && (changed || completesRawOnly)
+  if (options.provider === "codex" && !identityFree && changed && partitionTotal === undefined) {
+    options.accumulator.lastCallIdentity = responseIdentity
+    options.accumulator.partitionComplete = false
+    options.accumulator.calls.push({
+      ...(options.model ? { model: options.model } : {}),
+      provider: options.provider,
+      raw: usage,
+    })
+  }
+  if (countPartition) {
+    options.accumulator.lastCallIdentity = responseIdentity
+    options.accumulator.inputTokens += inputTokens!
+    options.accumulator.outputTokens += outputTokens!
+    if (usage.cachedInputTokens === undefined) options.accumulator.cachedInputTokensComplete = false
+    else options.accumulator.cachedInputTokens += usage.cachedInputTokens
+    if (usage.reasoningOutputTokens === undefined) options.accumulator.reasoningOutputTokensComplete = false
+    else options.accumulator.reasoningOutputTokens += usage.reasoningOutputTokens
+    const call = {
+      ...(options.model ? { model: options.model } : {}),
+      provider: options.provider,
+      raw: usage,
+      usage: {
+        details: {
+          ...(usage.cachedInputTokens === undefined ? {} : { cachedInputTokens: usage.cachedInputTokens }),
+          ...(usage.reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens: usage.reasoningOutputTokens }),
+        },
+        ...(usage.cachedInputTokens === undefined ? {} : { inputTokenDetails: { cacheReadTokens: usage.cachedInputTokens } }),
+        inputTokens,
+        outputTokens,
+        totalTokens: partitionTotal,
+      },
+    }
+    if (completesRawOnly) {
+      options.accumulator.calls[options.accumulator.calls.length - 1] = call
+      // Clear ambiguity only when every retained call now has measured usage.
+      // Earlier unresolved raw-only partitions must keep aggregate evidence unknown.
+      options.accumulator.identityAmbiguous = options.accumulator.calls.some(call => call.usage === undefined)
+      options.accumulator.partitionComplete = !options.accumulator.identityAmbiguous
+    } else options.accumulator.calls.push(call)
+    options.accumulator.observedPartition = true
+  }
+  const previousCall = options.accumulator.calls.at(-1)
+  const sameResponse = responseIdentity !== undefined && responseIdentity === options.accumulator.lastCallIdentity
+  if (options.provider === "codex" && !changed && sameResponse && previousCall && !previousCall.usage && partitionTotal !== undefined) {
+    previousCall.usage = { inputTokens, outputTokens, totalTokens: partitionTotal }
+    options.accumulator.inputTokens += inputTokens!
+    options.accumulator.outputTokens += outputTokens!
+    options.accumulator.observedPartition = true
+    options.accumulator.partitionComplete = options.accumulator.calls.every(call => call.usage !== undefined)
+    options.accumulator.identityAmbiguous = options.accumulator.calls.some(call => call.usage === undefined)
+  }
+  if (options.provider === "codex" && !changed && (sameResponse || (responseIdentity === undefined && options.accumulator.lastCallIdentity === undefined && cumulative !== undefined)) && previousCall?.usage) {
+    const cachedInputTokens = usage.cachedInputTokens ?? (hasRuntimeType(previousCall.usage.details?.cachedInputTokens, "number") ? previousCall.usage.details.cachedInputTokens : undefined)
+    const reasoningOutputTokens = usage.reasoningOutputTokens ?? (hasRuntimeType(previousCall.usage.details?.reasoningOutputTokens, "number") ? previousCall.usage.details.reasoningOutputTokens : undefined)
+    if (partitionTotal !== undefined) {
+      options.accumulator.inputTokens += inputTokens! - previousCall.usage.inputTokens!
+      options.accumulator.outputTokens += outputTokens! - previousCall.usage.outputTokens!
+    }
+    const partitionUsage = partitionTotal === undefined ? {} : { inputTokens, outputTokens, totalTokens: partitionTotal }
+    options.accumulator.calls[options.accumulator.calls.length - 1] = {
+      ...previousCall,
+      raw: usage,
+      usage: {
+        ...previousCall.usage,
+        ...partitionUsage,
+        details: {
+          ...previousCall.usage.details,
+          ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+          ...(reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens }),
+        },
+        ...(cachedInputTokens === undefined ? {} : { inputTokenDetails: { cacheReadTokens: cachedInputTokens } }),
+      },
+    }
+    // A later snapshot can complete or correct the latest response's details.
+    const calls = options.accumulator.calls
+    options.accumulator.cachedInputTokensComplete = calls.every(call => hasRuntimeType(call.usage?.details?.cachedInputTokens, "number"))
+    options.accumulator.reasoningOutputTokensComplete = calls.every(call => hasRuntimeType(call.usage?.details?.reasoningOutputTokens, "number"))
+    options.accumulator.cachedInputTokens = calls.reduce((total, call) => total + (hasRuntimeType(call.usage?.details?.cachedInputTokens, "number") ? call.usage.details.cachedInputTokens : 0), 0)
+    options.accumulator.reasoningOutputTokens = calls.reduce((total, call) => total + (hasRuntimeType(call.usage?.details?.reasoningOutputTokens, "number") ? call.usage.details.reasoningOutputTokens : 0), 0)
+  }
+  options.accumulator.previousTotalProcessedTokens = cumulative
+  options.accumulator.lastSignature = signature
+  options.accumulator.lastResponseIdentity = responseIdentity
+  options.accumulator.lastUsageEvent = event
+  const accumulatedPartition = options.provider === "codex" && options.accumulator.observedPartition && options.accumulator.partitionComplete && !options.accumulator.identityAmbiguous
+  const totalTokens = accumulatedPartition
+    ? options.accumulator.inputTokens + options.accumulator.outputTokens
+    : options.provider === "codex" && options.accumulator.observedPartition
+      ? undefined
+      : partitionTotal ?? usedTokens ?? (options.resumed ? undefined : cumulative)
+  // Codex reports thread-wide totalProcessedTokens alongside latest-response partitions.
+  const includePartition = options.provider === "codex" ? accumulatedPartition : partitionTotal !== undefined
+  const normalizedInputTokens = options.provider === "codex" ? options.accumulator.inputTokens : inputTokens
+  const normalizedOutputTokens = options.provider === "codex" ? options.accumulator.outputTokens : outputTokens
+  const cachedInputTokens = options.provider === "codex" ? options.accumulator.cachedInputTokens : usage.cachedInputTokens
+  const cachedInputTokensComplete = options.provider !== "codex" || options.accumulator.cachedInputTokensComplete
+  const reasoningOutputTokens = options.provider === "codex" ? options.accumulator.reasoningOutputTokens : usage.reasoningOutputTokens
+  const reasoningOutputTokensComplete = options.provider !== "codex" || options.accumulator.reasoningOutputTokensComplete
+  const usageRecordExtras = options.provider === "codex" && options.accumulator.calls.length
+    ? { calls: [...options.accumulator.calls] }
+    : {}
   return {
     type: "usage",
     usageRecord: {
+      ...usageRecordExtras,
+      ...(options.model ? { model: options.model } : {}),
+      provider: options.provider,
       ...(usage.durationMs === undefined ? {} : { latency: { durationMs: usage.durationMs } }),
       raw: usage,
       usage: {
-        details,
-        inputTokens,
-        outputTokens,
-        totalTokens: usage.totalProcessedTokens ?? usage.usedTokens ?? (inputTokens ?? 0) + (outputTokens ?? 0),
+        details: {
+          ...(!includePartition || !cachedInputTokensComplete || cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+          ...(!includePartition || !reasoningOutputTokensComplete || reasoningOutputTokens === undefined ? {} : { reasoningOutputTokens }),
+          ...(usage.toolUses === undefined ? {} : { toolUses: usage.toolUses }),
+        },
+        ...(includePartition && cachedInputTokensComplete && cachedInputTokens !== undefined ? { inputTokenDetails: { cacheReadTokens: cachedInputTokens } } : {}),
+        inputTokens: includePartition ? normalizedInputTokens : undefined,
+        outputTokens: includePartition ? normalizedOutputTokens : undefined,
+        totalTokens,
       },
     },
   }
@@ -1910,12 +2217,27 @@ function providerMessagePhase(event: Extract<ProviderRuntimeEvent, { type: "item
   if (phase === "final" || phase === "final_answer") return "final"
 }
 
-function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefined, messagePhases: ReadonlyMap<string, "commentary" | "final">): StreamEvent[] {
+function providerTextDeltaId(event: Extract<ProviderRuntimeEvent, { type: "content.delta" }>): string {
+  const payload = record(event.payload)
+  const segment = hasRuntimeType(payload?.summaryIndex, "number")
+    ? payload.summaryIndex
+    : hasRuntimeType(payload?.contentIndex, "number")
+      ? payload.contentIndex
+      : 0
+  return [event.payload.streamKind, event.itemId ?? event.turnId ?? "provider", segment].join(":")
+}
+
+function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefined, messagePhases: ReadonlyMap<string, "commentary" | "final">, options: {
+  accumulator: ProviderInvocationUsageAccumulator
+  model?: string
+  provider: "claude-code" | "codex"
+  resumed: boolean
+}): StreamEvent[] {
   switch (event.type) {
     case "content.delta":
-      if (event.payload.streamKind === "assistant_text") return [{ phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
+      if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
-      return [{ phase: "commentary", text: event.payload.delta, type: "text-delta" }]
+      return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
       const details = providerToolDetails(event)
       return isProviderToolItem(event.itemId, event.payload.itemType)
@@ -1943,7 +2265,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
     case "user-input.resolved":
       return event.requestId ? [{ data: { answers: event.payload.answers, requestId: event.requestId, status: "resolved" }, type: "data-agent-input" }] : [providerDataEvent(event)]
     case "thread.token-usage.updated":
-      return [usageEvent(event)]
+      return [usageEvent(event, options)]
     case "runtime.error":
       return [{ error: event.payload.message, type: "error" }]
     case "runtime.warning":
@@ -2005,11 +2327,11 @@ async function* runProvider<
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
     : context.input.abortSignal || timeoutSignal
   if (effectiveSignal !== context.input.abortSignal) {
-    const originalContext = context
-    context = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
-    if (isAuxiliaryAgentAdapterContext(originalContext)) markAuxiliaryMessageChannelInstructionContext(context)
-    const metadata = providerCallbackMetadata(originalContext)
-    if (metadata) withProviderCallbackMetadata(context, metadata)
+    const wrapped = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
+    if (isAuxiliaryAgentAdapterContext(context)) markAuxiliaryMessageChannelInstructionContext(wrapped)
+    const metadata = providerCallbackMetadata(context)
+    if (metadata) withProviderCallbackMetadata(wrapped, metadata)
+    context = wrapped
   }
   effectiveSignal?.throwIfAborted()
   if (options.provider === "codex") {
@@ -2058,8 +2380,6 @@ async function* runProvider<
   let codexCredentialHome: CodexCredentialHome | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
   const pendingToolEvents: StreamEvent[] = []
-  const pendingSteering = new Set<Promise<void>>()
-  let steeringEvidenceClosed = false
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
   const capabilityApprovalIds = new Set<string>()
   let notifyToolEvent: (() => void) | undefined
@@ -2073,6 +2393,7 @@ async function* runProvider<
   }
   let caught: unknown
   let completed = false
+  let acceptingSteering = true
   let abort: (() => void) | undefined
   let unregister: (() => void) | undefined
   const generatedProviderFiles: GeneratedProviderFile[] = []
@@ -2204,8 +2525,8 @@ async function* runProvider<
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
     }
-    if (!auxiliary) {
-      const inspectedTools = inspectAgentTools(context.tools)
+    const inspectedTools = inspectAgentTools(context.tools)
+    if (!isAuxiliaryAgentAdapterContext(context)) {
       await updateAgentTelemetryConfiguration(context.context, {
         driver: {
           ...(options.model ? { model: { id: options.model, provider: options.provider } } : {}),
@@ -2235,6 +2556,7 @@ async function* runProvider<
       if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
+    generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))
     if (workspaceSession) {
       await workspaceSession.exec("git", ["add", "-A"], { abortSignal: effectiveSignal })
       await workspaceSession.exec("git", ["-c", "user.name=ViteHub", "-c", "user.email=vitehub@localhost", "commit", "--allow-empty", "-qm", "vitehub provider baseline"], { abortSignal: effectiveSignal })
@@ -2304,9 +2626,21 @@ async function* runProvider<
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
       ? (options.provider === "codex" ? "codex" : "claude")
       : providerExecutable
+    const capabilityEnvironment = auxiliary ? undefined : browserRuntimeEnvironment(context.context)
+    if (options.launch !== undefined && capabilityEnvironment?.PATH) {
+      throw new Error("[vitehub] Managed browser() cannot be used with driver.launch because the launcher may run on another filesystem. Use browser({ runtime: \"external\" }) with a browser runtime prepared by the launcher.")
+    }
     providerRuntimeEnvironment = providerEnvironment({
       ...(options.provider === "codex" && !codexCredentialHome ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...providerEnvironmentOverrides,
+      ...capabilityEnvironment,
+      VITEHUB_BROWSER_ACTIVE: capabilityEnvironment?.VITEHUB_BROWSER_ACTIVE || "0",
+      ...(capabilityEnvironment?.LD_LIBRARY_PATH
+        ? { LD_LIBRARY_PATH: [capabilityEnvironment.LD_LIBRARY_PATH, providerEnvironmentOverrides?.LD_LIBRARY_PATH].filter(Boolean).join(delimiter) }
+        : {}),
+      ...(capabilityEnvironment?.PATH
+        ? { PATH: `${capabilityEnvironment.PATH}${delimiter}${providerEnvironmentOverrides?.PATH || process.env.PATH || ""}` }
+        : {}),
     }, options.provider)
     let providerLauncher: string | undefined
     if (options.launch !== undefined) {
@@ -2314,6 +2648,7 @@ async function* runProvider<
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
       }
       const requiredEnvironment = Object.freeze([
+        "VITEHUB_BROWSER_ACTIVE",
         ...(codexCredentialHome ? ["CODEX_HOME"] : []),
         ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
       ])
@@ -2337,21 +2672,21 @@ async function* runProvider<
       providerLauncher = materializedLauncher.path
       providerLaunchDiagnosticPath = materializedLauncher.diagnosticPath
     }
-    // Deliver instructions through AGENTS.md, keeping documents out of argv and
-    // preserving explicit caller developer_instructions configuration.
-    const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
-    const auxiliaryLaunchArgs = auxiliary && options.provider === "codex"
+    const auxiliaryEnvironmentLaunchArgs = options.provider === "codex" && isAuxiliaryAgentAdapterContext(context)
       ? providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS
       : undefined
+    const generatedLaunchArgs = options.provider === "codex" ? codexLaunchArgs(options) : undefined
     const launchArgs = [
       options.providerSettings?.launchArgs,
-      auxiliaryLaunchArgs,
+      auxiliaryEnvironmentLaunchArgs,
       generatedLaunchArgs,
+      // Login profiles reset PATH and hide the invocation's managed browser CLI.
+      ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
-    // The runtime prefers environment arguments over settings, so auxiliary
-    // overrides must carry the inherited settings and managed credential flags.
-    if (auxiliaryLaunchArgs !== undefined && launchArgs !== undefined) {
+    // The runtime chooses environment arguments over settings. Give auxiliary
+    // overrides the complete argument list, including managed credential storage.
+    if (auxiliaryEnvironmentLaunchArgs !== undefined && launchArgs !== undefined) {
       providerRuntimeEnvironment.T3CODE_CODEX_LAUNCH_ARGS = launchArgs
     }
     const settings = Object.fromEntries(Object.entries({
@@ -2420,45 +2755,39 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     const activeRuntime = runtime
     const invocationId = ownedAgentInvocationControlId(context.runtime)
-    const turn = await waitForProviderOperation(
-      runtime.sendTurn({ attachments, input: prompt, threadId }),
-      effectiveSignal,
-      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
-      deferRuntimeCleanup,
-      () => finalizeDeferredRuntime(threadId),
-    )
+    let activeTurnId: string | undefined
+    let drainingSteering = false
+    const pendingSteering = new Set<Promise<void>>()
     if (invocationId && !isAuxiliaryAgentAdapterContext(context)) {
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const messages = input.messages ?? (input.message && !hasRuntimeType(input.message, "string") ? [input.message] : Array.isArray(input.prompt) ? input.prompt : [])
-            if (messages.some(message => message.parts.some(part => part.type !== "text"))) return "unsupported"
-            const text = hasRuntimeType(input.prompt, "string") ? input.prompt : hasRuntimeType(input.message, "string") ? input.message : messages.map(message => getMessageText(message)).join("\n")
-            if (!text.trim()) return "unsupported"
-            let resolveSteering!: () => void
-            const settled = new Promise<void>(resolve => { resolveSteering = resolve })
-            pendingSteering.add(settled)
+            const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message && !hasRuntimeType(input.message, "string") ? [input.message] : [])
+            if (messages.some(message => !Array.isArray(message.parts) || message.parts.some(part => part.type !== "text"))) return "unsupported"
+            const text = hasRuntimeType(input.prompt, "string")
+              ? input.prompt
+              : hasRuntimeType(input.message, "string")
+                ? input.message
+                : messages.map(getMessageText).filter((value): value is string => hasRuntimeType(value, "string")).join("\n\n")
+            if (!acceptingSteering || drainingSteering || !activeTurnId || !text?.trim()) return "unsupported"
+            let finishSteering!: () => void
+            const pending = new Promise<void>((resolve) => { finishSteering = resolve })
+            pendingSteering.add(pending)
             try {
-              const steeredTurn = await activeRuntime.sendTurn({ threadId, input: text })
-              if (steeredTurn.turnId !== turn.turnId) {
-                await activeRuntime.interruptTurn(threadId, steeredTurn.turnId)
+              const steered = await activeRuntime.sendTurn({ threadId, input: text })
+              if (steered.turnId !== activeTurnId) {
+                await activeRuntime.interruptTurn(threadId, steered.turnId).catch(() => undefined)
                 return "unsupported"
               }
-              if (steeringEvidenceClosed) return "invalid-state"
-              if (hasRuntimeType(input.prompt, "string") || hasRuntimeType(input.message, "string")) {
-                emitToolEvent({ type: "data-agent-event", data: { kind: "input.message", value: { message: text, mode: "steer" } } })
-              } else {
-                for (const message of messages) {
-                  emitToolEvent({ type: "data-agent-event", id: message.id, data: { kind: "input.message", value: { message: getMessageText(message), mode: "steer" } } })
-                }
-              }
-              emitToolEvent({ type: "data-agent-event", data: { kind: "input.steered", value: { mode: "steer" } } })
+              if (!acceptingSteering) return "unavailable"
+              const id = crypto.randomUUID()
+              emitToolEvent({ type: "data-agent-event", id, data: { kind: "input.message", value: { message: text, mode: "steer" } } })
+              emitToolEvent({ type: "data-agent-event", id, data: { kind: "input.steered", value: { mode: "steer" } } })
               return "accepted"
-            } catch {
-              return "invalid-state"
-            } finally {
-              pendingSteering.delete(settled)
-              resolveSteering()
+            } catch { return "unavailable" }
+            finally {
+              pendingSteering.delete(pending)
+              finishSteering()
             }
           }
           if (inputOptions.mode !== "respond") return "unsupported"
@@ -2470,9 +2799,17 @@ async function* runProvider<
             return "unavailable"
           }
         },
-        support: { respond: true, steer: true },
+        get support() { return { respond: true, steer: activeTurnId !== undefined && acceptingSteering && !drainingSteering } },
       })
     }
+    const turn = await waitForProviderOperation(
+      runtime.sendTurn({ attachments, input: prompt, threadId }),
+      effectiveSignal,
+      lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
+      deferRuntimeCleanup,
+      () => finalizeDeferredRuntime(threadId),
+    )
+    activeTurnId = turn.turnId
     if (turn.resumeCursor !== undefined) pendingResumeCursor = turn.resumeCursor
     let rejectAbort: ((reason: unknown) => void) | undefined
     const aborted = new Promise<never>((_resolve, reject) => {
@@ -2483,6 +2820,17 @@ async function* runProvider<
       rejectAbort?.(effectiveSignal?.reason ?? new DOMException("[vitehub] Provider Agent Driver invocation aborted.", "AbortError"))
     }
     const messagePhases = new Map<string, "commentary" | "final">()
+    const usageAccumulator: ProviderInvocationUsageAccumulator = {
+      cachedInputTokens: 0,
+      cachedInputTokensComplete: true,
+      calls: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      partitionComplete: true,
+      reasoningOutputTokens: 0,
+      reasoningOutputTokensComplete: true,
+      observedPartition: false,
+    }
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
     for (;;) {
@@ -2502,8 +2850,11 @@ async function* runProvider<
       }
       const current = raced.provider
       if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
-      if ((current.value.threadId && current.value.threadId !== threadId)
-        || (current.value.turnId && current.value.turnId !== turn.turnId)) {
+      if (current.value.threadId && current.value.threadId !== threadId) {
+        nextEvent = events.next()
+        continue
+      }
+      if (current.value.turnId && current.value.turnId !== turn.turnId) {
         nextEvent = events.next()
         continue
       }
@@ -2515,7 +2866,12 @@ async function* runProvider<
         const phase = providerMessagePhase(current.value)
         if (phase) messagePhases.set(current.value.itemId, phase)
       }
-      const normalized = providerEvent(current.value, context.tools, messagePhases)
+      const normalized = providerEvent(current.value, context.tools, messagePhases, {
+        accumulator: usageAccumulator,
+        model: options.model,
+        provider: options.provider,
+        resumed,
+      })
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") {
@@ -2534,34 +2890,36 @@ async function* runProvider<
           : agentDiagnostics.AGENT_R0722({ message: `[vitehub] Provider Agent Driver turn aborted${current.value.payload.reason ? `: ${current.value.payload.reason}` : "."}` })
         if (effectiveSignal?.aborted) throw caught
       }
-      if (isTerminalEvent(current.value, turn.turnId)) {
-        unregister?.()
-        unregister = undefined
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        const steeringDrain = Promise.all(pendingSteering)
-        const drainTimeout = new Promise<"timeout">(resolve => {
-          timeout = setTimeout(() => resolve("timeout"), providerCleanupTimeoutMs)
-        })
-        const drained = await Promise.race([steeringDrain.then(() => "drained" as const), drainTimeout, aborted])
-        if (timeout) clearTimeout(timeout)
-        steeringEvidenceClosed = true
-        if (drained === "timeout") {
-          caught = agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver steering submission cleanup timed out." })
-        }
-        if (!caught) completed = true
-      }
+      if (isTerminalEvent(current.value, turn.turnId) && !caught) completed = true
       while (pendingToolEvents.length) yield pendingToolEvents.shift()!
-      for (const event of normalized) {
-        if (caught && event.type === "finish") continue
-        yield event
+      if (isTerminalEvent(current.value, turn.turnId) && !caught) {
+        // A submitted steering request may settle after the terminal event.
+        // Keep the stream open until its acceptance evidence has been drained.
+        drainingSteering = true
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        try {
+          const drainResult = await Promise.race([
+            Promise.all(pendingSteering).then(() => "drained" as const),
+            new Promise<"timeout">(resolve => timeout = setTimeout(() => resolve("timeout"), providerCleanupTimeoutMs)),
+            aborted,
+          ])
+          if (drainResult === "timeout") {
+            caught = agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent steering did not settle before cleanup timed out." })
+          }
+        }
+        finally {
+          acceptingSteering = false
+          if (timeout) clearTimeout(timeout)
+        }
+        while (pendingToolEvents.length) yield pendingToolEvents.shift()!
       }
+      for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
       nextEvent = events.next()
     }
   }
   catch (error) {
-    steeringEvidenceClosed = true
     const launchFailure = await providerLaunchFailure(
       providerLaunchDiagnosticPath,
       providerRuntimeEnvironment,
@@ -2572,7 +2930,7 @@ async function* runProvider<
     throw caught
   }
   finally {
-    steeringEvidenceClosed = true
+    acceptingSteering = false
     unregister?.()
     clearActiveWorkspaceCommands?.()
     clearActiveWorkspaceFiles?.()
@@ -2800,10 +3158,9 @@ export function createProviderAgentAdapter<
   return {
     generate: context => generateProvider(runProvider(options, resumeCursors, sessionLocks, context), context),
     async metadata(context) {
-      const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-      const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function") ? part(context) : part))
+      const instructions = await resolveAgentInstructions(options.instructions, context)
       return {
-        instructions: instructions.flatMap(value => Array.isArray(value) ? value : value ? [value] : []),
+        instructions: instructions ? [instructions] : [],
       }
     },
     name: options.provider,

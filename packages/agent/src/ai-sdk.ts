@@ -1,3 +1,4 @@
+import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { readAgentErrorProperty } from "./agent-error.ts"
@@ -797,12 +798,7 @@ function joinInstructions(...parts: Array<AgentAdapterInstructionsValue | undefi
 }
 
 async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext) {
-  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  const instructions = await Promise.all(parts.map(part => hasRuntimeType(part, "function")
-    ? part(context)
-    : part))
-
-  return joinInstructions(...instructions)
+  return await resolveAgentInstructions(options.instructions, context)
 }
 
 async function composeInstructions(
@@ -1638,7 +1634,6 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
           description: tool.description,
           icon: name === "shell" ? "i-lucide-terminal" : "i-lucide-wrench",
           name,
-          preset: "vitehub-workspace",
           // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
           status: "available" as const,
         })),

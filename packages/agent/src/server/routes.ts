@@ -691,6 +691,8 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Authored custom verifier objects require verification independently of shared secrets.
+  if (registration.signature && typeof registration.signature === "object") return true
   if (registration.secretToken !== undefined) return (await resolveMaybe(registration.secretToken, context)) !== false
   return requireConfiguredSecret && registration.secretHeader !== undefined
 }
@@ -4834,6 +4836,89 @@ async function pollInlineChatTurn(turn: Pick<InlineChatTurn, "done">, maximumInv
   await Promise.race([turn.done, new Promise(resolve => setTimeout(resolve, remaining))])
 }
 
+async function admitChatSdkMessage(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  registration: AgentWebhookRegistrationDefinition,
+  thread: Thread,
+  message: ChatSdkMessage,
+  deliveryKind: AgentMessageDeliveryKind,
+  options: AgentChatOptions | undefined,
+  delivery: AgentChannelDeliveryTracker,
+  messageContext?: MessageContext,
+  historyThroughCurrent = false,
+  inlineKey?: string,
+) {
+  let input = createChatTriggerInput(
+    chatRegistrationOrigin(registration),
+    thread,
+    message,
+    [chatAuthorizationUiMessage(thread, message, messageContext)],
+    messageContext,
+    registration.channelId,
+    delivery.delivery.id,
+  )
+  // Provider message IDs can repeat across chats and Agent instances, while
+  // inline input handlers share one process-wide invocation registry. Keep the
+  // owner and thread namespaces stable so delivery retries retain their journal
+  // identity even when several threads share the steering lock scope.
+  if (inlineKey && input.run) input.run = { ...input.run, runId: JSON.stringify([inlineKey, thread.id, input.run.runId]) }
+  if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
+    input.timeout = options.timeout
+  }
+  const authorizationInput = await withParsedAgentMessageMeta(
+    // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
+    agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
+    createChatMessageTriggerInput(options || {}, input).input,
+    input.run,
+  )
+  const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
+  if (!invoker) {
+    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    return
+  }
+  const parsedChannelContext = authorizationInput.context?.channel
+  input = withAgentInvokerRunAnnotation({
+    ...input,
+    context: authorizationInput.context,
+    ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
+  }, invoker)
+
+  const messages = scopeCurrentChatUiMessage(
+    await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
+    message.id,
+    input.run?.runId || delivery.delivery.id,
+  )
+  const currentMessage = message.id ? messages.find((item) => item.id === message.id) : messages.at(-1)
+  if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
+    await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+    return
+  }
+  const filter = options?.filter
+  if (filter) {
+    const [current] = uiMessagesToAgentMessages([currentMessage])
+    if (
+      !current ||
+      !(await filter({
+        ...context,
+        deliveryKind,
+        message: current,
+        run: input.run,
+        thread: {
+          post: async (postedMessage) => await postChatMessage(thread, postedMessage),
+        },
+      }))
+    ) {
+      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+      return
+    }
+  }
+
+  return { input, invoker, messages, currentMessage }
+}
+
+type ChatSdkMessageAdmission = NonNullable<Awaited<ReturnType<typeof admitChatSdkMessage>>>
+
 async function handleChatSdkMessage(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -4847,6 +4932,7 @@ async function handleChatSdkMessage(
   maximumInvocationDeadline?: number,
   historyThroughCurrent = false,
   durableSteerScope?: string,
+  admitted?: ChatSdkMessageAdmission,
 ): Promise<void> {
   const delivery =
     agentChannelDeliveryTracker(context) ||
@@ -4879,70 +4965,21 @@ async function handleChatSdkMessage(
   let inlineKey: string | undefined
   try {
     if (inlineScope) inlineKey = `${await resolveWebhookStateBackendId(state.state)}:${inlineScope}`
-    input = createChatTriggerInput(
-      chatRegistrationOrigin(registration),
-      thread,
-      message,
-      [chatAuthorizationUiMessage(thread, message, messageContext)],
-      messageContext,
-      registration.channelId,
-      delivery.delivery.id,
+    const admission = admitted || await admitChatSdkMessage(
+      agent, context, registration, thread, message, deliveryKind, options, delivery,
+      messageContext, historyThroughCurrent, inlineKey,
     )
-    // Provider message IDs can repeat across chats and Agent instances, while
-    // inline input handlers share one process-wide invocation registry. Keep the
-    // owner and thread namespaces stable so delivery retries retain their journal
-    // identity even when several threads share the steering lock scope.
-    if (inlineKey && input.run) input.run = { ...input.run, runId: JSON.stringify([inlineKey, thread.id, input.run.runId]) }
-    if (isRuntimeNumber(options?.timeout) && Number.isFinite(options.timeout) && options.timeout > 0) {
-      input.timeout = options.timeout
-    }
-    const authorizationInput = await withParsedAgentMessageMeta(
-      // SAFETY: generated chat routes provide the runtime config represented by ViteAgentRouteRuntimeConfig.
-      agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined,
-      createChatMessageTriggerInput(options || {}, input).input,
-      input.run,
-    )
-    const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, authorizationInput, input.run, messageContext)
-    if (!invoker) {
-      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
-      return
-    }
-    const parsedChannelContext = authorizationInput.context?.channel
-    input = withAgentInvokerRunAnnotation({
-      ...input,
-      context: authorizationInput.context,
-      ...(isRuntimeObject(parsedChannelContext) && isRuntimeObject(parsedChannelContext.meta) ? { meta: parsedChannelContext.meta } : {}),
-    }, invoker)
-
-    let messages = scopeCurrentChatUiMessage(
-      await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
-      message.id,
-      input.run?.runId || delivery.delivery.id,
-    )
-    let currentMessage = message.id ? messages.find((item) => item.id === message.id) : messages.at(-1)
-    if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) {
-      await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
-      return
-    }
-    const filter = options?.filter
-    if (filter) {
-      const [current] = uiMessagesToAgentMessages([currentMessage])
-      if (
-        !current ||
-        !(await filter({
-          ...context,
-          deliveryKind,
-          message: current,
-          run: input.run,
-          thread: {
-            post: async (postedMessage) => await postChatMessage(thread, postedMessage),
-          },
-        }))
-      ) {
-        await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
-        return
-      }
-    }
+    if (!admission) return
+    input = admission.input
+    const invoker = admission.invoker
+    let messages = admitted
+      ? scopeCurrentChatUiMessage(
+          await chatTriggerMessages(thread, message, options, messageContext, historyThroughCurrent),
+          message.id,
+          input.run?.runId || delivery.delivery.id,
+        )
+      : admission.messages
+    let currentMessage: UIMessageLike | undefined = admission.currentMessage
 
     if (inlineKey) {
       const configuredWaitDeadline = input.timeout === undefined ? undefined : Date.now() + input.timeout
@@ -5974,7 +6011,7 @@ async function handleChatSdkMessages(
   const durableSteerScope = chatSdkOption<string>(options, "concurrency") === "steer" ? await chatSdkLockKey(adapter, thread.id, options) : undefined
   const coalesced = chatSdkOption<string>(options, "concurrency") === "queue"
   const individualMessages = serial || coalesced
-  const accepted: Array<{ message: ChatSdkMessage; thread: Thread; delivery: AgentChannelDeliveryTracker; kind: AgentMessageDeliveryKind }> = []
+  const accepted: Array<{ message: ChatSdkMessage; thread: Thread; delivery: AgentChannelDeliveryTracker; kind: AgentMessageDeliveryKind; admission: ChatSdkMessageAdmission }> = []
   const messages = individualMessages ? [...(messageContext?.skipped ?? []), message] : [message]
   const requestDelivery = agentChannelDeliveryTracker(context)
   if (requestDelivery && !individualMessages) requestDelivery.claimed = true
@@ -5982,6 +6019,7 @@ async function handleChatSdkMessages(
 
   try {
     for (const queuedMessage of messages) {
+      let claimedDelivery: AgentChannelDeliveryTracker | undefined
       try {
         const queuedThread = individualMessages ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
@@ -6002,25 +6040,21 @@ async function handleChatSdkMessages(
               : undefined)
           : undefined
         if (requestDelivery && queuedDelivery?.delivery.id === requestDelivery.delivery.id) requestDelivery.claimed = true
-        if (!queuedThread.isDM && !queuedMessage.isMention) {
-          if (!queuedDelivery && !requestDelivery) {
-            const listenerDelivery = await openAgentChannelDelivery(state.state, {
-              agentName: context.agentIdentity?.name || "agent",
-              channelId: registration.channelId,
-              provider: chatRegistrationOrigin(registration),
-              scope: `${state.keyPrefix}${queuedThread.id}`,
-              sourceId: queuedMessageId || randomToken(),
-            }).catch(() => undefined)
-            if (listenerDelivery) await recordChannelDeliveryEvidence(listenerDelivery, { type: "rejected" })
-          }
-          if (queuedDelivery) await recordChannelDeliveryEvidence(queuedDelivery, { type: "rejected" })
-          if (queuedMessage === message && requestDelivery && !queuedDelivery) {
-            await recordChannelDeliveryEvidence(requestDelivery, { type: "rejected" })
+        const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
+        if (!deliveryKind) {
+          const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || await openAgentChannelDelivery(state.state, {
+            agentName: context.agentIdentity?.name || "agent",
+            channelId: registration.channelId,
+            provider: chatRegistrationOrigin(registration),
+            scope: `${state.keyPrefix}${queuedThread.id}`,
+            sourceId: queuedMessageId || randomToken(),
+          }).catch(() => undefined)
+          if (delivery) {
+            delivery.claimed = true
+            await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
           }
           continue
         }
-        const deliveryKind = individualMessages ? await serialMessageDeliveryKind(queuedThread, queuedMessage) : await resolveDeliveryKind(queuedMessage)
-        if (!deliveryKind) continue
         if (coalesced) {
           const delivery = queuedDelivery || (queuedMessage === message ? requestDelivery : undefined) || await openAgentChannelDelivery(state.state, {
             agentName: context.agentIdentity?.name || "agent",
@@ -6029,8 +6063,15 @@ async function handleChatSdkMessages(
             scope: `${state.keyPrefix}${queuedThread.id}`,
             sourceId: queuedMessageId || randomToken(),
           })
+          claimedDelivery = delivery
           delivery.claimed = true
-          accepted.push({ message: queuedMessage, thread: queuedThread, delivery, kind: deliveryKind })
+          const admission = await admitChatSdkMessage(
+            agent, withAgentChannelDelivery(context, delivery), registration,
+            observeChatThread(queuedThread, delivery), queuedMessage, deliveryKind,
+            options, delivery, undefined, true,
+          )
+          if (!admission) continue
+          accepted.push({ message: queuedMessage, thread: queuedThread, delivery, kind: deliveryKind, admission })
           continue
         }
         const queuedContext = queuedDelivery ? withAgentChannelDelivery(context, queuedDelivery) : context
@@ -6049,7 +6090,11 @@ async function handleChatSdkMessages(
           durableSteerScope,
         )
       } catch (error) {
-        if (!serial) throw error
+        if (claimedDelivery) await settleChannelDeliveryInvocation(claimedDelivery, "failed", "failed", { error: channelDeliveryError(error) })
+        if (!serial) {
+          await Promise.all(accepted.map(({ delivery }) => settleChannelDeliveryInvocation(delivery, "failed", "failed", { error: channelDeliveryError(error) })))
+          throw error
+        }
       }
     }
     const latest = accepted.at(-1)
@@ -6074,6 +6119,8 @@ async function handleChatSdkMessages(
         { skipped: accepted.slice(0, -1).map(item => item.message), totalSinceLastHandler: accepted.length },
         maximumInvocationDeadline,
         true,
+        undefined,
+        latest.admission,
       )
     }
   } finally {

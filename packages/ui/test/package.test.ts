@@ -86,7 +86,7 @@ describe("@vite-hub/ui package contract", () => {
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
-      "@comark/vue": "0.6.2",
+      "@comark/vue": "0.7.0",
       "@json-render/core": "0.20.0",
       "@json-render/vue": "0.20.0",
       "@vueuse/core": "catalog:ui",

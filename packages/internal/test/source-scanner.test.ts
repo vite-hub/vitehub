@@ -293,6 +293,60 @@ describe("source scanner", () => {
     }
   })
 
+  it("finds positional options with nested parentheses and assertions", () => {
+    for (const suffix of ["as const", "satisfies ThingOptions", "as Types.Options", "as const satisfies ThingOptions"]) {
+      for (const argument of [
+        `{ manual: true } ${suffix}`,
+        `({ manual: true } ${suffix})`,
+        `(({ manual: true }) ${suffix})`,
+        `(/* options */ ({ manual: true }) /* assertion */ ${suffix} /* end */)`,
+      ]) {
+        const call = findDefaultExportCall(
+          `export default defineThing("cron", handler, ${argument})`,
+          ["defineThing"],
+          { positionalOptionsIndex: 2 },
+        )
+        expect(call?.argument, argument).toBe("{ manual: true }")
+      }
+    }
+  })
+
+  it("rejects positional options with trailing expression material", () => {
+    for (const suffix of [
+      "as const && false",
+      "as const || false",
+      "as const ?? false",
+      "as const + 1",
+      "as const - 1",
+      "as Options - Other",
+      "as const * 2",
+      "as const / 2",
+      "as const > false",
+      "as const === false",
+      "as const instanceof Options",
+      "as const & false",
+      "as const | false",
+      "as const ? false : true",
+      "as Options()",
+      "satisfies Options, false",
+      "as",
+      "satisfies",
+    ]) {
+      for (const argument of [
+        `{ manual: true } ${suffix}`,
+        `({ manual: true } ${suffix})`,
+        `(({ manual: true }) ${suffix})`,
+      ]) {
+        const call = findDefaultExportCall(
+          `export default defineThing("cron", handler, (${argument}))`,
+          ["defineThing"],
+          { positionalOptionsIndex: 2 },
+        )
+        expect(call, argument).toBeUndefined()
+      }
+    }
+  })
+
   it("reads top-level object properties without matching nested values", () => {
     expect(readObjectProperty(`{ nested: { cron: "wrong" }, cron: "0 8 * * *" }`, "cron"))
       .toBe(`"0 8 * * *"`)

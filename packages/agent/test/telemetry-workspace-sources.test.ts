@@ -7,14 +7,15 @@ it("does not infer GitHub provenance from custom Source repository fields", () =
   const custom = {
     name: "custom",
     repo: "owner/not-github",
-    fingerprint: { repo: "owner/not-github" },
+    fingerprint: { repo: "owner/not-github", options: { repo: "owner/not-github" } },
     async getKeys() { return [] },
     async getItem() { throw new Error("unused") },
   }
   expect(agentTelemetryWorkspaceSources({
     bound: { source: custom, mount: "docs" },
     custom,
-  })).toEqual(["bound", "custom"])
+    optionsOnly: { ...custom, fingerprint: { options: { repo: "owner/not-github" } } },
+  })).toEqual(["bound", "custom", "optionsOnly"])
 })
 
 it("retains GitHub repositories from Workspace sources without exporting credentials or paths", () => {

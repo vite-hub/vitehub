@@ -1,35 +1,43 @@
 # @vite-hub/content
 
-`@vite-hub/content` runs Comark Content with ViteHub Source definitions, registered names, explicit readers, or native Comark Sources.
+ViteHub content integration for Comark Content.
 
-## Install
-
-```sh
-pnpm add @vite-hub/content @vite-hub/source comark-content
-```
-
-## Define content
+Pass ViteHub Source definitions, registered names, readers, reader factories, or native Comark raw Sources. A single source becomes a named `default` instance. Named sources are composed with Comark's `contentHub()`, with ViteHub adapters for named cache operations and positional search arguments.
 
 ```ts
 import { defineContent } from "@vite-hub/content"
-import { glob } from "@vite-hub/source/glob"
+import fs from "comark-content/sources/fs"
 
 export const content = defineContent({
   sources: {
-    docs: glob({ include: "docs/**/*.md" }),
+    docs: fs("./docs"),
+    blog: fs("./blog"),
   },
 })
-
-await content.get("/guide")
-await content.navigation(["docs"])
 ```
 
-Pass Source definitions directly. No registration is required. `defineContent()` gives each adapted Source load a separate adapter that keeps its selected Reader until all parser reads finish. Definitions, registered names, and reader factories select a new Reader for each load. Overlapping refreshes, fresh snapshots, and fresh document reads keep their selected revisions.
+`defineContent()` forwards Comark plugins to each content instance. Install the
+plugin you need and pass it in `plugins`; plugin options are evaluated when the
+content runtime is created and can be changed by rebuilding or recreating that
+runtime.
 
-`contentSource(definition, { prefix, schema })` adapts a definition with Comark options. A direct adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Use `defineContent()` to isolate overlapping loads. `defineContent({ source: definition })` also accepts a single Source.
+```ts
+import knap from "comark-knap"
 
-An explicit reader keeps its selected revision across refreshes. Readers only need an `items()` method. Raw media uses the newest successfully enumerated Source revision. Native Comark Sources pass through unchanged.
+export const content = defineContent({
+  plugins: [
+    knap({
+      variables: {
+        environment: process.env.NODE_ENV,
+      },
+    }),
+  ],
+  source: fs("./docs"),
+})
+```
 
-The combined `vite-hub` framework discovers `server/content.ts` and serves its exported `content` instance at `/api/content/**`.
+Use per-render Markdown APIs when plugin values must come from an individual
+request or invocation. Content parsing and cache refreshes use the plugin list
+configured on the content runtime.
 
-Use `createContentClient` from `@vite-hub/content/client` in client code.
+Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.

@@ -1,12 +1,16 @@
-import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
+import type { ScheduleDefinition, ScheduleDefinitionInput, ScheduleDefinitionOptions, ScheduleHandler, ScheduleTargetDefinition, ScheduleTargetDefinitionInput } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
 const cronFieldPattern = /^[^\s]+$/
-const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "cron", "handler"])
+const scheduleDefinitionKeys = new Set(["allowRuntimeSchedules", "manual", "cron", "handler"])
 const scheduleTargetDefinitionKeys = new Set(["handler"])
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function isCronString(value: unknown): value is string {
+  return value !== null && value !== undefined && String(value) === value
 }
 
 function validateCron(cron: string): void {
@@ -20,7 +24,16 @@ function validateCron(cron: string): void {
   }
 }
 
-export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult> {
+export function defineSchedule<TResult = unknown>(cron: string, handler: ScheduleHandler<TResult>, options?: ScheduleDefinitionOptions): ScheduleDefinition<TResult>
+export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult>): ScheduleDefinition<TResult>
+export function defineSchedule<TResult = unknown>(cronOrInput: string | ScheduleDefinitionInput<TResult>, handler?: ScheduleHandler<TResult>, options: ScheduleDefinitionOptions = {}): ScheduleDefinition<TResult> {
+  if (!isPlainObject(options)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` options must be an object." })
+  }
+  if (!isCronString(cronOrInput) && !isPlainObject(cronOrInput)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
+  }
+  const input = isPlainObject(cronOrInput) ? cronOrInput : { ...options, cron: cronOrInput, handler: handler! }
   if (!isPlainObject(input)) {
     throw scheduleErrorDiagnostics.SCHEDULE_C0003({ message: "`defineSchedule()` expects an object with `cron` and `handler`." })
   }
@@ -40,12 +53,19 @@ export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput
     throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` allowRuntimeSchedules must be a boolean." })
   }
 
+  if (input.manual !== undefined && input.manual !== true && input.manual !== false) {
+    throw scheduleErrorDiagnostics.SCHEDULE_C0006({ message: "`defineSchedule()` manual must be a boolean." })
+  }
+
   const definition: ScheduleDefinition<TResult> = {
     cron: input.cron,
     handler: input.handler,
   }
   if (typeof input.allowRuntimeSchedules !== "undefined") {
     definition.options = { allowRuntimeSchedules: input.allowRuntimeSchedules }
+  }
+  if (input.manual !== undefined) {
+    definition.options = { ...definition.options, manual: input.manual }
   }
   return definition
 }

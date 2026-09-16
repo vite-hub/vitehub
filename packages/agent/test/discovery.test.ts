@@ -1899,3 +1899,52 @@ describe("agent chat capability discovery", () => {
 
 
 })
+
+
+it.each([
+  ['export default process.env.USE_WORKSPACE ? defineAgent({ workspace: {} }) : defineAgent({})', true],
+  ['export default process.env.USE_WORKSPACE ? defineAgent({}) : defineAgent({ workspace: {} })', true],
+  ['const notes = defineAgent({ workspace: {} }); const plain = defineAgent({}); const agent = enabled ? notes : plain; export default agent', true],
+  ['export default enabled ? (other ? defineAgent({}) : defineAgent({ workspace: {} })) : defineAgent({})', true],
+  ['const helper = defineAgent({ workspace: {} }); export default enabled ? defineAgent({}) : defineAgent({})', false],
+  ['export default enabled ? defineAgent({}) : defineAgent({}); const helper = defineAgent({ workspace: {} })', false],
+  ['export default defineAgent({ driver: enabled ? { workspace: {} } : {} })', false],
+  ['import { defineAgent as makeAgent } from "vite-hub/agent"; export default makeAgent({ workspace: {} })', true],
+  ['import { defineAgent as makeAgent } from "vite-hub/agent"; const notes = makeAgent({ workspace: {} }); export default makeAgent({ preset: "notes", presets: { notes } })', true],
+  ['import { defineAgent as makeAgent } from "vite-hub/agent"; export default makeAgent({})', false],
+  ['const notes = defineAgent({ workspace: {} }); export default defineAgent({ preset: "notes", presets: Object.freeze({ notes }) })', true],
+  ['const notes = defineAgent({}); export default defineAgent({ preset: "notes", presets: Object.freeze({ notes }) })', false],
+  ['export default defineAgent<{ load: () => Promise<void> }>({ workspace: {} })', true],
+  ['export default defineAgent<{ load: () => Promise<void> }>({})', false],
+  ['export default <AgentDefinition>defineAgent({ workspace: {} })', true],
+  ['export default (<AgentDefinition>defineAgent({ workspace: {} }))', true],
+  ['const agent = defineAgent({ workspace: {} }); export default (<AgentDefinition>(agent))', true],
+  ['export default <AgentDefinition<{ load: () => Promise<void> }>>defineAgent({ workspace: {} })', true],
+  ['export default (<AgentDefinition>defineAgent({}))', false],
+  ['export default defineAgent({ description: "}", workspace: {} })', true],
+  ["export default defineAgent({ description: `}`, workspace: {} })", true],
+  ['export default defineAgent({ pattern: /[}]/, workspace: {} })', true],
+  ['const helper = defineAgent({}); export default defineAgent({ workspace: {} })', true],
+  ['const helper = defineAgent({ workspace: {} }); export default defineAgent({})', false],
+  ['const unrelated = { notes: defineAgent({ workspace: {} }) }; export default defineAgent({ preset: "notes", presets: { notes: defineAgent({}) } })', false],
+  ['export default defineAgent({ preset: "notes", presets: { notes: defineAgent({}) } }); const unrelated = { notes: defineAgent({ workspace: {} }) }', false],
+  ['export default defineAgent({ preset: "notes", presets: { other: defineAgent({ workspace: {} }), notes: defineAgent({}) } })', false],
+  ['export default defineAgent({ preset: "notes", presets: { notes: defineAgent({ workspace: {} }) } })', true],
+  ['const notes = defineAgent({ workspace: {} }); export default defineAgent({ preset: "notes", presets: { notes } })', true],
+  ['const notes = defineAgent({}); const unrelated = { notes: defineAgent({ workspace: {} }) }; export default defineAgent({ preset: "notes", presets: { notes } })', false],
+  ['const notes = defineAgent({ workspace: {} }); const preset = "notes"; const presets = { notes }; const agent = defineAgent({ preset, presets }); export default agent', true],
+  ['export default defineAgent({ driver: { providerSettings: { workspace: {} } } })', false],
+])("discovers Workspace ownership from the selected exported Agent: %s", async (source, workspace) => {
+  const root = await createTempRoot("vitehub-agent-preset-discovery-")
+  try {
+    const folder = join(root, "server", "agents", "notes")
+    await mkdir(folder, { recursive: true })
+    await writeFile(join(folder, "agent.ts"), source)
+    const definitions = discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] })
+    expect(definitions).toHaveLength(1)
+    expect(definitions[0].workspace).toBe(workspace ? "notes" : undefined)
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
