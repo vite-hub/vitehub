@@ -104,6 +104,41 @@ describe("required check policy", () => {
         expect(result.required).toEqual([{ context: "later", appId: 42 }]);
     }
   });
+  it("follows Enterprise continuation URLs relative to the complete API base", async () => {
+    const apiBase = "https://host/api/v3/";
+    function normalizeNextPage(nextUrl: string, apiBase: string): string {
+      const base = new URL(apiBase);
+      const prefix = base.pathname.replace(/\/$/, "") + "/";
+      const next = new URL(nextUrl);
+      if (next.origin !== base.origin || !next.pathname.startsWith(prefix)) {
+        throw new Error("Pagination URL is outside the GitHub API base");
+      }
+      return next.pathname.slice(prefix.length) + next.search;
+    }
+    for (const target of [
+      "https://host/api/v3/repositories/123/rules/branches/main?page=2",
+      "https://host/repositories/123/rules/branches/main?page=2",
+      "https://host/api/v30/repositories/123/rules/branches/main?page=2",
+      "https://other/api/v3/repositories/123/rules/branches/main?page=2",
+    ]) {
+      const requested: string[] = [];
+      const read = async (path: string): Promise<GitHubCheckPolicyResponse> => {
+        requested.push(new URL(path, apiBase).href);
+        if (!path.includes("/rules/")) return { status: 200, data: { contexts: [] } };
+        return path.endsWith("page=1")
+          ? { status: 200, data: [], nextPage: normalizeNextPage(target, apiBase) }
+          : { status: 200, data: [rule()], nextPage: null };
+      };
+      const result = await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main");
+      if (target.startsWith(apiBase)) {
+        expect(result).toMatchObject({ status: "known", required: [{ context: "CI", appId: 42 }] });
+        expect(requested).toContain(target);
+      } else {
+        expect(result.status).toBe("unknown");
+        expect(requested).toHaveLength(2);
+      }
+    }
+  });
   it("requires explicit completion and rejects invalid or repeated targets", async () => {
     for (const nextPage of [
       undefined,
@@ -114,8 +149,9 @@ describe("required check policy", () => {
       "repos/acme/app/rules/branches/main?per_page=100&page=1",
     ]) {
       const read = reader({ status: 200, data: [rule()], nextPage });
-      expect(await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main"))
-        .toMatchObject({ status: "unknown", required: [] });
+      expect(
+        await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main"),
+      ).toMatchObject({ status: "unknown", required: [] });
       expect(read).toHaveBeenCalledTimes(2);
     }
   });
@@ -125,8 +161,9 @@ describe("required check policy", () => {
       data: Array.from({ length: 100 }, () => rule()),
       nextPage: null,
     });
-    expect(await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main"))
-      .toMatchObject({ status: "known", required: [{ context: "CI", appId: 42 }] });
+    expect(
+      await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "main"),
+    ).toMatchObject({ status: "known", required: [{ context: "CI", appId: 42 }] });
     expect(read).toHaveBeenCalledTimes(2);
   });
   it("does not cache a partial policy when a later rule page fails", async () => {
@@ -260,11 +297,34 @@ describe("required check evidence", () => {
         ...evidence,
         statuses: [{ id: 1, sha: "head", context: "CI", state: "success" }],
       }).state,
-    ).toBe("pending");
+    ).toBe("unknown");
     expect(
       evaluateGitHubRequiredChecks(policy, {
         ...evidence,
         checkRuns: [run, { ...run, name: "optional", conclusion: "failure" }],
+      }).state,
+    ).toBe("passed");
+  });
+  it("keeps App-bound statuses unknown without verifiable source identity", () => {
+    for (const state of ["success", "failure", "pending"]) {
+      for (const checkRuns of [[], [run]]) {
+        expect(
+          evaluateGitHubRequiredChecks(policy, {
+            ...evidence,
+            checkRuns,
+            statuses: [{ id: 2, sha: "head", context: "CI", state }],
+          }),
+        ).toMatchObject({ state: "unknown", missing: [] });
+      }
+    }
+    expect(
+      evaluateGitHubRequiredChecks(policy, {
+        ...evidence,
+        checkRuns: [run],
+        statuses: [
+          { id: 2, sha: "old", context: "CI", state: "failure" },
+          { id: 3, sha: "head", context: "optional", state: "failure" },
+        ],
       }).state,
     ).toBe("passed");
   });

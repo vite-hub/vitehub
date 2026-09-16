@@ -530,8 +530,24 @@ classic branch protection and preserves required GitHub App identities. It reque
 the first rules page with a page size of 100, then follows explicit continuation
 targets. For every successful rules response, the callback must normalize the
 Link header's `rel="next"` URL to an API-relative `nextPage` path without a leading
-slash, preserving its pathname and query parameters. The adapter must validate
-the URL's origin against its configured GitHub API origin before normalization.
+slash, relative to the complete configured API base URL, including its pathname.
+For GitHub Enterprise Server, `https://host/api/v3/repositories/123/rules/branches/main?page=2`
+becomes `repositories/123/rules/branches/main?page=2`, without repeating `api/v3`.
+The adapter must reject URLs with a different origin or outside the API base path,
+and preserve query parameters. For example, normalize a parsed next URL with:
+
+```ts
+function normalizeNextPage(nextUrl: string, apiBase: string): string {
+  const base = new URL(apiBase);
+  const prefix = base.pathname.replace(/\/$/, "") + "/";
+  const next = new URL(nextUrl);
+  if (next.origin !== base.origin || !next.pathname.startsWith(prefix)) {
+    throw new Error("Pagination URL is outside the GitHub API base");
+  }
+  return next.pathname.slice(prefix.length) + next.search;
+}
+```
+
 GitHub can change the route to `repositories/{id}/...`; the reader follows these
 paths without requiring the original route prefix.
 Set `nextPage: null` only when the header has no next relation
@@ -552,7 +568,10 @@ policies.invalidate('acme/app', 'main') // after a protection or ruleset event
 Pass complete REST check-run records and commit statuses fetched for the exact
 head. Add the requested SHA as `sha` on each status because GitHub omits it from
 individual status records. The evaluator selects the
-latest matching records on the exact head. Missing requirements return `pending`
+latest matching records on the exact head. A same-context commit status for an
+App-bound requirement returns `unknown` because REST statuses do not identify
+the source App, unless a matching check run already proves failure. Missing
+requirements return `pending`
 and appear in `missing`; malformed or unavailable policy returns `unknown`, never
 an empty passing policy. Required workflow rules return `unknown` because they
 cannot be represented as check contexts. Policy reads use a five-minute cache,

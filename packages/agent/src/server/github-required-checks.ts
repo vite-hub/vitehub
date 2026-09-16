@@ -13,7 +13,7 @@ export type GitHubRequiredCheckPolicy = {
 export type GitHubCheckPolicyResponse = {
   status: number;
   data?: unknown;
-  /** Rules only: API-relative rel="next" target, or null when Link has no next relation. */
+  /** Rules only: rel="next" target relative to the complete API base, including its pathname; null when absent. */
   nextPage?: string | null;
 };
 export type GitHubReadCheckPolicy = (path: string) => Promise<GitHubCheckPolicyResponse>;
@@ -317,25 +317,22 @@ export function evaluateGitHubRequiredChecks(
         )
         .sort((a, b) => b.id - a.id);
       const status = evidence.statuses
-        .filter(
-          (value) =>
-            value.sha === evidence.headSha &&
-            value.context === required.context &&
-            required.appId === null,
-        )
+        .filter((value) => value.sha === evidence.headSha && value.context === required.context)
         .sort((a, b) => b.id - a.id)[0];
       const states: GitHubRequiredCheckState[] = [];
       if (runs[0]) states.push(stateOfCheck(runs[0]));
-      // A check and commit status with the same context both have to pass.
+      // Both record types must pass. REST statuses cannot prove their source App.
       if (status)
         states.push(
-          status.state === "pending"
-            ? "pending"
-            : status.state === "success"
-              ? "passed"
-              : ["failure", "error"].includes(status.state)
-                ? "failed"
-                : "unknown",
+          required.appId !== null
+            ? "unknown"
+            : status.state === "pending"
+              ? "pending"
+              : status.state === "success"
+                ? "passed"
+                : ["failure", "error"].includes(status.state)
+                  ? "failed"
+                  : "unknown",
         );
       if (!states.length) missing.push(required.context);
       return {
