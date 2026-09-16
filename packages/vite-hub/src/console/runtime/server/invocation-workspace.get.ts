@@ -10,7 +10,7 @@ import type { ConsoleRequestEvent } from "./request.ts"
 const configurationSchema = v.object({ workspace: v.object({ name: v.string() }) })
 const hostWorkspaceSchema = v.union([
   v.object({ paths: v.array(v.string()), repository: v.string(), revision: v.string() }),
-  v.object({ content: v.string(), path: v.string(), revision: v.string(), size: v.number() }),
+  v.object({ content: v.string(), path: v.string(), provenance: v.optional(v.object({ source: v.string() })), revision: v.string(), size: v.number() }),
 ])
 const maxFileBytes = 512 * 1024
 

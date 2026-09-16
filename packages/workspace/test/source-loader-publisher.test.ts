@@ -1144,7 +1144,7 @@ describe("sources, loaders, and publishers", () => {
 
   it("waits for an accepted Store removal before cancellation settles", async () => {
     const base = createMemoryWorkspaceStore()
-    await base.setMeta?.("workspace:build-sources", [{ key: "docs", mountPath: "docs" }])
+    await base.setMeta?.("workspace:support:build-sources", [{ key: "docs", mountPath: "docs" }])
     await base.writeFile("docs/stale.md", { path: "docs/stale.md", content: "stale", metadata: { source: "docs" } })
     let releaseRemoval!: () => void
     const removalBlocked = new Promise<void>((resolve) => { releaseRemoval = resolve })
@@ -1587,8 +1587,8 @@ describe("sources, loaders, and publishers", () => {
         sourceKeys.flatMap(key => [`${key}-extra.md`, `${key}.md`]),
       )
     }
-    await expect(store.getMeta?.("workspace:build-sources")).resolves.toHaveLength(Object.keys(currentSources).length)
-    await expect(store.getMeta?.("workspace:build-sources")).resolves.toEqual(expect.arrayContaining(
+    await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toHaveLength(Object.keys(currentSources).length)
+    await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toEqual(expect.arrayContaining(
       Object.entries(currentSources).map(([key, source]) => ({ key, mountPath: source.mount })),
     ))
     const expectedFiles = [unrelated, ...currentMount === undefined ? [] : sourceKeys.flatMap(key => {

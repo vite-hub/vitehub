@@ -348,6 +348,8 @@ Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://
 
 Learn more at [vitehub.dev](https://vitehub.dev).
 
+Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition does not remove files last materialized by another definition. Shared paths still contain the most recent write.
+
 `metadata.source` is reserved for internal Source materialization. Public Workspace writes and write validators cannot assign this ownership marker. Explicit loaders write through `ctx.store`; when multiple build Sources share a mount, these writes must preserve the input item's `metadata.source` or set it to the owning Source key for derived output within that Source's mount. Ambiguous writes fail before storing the file.
 
 File metadata must be a JSON-safe plain object containing only plain objects, dense arrays, strings, booleans, null, and finite numbers except negative zero. Omit optional properties instead of assigning `undefined`. Bigints, cycles, class instances, accessors, symbols, and functions are rejected. Workspace writes validate this contract before provider dispatch; direct local and memory Store writes also validate before changing file content. This keeps accepted metadata values consistent after a local Store restart.

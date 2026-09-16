@@ -111,6 +111,7 @@ async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">
   if (snapshot || !source) return snapshot
   // Reuse an older cache only for the same configuration. Cleanup callers do
   // not pass a Source, so they cannot claim an unscoped snapshot.
+  // SAFETY: Older releases wrote SourceSnapshotMetadata under this private key.
   const legacy = await store.getMeta?.(`source:${sourceKey}:snapshot`) as SourceSnapshotMetadata | undefined
   return legacy?.configHash === await sourceConfigHash(source, store) ? legacy : undefined
 }
@@ -316,6 +317,7 @@ async function removeStaleMaterializedSourceFiles(
   for (const entry of entries) {
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
+    if (file?.metadata?.workspaceSourceOwner !== undefined && file.metadata.workspaceSourceOwner !== workspace) continue
     const currentOwner = file?.metadata?.source
     if (source.materialize === "startup" && store.getMeta && store.setMeta && !previousSnapshot && currentOwner !== undefined) continue
     const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
@@ -406,6 +408,7 @@ async function reconcileRemovedStartupSourcesInternal(
     for (const path of previousPaths) {
       const file = await store.readFile(path)
       if (!file) continue
+      if (file.metadata?.workspaceSourceOwner !== undefined && file.metadata.workspaceSourceOwner !== workspace) continue
       const owner = file.metadata?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
       // Persisted metadata does not prove that externally edited content is ours.
@@ -745,6 +748,7 @@ async function materializeWorkspaceSourcesInternal(
           ...metadata,
           ...entry.metadata,
           source: source.key,
+          workspaceSourceOwner: workspace,
         })
         const missingDirectories: string[] = []
         for (const directory of parentDirectoryPaths(path)) {

@@ -74,3 +74,21 @@ it.each(["", "shared"])("isolates same-key startup snapshots across Workspaces a
   await expect(store.readFile(path("second.md"))).resolves.toMatchObject({ content: "second.md" })
   await expect(useWorkspace(second).fs.readFile(path("second.md"), { encoding: "utf8" })).resolves.toBe("second.md")
 })
+
+
+it.each(["remove", "refresh"])("preserves another Workspace's same-key, same-path file on %s", async action => {
+  const store = createMemoryWorkspaceStore()
+  const first = `same-path-first-${crypto.randomUUID()}`
+  const second = `same-path-second-${crypto.randomUUID()}`
+  const source = (content: string) => custom({ files: [{ path: "shared.md", content }], materialize: "startup", mount: "" })
+  registerWorkspace(first, { sources: { docs: source("first") }, store })
+  registerWorkspace(second, { sources: { docs: source("second") }, store })
+  await useWorkspace(first).fs.list("")
+  await useWorkspace(second).fs.list("")
+  await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "second" })
+
+  registerWorkspace(first, { sources: action === "remove" ? {} : { docs: custom({ files: [], materialize: "startup", mount: "" }) }, store })
+  await useWorkspace(first).fs.list("")
+  await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "second" })
+  await expect(useWorkspace(second, { refresh: false }).fs.readFile("shared.md", { encoding: "utf8" })).resolves.toBe("second")
+})

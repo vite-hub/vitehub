@@ -329,6 +329,8 @@ This reuses current persisted snapshots of Sources with `materialize: 'startup'`
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
 
+Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition preserves files last materialized by another definition. Shared paths still contain the most recent write.
+
 File `metadata.source` is reserved for the string name of the Source that owns the file. The local Store rejects other values before writing bytes or consuming a content stream, preserving any existing content and metadata.
 
 Explicit loaders that write through `ctx.store` must preserve the input item's `metadata.source` when multiple build Sources share a mount. For derived output within a Source's mount, set it to that Source's key. An ambiguous write fails before storing the file. This lets later synchronization remove only that Source's output.

@@ -27,8 +27,8 @@ describe("invocation Workspace inspection", () => {
     expect(mocks.get).not.toHaveBeenCalled()
     expect(mocks.glob).not.toHaveBeenCalled()
   })
-  it("passes the file path to the configured host inspector", async () => {
-    const file = { content: "test", path: "src/a b.ts", revision: "abc123", size: 4 }
+  it.each([undefined, { source: "repository" }])("passes the file path and preserves host provenance %j", async provenance => {
+    const file = { content: "test", path: "src/a b.ts", revision: "abc123", size: 4, ...provenance ? { provenance } : {} }
     const inspect = vi.fn(async () => Response.json(file))
     mocks.inspector.mockReturnValue(inspect)
     expect(await handler(request(file.path))).toEqual(file)

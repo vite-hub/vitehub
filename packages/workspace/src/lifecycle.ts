@@ -12,9 +12,9 @@ import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
 import type { LoaderContext, SourceContext, WorkspaceAssets, WorkspaceDefinition, WorkspaceFile, WorkspaceLoaderSource, WorkspacePublishOptions, WorkspaceSnapshot, WorkspaceStore, WorkspaceStreamFile } from "./core/types.ts"
 
-const buildSourcesMetaKey = "workspace:build-sources"
+const buildSourcesMetaKey = (workspace: string) => `workspace:${encodeURIComponent(workspace)}:build-sources`
 
-function createBuildLoaderStore(store: WorkspaceStore, sources: ResolvedWorkspaceSource[]): WorkspaceStore {
+function createBuildLoaderStore(workspace: string, store: WorkspaceStore, sources: ResolvedWorkspaceSource[]): WorkspaceStore {
   const mounts = [...sources].sort((a, b) => b.mountPath.length - a.mountPath.length)
   const tag = <T extends WorkspaceFile | WorkspaceStreamFile>(path: string, file: T): T => {
     const normalized = normalizeWorkspacePath(path)
@@ -25,7 +25,7 @@ function createBuildLoaderStore(store: WorkspaceStore, sources: ResolvedWorkspac
       throw workspaceError(`[vitehub] Loader output "${normalized}" matches multiple build Sources. Set metadata.source to the Source key that owns this output.`)
     }
     const source = declared ?? closest[0]
-    return source ? { ...file, metadata: { ...file.metadata, workspaceBuildSource: source.key } } : file
+    return source ? { ...file, metadata: { ...file.metadata, workspaceBuildSource: source.key, workspaceSourceOwner: workspace } } : file
   }
   return new Proxy(store, {
     get(target, property) {
@@ -160,14 +160,14 @@ async function syncWorkspaceDefinitionInternal(definition: WorkspaceDefinition, 
 
   const normalizedSources = buildSources
     .filter(source => !bundledBuildSources?.has(source.key))
-    .map(source => createMountedBuildSource(source))
+    .map(source => createMountedBuildSource(source, definition.name))
   const ctx: LoaderContext = {
     abortSignal,
     workspace: definition.name,
     rootDir: ctxSource.rootDir,
     sourceRootDir: ctxSource.sourceRootDir,
     sources: normalizedSources,
-    store: hasExplicitLoaders ? createBuildLoaderStore(store, buildSources) : store,
+    store: hasExplicitLoaders ? createBuildLoaderStore(definition.name, store, buildSources) : store,
     parseData: async input => input.data,
     generateDigest: input => JSON.stringify(input),
     logger: console,
@@ -200,7 +200,7 @@ async function invalidateOverwrittenStartupSnapshots(definition: WorkspaceDefini
 
 async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store: WorkspaceStore, materializationStore: WorkspaceStore, currentSources: ResolvedWorkspaceSource[], startupSources: ResolvedWorkspaceSource[], abortSignal?: AbortSignal): Promise<boolean> {
   abortSignal?.throwIfAborted()
-  const previousSources = await readSyncedBuildSources(store)
+  const previousSources = await readSyncedBuildSources(store, definition.name)
   abortSignal?.throwIfAborted()
   const hasBuildSourceState = previousSources.length > 0 || currentSources.length > 0
   const resetPaths = [...new Set([
@@ -212,7 +212,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     abortSignal?.throwIfAborted()
     const buildKeys = previousSources.filter(source => source.mountPath === mountPath).map(source => source.key)
     const removedPaths = (await store.list(mountPath, { recursive: true }))
-      .filter(entry => entry.type === "file" && buildKeys.some(key => entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
+      .filter(entry => entry.type === "file" && (entry.metadata?.workspaceSourceOwner === undefined || entry.metadata.workspaceSourceOwner === definition.name) && buildKeys.some(key => entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
       .map(entry => entry.path)
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
@@ -231,7 +231,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   const rootSourceKeys = new Set([...previousSources, ...currentSources].filter(source => !source.mountPath).map(source => source.key))
   for (const key of rootSourceKeys) {
     abortSignal?.throwIfAborted()
-    const removedPaths = await rootBuildSourceFilePaths(store, key)
+    const removedPaths = await rootBuildSourceFilePaths(store, definition.name, key)
     const affected: ResolvedWorkspaceSource[] = []
     for (const startup of startupSources) {
       if (!removedPaths.some(path => sourceMountIntersectsPath(startup, path))) continue
@@ -254,7 +254,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   }
 
   abortSignal?.throwIfAborted()
-  await store.setMeta?.(buildSourcesMetaKey, currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
+  await store.setMeta?.(buildSourcesMetaKey(definition.name), currentSources.map(({ key, mountPath }) => ({ key, mountPath })))
   return hasBuildSourceState
 }
 
@@ -295,7 +295,7 @@ async function syncRuntimeBuildAssets(definition: WorkspaceDefinition, store: Wo
       path: entry.path,
       content,
       mediaType: entry.mediaType,
-      metadata: sourceKey ? { ...entry.metadata, source: sourceKey } : entry.metadata,
+      metadata: sourceKey ? { ...entry.metadata, source: sourceKey, workspaceSourceOwner: definition.name } : entry.metadata,
     })
   }
   return bundledBuildSources
@@ -351,16 +351,16 @@ function findBuildSourceForPath(path: string, sources: ResolvedWorkspaceSource[]
   return matches
 }
 
-async function readSyncedBuildSources(store: WorkspaceStore): Promise<SyncedBuildSource[]> {
-  const value = await store.getMeta?.(buildSourcesMetaKey)
+async function readSyncedBuildSources(store: WorkspaceStore, workspace: string): Promise<SyncedBuildSource[]> {
+  const value = await store.getMeta?.(buildSourcesMetaKey(workspace))
   if (!Array.isArray(value)) return []
   return value.filter(isSyncedBuildSource)
 }
 
-async function rootBuildSourceFilePaths(store: WorkspaceStore, key: string) {
+async function rootBuildSourceFilePaths(store: WorkspaceStore, workspace: string, key: string) {
   const entries = await store.list("", { recursive: true })
   return entries
-    .filter(entry => entry.type === "file" && (entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
+    .filter(entry => entry.type === "file" && (entry.metadata?.workspaceSourceOwner === undefined || entry.metadata.workspaceSourceOwner === workspace) && (entry.metadata?.source === key || entry.metadata?.workspaceBuildSource === key))
     .map(entry => entry.path)
 }
 
@@ -375,7 +375,7 @@ function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
     && typeof (value as SyncedBuildSource).mountPath === "string"
 }
 
-function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoaderSource {
+function createMountedBuildSource(source: ResolvedWorkspaceSource, workspace: string): WorkspaceLoaderSource {
   const sourceContexts = new WeakMap<SourceContext, SourceContext>()
 
   function getSourceContext(ctx: Parameters<WorkspaceLoaderSource["getKeys"]>[0]) {
@@ -408,7 +408,7 @@ function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoa
     async getItem(key, ctx) {
       const item = await source.source.getItem(key, getSourceContext(ctx))
       const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
-      return { ...item, path, metadata: { ...item.metadata, source: source.key } }
+      return { ...item, path, metadata: { ...item.metadata, source: source.key, workspaceSourceOwner: workspace } }
     },
   }
 }
