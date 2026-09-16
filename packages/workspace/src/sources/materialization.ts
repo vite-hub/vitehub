@@ -304,7 +304,7 @@ async function reconcilePromotedSourceSkills(
     }
   }
 
-  const candidates = new Map<string, { source: string, sourcePath: string }>()
+  const candidates = new Map<string, { source: string, sourcePath: string, skill: string }>()
   const retainedSkills = new Set<string>()
   for (const [skill, selected] of selectedSkills) {
     const rootSkillPath = `.agents/skills/${skill}/SKILL.md`
@@ -318,7 +318,7 @@ async function reconcilePromotedSourceSkills(
     for (const sourcePath of selected.paths) {
       const promotion = sourceSkillPromotion(sourcePath, sortedSources.find(source => source.key === selected.source)?.mountPath || "")
       if (!promotion || sourcePath === promotion.destination) continue
-      candidates.set(promotion.destination, { source: selected.source, sourcePath })
+      candidates.set(promotion.destination, { source: selected.source, sourcePath, skill })
     }
   }
   for (const [path, prior] of Object.entries(previous)) {
@@ -329,12 +329,21 @@ async function reconcilePromotedSourceSkills(
     if (existing && !await promotedFileMatches(existing, prior)) retainedSkills.add(destinationMatch[1])
   }
 
+  // Validate the complete Skill before updating any of its files.
+  for (const [destination, candidate] of candidates) {
+    const existing = await readSourceFile(store, destination)
+    const prior = previous[destination]
+    const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await promotedFileMatches(existing, prior))
+    if ((existing && !ownsExisting) || await hasNonFilePromotionDestination(store, destination)) retainedSkills.add(candidate.skill)
+  }
+
   const next: Record<string, PromotedSourceSkillFile> = Object.fromEntries(Object.entries(previous).filter(([path, prior]) => {
     const destinationMatch = path.match(/^\.agents\/skills\/([^/]+)\//)
     return incompleteSources.has(prior.source) || (destinationMatch && retainedSkills.has(destinationMatch[1]))
   }))
   const conflictedDestinations = new Set<string>()
   for (const [destination, candidate] of candidates) {
+    if (retainedSkills.has(candidate.skill)) continue
     const sourceFile = verifiedSkillFiles.get(candidate.sourcePath)
     if (!sourceFile || await hasNonFilePromotionDestination(store, destination)) continue
     const existing = await readSourceFile(store, destination)
@@ -361,7 +370,7 @@ async function reconcilePromotedSourceSkills(
       conflictedDestinations.add(destination)
       continue
     }
-    next[destination] = { ...candidate, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName || "default" }
+    next[destination] = { source: candidate.source, sourcePath: candidate.sourcePath, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName || "default" }
   }
   for (const [destination, prior] of Object.entries(previous)) {
     if (next[destination] || conflictedDestinations.has(destination)) continue
@@ -445,7 +454,7 @@ function fileAttributesEqual(
   mediaType: string | undefined,
   metadata: Record<string, unknown>,
 ) {
-  if (previousSnapshot?.materializedAttributes) {
+  if (previousSnapshot?.materializedMetadata !== undefined) {
     return previousSnapshot.materializedMediaType === mediaType
       && isDeepStrictEqual(observableFileMetadata(previousSnapshot.materializedMetadata), observableFileMetadata(metadata))
   }
@@ -1149,9 +1158,12 @@ async function materializeWorkspaceSourcesInternal(
         }
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]
+        // Stores may omit file attributes. Record only attributes that can be
+        // read back, so missing Local Store sidecars still invalidate reuse.
+        const stored = await store.stat(path)
         itemMetadata[path] = {
           ...entry.metadata,
-          materializedAttributes: true,
+          materializedAttributes: stored?.metadata !== undefined ? true : undefined,
           materializedContentDigest: written.contentDigest ?? written.digest,
           materializedBytes: written.size || 0,
           materializedMediaType: item.mediaType,

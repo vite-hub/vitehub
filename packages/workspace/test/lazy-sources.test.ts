@@ -422,6 +422,31 @@ describe("lazy sources", () => {
     else await expect(store.list(directory)).resolves.toEqual([])
   })
 
+  it.each([false, true])("retains the complete Skill when a companion conflicts (previous promotion: %s)", async (existing) => {
+    const store = createMemoryWorkspaceStore()
+    const root = ".agents/skills/review"
+    let files = [{ path: `${root}/SKILL.md`, content: "# Original" }]
+    const view = createWorkspaceSourceView({ name: "companion-conflict", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return files.map(file => file.path) },
+        async getItem(key) { return { key, ...files.find(file => file.path === key)! } },
+      }),
+    } }, store)
+    if (existing) await view.materializeSources()
+    await store.mkdir(root, { recursive: true })
+    await store.writeFile(`${root}/checks.md`, { path: `${root}/checks.md`, content: "User checks" })
+    files = [
+      { path: `${root}/SKILL.md`, content: "# Updated" },
+      { path: `${root}/checks.md`, content: "Source checks" },
+      { path: `${root}/other.md`, content: "Other companion" },
+    ]
+    await view.materializeSources()
+    expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(existing ? "# Original" : undefined)
+    expect((await store.readFile(`${root}/checks.md`))?.content).toBe("User checks")
+    await expect(store.readFile(`${root}/other.md`)).resolves.toBeUndefined()
+  })
+
   it("keeps explicit and edited root skills during source refresh", async () => {
     const store = createMemoryWorkspaceStore()
     let files = [
