@@ -4,6 +4,7 @@ import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, 
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { readWorkspaceFileOwner } from "./file-ownership.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import {
   hasCurrentSourceSnapshot,
@@ -601,8 +602,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       await materializeRootStartupSources()
       const startupFile = await store.readFile(resolution.workspacePath)
-      if (startupFile && sources.some(source => !source.mountPath && source.materialize === "startup" && source.key === startupFile.metadata?.source)) {
-        return decodeFile(startupFile.content, options)
+      if (startupFile) {
+        const owner = startupFile.metadata?.source ? undefined : await readWorkspaceFileOwner(store, resolution.workspacePath)
+        const sourceKey = startupFile.metadata?.source ?? (owner?.workspace === definition.name ? owner.source : undefined)
+        if (sources.some(source => !source.mountPath && source.materialize === "startup" && source.key === sourceKey)) {
+          return decodeFile(startupFile.content, options)
+        }
       }
       await materializeRootSourceForPath(resolution.workspacePath)
       const file = await store.readFile(resolution.workspacePath)

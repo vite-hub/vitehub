@@ -289,6 +289,41 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
   })
 
+  it.each(["readFile", "stat", "exists"] as const)("preserves root startup precedence without file metadata after %s", async (operation) => {
+    for (const reuseStartupSnapshots of [false, true]) {
+      const store = createMemoryWorkspaceStore()
+      const writeFile = store.writeFile.bind(store)
+      vi.spyOn(store, "writeFile").mockImplementation((path, file) => writeFile(path, { ...file, metadata: undefined }))
+      const getLazyKeys = vi.fn(async () => ["AGENTS.md", "lazy.md"])
+      const definition = {
+        name: "startup-root-precedence",
+        sources: {
+          lazy: custom({
+            mount: "",
+            materialize: "lazy" as const,
+            getKeys: getLazyKeys,
+            async getItem(key) { return { key, content: "lazy" } },
+          }),
+          instructions: custom({
+            mount: "",
+            materialize: "startup" as const,
+            async getKeys() { return ["AGENTS.md"] },
+            async getItem(key) { return { key, content: "startup" } },
+          }),
+        },
+      }
+      if (reuseStartupSnapshots) {
+        await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["instructions"] })
+      }
+      const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+
+      await view[operation]("AGENTS.md")
+      await expect(view.readFile("AGENTS.md")).resolves.toBe("startup")
+      expect(getLazyKeys).not.toHaveBeenCalled()
+      await expect(view.readFile("lazy.md")).resolves.toBe("lazy")
+    }
+  })
+
   it.each(["stat", "exists"] as const)("refreshes root startup Sources before the first %s", async (operation) => {
     for (const reuseStartupSnapshots of [false, true]) {
       for (const removed of [false, true]) {
