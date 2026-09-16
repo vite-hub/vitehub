@@ -203,58 +203,53 @@ function assertLayerDefinition(value: unknown): asserts value is AgentDefinition
 
 // Options contain application data, so driver and capability merge rules do not apply.
 function mergePresetOptions(parent: Record<string, unknown>, child?: Record<string, unknown>): Record<string, unknown> {
-  const memo = new WeakMap<object, unknown>()
-  const pairMemo = new WeakMap<object, WeakMap<object, Record<string, unknown>>>()
-  return mergePresetOptionsWithMemo(parent, child, memo, pairMemo, new WeakSet(), new WeakMap())
+  return mergePresetOptionsWithMemo(parent, child, new WeakMap(), new WeakMap(), new WeakMap())
 }
 
-function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>, pairMemo: WeakMap<object, WeakMap<object, Record<string, unknown>>>, active: WeakSet<object>, activeChildren: WeakMap<object, Record<string, unknown>>): Record<string, unknown> {
-  if (child) {
-    const byChild = pairMemo.get(parent)
-    const existing = byChild?.get(child)
-    if (existing) return existing
+function mergePresetOptionsWithMemo(parent: Record<string, unknown>, child: Record<string, unknown> | undefined, memo: WeakMap<object, unknown>, pairMemo: WeakMap<object, WeakMap<object, Record<string, unknown>>>, active: WeakMap<object, unknown>): Record<string, unknown> {
+  // Cloning an unchanged graph preserves aliases without reusing an overridden occurrence.
+  if (!child || Reflect.ownKeys(parent).length === 0) {
+    // SAFETY: The source is a record and cloning preserves its shape.
+    return clonePresetOption(child ?? parent, memo, active) as Record<string, unknown>
   }
-  // A parent may be merged with multiple distinct child overrides. Reusing a
-  // parent-only memo entry would apply the first child to every occurrence.
-  if (!child && memo.has(parent)) {
-    // SAFETY: memo stores only merged record objects.
-    return memo.get(parent) as Record<string, unknown>
-  }
-  // SAFETY: activeChildren contains only partially built merged record objects.
-  if (child && activeChildren.has(child) && Reflect.ownKeys(parent).length === 0) return activeChildren.get(child) as Record<string, unknown>
+  const existing = pairMemo.get(parent)?.get(child)
+  if (existing) return existing
   // SAFETY: Object.create result is immediately populated as a property-key record.
   const result: Record<string | symbol, unknown> = Object.create(Object.getPrototypeOf(parent)) as Record<string | symbol, unknown>
-  memo.set(parent, result)
-  active.add(parent)
-  if (child) activeChildren.set(child, result)
-  if (child) {
-    let byChild = pairMemo.get(parent)
-    if (!byChild) { byChild = new WeakMap(); pairMemo.set(parent, byChild) }
-    byChild.set(child, result)
-  }
+  let byChild = pairMemo.get(parent)
+  if (!byChild) { byChild = new WeakMap(); pairMemo.set(parent, byChild) }
+  byChild.set(child, result)
+  const previousParent = active.get(parent)
+  const previousChild = active.get(child)
+  active.set(parent, result)
+  active.set(child, result)
+  // Clones within one override may point back to its result. Keep those clones
+  // separate from the same defaults inherited by an unmodified sibling.
+  const localMemo = new WeakMap<object, unknown>()
   // SAFETY: Own keys are read from these record-shaped inputs, including symbols.
   const parentKeys = parent as Record<PropertyKey, unknown>
-  // SAFETY: `child` is narrowed by the optional guard at each use site.
-  const childKeys = child as Record<PropertyKey, unknown> | undefined
-  for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child ?? {})])) {
-    const overridden = childKeys && Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined
+  const childKeys = child as Record<PropertyKey, unknown>
+  for (const key of new Set([...Reflect.ownKeys(parent), ...Reflect.ownKeys(child)])) {
+    const overridden = Object.prototype.hasOwnProperty.call(childKeys, key) && childKeys[key] !== undefined
     const value = overridden ? childKeys[key] : parentKeys[key]
-    if (record(value)) {
-      const parentValue = record(parentKeys[key]) ? parentKeys[key] : (Object.getPrototypeOf(value) === null ? Object.create(null) : {})
-      const merged = mergePresetOptionsWithMemo(parentValue, overridden ? value : undefined, memo, pairMemo, active, activeChildren)
-      Object.defineProperty(result, key, { value: merged, enumerable: true, writable: true, configurable: true })
-    } else Object.defineProperty(result, key, { value: clonePresetOption(value, memo), enumerable: true, writable: true, configurable: true })
+    const merged = overridden && record(value) && record(parentKeys[key])
+      ? mergePresetOptionsWithMemo(parentKeys[key], value, localMemo, pairMemo, active)
+      : clonePresetOption(value, localMemo, active)
+    Object.defineProperty(result, key, { value: merged, enumerable: true, writable: true, configurable: true })
   }
-  active.delete(parent)
-  if (child) activeChildren.delete(child)
+  if (previousParent === undefined) active.delete(parent)
+  else active.set(parent, previousParent)
+  if (previousChild === undefined) active.delete(child)
+  else active.set(child, previousChild)
   return result
 }
 
-function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()): unknown {
+function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>(), active = new WeakMap<object, unknown>()): unknown {
   if (value === null || (!hasRuntimeType(value, "object") && !hasRuntimeType(value, "function"))) return value
   // Functions are atomic option values; preserve callback identity rather than
   // rejecting them as unsupported objects.
   if (hasRuntimeType(value, "function")) return value
+  if (active.has(value)) return active.get(value)
   if (memo.has(value)) return memo.get(value)
   if (Array.isArray(value)) {
     // SAFETY: Array construction with the source length produces an indexed option container.
@@ -264,14 +259,14 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       if (key === "length") continue
       const descriptor = Object.getOwnPropertyDescriptor(value, key)
       if (descriptor && "value" in descriptor) {
-        Object.defineProperty(clone, key, { ...descriptor, value: clonePresetOption(descriptor.value, memo) })
+        Object.defineProperty(clone, key, { ...descriptor, value: clonePresetOption(descriptor.value, memo, active) })
       }
     }
     return clone
   }
   if (value instanceof Date) { const clone = new Date(value.getTime()); memo.set(value, clone); return clone }
-  if (value instanceof Map) { const clone = new Map(); memo.set(value, clone); for (const [key, entry] of value) clone.set(clonePresetOption(key, memo), clonePresetOption(entry, memo)); return clone }
-  if (value instanceof Set) { const clone = new Set(); memo.set(value, clone); for (const entry of value) clone.add(clonePresetOption(entry, memo)); return clone }
+  if (value instanceof Map) { const clone = new Map(); memo.set(value, clone); for (const [key, entry] of value) clone.set(clonePresetOption(key, memo, active), clonePresetOption(entry, memo, active)); return clone }
+  if (value instanceof Set) { const clone = new Set(); memo.set(value, clone); for (const entry of value) clone.add(clonePresetOption(entry, memo, active)); return clone }
   if (value instanceof RegExp) { const clone = new RegExp(value.source, value.flags); clone.lastIndex = value.lastIndex; memo.set(value, clone); return clone }
   if (value instanceof URL) { const clone = new URL(value.href); memo.set(value, clone); return clone }
   if (value instanceof URLSearchParams) { const clone = new URLSearchParams(value.toString()); memo.set(value, clone); return clone }
@@ -299,7 +294,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       const sourceLength = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "byteLength")!.get!.call(sourceBuffer) as number
       // SAFETY: cloning an ArrayBuffer yields an ArrayBuffer.
       // SAFETY: clonePresetOption returns the same built-in type for ArrayBuffer inputs.
-      const clonedBacking = clonePresetOption(sourceBacking, memo) as ArrayBuffer
+      const clonedBacking = clonePresetOption(sourceBacking, memo, active) as ArrayBuffer
       // SAFETY: Node's Buffer binding is present in this branch and accepts the cloned backing range.
       const clone = (globalThis as { Buffer: typeof Buffer }).Buffer.from(clonedBacking, sourceOffset, sourceLength)
       memo.set(value, clone)
@@ -314,7 +309,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       // SAFETY: DataView intrinsic byteLength accessor returns a number.
       const byteLength = Object.getOwnPropertyDescriptor(DataView.prototype, "byteLength")!.get!.call(value) as number
       // SAFETY: buffer is obtained from the intrinsic DataView accessor and clonePresetOption preserves ArrayBuffer values.
-      const clonedBuffer = clonePresetOption(buffer, memo) as ArrayBuffer
+      const clonedBuffer = clonePresetOption(buffer, memo, active) as ArrayBuffer
       const clone = new DataView(clonedBuffer, byteOffset, byteLength)
       memo.set(value, clone)
       return clone
@@ -325,7 +320,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const byteOffset = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteOffset")!.get!.call(value)
     const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")!.get!.call(value)
     // SAFETY: clonePresetOption returns the same built-in type for ArrayBuffer inputs.
-    const clonedBuffer = clonePresetOption(buffer, memo) as ArrayBuffer
+    const clonedBuffer = clonePresetOption(buffer, memo, active) as ArrayBuffer
     // SAFETY: Every entry is a built-in typed-array constructor; filtering removes unavailable BigInt variants.
     const constructors = [Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array, Float32Array, Float64Array, "BigInt64Array" in globalThis ? BigInt64Array : undefined, "BigUint64Array" in globalThis ? BigUint64Array : undefined].filter(Boolean) as any[]
     const TypedArray = constructors.find((ctor) => value instanceof ctor)
@@ -349,7 +344,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
       if (!descriptor) continue
       if ("value" in descriptor) {
         // SAFETY: Value descriptors expose an arbitrary option value for recursive cloning.
-        descriptor.value = clonePresetOption(descriptor.value as unknown, memo)
+        descriptor.value = clonePresetOption(descriptor.value as unknown, memo, active)
       }
       Object.defineProperty(clone, key, descriptor)
     }

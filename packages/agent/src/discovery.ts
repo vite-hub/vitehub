@@ -277,9 +277,23 @@ function isWorkspaceAgentDefinition(source: string): boolean {
   }
 
   const destructuredBindings = new Map<number, Set<string>>()
+  const variableDeclarations = new Map<number, number>()
   for (let i = 0; i < tokens.length; i++) {
-    if (["const", "let", "var"].includes(tokens[i]) && ["[", "{"].includes(tokens[i + 1])) {
-      destructuredBindings.set(i, callbackBindingNames(i + 1, tokens.length))
+    if (!["const", "let", "var"].includes(tokens[i])) continue
+    variableDeclarations.set(i, i)
+    const scope = tokenScopes[i]
+    for (let cursor = i + 1; cursor < tokens.length; cursor++) {
+      if (tokenScopes[cursor] !== scope) continue
+      if ([";", "const", "let", "var", "export", "return", "in", "of", "}", ")"].includes(tokens[cursor])) break
+      if (tokens[cursor] === "," && (["[", "{"].includes(tokens[cursor + 1])
+        || (/^[A-Za-z_$][\w$]*$/.test(tokens[cursor + 1] ?? "") && ["=", ":", "!"].includes(tokens[cursor + 2])))) {
+        variableDeclarations.set(cursor, i)
+      }
+    }
+  }
+  for (const binding of variableDeclarations.keys()) {
+    if (["[", "{"].includes(tokens[binding + 1])) {
+      destructuredBindings.set(binding, callbackBindingNames(binding + 1, tokens.length))
     }
   }
 
@@ -290,10 +304,10 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
     for (const scope of visibleScopes) {
       let binding: number | undefined
-      for (let i = parameterScope?.start ?? 0; i < tokens.length; i++) {
-        if (!["const", "let", "var"].includes(tokens[i])
+      for (const [i, declaration] of variableDeclarations) {
+        if (i < (parameterScope?.start ?? 0)
           || (tokens[i + 1] !== tokens[index] && !destructuredBindings.get(i)?.has(tokens[index]))) continue
-        const bindingScope = tokens[i] === "var" ? variableScope(i) : tokenScopes[i]
+        const bindingScope = tokens[declaration] === "var" ? variableScope(declaration) : tokenScopes[declaration]
         if (bindingScope !== scope) continue
         if (binding === undefined || i < index) binding = i
       }
@@ -303,11 +317,37 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return undefined
   }
 
+  function conditionalBranches(index: number): [number, number] | undefined {
+    let expressionDepth = 0
+    let conditionalDepth = 0
+    let consequent: number | undefined
+    for (let i = index; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (expressionDepth === 0) {
+        if ([";", ",", ":", "export", "const", "let", "var", ")", "}", "]"].includes(token) && conditionalDepth === 0) break
+        if (token === "?" && tokens[i + 1] !== "." && tokens[i + 1] !== "?" && tokens[i - 1] !== "?") {
+          if (conditionalDepth === 0) consequent = i + 1
+          conditionalDepth++
+        }
+        if (token === ":" && conditionalDepth > 0 && --conditionalDepth === 0 && consequent !== undefined) {
+          return [consequent, i + 1]
+        }
+      }
+      if (["{", "(", "["].includes(token)) expressionDepth++
+      if (["}", ")", "]"].includes(token)) expressionDepth--
+    }
+    return undefined
+  }
+
   function capabilityOwnsWorkspace(index: number, seen = new Set<number>()): boolean {
     if (tokens[index] === "." && tokens[index + 1] === "." && tokens[index + 2] === ".") index += 3
+    const outerBranches = conditionalBranches(index)
+    if (outerBranches) return outerBranches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
     while (tokens[index] === "(") index++
     if (seen.has(index)) return false
     seen.add(index)
+    const branches = conditionalBranches(index)
+    if (branches) return branches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
     if (tokens[index] === "[") {
       let depth = 0
       for (let i = index + 1; i < tokens.length; i++) {
@@ -521,32 +561,20 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return tokens[call] === "(" ? call : undefined
   }
 
-  function ownsWorkspace(index: number, seen = new Set<number>()): boolean {
+  function ownsWorkspace(index: number, seen = new Set<number>(), inspectParent = false): boolean {
     index = resolveReference(index, new Set(), true)
     if (seen.has(index)) return false
     seen.add(index)
-    // Either exported branch may be selected at runtime. Inspect only those
-    // values, without including other definitions elsewhere in the module.
-    let expressionDepth = 0
-    let conditionalDepth = 0
-    let consequent: number | undefined
-    for (let i = index; i < tokens.length; i++) {
-      const token = tokens[i]
-      if (expressionDepth === 0) {
-        if ([";", ",", ":", "export", "const", "let", "var", ")", "}", "]"].includes(token) && conditionalDepth === 0) break
-        if (token === "?" && tokens[i + 1] !== "." && tokens[i + 1] !== "?" && tokens[i - 1] !== "?") {
-          if (conditionalDepth === 0) consequent = i + 1
-          conditionalDepth++
-        }
-        if (token === ":" && conditionalDepth > 0 && --conditionalDepth === 0 && consequent !== undefined) {
-          return ownsWorkspace(consequent, new Set(seen)) || ownsWorkspace(i + 1, new Set(seen))
-        }
-      }
-      if (["{", "(", "["].includes(token)) expressionDepth++
-      if (["}", ")", "]"].includes(token)) expressionDepth--
-    }
+    const branches = conditionalBranches(index)
+    if (branches) return branches.some(branch => ownsWorkspace(branch, new Set(seen), inspectParent))
     const call = factoryCall(index)
-    if (call === undefined) return false
+    if (call === undefined) {
+      if (inspectParent && imported.has(tokens[index]) && visibleDeclaration(index) === undefined
+        && !callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Agent parent. Add workspace: {} to the Agent definition when the parent owns a Workspace, or define the parent locally so discovery can inspect it.")
+      }
+      return false
+    }
     const options = properties(call + 1)
     const workspace = options.get("workspace")
     if (workspace !== undefined) {
@@ -595,7 +623,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       }
     }
     const inherited = options.get("extends")
-    if (inherited !== undefined && ownsWorkspace(inherited, seen)) return true
+    if (inherited !== undefined && ownsWorkspace(inherited, seen, true)) return true
     const preset = options.get("preset")
     const registry = options.get("presets")
     const configure = options.get("configure")
@@ -829,7 +857,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       return false
     }
     const entry = properties(registry).get(propertyName(selection))
-    return entry !== undefined && ownsWorkspace(entry, seen)
+    return entry !== undefined && ownsWorkspace(entry, seen, true)
   }
 
   // The default export owns the folder; helper definitions and unselected presets do not.

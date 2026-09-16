@@ -105,6 +105,28 @@ it("accepts interface options and rejects non-record roots", () => {
   defineAgent({ options: new Date(), configure: () => defineAgent({ driver: "codex" }) })
 })
 
+it("rejects option unions with non-record members and accepts record unions", () => {
+  type RecordOptions = { enabled: boolean }
+  function checkOptions(
+    dateOptions: RecordOptions | Date,
+    arrayOptions: RecordOptions | readonly string[],
+    callbackOptions: RecordOptions | (() => boolean),
+    recordOptions: RecordOptions | { mode: string },
+  ) {
+    // @ts-expect-error Every union member must be a record, excluding Date roots.
+    defineAgent({ options: dateOptions, configure: () => defineAgent({ driver: "codex" }) })
+    // @ts-expect-error Every union member must be a record, excluding array roots.
+    defineAgent({ options: arrayOptions, configure: () => defineAgent({ driver: "codex" }) })
+    // @ts-expect-error Every union member must be a record, excluding callback roots.
+    defineAgent({ options: callbackOptions, configure: () => defineAgent({ driver: "codex" }) })
+    defineAgent({ options: recordOptions, configure: value => {
+      expectTypeOf(value).toEqualTypeOf<RecordOptions | { mode: string }>()
+      return defineAgent({ driver: "codex" })
+    } })
+  }
+  void checkOptions
+})
+
 it("recomputes contributed Workspace types after channel and capability replacement", () => {
   const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
   const workspaceCapability = defineCapability({ id: "workspace", workspace: {} })

@@ -97,6 +97,34 @@ it.each([
 })
 
 it.each([
+  'extends: importedParent',
+  'extends: alias',
+  'extends: namespace.parent',
+  'preset: "selected", presets: { selected: importedParent }',
+])("rejects opaque imported Agent parents: %s", async (settings) => {
+  const source = `import importedParent from "./parent"; import * as namespace from "./parent"; const alias = importedParent; export default defineAgent({ options: {}, configure: () => defineAgent({ ${settings} }) })`
+  await expect(discover(source)).rejects.toThrow("Agent Workspace discovery cannot inspect an imported Agent parent")
+  const definitions = await discover(source.replace(settings, `workspace: {}, ${settings}`))
+  expect(definitions[0]?.workspace).toBe("notes")
+})
+
+it.each(["@vite-hub/agent/channels", "vite-hub/agent/channels", "./channels"])("rejects opaque Channel references with only a namespace import from %s", async (module) => {
+  for (const channels of ["namespace.channels", "{ custom: namespace.channel }"]) {
+    const source = `import * as namespace from "${module}"; export default defineAgent({ options: {}, configure: () => defineAgent({ channels: ${channels} }) })`
+    await expect(discover(source)).rejects.toThrow("Agent Workspace discovery cannot inspect an imported Channel")
+    const definitions = await discover(source.replace("channels:", "workspace: {}, channels:"))
+    expect(definitions[0]?.workspace).toBe("notes")
+  }
+})
+
+it("preserves local parent shadowing and ignores unselected imported parents", async () => {
+  const definitions = await discover('import parent from "./parent"; export default defineAgent({ options: {}, configure: () => { const parent = defineAgent({ workspace: {} }); return defineAgent({ extends: parent }) } })')
+  expect(definitions[0]?.workspace).toBe("notes")
+  const plain = await discover('import parent from "./parent"; const local = defineAgent({}); export default defineAgent({ preset: "local", presets: { local, unused: parent } })')
+  expect(plain[0]?.workspace).toBeUndefined()
+})
+
+it.each([
   ["parameter shadows imported factory", 'configure: make => make({ workspace: {} })', false],
   ["local shadows imported factory", 'configure: () => { const make = options => options; return make({ workspace: {} }) }', false],
   ["function shadows imported factory", 'configure: () => { function make(options) { return options }; return make({ workspace: {} }) }', false],

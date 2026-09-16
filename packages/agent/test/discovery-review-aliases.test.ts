@@ -118,3 +118,31 @@ it.each([
 it("preserves direct bindings that shadow destructured Capability lists", async () => {
   await expect(workspaceFor('const [list] = [[]]; const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => { const list = [storage]; return defineAgent({ capabilities: [...list] }) } })')).resolves.toBe("support")
 })
+
+it.each(["const", "let", "var"])("discovers later %s declarators", async (kind) => {
+  await expect(workspaceFor(`${kind} plain = defineCapability({}), storage = defineCapability({ workspace: {} }), list = [plain, storage]; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: list }) })`)).resolves.toBe("support")
+})
+
+it("preserves local shadowing by later declarators", async () => {
+  await expect(workspaceFor('const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => { const unused = {}, storage = defineCapability({}); return defineAgent({ capabilities: [storage] }) } })')).resolves.toBeUndefined()
+})
+
+it("does not treat commas in generic arguments as declarators", async () => {
+  await expect(workspaceFor('const storage = defineCapability<Input, Runtime>({ workspace: {} }), list: Array<Capability<Runtime>> = [storage]; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: list }) })')).resolves.toBe("support")
+})
+
+it.each([
+  'enabled ? [storage] : []',
+  'enabled ? [] : [storage]',
+  '(enabled) ? [storage] : []',
+  '(enabled ? [storage] : [])',
+  'enabled ? (other ? [storage] : []) : []',
+  '[enabled ? storage : plain]',
+  '[...(enabled ? [storage] : [])]',
+])("discovers conditional Capability branches: %s", async (capabilities) => {
+  await expect(workspaceFor(`const storage = defineCapability({ workspace: {} }); const plain = defineCapability({}); export default defineAgent({ options: { enabled: true }, configure: ({ enabled }) => defineAgent({ capabilities: ${capabilities} }) })`)).resolves.toBe("support")
+})
+
+it("keeps plain conditional Capabilities plain", async () => {
+  await expect(workspaceFor('const plain = defineCapability({}); export default defineAgent({ options: {}, configure: enabled => defineAgent({ capabilities: enabled ? [plain] : [] }) })')).resolves.toBeUndefined()
+})

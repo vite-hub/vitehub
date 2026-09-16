@@ -2122,9 +2122,9 @@ type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
 
 type AgentDefinitionLike = { resolve: (...args: never[]) => unknown }
 
-type ConfiguredOptionsRecord<TOptions> = TOptions extends readonly unknown[] | ((...args: never[]) => unknown)
+type ConfiguredOptionsRecord<TOptions> = [Extract<TOptions, readonly unknown[] | ((...args: never[]) => unknown)
   | Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | URLSearchParams
-  | ArrayBuffer | ArrayBufferView | SharedArrayBuffer ? never : unknown
+  | ArrayBuffer | ArrayBufferView | SharedArrayBuffer>] extends [never] ? unknown : never
 
 type ConfiguredAgentOptions<TDefinition> = TDefinition extends { options: infer TOptions extends object } ? TOptions : never
 
