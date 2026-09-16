@@ -155,6 +155,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         while (equals < tokens.length && tokens[equals] !== "=" && tokens[equals] !== ";" && tokens[equals] !== ",") equals++
         if (name && tokens[equals] === "=") declarations.set(name, equals + 1)
       }
+      // Hoisted function declarations are valid callback bindings too. Keep
+      // the reference at the `function` token so callback scanning can locate
+      // their parameter list and body just like function expressions.
+      if (tokens[i] === "function" && tokens[i + 1] && tokens[i + 1] !== "*") {
+        declarations.set(tokens[i + 1], i)
+      }
       if (tokens[i] === "export" && tokens[i + 1] === "default") exported = i + 2
       if (tokens[i] === "export" && tokens[i + 1] === "{" ) {
         const local = tokens[i + 2]
