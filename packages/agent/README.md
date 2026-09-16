@@ -524,6 +524,34 @@ MCP records server discovery and tool provenance. Title records generation setti
 
 See [custom capability inspection](https://vitehub.dev/docs/capabilities/custom-capabilities#contribute-an-inspection-view) for the catalog and a complete example.
 
+### Bound repeated PR work
+
+The Node inbox accepts `budgets: { providerRetries: 3, noProgress: 3 }`.
+Call `reserveProviderAttempt(accountScope)` immediately before each provider dispatch,
+then `finishProviderAttempt(token, outcome)` exactly once. The initial dispatch plus
+three retries allow four consecutive classified provider failures. Successful
+provider access clears older failures; unrelated errors release their reservation
+without imposing a quota stop. Reservations also bound concurrent dispatches to
+four until they settle. Both pending reservations and failures survive restart.
+A crashed reservation requires inspection and `resetProviderBudget(scope, reason)`;
+there is no automatic cooldown or timer reset. Token generations reject results
+from before a reset. `providerBudget(scope)` exposes pending and failed attempts.
+
+Supply `finish(claim, { text, progress: { kind: 'no-progress' } })` when a host check
+proves no progress, including a completed invocation that merely repeats a wait.
+Three such completions block new claims for that head even after a webhook.
+Use `{ kind: 'verified', evidence: 'thread:123:resolved' }` for a newly verified change;
+credited evidence IDs persist for that head, so replay does not reset the count. A new head has a fresh budget.
+`resetProgressBudget(repository, number, expectedHead, reason)` permits an explicit
+operator retry and rejects active claims or stale heads. `summary()` exposes the
+persisted head, limit, count and exhaustion state. The first progress outcome saves
+the configured limit for that head. Configuration changes and restarts retain it;
+an explicit reset or a new head adopts the current limit. The host verifies evidence and classifies
+errors; Agent text, result status, and elapsed time do not choose this policy.
+
+See [durable retry budgets](https://vitehub.dev/docs/agents/invocations#durable-retry-budgets)
+for a worker example. Budgets are opt-in and do not change existing inbox callers.
+
 ### Provider exit evidence
 
 A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the working directory. Auxiliary runs, such as title generation, do not call it. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.

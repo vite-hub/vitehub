@@ -1,3 +1,5 @@
+import { parseProviderBudget, parseProgressBudget, validateBudgets, requireEvidence, type InboxBudgets, type ProgressBudget, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome } from './budgets.ts'
+
 import { parseWait, type PullRequestWait } from './wait-state.ts'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
@@ -14,6 +16,7 @@ export type Snapshot = {
   status: 'ready' | 'working' | 'waiting' | 'terminal'
   wait?: PullRequestWait
   lease: string | null; leaseUntil: number; attempts: number
+  progressBudget?: ProgressBudget
   hydrated: boolean; refresh: boolean; feedbackRefresh: boolean
   comments: Record<string, GitHubEvidence>; reviews: Record<string, GitHubEvidence>
   reviewComments: Record<string, GitHubEvidence>; checks: Record<string, GitHubEvidence>; statuses: Record<string, GitHubEvidence>
@@ -24,7 +27,7 @@ export interface GitHubInboxDeliveryResult { accepted: true; duplicate?: boolean
 export interface GitHubInboxSummary {
   repository: string; number: number; head?: string; generation: number; handled: number; status: Snapshot['status']; reasons: string[]
   wait?: PullRequestWait
-  dirty: boolean; attempts: number; nextAt: number; lastResult?: string
+  dirty: boolean; attempts: number; nextAt: number; lastResult?: string; progressBudget?: ProgressBudget
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -39,6 +42,7 @@ const parseStoredSnapshot = (raw: unknown): Snapshot => {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted untyped data at the storage boundary.
   if (requiredStrings.some(key => typeof value[key] !== 'string') || typeof value.number !== 'number' || !Number.isInteger(value.number) || value.number < 1) throw new Error('Invalid stored snapshot')
+  if (value.progressBudget !== undefined) parseProgressBudget(value.progressBudget)
   const numeric = ['generation', 'handled', 'dirtyAt', 'nextAt', 'leaseUntil', 'attempts']
   if (numeric.some(key => {
     const item = value[key]
@@ -83,6 +87,7 @@ export interface PullRequestInboxOptions {
   repositories: readonly string[]
   filter?: GitHubPullRequestFilter
   clock?: () => number
+  budgets?: InboxBudgets
 }
 
 export function pullRequestFilterContext(repository: string, pr: GitHubPullRequestRecord | null): GitHubPullRequestFilterContext {
@@ -99,7 +104,10 @@ export class PullRequestInbox {
   private repositories: string[]
   private clock: () => number
   private filter?: GitHubPullRequestFilter
-  constructor({ path, repositories, filter, clock = Date.now }: PullRequestInboxOptions) {
+  private budgets: InboxBudgets
+  constructor({ path, repositories, filter, clock = Date.now, budgets = {} }: PullRequestInboxOptions) {
+    validateBudgets(budgets)
+    this.budgets = { ...budgets }
     this.repositories = repositories.map(repository => repository.toLowerCase())
     this.clock = clock
     this.filter = filter
@@ -143,6 +151,62 @@ export class PullRequestInbox {
     return row ? JSON.parse(String(row.value)) : undefined
   }
   setMeta(key: string, value: unknown): void { this.db.prepare('INSERT OR REPLACE INTO inbox_meta VALUES (?,?)').run(key, JSON.stringify(value)) }
+  /** Shared provider scope should identify the credential/account, without including its secret. */
+  providerBudget(provider: string): ProviderBudget | undefined {
+    const value = this.meta(`provider-budget:${provider}`)
+    return value === undefined ? undefined : parseProviderBudget(value)
+  }
+  reserveProviderAttempt(provider: string): ProviderAttempt | undefined {
+    return this.transaction(() => {
+      if (!provider.trim()) throw new Error('Provider scope is required')
+      const maxRetries = this.budgets.providerRetries
+      if (maxRetries === undefined) throw new Error('Configure budgets.providerRetries before reserving attempts')
+      const budget = this.providerBudget(provider) ?? { generation: randomUUID(), maxRetries, nextAttempt: 0, succeededThrough: 0, pending: [], failures: [] }
+      // Pending attempts also consume capacity. A crashed dispatch fails closed.
+      if (budget.pending.length + budget.failures.length >= budget.maxRetries + 1) return undefined
+      const attempt = ++budget.nextAttempt
+      budget.pending.push(attempt)
+      this.setMeta(`provider-budget:${provider}`, budget)
+      return { provider, generation: budget.generation, attempt }
+    })
+  }
+  finishProviderAttempt(token: ProviderAttempt, outcome: ProviderAttemptOutcome): boolean {
+    return this.transaction(() => {
+      const budget = this.providerBudget(token.provider)
+      if (!budget || budget.generation !== token.generation || !budget.pending.includes(token.attempt)) return false
+      budget.pending = budget.pending.filter(attempt => attempt !== token.attempt)
+      if (outcome === 'retryable-failure' && token.attempt > budget.succeededThrough) budget.failures.push(token.attempt)
+      // A late success must not clear failures from newer admissions.
+      else if (outcome === 'success') {
+        budget.succeededThrough = Math.max(budget.succeededThrough, token.attempt)
+        budget.failures = budget.failures.filter(attempt => attempt > budget.succeededThrough)
+      }
+      this.setMeta(`provider-budget:${token.provider}`, budget)
+      return true
+    })
+  }
+  resetProviderBudget(provider: string, reason: string): void {
+    requireEvidence(reason)
+    this.transaction(() => {
+      const maxRetries = this.budgets.providerRetries
+      if (maxRetries === undefined) throw new Error('Configure budgets.providerRetries before resetting attempts')
+      this.setMeta(`provider-budget:${provider}`, { generation: randomUUID(), maxRetries, nextAttempt: 0, succeededThrough: 0, pending: [], failures: [], resetReason: reason })
+    })
+  }
+  resetProgressBudget(repository: string, number: number, head: string, reason: string): boolean {
+    requireEvidence(reason)
+    return this.transaction(() => {
+      const s = this.get(repository.toLowerCase(), number)
+      if (!s || s.pr?.head?.sha !== head || s.status === 'terminal' || s.lease) return false
+      const limit = this.budgets.noProgress
+      if (limit === undefined) throw new Error('Configure budgets.noProgress before resetting progress')
+      const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
+      s.progressBudget = { head, limit, count: 0, exhausted: false, evidence: previous?.evidence,
+        creditedEvidence: previous?.creditedEvidence ?? [], resetReason: reason }
+      this.dirty(s, 'progress-budget:reset'); this.put(s)
+      return true
+    })
+  }
   private dirty(s: Snapshot, reason: string) {
     if (s.generation === s.handled) s.dirtyAt = this.clock()
     s.generation++; s.nextAt = 0; s.attempts = 0
@@ -306,6 +370,7 @@ export class PullRequestInbox {
         const wake = (changed || !s.pr) && !pendingCi
         if (wake) this.dirty(s, `${event}:${payload.action ?? check?.conclusion ?? payload.state ?? 'updated'}`)
         else if (changed) s.revision = (s.revision ?? 0) + 1
+        const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha
         const eligible = this.eligible(repository, s.pr)
         if (s.pr && !eligible) {
           // Filter ineligibility is terminal for this snapshot. Do not retain
@@ -318,7 +383,7 @@ export class PullRequestInbox {
         }
         this.put(s)
         if (changed || !s.pr) updated.push(number)
-        if (wake && !s.wait && s.status !== 'terminal') queued.push(number)
+        if (wake && !s.wait && s.status !== 'terminal' && !exhausted) queued.push(number)
       }
       return finish(numbers.size ? undefined : 'no matching PR head')
     })
@@ -329,6 +394,7 @@ export class PullRequestInbox {
       for (const s of all.sort((a,b) => a.dirtyAt - b.dirtyAt || a.number - b.number)) {
         if (claims.length >= limit) break
         if (s.wait || s.lease && s.leaseUntil > now || s.status === 'terminal' || s.generation <= s.handled || s.nextAt > now) continue
+        if (s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha) continue
         if (s.pr && !this.eligible(s.repository, s.pr)) continue
         // Stack children remain local; a parent merge's base push wakes them.
         if (s.pr?.base?.ref && all.some(parent => parent.repository === s.repository && parent.number !== s.number && String(parent.pr?.state).toLowerCase() === 'open' && parent.pr?.head?.ref === s.pr?.base?.ref)) continue
@@ -375,7 +441,7 @@ export class PullRequestInbox {
       this.put(s); return true
     })
   }
-  finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean; wait?: Omit<PullRequestWait, 'headSha'> }): boolean {
+  finish(claim: Claim, result: { text: string; retry?: boolean; terminal?: boolean; progress?: ProgressOutcome; wait?: Omit<PullRequestWait, 'headSha'> }): boolean {
     return this.transaction(() => {
       const s = this.get(claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token) return false
@@ -391,6 +457,20 @@ export class PullRequestInbox {
         s.wait = parseWait({ ...result.wait, headSha: s.pr.head.sha })
         s.revision = (s.revision ?? 0) + 1
       }
+      const head = s.pr?.head?.sha
+      const progress = result.progress
+      if (progress?.kind === 'verified') requireEvidence(progress.evidence)
+      const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
+      const limit = previous?.limit ?? this.budgets.noProgress
+      if (progress && head && head === claim.snapshot.pr?.head?.sha && limit !== undefined) {
+        const creditedEvidence = previous?.creditedEvidence ?? []
+        const verified = progress.kind === 'verified' && !creditedEvidence.includes(progress.evidence)
+        const count = verified ? 0 : (previous?.count ?? 0) + 1
+        s.progressBudget = { head, limit, count, exhausted: count >= limit,
+          evidence: verified ? progress.evidence : previous?.evidence,
+          creditedEvidence: verified ? [...creditedEvidence, progress.evidence] : creditedEvidence,
+          resetReason: previous?.resetReason }
+      }
       s.lease = null; s.leaseUntil = 0; s.lastResult = result.text
       if (s.status === 'terminal' || result.terminal && s.generation === claim.generation) { s.status = 'terminal'; s.handled = s.generation }
       else if (s.generation !== claim.generation) { s.status = 'ready'; s.handled = Math.max(s.handled, claim.generation); s.nextAt = 0 }
@@ -401,6 +481,9 @@ export class PullRequestInbox {
         s.status = 'ready'; s.nextAt = this.clock() + Math.min(30 * 60_000, 60_000 * 2 ** Math.min(s.attempts, 5))
       }
       else { s.status = 'waiting'; s.handled = s.generation; s.reasons = [] }
+      if (s.status !== 'terminal' && s.progressBudget?.exhausted && s.progressBudget.head === head) {
+        s.status = 'waiting'; s.nextAt = 0; s.reasons = ['no-progress-budget-exhausted']
+      }
       this.put(s); return true
     })
   }
@@ -432,6 +515,6 @@ export class PullRequestInbox {
   summary(): GitHubInboxSummary[] {
     return this.all().map(s => ({ repository: s.repository, number: s.number, head: s.pr?.head?.sha,
       generation: s.generation, handled: s.handled, status: s.status, reasons: s.reasons,
-      wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult }))
+      wait: s.wait, dirty: s.generation > s.handled, attempts: s.attempts, nextAt: s.nextAt, lastResult: s.lastResult, progressBudget: s.progressBudget }))
   }
 }
