@@ -597,7 +597,15 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             if (["(", "{", "["].includes(tokens[cursor])) depth++
             else if ([")", "}", "]"].includes(tokens[cursor]) && --depth === 0) break
           }
-          if (cursor < start && /\bworkspace\s*:/.test(tokens.slice(i, cursor + 1).join(" "))) return true
+          if (cursor < start) {
+            const binding = i + 3
+            if (tokens[binding] === "defineAgent" && ownsWorkspace(binding, new Set(seen))) return true
+            if (tokens[binding] === "defineCapability") {
+              const capabilityOptions = properties(i + 5)
+              const workspace = capabilityOptions.get("workspace")
+              if (workspace !== undefined) return true
+            }
+          }
         }
       }
     }
