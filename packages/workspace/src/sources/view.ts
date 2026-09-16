@@ -599,6 +599,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
+      await materializeRootStartupSources()
+      const startupFile = await store.readFile(resolution.workspacePath)
+      if (startupFile && sources.some(source => !source.mountPath && source.materialize === "startup" && source.key === startupFile.metadata?.source)) {
+        return decodeFile(startupFile.content, options)
+      }
       await materializeRootSourceForPath(resolution.workspacePath)
       const file = await store.readFile(resolution.workspacePath)
       if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)

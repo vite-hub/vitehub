@@ -357,6 +357,8 @@ it.each(["enumeration", "item"])("preserves unowned legacy files after failed %s
     const snapshot = await store.getMeta!(snapshotKey) as Record<string, unknown>
     await store.setMeta!(snapshotKey, { ...snapshot, configHash })
     await rm(join(root, ".vitehub/file-metadata"), { recursive: true })
+    // Legacy files predate both inline metadata and the durable ownership index.
+    for (const path of keys) await store.setMeta!(`workspace-file-owner:${encodeURIComponent(path)}`, undefined)
     unavailable = true
     for (let attempt = 0; attempt < 2; attempt++) {
       const restarted = createLocalWorkspaceStore(root)
@@ -472,4 +474,29 @@ it("restores a keyed Source file after an overlapping Source stops emitting it",
   await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({
     content: "first", metadata: { source: "first", workspaceSourceOwner: "overlapping" },
   })
+})
+
+it.each(["refresh", "removal"])("cleans verified pending files on a metadata-dropping Store during %s", async (operation) => {
+  const store = createMemoryWorkspaceStore()
+  const writeFile = store.writeFile.bind(store)
+  store.writeFile = async (path, file) => {
+    await writeFile(path, { ...file, metadata: undefined })
+  }
+  let keys = ["kept.txt", "removed.txt"]
+  const source = {
+    materialize: "startup" as const,
+    cache: { maxAge: 3600 },
+    async getKeys() { return keys },
+    async getItem(key: string) { return { key, content: "original" } },
+  }
+  const definition = { name: "pending-modern", sources: { docs: source } }
+  await materializeWorkspaceSources(definition, store)
+  keys = ["kept.txt"]
+  const changed = { ...definition, sources: { docs: { ...source, cache: { maxAge: 0 } } } }
+  await materializeWorkspaceSources(changed, store, { path: "docs/kept.txt" })
+  await expect(store.getMeta!(sourceSnapshotMetaKey(definition.name, "docs"))).resolves.toMatchObject({
+    items: { "docs/removed.txt": { migrationPending: true } },
+  })
+  await materializeWorkspaceSources(operation === "refresh" ? changed : { ...changed, sources: {} }, store)
+  await expect(store.readFile("docs/removed.txt")).resolves.toBeUndefined()
 })

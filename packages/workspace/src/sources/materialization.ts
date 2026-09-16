@@ -64,6 +64,7 @@ interface MaterializedStartupSource {
 }
 
 const startupSourcesMetaKey = (workspace: string) => `workspace:${workspace}:startup-sources`
+const startupWorkspacesMetaKey = "workspace:startup-source-workspaces"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string, Set<ResolvedWorkspaceSource>>>()
 
@@ -334,7 +335,6 @@ async function removeStaleMaterializedSourceFiles(
     const currentOwner = file?.metadata?.source ?? durableOwner?.source
     if (source.materialize === "startup" && store.getMeta && store.setMeta && !previousSnapshot && currentOwner !== undefined) continue
     const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
-    if (file?.metadata?.source === undefined && previousSnapshot?.items?.[entry.path]?.migrationPending) continue
     // During legacy snapshot migration, durable ownership is only valid when it
     // matches the snapshot digest that authorized cleanup.
     if (file?.metadata?.source === undefined && durableOwner?.digest !== undefined
@@ -411,11 +411,25 @@ async function reconcileRemovedStartupSourcesInternal(
   activeSources: Set<ResolvedWorkspaceSource> = new Set(),
 ) {
   if (!store.getMeta || !store.setMeta) return
+  const workspaceIndex = await store.getMeta(startupWorkspacesMetaKey)
+  const workspaces = new Set(Array.isArray(workspaceIndex)
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted Workspace names at the untyped Store boundary.
+    ? workspaceIndex.filter((name): name is string => typeof name === "string")
+    : [])
+  workspaces.add(workspace)
+  await control.checkpoint(async () => await store.setMeta?.(startupWorkspacesMetaKey, [...workspaces]))
   const value = await store.getMeta(startupSourcesMetaKey(workspace))
   const previousSources = Array.isArray(value) ? value.filter(isMaterializedStartupSource) : []
   const currentMounts = new Map(currentSources.map(source => [source.key, source.mountPath]))
   const activeOwners = [...activeSources]
   const isActive = (source: MaterializedStartupSource) => activeOwners.some(active => active.key === source.key && active.mountPath === source.mountPath)
+  const retainedSources: { workspace: string, source: MaterializedStartupSource }[] = currentSources.map(source => ({ workspace, source }))
+  for (const otherWorkspace of workspaces) {
+    if (otherWorkspace === workspace) continue
+    const sources = await store.getMeta(startupSourcesMetaKey(otherWorkspace))
+    if (!Array.isArray(sources)) continue
+    for (const source of sources.filter(isMaterializedStartupSource)) retainedSources.push({ workspace: otherWorkspace, source })
+  }
   for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath && !isActive(source))) {
     const snapshot = await readSourceSnapshotMetadata(store, workspace, source.key)
     const invalidatedSnapshot = snapshot && snapshot.mountPath === undefined && snapshot.items === undefined
@@ -433,7 +447,6 @@ async function reconcileRemovedStartupSourcesInternal(
       if (file.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) continue
       const owner = file.metadata?.source ?? durableOwner?.source
       const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
-      if (file.metadata?.source === undefined && snapshot?.items?.[path]?.migrationPending) continue
       // A durable owner authorizes cleanup only while its written content remains.
       if (file.metadata?.source === undefined
         && (!durableOwner?.digest || await sha256(file.content) !== durableOwner.digest)) continue
@@ -449,17 +462,20 @@ async function reconcileRemovedStartupSourcesInternal(
       await control.mutate(() => store.rm(path, { force: true }))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
-      for (const currentSource of currentSources) {
-        if (!pathContains(path, currentSource.mountPath)) continue
-        const retainedSnapshot = await readSourceSnapshotMetadata(store, workspace, currentSource.key)
+      for (const { workspace: retainedWorkspace, source: currentSource } of retainedSources) {
+        const retainedSnapshot = await readSourceSnapshotMetadata(store, retainedWorkspace, currentSource.key)
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
+        const containsMount = pathContains(path, currentSource.mountPath)
+        if (!containsMount && !Object.keys(retainedSnapshot.items || {}).some(item => pathContains(path, item))) continue
         // Retained files can keep this directory nonempty. Carry its ownership
         // forward even when the removal below cannot delete the shared mount.
-        await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, {
+        await control.checkpoint(() => writeSourceSnapshotMetadata(store, retainedWorkspace, {
           ...retainedSnapshot,
           ...(path === currentSource.mountPath
-            ? path === source.mountPath && snapshot?.ownsMount ? { ownsMount: true } : {}
-            : { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }),
+            ? { ownsMount: true }
+            : containsMount
+              ? { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }
+              : { ownedDirectories: [...new Set([...(retainedSnapshot.ownedDirectories || []), path])] }),
           status: "updating",
         }))
       }
@@ -475,6 +491,10 @@ async function reconcileRemovedStartupSourcesInternal(
   const trackedSources = [...currentSources, ...activeOwners, ...previousSources.filter(isActive)]
   const uniqueSources = trackedSources.filter((source, index) => trackedSources.findIndex(candidate => candidate.key === source.key && candidate.mountPath === source.mountPath) === index)
   await control.checkpoint(async () => await store.setMeta?.(startupSourcesMetaKey(workspace), uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))))
+  if (!uniqueSources.length) {
+    workspaces.delete(workspace)
+    await control.checkpoint(async () => await store.setMeta?.(startupWorkspacesMetaKey, [...workspaces]))
+  }
 }
 
 function isMaterializedStartupSource(value: unknown): value is MaterializedStartupSource {
@@ -782,25 +802,28 @@ async function materializeWorkspaceSourcesInternal(
         for (const directory of parentDirectoryPaths(path)) {
           if (directory !== source.mountPath && sourceOwnsDirectory(source, directory) && !await store.stat(directory)) missingDirectories.push(directory)
         }
-        const written = await writeMaterializedFile(store, path, {
-          path,
-          content: entry.content,
-          contentStream: entry.contentStream,
-          mediaType: item.mediaType,
-          metadata: fileMetadata,
-        }, control, previous?.content)
-        await control.mutate(() => recordWorkspaceFileOwner(store, path, { workspace, source: source.key, digest: written.digest }))
-        for (const directory of missingDirectories) ownedDirectories.add(directory)
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]
-        itemMetadata[path] = {
-          ...entry.metadata,
-          materializedAttributes: true,
-          materializedContentDigest: written.digest,
-          materializedBytes: written.size || 0,
-          materializedMediaType: item.mediaType,
-          materializedMetadata: observableFileMetadata(fileMetadata),
-        }
+        const written = await control.mutate(async () => {
+          const result = await writeMaterializedFile(store, path, {
+            path,
+            content: entry.content,
+            contentStream: entry.contentStream,
+            mediaType: item.mediaType,
+            metadata: fileMetadata,
+          }, previous?.content)
+          await recordWorkspaceFileOwner(store, path, { workspace, source: source.key, digest: result.digest })
+          for (const directory of missingDirectories) ownedDirectories.add(directory)
+          itemMetadata[path] = {
+            ...entry.metadata,
+            materializedAttributes: true,
+            materializedContentDigest: result.digest,
+            materializedBytes: result.size || 0,
+            materializedMediaType: item.mediaType,
+            materializedMetadata: observableFileMetadata(fileMetadata),
+          }
+          return result
+        })
         sourceFiles++
         sourceBytes += written.size || 0
         persistedBytesDelta += (written.size || 0) - (tracked
@@ -980,7 +1003,6 @@ async function writeMaterializedFile(
     mediaType?: string
     metadata?: Record<string, unknown>
   },
-  control?: MaterializationControl,
   previousContent?: string | Uint8Array,
 ): Promise<{ contentEqual?: boolean, digest?: string, size?: number }> {
   if (file.contentStream) {
@@ -998,21 +1020,19 @@ async function writeMaterializedFile(
         mediaType: file.mediaType,
         metadata: file.metadata,
       })
-      const written = control ? await control.mutate(write) : await write()
+      const written = await write()
       if (!written.digest) {
         throw workspaceError("[vitehub] Workspace Store writeFileStream() must return a content digest.")
       }
       return { digest: written.digest, size }
     }
     const content = await contentStreamToBytes(file.contentStream)
-    if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))
-    else await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
+    await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
     return { contentEqual: previousContent !== undefined && contentEquals(previousContent, content), digest: await sha256(content), size: content.byteLength }
   }
 
   const content = file.content ?? ""
-  if (control) await control.mutate(() => store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata }))
-  else await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
+  await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
   return { digest: await sha256(content), size: contentSize(content) }
 }
 
