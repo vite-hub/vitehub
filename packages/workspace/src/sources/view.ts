@@ -1,6 +1,6 @@
 import { workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
-import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
+import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
@@ -605,8 +605,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (startupFile) {
         const owner = startupFile.metadata?.source ? undefined : await readWorkspaceFileOwner(store, resolution.workspacePath)
         const sourceKey = startupFile.metadata?.source ?? (owner?.workspace === definition.name ? owner.source : undefined)
-        if (sources.some(source => !source.mountPath && source.materialize === "startup" && source.key === sourceKey)) {
-          return decodeFile(startupFile.content, options)
+        const source = sources.find(source => !source.mountPath && source.materialize === "startup" && source.key === sourceKey)
+        if (source) {
+          const snapshot = await readCurrentSourceSnapshot(store, definition.name, source)
+          const hasCurrentPath = snapshot?.status === "ready" && Object.hasOwn(snapshot.items || {}, resolution.workspacePath)
+          if (hasCurrentPath && (startupFile.metadata?.source || (owner?.digest && await sha256(startupFile.content) === owner.digest))) {
+            return decodeFile(startupFile.content, options)
+          }
         }
       }
       await materializeRootSourceForPath(resolution.workspacePath)

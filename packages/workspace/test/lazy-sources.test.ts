@@ -324,6 +324,44 @@ describe("lazy sources", () => {
     }
   })
 
+  it.each(["replaced", "removed", "restored"] as const)("falls through stale root startup ownership when the file is %s", async (scenario) => {
+    const store = createMemoryWorkspaceStore()
+    const writeFile = store.writeFile.bind(store)
+    vi.spyOn(store, "writeFile").mockImplementation((path, file) => writeFile(path, { ...file, metadata: undefined }))
+    let keys = ["AGENTS.md"]
+    const getLazyKeys = vi.fn(async () => ["AGENTS.md"])
+    const definition = {
+      name: "stale-startup-root-owner",
+      sources: {
+        lazy: custom({
+          mount: "",
+          materialize: "lazy" as const,
+          getKeys: getLazyKeys,
+          async getItem(key) { return { key, content: "lazy" } },
+        }),
+        instructions: custom({
+          mount: "",
+          materialize: "startup" as const,
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: "startup" } },
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await expect(view.readFile("AGENTS.md")).resolves.toBe("startup")
+    await store.writeFile("AGENTS.md", { path: "AGENTS.md", content: "user edit" })
+    if (scenario !== "replaced") {
+      keys = []
+      await view.materializeSources({ sources: ["instructions"] })
+      await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "user edit" })
+      // Matching old bytes do not restore membership in the current snapshot.
+      if (scenario === "restored") await store.writeFile("AGENTS.md", { path: "AGENTS.md", content: "startup" })
+    }
+
+    await expect(view.readFile("AGENTS.md")).resolves.toBe("lazy")
+    expect(getLazyKeys).toHaveBeenCalledOnce()
+  })
+
   it.each(["stat", "exists"] as const)("refreshes root startup Sources before the first %s", async (operation) => {
     for (const reuseStartupSnapshots of [false, true]) {
       for (const removed of [false, true]) {
