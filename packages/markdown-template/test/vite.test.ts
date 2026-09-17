@@ -51,6 +51,16 @@ describe("hubMarkdownTemplate", () => {
     expect(parseMarkdownTemplateRequest("./prompt.template.md?markdown-template")).toEqual({ path: "./prompt.template.md" })
   })
 
+  it.each([
+    "./prompt.md?worker&markdown-template",
+    "./prompt.md?markdown-template&worker",
+    "./prompt.md?markdown-template=true",
+    "./prompt.template.md?worker&markdown-template",
+    "./prompt.md?markdown-template#fragment",
+  ])("does not transform unsupported template query %s", (id) => {
+    expect(parseMarkdownTemplateRequest(id)).toBeUndefined()
+  })
+
   it("keeps resolved Markdown template module ids stable", async () => {
     const resolveIdCandidate: unknown = hubMarkdownTemplate().resolveId
     // SAFETY: hubMarkdownTemplate defines resolveId as this function hook; the test supplies its only used context method.

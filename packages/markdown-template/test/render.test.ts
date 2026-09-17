@@ -50,6 +50,21 @@ describe("renderMarkdownTemplate", () => {
     expect(reads).toBe(1)
   })
 
+  it("resolves condition guards before comparison getters", async () => {
+    let reads = 0
+    const data = {
+      enabled: false,
+      get value() { reads++; return 2 },
+      get expected() { reads++; return 2 },
+    }
+    const template = '::if{:value="data.value" :eq="data.expected" :condition="data.enabled"}\nSelected\n::else\nFallback\n::\n::'
+    await expect(renderMarkdownTemplate(template, { data })).resolves.toBe("Fallback")
+    expect(reads).toBe(0)
+    data.enabled = true
+    await expect(renderMarkdownTemplate(template, { data })).resolves.toBe("Selected")
+    expect(reads).toBe(2)
+  })
+
   it("excludes non-enumerable data without reading its getters", async () => {
     const data = { name: "Ada" }
     Object.defineProperty(data, "hidden.value", { get() { throw new Error("hidden getter") } })

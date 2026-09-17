@@ -41,13 +41,18 @@ export function matchesCondition(
       }
     }
   }
-  const props = resolveAttributes(attributes, renderData, { parseJson: true })
+  const isCondition = (key: string) => key === "condition" || key === ":condition"
+  const guard = resolveAttributes(Object.fromEntries(Object.entries(attributes).filter(([key]) => isCondition(key))), renderData, { parseJson: true })
+  if (Object.hasOwn(guard, "condition") && !guard.condition) return false
+  const props = {
+    ...guard,
+    ...resolveAttributes(Object.fromEntries(Object.entries(attributes).filter(([key]) => !isCondition(key))), renderData, { parseJson: true }),
+  }
   const has = (key: string) => Object.hasOwn(props, key)
   const operators = Object.keys(comparisons).filter(has)
   if (!has("condition") && !has("value")) {
     throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0024({ message: "[vitehub] Markdown template if block requires a condition or value prop." })
   }
-  if (has("condition") && !props.condition) return false
   if (operators.length) {
     return has("value") && props.value !== undefined
       && operators.every(operator => props[operator] !== undefined && comparisons[operator]!(props.value, props[operator]))

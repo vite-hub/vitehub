@@ -50,6 +50,8 @@ export const replies = {
 } as const
 ```
 
+The query form must end with exactly `?markdown-template`. Compound queries and hash fragments are not supported.
+
 The `vitehub()` preset installs the template module integration. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both forms generate the ambient module type under `.vitehub/types`, which the application `tsconfig.json` must include.
 
 Compose shared sections in TypeScript by rendering another template and passing the result as a Markdown fragment.
