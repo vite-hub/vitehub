@@ -255,3 +255,26 @@ it.each(["agents.storage", 'agents["storage"]', "agents?.storage"])("rejects ret
     await expect(workspaceFor(source.replace("options: {}", "workspace: {}, options: {}"))).resolves.toBe("support")
   }
 })
+
+it.each([
+  "if (options.storage) { return defineAgent({ workspace: {} }) } return defineAgent({})",
+  "if (options.storage) { if (options.enabled) { return defineAgent({ workspace: {} }) } } return defineAgent({})",
+  "if (options.storage) { return options.enabled ? defineAgent({}) : defineAgent({ workspace: {} }) } return defineAgent({})",
+  "for (const item of options.items) { if (item.storage) return defineAgent({ workspace: {} }) } return defineAgent({})",
+  "switch (options.mode) { case 'storage': return defineAgent({ workspace: {} }); default: return defineAgent({}) }",
+  "try { if (options.storage) return defineAgent({ workspace: {} }) } catch { return defineAgent({}) } return defineAgent({})",
+])("discovers Workspace ownership in each configure return: %s", async (body) => {
+  await expect(workspaceFor(`export default defineAgent({ options: {}, configure: options => { ${body} } })`)).resolves.toBe("support")
+})
+
+it.each([
+  "function helper() { if (options.storage) { return defineAgent({ workspace: {} }) } return defineAgent({}) }",
+  "const helper = () => { if (options.storage) { return defineAgent({ workspace: {} }) } return defineAgent({}) };",
+  "if (options.storage) { return defineAgent({ presets: { helper: defineAgent({ workspace: {} }) } }) }",
+])("excludes nested helper results from configure returns: %s", async (body) => {
+  await expect(workspaceFor(`export default defineAgent({ options: {}, configure: options => { ${body} return defineAgent({}) } })`)).resolves.toBeUndefined()
+})
+
+it("requires explicit ownership for an opaque early configure return", async () => {
+  await expect(workspaceFor('const build = () => defineAgent({ workspace: {} }); export default defineAgent({ options: {}, configure: options => { if (options.storage) { return build() } return defineAgent({}) } })')).rejects.toThrow("cannot inspect a configure result factory")
+})

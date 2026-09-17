@@ -85,6 +85,17 @@ it("does not guarantee Workspace access from optional configured preset override
   void checkOptionalProperty
 })
 
+it("rejects unsupported settings in every union spread member", () => {
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  function checkSettings(settings: { workspace?: WorkspaceAgentWorkspaceConfig } | { unknownSetting: true }) {
+    // @ts-expect-error A possible spread member contains an unsupported Agent setting.
+    defineAgent({ extends: plain, ...settings })
+    // @ts-expect-error Named selection validates every possible spread member too.
+    defineAgent({ preset: "plain", presets: { plain }, ...settings })
+  }
+  void checkSettings
+})
+
 it("preserves structured output from configure through selection and extension", () => {
   const schema = {} as StandardSchemaV1<unknown, { summary: string }>
   const preset = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver({ output: { schema } }) }) })
@@ -163,6 +174,10 @@ it("accepts interface options and rejects non-record roots", () => {
   defineAgent({ options: new WeakSet(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Error roots are not plain option records.
   defineAgent({ options: new Error(), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error AbortController roots are not plain option records.
+  defineAgent({ options: new AbortController(), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error AbortSignal roots are not plain option records.
+  defineAgent({ options: new AbortController().signal, configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Built-in instances may only be nested in a record.
   defineAgent({ options: new Date(), configure: () => defineAgent({ driver: "codex" }) })
 })
@@ -171,10 +186,13 @@ it("rejects option unions with non-record members and accepts record unions", ()
   type RecordOptions = { enabled: boolean }
   function checkOptions(
     dateOptions: RecordOptions | Date,
+    controllerOptions: RecordOptions | AbortController,
     arrayOptions: RecordOptions | readonly string[],
     callbackOptions: RecordOptions | (() => boolean),
     recordOptions: RecordOptions | { mode: string },
   ) {
+    // @ts-expect-error Every union member must be a record, excluding AbortController roots.
+    defineAgent({ options: controllerOptions, configure: () => defineAgent({ driver: "codex" }) })
     // @ts-expect-error Every union member must be a record, excluding Date roots.
     defineAgent({ options: dateOptions, configure: () => defineAgent({ driver: "codex" }) })
     // @ts-expect-error Every union member must be a record, excluding array roots.

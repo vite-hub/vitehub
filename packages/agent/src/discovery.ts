@@ -876,7 +876,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       let callbackDefinition = -1
       let callbackDefinitionDepth = Number.POSITIVE_INFINITY
       let returnedDefinition = -1
-      let returnedDefinitionDepth = Number.POSITIVE_INFINITY
+      let returnGroup = { depth: Number.POSITIVE_INFINITY }
+      const returnGroups = new Map<number, { depth: number }>()
       const returnedDefinitions: number[] = []
       let callbackDepth = 0
       let returnExpression = false
@@ -890,6 +891,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const opaqueCall = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "") && tokens[callEnd] === "("
           && conditionalBranches(reference) === undefined
         const opaqueMember = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "")
+          && conditionalBranches(reference) === undefined
           && ([".", "["].includes(tokens[reference + 1]) || (tokens[reference + 1] === "?" && tokens[reference + 2] === "."))
         if (inCallbackScope && (factoryCall(reference) !== undefined || opaqueCall || opaqueMember)) {
           let expressionStart = i
@@ -909,10 +911,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             (arrow >= 0 && !returnExpression && callbackDepth === 0 && tokens[i - 1] === ",") ||
             tokens[expressionStart - 1] === "return" || tokens[expressionStart - 1] === "?" || tokens[expressionStart - 1] === ":"
           if (returned) {
-            if (expressionDepth < returnedDefinitionDepth) {
-              returnedDefinitionDepth = expressionDepth
-              returnedDefinition = i
-            }
+            returnGroup.depth = Math.min(returnGroup.depth, expressionDepth)
+            returnGroups.set(i, returnGroup)
+            returnedDefinition = i
             // Keep every call in the returned expression. Conditional branches
             // may be nested in parentheses and therefore have different token
             // depths, but each remains a possible callback result.
@@ -922,15 +923,21 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             callbackDefinitionDepth = callbackDepth
           }
         }
-        if (token === "return" && inCallbackScope) returnExpression = true
+        if (token === "return" && inCallbackScope) {
+          returnExpression = true
+          // Each return has its own expression depth. Control-flow blocks may
+          // nest an early return deeper than the callback's final return.
+          returnGroup = { depth: Number.POSITIVE_INFINITY }
+        }
         else if ((token === "?" || token === ":") && returnExpression) returnExpression = true
         else if (token === ";" && callbackDepth === 0) returnExpression = false
         if (["{", "(", "["].includes(token)) callbackDepth++
         else if (["}", ")", "]"].includes(token)) callbackDepth--
       }
-      // Exclude defineAgent calls nested inside the selected definition's settings.
-      // Conditional branches remain eligible when they occur at the same expression depth.
+      // Exclude nested settings within each returned expression independently.
+      // Function scope checks above exclude returns belonging to nested helpers.
       const returnedCandidates = returnedDefinitions.filter((index) => {
+        const returnedDefinitionDepth = returnGroups.get(index)!.depth
         let depth = 0
         for (let i = bodyStart; i < index; i++) {
           if (["{", "(", "["].includes(tokens[i])) depth++
