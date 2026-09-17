@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { PullRequestInbox } from '../src/server/github-inbox.ts'
 
 const repository = 'example/project'
@@ -87,6 +88,21 @@ test('invalid wait requests cannot release a claim or mix retry semantics', t =>
   assert.throws(() => inbox.finish(claim, { text: 'bad', wait: { ...wait, reason: '' } }))
   assert.throws(() => inbox.finish(claim, { text: 'bad', wait, retry: true }))
   assert.equal(inbox.get(repository, 7)!.lease, claim.token)
+})
+
+test('persisted waits are validated by both snapshot readers', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'github-inbox-wait-'))
+  const path = join(dir, 'inbox.sqlite')
+  const inbox = new PullRequestInbox({ path, repositories: [repository] })
+  const db = new DatabaseSync(path)
+  t.onTestFinished(() => { db.close(); inbox.close(); rmSync(dir, { recursive: true, force: true }) })
+  inbox.seed(repository, pr)
+  inbox.finish(inbox.claim(1)[0]!, { text: 'waiting', wait })
+  const snapshot = inbox.get(repository, 7)!
+  db.prepare('UPDATE pr_snapshots SET value=? WHERE repository=? AND number=?')
+    .run(JSON.stringify({ ...snapshot, wait: { ...snapshot.wait, reason: '' } }), repository, 7)
+  assert.throws(() => inbox.get(repository, 7))
+  assert.throws(() => inbox.all())
 })
 
 test('host reconciliation wakes new feedback and old owners cannot release replacements', t => {

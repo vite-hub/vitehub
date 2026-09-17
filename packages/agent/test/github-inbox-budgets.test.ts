@@ -1,4 +1,5 @@
 import { test } from 'vitest'
+import { DatabaseSync } from 'node:sqlite'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,6 +13,20 @@ function memory(t: { onTestFinished: (fn: () => void) => void }) { const inbox =
 function wake(inbox: PullRequestInbox, id: number) {
   inbox.ingest(String(id), 'issue_comment', { repository: { full_name: repository }, issue: { number: 7, pull_request: {} }, comment: { id, body: `feedback ${id}` } })
 }
+
+test('persisted progress budgets are validated by both snapshot readers', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'inbox-budgets-'))
+  const path = join(directory, 'inbox.sqlite')
+  const inbox = create(path)
+  const db = new DatabaseSync(path)
+  t.onTestFinished(() => { db.close(); inbox.close(); rmSync(directory, { recursive: true, force: true }) })
+  inbox.seed(repository, pr())
+  const snapshot = inbox.get(repository, 7)!
+  db.prepare('UPDATE pr_snapshots SET value=? WHERE repository=? AND number=?')
+    .run(JSON.stringify({ ...snapshot, progressBudget: { head: 'a', limit: -1 } }), repository, 7)
+  assert.throws(() => inbox.get(repository, 7))
+  assert.throws(() => inbox.all())
+})
 
 test('initial provider attempt plus three retries stop across restart and two store handles', t => {
   const directory = mkdtempSync(join(tmpdir(), 'inbox-budgets-'))
