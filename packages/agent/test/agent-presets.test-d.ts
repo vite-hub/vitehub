@@ -1,5 +1,6 @@
 import { expectTypeOf, it } from "vitest"
 import { codexDriver, defineAgent, defineCapability, runAgentInline } from "../src/index.ts"
+import { github } from "../src/channels.ts"
 import type { AgentRuntimeContext } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -87,6 +88,25 @@ it("infers Workspace access contributed to configured presets", () => {
   const unchanged = defineAgent({ extends: plain, capabilities: [noWorkspace] })
   // @ts-expect-error Capabilities without Workspace access do not promote the definition.
   void unchanged.__vitehubWorkspaceAgent
+})
+
+it("preserves built-in GitHub Workspace contributions through configured extensions", () => {
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const extended = defineAgent({ extends: plain, channels: { github: github({ pullRequest: true }) } })
+  expectTypeOf(extended.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const selected = defineAgent({ preset: "plain", presets: { plain }, channels: { github: () => github({ pullRequest: {} }) } })
+  expectTypeOf(selected.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const configured = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", channels: { github: github({ pullRequest: { workspace: { mount: "repo" } } }) } }) })
+  expectTypeOf(defineAgent({ extends: configured }).__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+  const disabled = defineAgent({ extends: extended, channels: { github: github({ pullRequest: { workspace: false } }) } })
+  // @ts-expect-error Replacing the contributing Channel with disabled Workspace access removes it.
+  void disabled.__vitehubWorkspaceAgent
+  const noPullRequest = defineAgent({ extends: plain, channels: { github: github() } })
+  // @ts-expect-error A GitHub Channel without pullRequest does not contribute a Workspace.
+  void noPullRequest.__vitehubWorkspaceAgent
+  const disabledPullRequest = defineAgent({ extends: plain, channels: { github: github({ pullRequest: false }) } })
+  // @ts-expect-error A disabled pullRequest Channel does not contribute a Workspace.
+  void disabledPullRequest.__vitehubWorkspaceAgent
 })
 
 it("accepts interface options and rejects non-record roots", () => {

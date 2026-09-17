@@ -180,6 +180,9 @@ it.each([
   '((false || [storage]))',
   '([plain]) && [storage]',
   '[...(false || [storage])]',
+  '([plain] as Capability[] || [storage])',
+  '([plain] satisfies Capability[] && [storage])',
+  '([plain] as Capability[] ?? [storage])',
 ])("requires explicit ownership for logical Capability expressions: %s", async capabilities => {
   const source = `const plain = defineCapability({}); const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ${capabilities} }) })`
   await expect(workspaceFor(source)).rejects.toThrow("logical Capability expression")
@@ -204,4 +207,8 @@ it("preserves a static preset alias without semicolons", async () => {
   await expect(workspaceFor(`const selection = "workspace"
 const storage = defineAgent({ workspace: {} })
 export default defineAgent({ presets: { workspace: storage }, preset: selection })`)).resolves.toBe("support")
+})
+
+it.each(["as", "satisfies"])("discovers both branches after a Capability %s assertion", async assertion => {
+  await expect(workspaceFor(`const plain = defineCapability({}); const storage = defineCapability({ workspace: {} }); const list = [plain]; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ([plain] ${assertion} Capability[] === list ? [plain] : [storage]) }) })`)).resolves.toBe("support")
 })
