@@ -144,3 +144,39 @@ it.each(["build", "startup"] as const)("restores existing bytes and ownership af
   await sync({ name: "replacement", sources: {} }, store)
   await expect(store.readFile("file.md")).resolves.toMatchObject({ content: "original content" })
 })
+
+
+it.each(["build", "startup"] as const)("preserves unowned identical bytes after %s rollback owner retirement fails and the Store reopens", async (mode) => {
+  const store = createMemoryWorkspaceStore()
+  await store.writeFile("file.md", { path: "file.md", content: "original" })
+  const setMeta = store.setMeta!.bind(store)
+  let failCheckpoint = true
+  store.setMeta = async (key, value) => {
+    if (key.startsWith("workspace-file-owner:")) {
+      if (value === null) throw new Error("owner retirement unavailable")
+      await setMeta(key, value)
+      if (failCheckpoint) {
+        failCheckpoint = false
+        throw new Error("checkpoint response lost")
+      }
+      return
+    }
+    await setMeta(key, value)
+  }
+  const definition: WorkspaceDefinition = { name: "rollback-reopen", sources: {
+    docs: custom({ materialize: mode, mount: "", files: [{ path: "file.md", content: "original" }] }),
+  } }
+  const sync = mode === "build" ? syncWorkspaceDefinition : materializeWorkspaceSources
+  if (mode === "build") await expect(sync(definition, store)).rejects.toThrow("checkpoint and rollback failed")
+  else await expect(sync(definition, store)).resolves.toMatchObject({ sources: [{ error: 'Workspace file checkpoint and rollback failed for "file.md".' }] })
+  const reopened: WorkspaceStore = {
+    readFile: store.readFile.bind(store), writeFile: store.writeFile.bind(store),
+    stat: store.stat.bind(store), list: store.list.bind(store), glob: store.glob.bind(store),
+    mkdir: store.mkdir.bind(store), rm: store.rm.bind(store),
+    snapshot: store.snapshot.bind(store), diff: store.diff.bind(store),
+    getMeta: store.getMeta!.bind(store), setMeta,
+  }
+  await sync({ name: definition.name, sources: {} }, reopened)
+  await expect(reopened.readFile("file.md")).resolves.toMatchObject({ content: "original" })
+  await expect(readWorkspaceFileOwner(reopened, "file.md")).resolves.toBeUndefined()
+})

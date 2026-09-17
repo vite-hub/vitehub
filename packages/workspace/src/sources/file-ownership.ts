@@ -49,11 +49,11 @@ export async function readWorkspaceFileOwner(store: WorkspaceStore, path: string
   // Recover an interrupted deletion only while the original file version remains.
   if ("removing" in value && value.removing === true) {
     const current = await store.stat(path)
-    if (current && (!("revision" in value) || !value.revision || !current.revision)) {
+    if (current?.type === "file" && (!("revision" in value) || !value.revision || !current.revision)) {
       throw new Error(`[vitehub] Cannot retry interrupted removal without a file revision: ${path}. Inspect the file and remove it explicitly if cleanup is still needed.`)
     }
-    const remaining = current ? await store.readFile(path) : undefined
-    if (!current || !("revision" in value) || current.revision !== value.revision || !("digest" in value) || !value.digest || !remaining || await sha256(remaining.content) !== value.digest) {
+    const remaining = current?.type === "file" ? await store.readFile(path) : undefined
+    if (current?.type !== "file" || !("revision" in value) || current.revision !== value.revision || !("digest" in value) || !value.digest || !remaining || await sha256(remaining.content) !== value.digest) {
       if (retireInvalidRemoval) await removeWorkspaceFileOwner(store, path)
       return undefined
     }
@@ -73,7 +73,7 @@ export async function removeWorkspaceFileOwner(store: WorkspaceStore, path: stri
 }
 
 // Call inside the Store mutation queue after validating ownership.
-export async function removeWorkspaceOwnedFile(store: WorkspaceStore, path: string): Promise<void> {
+export async function markWorkspaceFileRemoval(store: WorkspaceStore, path: string): Promise<void> {
   const owner = await readWorkspaceFileOwner(store, path)
   // Persist retry evidence before retiring the active owner. Recovery never needs
   // a provider read or metadata write while the provider is unavailable.
@@ -83,6 +83,11 @@ export async function removeWorkspaceOwnedFile(store: WorkspaceStore, path: stri
     if (revision) removal.revision = revision
     await recordWorkspaceFileOwner(store, path, removal)
   }
+}
+
+// Call inside the Store mutation queue after validating ownership.
+export async function removeWorkspaceOwnedFile(store: WorkspaceStore, path: string): Promise<void> {
+  await markWorkspaceFileRemoval(store, path)
   await store.rm(path, { force: true })
   await removeWorkspaceFileOwner(store, path)
 }

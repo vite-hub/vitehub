@@ -38,3 +38,27 @@ it.each(["memory", "local"] as const)("%s revisions distinguish identical writes
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+it.each(["memory", "local"] as const)("%s retires interrupted file removal when a directory replaces the file", async (provider) => {
+  const root = await mkdtemp(join(tmpdir(), "workspace-directory-replacement-"))
+  try {
+    const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    await store.writeFile("owned.md", { path: "owned.md", content: "generated" })
+    await recordWorkspaceFileOwner(store, "owned.md", { workspace: "outage", source: "source", digest: (await store.stat("owned.md"))?.digest })
+    const setMeta = store.setMeta!.bind(store)
+    store.setMeta = async (key, value) => {
+      if (value === null) throw new Error("metadata unavailable")
+      await setMeta(key, value)
+    }
+    await expect(removeWorkspaceOwnedFile(store, "owned.md")).rejects.toThrow("metadata unavailable")
+    await store.mkdir("owned.md")
+    const reopened = provider === "local" ? createLocalWorkspaceStore(root) : { ...store, stat: store.stat.bind(store), readFile: store.readFile.bind(store), getMeta: store.getMeta!.bind(store), setMeta }
+    await expect(readWorkspaceFileOwner(reopened, "owned.md", true)).resolves.toBeUndefined()
+    await expect(reopened.getMeta!("workspace-file-owner:owned.md")).resolves.toBeNull()
+    await expect(reopened.stat("owned.md")).resolves.toMatchObject({ type: "directory" })
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
