@@ -379,8 +379,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     while (tokens[index] === "(") {
       let end = index + 1
       for (let depth = 1; end < tokens.length && depth > 0; end++) {
-        if (tokens[end] === "(") depth++
-        else if (tokens[end] === ")") depth--
+        if (["(", "[", "{"].includes(tokens[end])) depth++
+        else if ([")", "]", "}"].includes(tokens[end])) depth--
+        else if (depth === 1 && tokens[end] === ",") {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a sequence Capability expression. Use a literal Capability list, or add an explicit Workspace ownership marker.")
+        }
       }
       while (tokens[end] === "!" || tokens[end] === "as" || tokens[end] === "satisfies") {
         end = tokens[end] === "!" ? end + 1 : skipAssertion(end)

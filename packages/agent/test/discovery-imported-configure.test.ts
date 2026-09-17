@@ -370,3 +370,10 @@ it("rejects opaque overrides of a nested Workspace name", async () => {
   await expect(discover('export default defineAgent({ options: { key: "name" }, configure: options => defineAgent({ workspace: { name: "shared", [options.key]: undefined } }) })')).rejects.toThrow("computed Agent settings key")
   expect((await discover('const localOptions = { name: undefined }; export default defineAgent({ workspace: { name: "shared", ...localOptions } })'))[0]?.workspace).toBe("notes")
 })
+
+
+it.each(["(counter++, [storage])", "([storage], [])", "((counter++, [storage]))", "[...(counter++, [storage])]"])("rejects sequence-built Capability lists: %s", async (expression) => {
+  const source = `let counter = 0; const storage = defineCapability({ workspace: {} }); export default defineAgent({ capabilities: ${expression} })`
+  await expect(discover(source)).rejects.toThrow("sequence Capability expression")
+  expect((await discover(source.replace("capabilities:", "workspace: {}, capabilities:")))[0]?.workspace).toBe("notes")
+})
