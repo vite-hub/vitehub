@@ -51,12 +51,23 @@ export interface WorkspaceSearchHit {
 }
 
 export interface MkdirOptions {
+  /** Optional creation evidence. Supporting Stores report only directories created by this call, including before failure. */
+  onCreate?: (path: string, directoryIdentity?: string) => void
   recursive?: boolean
 }
 
 export interface RmOptions {
+  /** Stores supporting conditional removal must report actual removal, never a precondition no-op. */
+  onRemove?: () => void
+  /** Require the observed directory identity. Only use with conditionalDirectoryRemoval. */
+  ifDirectoryIdentity?: string
   recursive?: boolean
   force?: boolean
+  ifDigest?: string
+  /** With ifDigest, also require this Source owner (null means unowned). */
+  ifSource?: string | null
+  /** Also require this Workspace owner (null means unowned). */
+  ifWorkspace?: string | null
 }
 
 export type WorkspaceWriteOperation = "writeFile" | "mkdir" | "rm"
@@ -280,6 +291,8 @@ export interface WorkspaceEntry {
 }
 
 export interface WorkspaceStat extends WorkspaceEntry {
+  /** Opaque directory identity, stable across reads/restarts and changed on recreation. Omit when unsupported. */
+  directoryIdentity?: string
   type: "file" | "directory"
 }
 
@@ -318,9 +331,17 @@ export interface WorkspaceRebaseOptions {
 }
 
 export interface WorkspaceStore {
+  /** rm atomically checks SHA-256 content, Source, and Workspace ownership before removing a file. */
+  readonly conditionalRemoval?: boolean
+  /** rm atomically checks directory identity before removing an empty directory. */
+  readonly conditionalDirectoryRemoval?: boolean
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
+  /** Atomically restore or remove a file only when its content, media type, and metadata still match; otherwise throw WORKSPACE_CONFLICT. */
+  compareAndSwapFile?(path: string, expected: WorkspaceFile, replacement: WorkspaceFile | undefined): Promise<void>
+  /** Opaque creation history for this path and its ancestors, including absent paths. Changes atomically on every file write or directory creation, survives deletion, and remains stable across reads/restarts. */
+  getPathCreationIdentity?(path: string): Promise<string>
   writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
@@ -795,5 +816,6 @@ export interface WorkspaceMaterializeSourcesResult {
   durationMs: number
   files: number
   path: string
+  /** Selected Sources in resolution order: longest mount path first, then Source key alphabetically. */
   sources: WorkspaceSourceMaterializationStatus[]
 }

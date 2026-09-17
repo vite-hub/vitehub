@@ -1,6 +1,6 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { readCurrentSourceSnapshot } from "./sources/materialization.ts"
-import { resolveWorkspaceMetadataTarget } from "./storage/metadata-target.ts"
+import { resolveWorkspaceMetadataName, resolveWorkspaceMetadataTarget } from "./storage/metadata-target.ts"
 import type { WorkspaceEntry, WorkspaceSourceMaterializationStatus } from "./core/types.ts"
 import type { WorkspaceSourceMetadata } from "./sources/config.ts"
 
@@ -15,7 +15,7 @@ export async function listMaterializedWorkspaceSourceEntries(
 ): Promise<WorkspaceEntry[] | undefined> {
   const metadata = await resolveWorkspaceMetadataTarget(workspace)
   if (!metadata?.list) return
-  const snapshot = await readCurrentSourceSnapshot(metadata, source)
+  const snapshot = await readCurrentSourceSnapshot(metadata, source, resolveWorkspaceMetadataName(workspace))
   if (!snapshot) return []
   const ownedPaths = new Set(Object.keys(snapshot.items || {}))
   return (await metadata.list("", { recursive: true })).filter((entry) => {
@@ -37,7 +37,7 @@ export async function readWorkspaceSourceMaterializationStatus(
 ): Promise<WorkspaceSourceMaterializationStatus | undefined> {
   const metadata = await resolveWorkspaceMetadataTarget(workspace)
   if (!metadata) return
-  const snapshot = await readCurrentSourceSnapshot(metadata, source)
+  const snapshot = await readCurrentSourceSnapshot(metadata, source, resolveWorkspaceMetadataName(workspace))
   if (!hasRuntimeType(snapshot, "object") || snapshot === null) return
   const status = snapshot.status
   if (status !== "lazy" && status !== "updating" && status !== "ready" && status !== "error") return

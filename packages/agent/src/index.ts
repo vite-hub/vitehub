@@ -84,6 +84,7 @@ import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-outpu
 import {
   colocatedAgentSkillsContextKey,
   colocatedAgentSkillsSymbol,
+  filterColocatedAgentSkills,
   type ColocatedAgentSkills,
 } from "./internal/colocated-agent-skills.ts"
 
@@ -3770,7 +3771,7 @@ async function createAgentInvocationContext<
     invocationContext.set(scheduledAgentChannelIdsContextKey, Object.keys(definition?.channels || {}), { overwrite: true })
     invocationContext.set(scheduledAgentNameContextKey, context.agentIdentity?.name, { overwrite: true })
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    const colocatedSkills = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[colocatedAgentSkillsSymbol]
+    const colocatedSkills = (definition && Reflect.get(definition, colocatedAgentSkillsSymbol)) as ColocatedAgentSkills | undefined
     invocationContext.set(colocatedAgentSkillsContextKey, colocatedSkills, { overwrite: true })
     invoker = await resolveAgentInvoker(
       definition?.invoker,
@@ -4046,6 +4047,19 @@ async function createAgentInvocationContext<
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
+    if (colocatedSkills) {
+      // Owned definitions include the fallback Sources themselves. Exclude those
+      // entries so only explicit Sources, including active Channel contributions, win.
+      const explicitSources = ownsWorkspaceDefinition
+        ? Object.fromEntries(Object.entries(activeWorkspaceDefinition?.sources || {}).filter(([key, source]) => {
+          // Registered definitions may deserialize Sources, so object identity is
+          // not stable for generated colocated entries. Keep same-key explicit
+          // Sources (for example Channel contributions) available to filtering.
+          return !(key.startsWith("__vitehubAgentSkill:") && Object.hasOwn(colocatedSkills, key)) && source !== colocatedSkills[key]
+        }))
+        : activeWorkspaceDefinition?.sources
+      invocationContext.set(colocatedAgentSkillsContextKey, filterColocatedAgentSkills(colocatedSkills, explicitSources), { overwrite: true })
+    }
     const configuredWorkspace = workspaceOptions?.workspace
     const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object") && !("name" in configuredWorkspace)
       ? configuredWorkspace.commit

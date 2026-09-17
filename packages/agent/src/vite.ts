@@ -447,7 +447,7 @@ async function transformScheduleRegistry(
   )
   return [
     `import { agentWithColocatedInstructions as vitehubAgentWithColocatedInstructions, workspaceDefinitionFromOptions as vitehubWorkspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget, inheritAgentLayerOptions } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { agentGeneratedRuntimeError as vitehubAgentRuntimeError, defineScheduledAgentTarget as vitehubDefineScheduledAgentTarget, filterColocatedAgentSkills, inheritAgentLayerOptions } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceRuntime.imports,
     ...generatedAgentRuntimeCapabilityImports(runtimeCapabilities),
@@ -868,26 +868,32 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
   return [
     `function ${name}${parameters} {`,
     "  const skills = Object.fromEntries(Object.entries(colocatedSkills || {}).map(([key, source]) => {",
-    "    const { encoding, content, ...options } = source",
-    "    return [key, encoding === 'base64' ? { ...options, content: Uint8Array.from(atob(content), byte => byte.charCodeAt(0)) } : source]",
+    "    const { encoding: _encoding, content, ...options } = source",
+    "    return [key, { ...options, content: Uint8Array.from(atob(content), byte => byte.charCodeAt(0)) }]",
     "  }))",
     `  const resolvedAgent = ${typescript ? "(" : ""}Object.keys(skills).length ? Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent)) : agent${typescript ? ") as Agent & Partial<WorkspaceAgentDefinition>" : ""}`,
     "  if (resolvedAgent !== agent) Object.defineProperty(resolvedAgent, Symbol.for('vitehub.agent.colocatedSkills'), { configurable: true, enumerable: true, value: skills })",
     "  const options = resolvedAgent?.__vitehubWorkspaceAgentOptions",
     "  const workspace = options?.workspace",
     "  if (!workspace || typeof workspace !== 'object' || 'name' in workspace) return resolvedAgent",
-    "  const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
-    "  const sources = colocatedInstructions",
-    "    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }",
-    "    : { ...workspace.sources, ...existingSources }",
+    `  const explicitSources = ${workspaceDefinitionFromOptions}({ ...options, workspace: { ...workspace, sourceRootDir: undefined } }).sources`,
+    "  const remainingSkills = filterColocatedAgentSkills(skills, explicitSources)",
+    "  const sources = {",
+    "    ...(colocatedInstructions ? filterColocatedAgentSkills({ __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } }, explicitSources) : {}),",
+    "    ...remainingSkills,",
+    "    ...workspace.sources,",
+    "  }",
     "  const resolvedSources = Object.keys(sources).length ? sources : undefined",
     "  const resolvedSourceRootDir = workspace.sourceRootDir ?? resolvedAgent.sourceRootDir ?? sourceRootDir",
     `  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }${typescript ? " as WorkspaceAgentOptions" : ""}`,
     `  const decoratedAgent = { ...resolvedAgent, ...${workspaceDefinitionFromOptions}(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }`,
+    "  const skillsSymbol = Symbol.for('vitehub.agent.colocatedSkills')",
+    "  if (Object.keys(remainingSkills).length) Object.defineProperty(decoratedAgent, skillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })",
+    "  else Reflect.deleteProperty(decoratedAgent, skillsSymbol)",
     "  for (const key of Reflect.ownKeys(resolvedAgent)) {",
     `    if (!Object.prototype.propertyIsEnumerable.call(resolvedAgent, key)) Object.defineProperty(decoratedAgent, key, Object.getOwnPropertyDescriptor(resolvedAgent, key)${typescript ? "!" : ""})`,
     "  }",
-    "  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== workspace.sources?.[key] && source !== existingSources?.[key]))",
+    "  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== workspace.sources?.[key]))",
     "  inheritAgentLayerOptions(resolvedAgent, decoratedAgent, { workspace: { sourceRootDir, ...(Object.keys(sourceDefaults).length ? { sources: sourceDefaults } : {}) } })",
     `  return decoratedAgent${typescript ? " as unknown as Agent" : ""}`,
     "}",
@@ -1693,6 +1699,7 @@ async function generateAgentDeploymentCatalog(
     : [])
   const agentIdentityEntries = generatedAgentIdentityEntries(definitions)
   const serverInternalImports = [
+    "filterColocatedAgentSkills",
     "agentGeneratedRuntimeError as vitehubAgentRuntimeError",
     "inheritAgentLayerOptions",
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
@@ -1707,14 +1714,14 @@ async function generateAgentDeploymentCatalog(
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
       `import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`,
-      ...(options.workspaceRuntimeImport ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
+      ...(options.workspaceRuntimeImport ? [`import { registerWorkspace, setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
     ],
     setup: [
       ...(typescript
         ? [
-            "type ViteHubEncodedColocatedSkills = Record<string, { content: string, encoding: 'base64', [key: string]: unknown }>",
+            "type ViteHubEncodedColocatedSkills = Record<string, { content: string, encoding: 'base64', materialize: 'startup', mount: '', workspacePath: string }>",
             "",
           ]
         : []),
@@ -1736,6 +1743,8 @@ async function generateAgentDeploymentCatalog(
             "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
             "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
             "  const workspaceName = markDiscoveredWorkspaceAgentDefinitionRegistered(agent, { name, workspace: name }) || name",
+            `  const workspaceDefinition = workspaceDefinitionFromOptions(${typescript ? "(agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions" : "agent.__vitehubWorkspaceAgentOptions"})`,
+            "  registerWorkspace(workspaceName, workspaceDefinition)",
             `  return [workspaceName, async () => ({ ...module, default: agent })]${typescript ? " as const" : ""}`,
             "}",
             "",

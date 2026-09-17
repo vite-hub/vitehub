@@ -17,7 +17,7 @@ import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { forwardWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
-import { forwardWorkspaceMetadataTarget, workspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../storage/metadata-target.ts"
+import { forwardWorkspaceMetadataTarget, workspaceMetadataName, workspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
 
 import type { Tool, ToolSet } from "ai"
@@ -107,6 +107,7 @@ async function waitForWorkspaceSync(pending: Promise<void>, signal?: AbortSignal
 export interface UseWorkspaceOptions {
   definition?: WorkspaceDefinition
   mode?: "read" | "write"
+  refresh?: boolean
 }
 
 export interface WorkspaceFacadeToolOptions extends WorkspaceReadOperations {
@@ -234,11 +235,11 @@ async function materializeWorkspaceSources(workspace: Workspace, options?: Works
   return await workspace.materializeSources(options)
 }
 
-function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition): Workspace {
+function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition, options: { reuseStartupSnapshots?: boolean } = {}): Workspace {
   let workspacePromise: Promise<Workspace> | undefined
 
   async function resolveWorkspace() {
-    workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition)) : useRegisteredWorkspace(name)
+    workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition, options)) : useRegisteredWorkspace(name, options)
     return await workspacePromise
   }
 
@@ -294,6 +295,7 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   }
 
   const workspace = {
+    [workspaceMetadataName]: name,
     async [workspaceMetadataTarget]() {
       const resolved = await resolveWorkspace()
       return (resolved as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.()
@@ -542,6 +544,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
       return await createHostedWorkspaceSession(overlay, { ...options, host: options.host })
     },
   }, getWorkspaceSourceRequestExecution(workspace))
+  forwardWorkspaceMetadataTarget(workspace, readonlyFs)
   // SAFETY: Workspace metadata forwarding probes only the private symbol member owned by the Workspace package.
   const resolveMetadata = (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]
   if (resolveMetadata) {
@@ -596,7 +599,7 @@ function emptyTools(): ToolSet {
 }
 
 export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "read" }): ReadonlyWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode?: "read" }): ReadonlyWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "write" }): WritableWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
   if (options?.mode === "write") {
@@ -625,6 +628,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
     tools.none = emptyTools
     return {
+      [workspaceMetadataName]: name,
       [workspaceMetadataTarget]: async () => await (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.(),
       [workspaceStoreTarget]: async () => {
         return await (workspace as Workspace & WorkspaceStoreTargetCarrier)[workspaceStoreTarget]?.()
@@ -647,7 +651,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     } as WritableWorkspaceFacade<Name> & WorkspaceStoreTargetCarrier
   }
 
-  const workspace = createLazyWorkspace(name, options?.definition)
+  const workspace = createLazyWorkspace(name, options?.definition, { reuseStartupSnapshots: options?.refresh === false })
   const fs = createReadonlyFs(name, workspace)
   const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: opts?.broadSearchPaths,

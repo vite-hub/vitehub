@@ -243,6 +243,75 @@ describe("workspace public API", () => {
     await expect(first.fs.readFile("docs/page.md")).resolves.toBe("second")
   })
 
+  it.each([false, undefined])("rejects conditional removal when Store support is %s", async (conditionalRemoval) => {
+    const store = createMemoryWorkspaceStore()
+    Object.defineProperty(store, "conditionalRemoval", { value: conditionalRemoval })
+    const remove = vi.spyOn(store, "rm")
+    registerWorkspace("conditional-removal", defineWorkspace({ store }))
+    const workspace = useWorkspace("conditional-removal", { mode: "write" })
+    await workspace.fs.writeFile("page.md", "preserve")
+
+    for (const options of [{ ifDigest: "stale" }, { ifSource: "docs" }, { ifSource: null }, { ifWorkspace: "other" }, { ifWorkspace: null }]) {
+      await expect(workspace.fs.rm("page.md", options)).rejects.toThrow("does not support conditional removal")
+    }
+    expect(remove).not.toHaveBeenCalled()
+    await expect(workspace.fs.readFile("page.md")).resolves.toBe("preserve")
+
+    await workspace.fs.rm("page.md")
+    expect(remove).toHaveBeenCalledOnce()
+    await expect(workspace.fs.exists("page.md")).resolves.toBe(false)
+  })
+
+  it.each([false, undefined])("rejects conditional directory removal when Store support is %s", async (conditionalDirectoryRemoval) => {
+    const store = createMemoryWorkspaceStore()
+    Object.defineProperty(store, "conditionalDirectoryRemoval", { value: conditionalDirectoryRemoval })
+    const remove = vi.spyOn(store, "rm")
+    registerWorkspace("conditional-directory-removal", defineWorkspace({ store }))
+    const workspace = useWorkspace("conditional-directory-removal", { mode: "write" })
+    await workspace.fs.writeFile("docs/page.md", "preserve")
+
+    await expect(workspace.fs.rm("docs", { recursive: true, ifDirectoryIdentity: "stale" }))
+      .rejects.toThrow("does not support conditional directory removal")
+    expect(remove).not.toHaveBeenCalled()
+    await expect(workspace.fs.readFile("docs/page.md")).resolves.toBe("preserve")
+
+    await workspace.fs.rm("docs", { recursive: true })
+    expect(remove).toHaveBeenCalledOnce()
+    await expect(workspace.fs.exists("docs")).resolves.toBe(false)
+  })
+
+  it("preserves replacement directories during supported conditional removal", async () => {
+    const store = createMemoryWorkspaceStore()
+    registerWorkspace("conditional-directory-removal", defineWorkspace({ store }))
+    const workspace = useWorkspace("conditional-directory-removal", { mode: "write" })
+    await workspace.fs.writeFile("docs/page.md", "first")
+    const baseline = await store.stat("docs")
+    await workspace.fs.rm("docs", { recursive: true })
+    await workspace.fs.writeFile("docs/page.md", "replacement")
+
+    await workspace.fs.rm("docs", { recursive: true, ifDirectoryIdentity: baseline!.directoryIdentity! })
+    await expect(workspace.fs.readFile("docs/page.md")).resolves.toBe("replacement")
+
+    const current = await store.stat("docs")
+    await workspace.fs.rm("docs", { recursive: true, ifDirectoryIdentity: current!.directoryIdentity! })
+    await expect(workspace.fs.exists("docs")).resolves.toBe(false)
+  })
+
+  it("preserves a replacement during supported conditional removal", async () => {
+    registerWorkspace("conditional-removal", defineWorkspace({ store: { provider: "memory" } }))
+    const workspace = useWorkspace("conditional-removal", { mode: "write" })
+    await workspace.fs.writeFile("page.md", "first")
+    const baseline = await workspace.fs.stat("page.md")
+    await workspace.fs.writeFile("page.md", "second")
+
+    await workspace.fs.rm("page.md", { ifDigest: baseline.digest! })
+    await expect(workspace.fs.readFile("page.md")).resolves.toBe("second")
+
+    const current = await workspace.fs.stat("page.md")
+    await workspace.fs.rm("page.md", { ifDigest: current.digest! })
+    await expect(workspace.fs.exists("page.md")).resolves.toBe(false)
+  })
+
   it("rejects validator path rewrites before mutating a preserved path", async () => {
     registerWorkspace("preserved-path", defineWorkspace({
       rules: {
@@ -595,6 +664,40 @@ describe("workspace public API", () => {
     const readonly = useWorkspace("metadata")
 
     await expect(readonly.getMeta?.("snapshot")).resolves.toEqual({ status: "ready" })
+  })
+
+  it.each([undefined, "text/markdown"])("lets read-only inspection reuse current startup snapshots with mediaType=%s", async (mediaType) => {
+    const existingKeys = vi.fn(async () => ["AGENTS.md"])
+    const addedKeys = vi.fn(async () => ["SKILL.md"])
+    const definition = {
+      name: "snapshot-inspection",
+      store: { provider: "memory" as const },
+      sources: {
+        existing: custom({
+          materialize: "startup",
+          mount: "",
+          getKeys: existingKeys,
+          async getItem(key) { return { key, content: "# Existing\n", mediaType } },
+        }),
+      } as Record<string, ReturnType<typeof custom>>,
+    }
+
+    const initial = useWorkspace("snapshot-inspection", { definition })
+    await initial.fs.list("", { recursive: true })
+    definition.sources.added = custom({
+      materialize: "startup",
+      mount: ".agents/skills/review",
+      getKeys: addedKeys,
+      async getItem(key) { return { key, content: "# Added\n" } },
+    })
+
+    const inspection = useWorkspace("snapshot-inspection", { definition, mode: "read", refresh: false })
+    await expect(inspection.fs.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+      expect.objectContaining({ path: ".agents/skills/review/SKILL.md", type: "file" }),
+    ]))
+    expect(existingKeys).toHaveBeenCalledOnce()
+    expect(addedKeys).toHaveBeenCalledOnce()
   })
 
   it("merges bundled assets with lazy runtime sources in the read-only facade", async () => {

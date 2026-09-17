@@ -4,8 +4,11 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { custom, file } from "@vite-hub/workspace"
+
 import { agentWithColocatedInstructions, defineAgent } from "../src/index.ts"
-import { loadViteAgent } from "../src/vite/runtime-adapter.ts"
+import { createViteWorkspaceAgentLoader, loadViteAgent } from "../src/vite/runtime-adapter.ts"
+import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
 import type { ViteDevServer } from "vite"
 import type { DiscoveredAgentDefinition } from "../src/index.ts"
@@ -16,6 +19,30 @@ function settings(agent: unknown) {
 
 describe("colocated Agent instructions", () => {
   const model = {} as never
+
+  it.each([
+    { form: "file", source: file({ content: "Explicit instructions", mount: "", workspacePath: "AGENTS.md" }) },
+    { form: "root mount", source: custom({ mount: "", files: [{ path: "AGENTS.md", content: "Explicit instructions" }] }) },
+  ])("keeps an explicit $form instruction Source under another key", async ({ source }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-explicit-instructions-"))
+    try {
+      await writeFile(join(root, "instructions.md"), "Colocated instructions")
+      for (const capability of [false, true]) {
+        const agent = defineAgent({
+          driver: { model },
+          workspace: { sourceRootDir: root, ...(capability ? {} : { sources: { explicit: source } }) },
+          ...(capability ? { capabilities: [{ id: "instructions", workspaceSources: { explicit: source } }] } : {}),
+        })
+        expect(agent.sources?.__vitehubAgentInstructions).toBeUndefined()
+        const decorated = workspaceAgentWithSourceRoot(agent, root, "Colocated instructions")
+        expect(decorated.sources?.__vitehubAgentInstructions).toBeUndefined()
+        expect(decorated.sources?.explicit).toEqual(source)
+      }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 
   it("adds instructions to model Agents without a Workspace", () => {
     const agent = defineAgent({ driver: { model }, runtime: false })
@@ -110,6 +137,51 @@ describe("colocated Agent instructions", () => {
       } as DiscoveredAgentDefinition)
 
       expect(settings(loaded?.agent)?.driver?.instructions).toBe("Review the local invocation.\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["discovered", "explicit", "override"] as const)("mounts colocated instructions and skills in the Vite Workspace loader with %s sources", async (sourceConfiguration) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-colocated-workspace-"))
+    const handler = join(root, "support", "agent.ts")
+    try {
+      await mkdir(join(root, "support", "skills", "review"), { recursive: true })
+      await writeFile(handler, "export default {}", "utf8")
+      await writeFile(join(root, "support", "instructions.md"), "Support the local invocation.\n", "utf8")
+      await writeFile(join(root, "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+      const explicitInstructions = {
+        materialize: "build" as const,
+        mount: "",
+        path: "instructions.md",
+        workspacePath: "AGENTS.md",
+      }
+      const agent = defineAgent({
+        workspace: {
+          ...(sourceConfiguration !== "discovered" ? { sourceRootDir: join(root, "support") } : {}),
+          ...(sourceConfiguration === "override" ? { sources: { __vitehubAgentInstructions: explicitInstructions } } : {}),
+        },
+        driver: { model },
+      })
+      if (sourceConfiguration !== "discovered") {
+        expect(agent.sources?.__vitehubAgentInstructions).toMatchObject({
+          materialize: "build",
+          path: "instructions.md",
+        })
+      }
+      const server = { ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
+
+      const loaded = await createViteWorkspaceAgentLoader(server, { handler, name: "support", workspace: "support" } as DiscoveredAgentDefinition)()
+      const sources = loaded.default.sources as Record<string, { content: string | Uint8Array, materialize: string, workspacePath: string }>
+
+      expect(sources.__vitehubAgentInstructions).toEqual(sourceConfiguration === "override" ? explicitInstructions : {
+        content: "Support the local invocation.\n",
+        materialize: "startup",
+        mount: "",
+        workspacePath: "AGENTS.md",
+      })
+      expect(new TextDecoder().decode(sources["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content as Uint8Array)).toBe("# Review\n")
     }
     finally {
       await rm(root, { force: true, recursive: true })

@@ -7,6 +7,11 @@ import { createServer } from "vite"
 import { parse, string } from "valibot"
 
 import { hubAgent } from "../src/vite.ts"
+import { syncWorkspaceDefinition } from "../../workspace/src/lifecycle.ts"
+import { materializeWorkspaceSources } from "../../workspace/src/sources/materialization.ts"
+import { createLocalWorkspaceStore } from "../../workspace/src/storage/local.ts"
+
+import type { WorkspaceDefinition } from "../../workspace/src/core/types.ts"
 
 interface CapturedStateAdapter {
   kind: string
@@ -21,6 +26,7 @@ interface DeploymentRuntimeCapture {
   extendRegisteredAgent?: () => Record<PropertyKey, unknown>
   registeredWorkspaceName?: string
   stateAdapter?: CapturedStateAdapter
+  workspaceDefinitions: Record<string, Record<PropertyKey, unknown>>
   workspaceRegistry: Record<string, () => Promise<{ default?: Record<PropertyKey, unknown> }>>
 }
 
@@ -38,6 +44,7 @@ const runtimeCaptureKey = "__vitehubAgentDeploymentRuntimeCapture"
 function deploymentRuntimeModules(): Map<string, string> {
   return new Map([
     ["@vite-hub/agent/server/internal", [
+      `export { filterColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "..", "src", "internal", "colocated-agent-skills.ts"))}`,
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
@@ -57,7 +64,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "    instructions: agent.sources?.__vitehubAgentInstructions?.content,",
       "    kind,",
       "    runtime: options.runtime,",
-      "    skill: assetText(agent, '__vitehubAgentSkill:skills/review/SKILL.md'),",
+    "    skill: assetText(agent, '__vitehubAgentSkill:.agents/skills/review/SKILL.md'),",
       "    webhook,",
       "  })",
       "}",
@@ -83,10 +90,12 @@ function deploymentRuntimeModules(): Map<string, string> {
     ].join("\n")],
     ["@vite-hub/workspace/runtime", [
       `const capture = globalThis.${runtimeCaptureKey}`,
+      "export function registerWorkspace(name, definition) { capture.workspaceDefinitions[name] = definition; return definition }",
       "export function setWorkspaceRuntimeRegistry(workspaceRegistry) { capture.workspaceRegistry = workspaceRegistry }",
     ].join("\n")],
     ["@vite-hub/agent/server/workspace", [
       `const capture = globalThis.${runtimeCaptureKey}`,
+      "export function registerWorkspace(name, definition) { capture.workspaceDefinitions[name] = definition; return definition }",
       "export function setWorkspaceRuntimeRegistry(workspaceRegistry) { capture.workspaceRegistry = workspaceRegistry }",
     ].join("\n")],
     ["@vite-hub/workspace/internal/runtime/hosted", "export function installHostedWorkspaceRuntime() {}"],
@@ -108,13 +117,16 @@ async function createDeploymentRuntimeFixture(
   inspectionRoute: true | string = true,
   discordGatewayRoute?: true | string,
   declaredWorkspaceName?: string,
+  explicitSourceRoot = false,
+  explicitInstructions: boolean | "destination" | "capability same key" | "capability destination" = false,
+  explicitSkill: false | "same key" | "destination" | "capability" = false,
 ): Promise<DeploymentRuntimeFixture> {
   const root = await mkdtemp(adapter === "netlify"
     ? join(import.meta.dirname, "fixtures", "deployment-catalog-")
     : join(tmpdir(), "vitehub-agent-deployment-catalog-"))
   const supportRoot = join(root, "server", "agents", ...supportName.split("/"))
   const reviewerRoot = join(root, "server", "agents", "reviewer")
-  const capture: DeploymentRuntimeCapture = { workspaceRegistry: {} }
+  const capture: DeploymentRuntimeCapture = { workspaceDefinitions: {}, workspaceRegistry: {} }
   const scope = globalThis as typeof globalThis & Record<string, unknown>
   const previousDeno = scope.Deno
   scope[runtimeCaptureKey] = capture
@@ -125,10 +137,19 @@ async function createDeploymentRuntimeFixture(
     "import { defineAgent } from '@vite-hub/agent'",
     "export default defineAgent({",
     "  description: 'support',",
+    ...(explicitSkill === "capability" ? ["  capabilities: [{ id: 'review', workspaceSources: { explicitSkill: { content: 'Explicit skill', materialize: 'startup', mount: '.agents/skills/review', workspacePath: 'SKILL.md' } } }],"] : []),
+    ...(typeof explicitInstructions === "string" && explicitInstructions.startsWith("capability") ? [`  capabilities: [{ id: 'instructions', workspaceSources: { ${explicitInstructions === "capability same key" ? "__vitehubAgentInstructions" : "explicitInstructions"}: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } } }],`] : []),
     "  driver: { model: {} },",
     ...(declaredWorkspaceName ? [`  name: ${JSON.stringify(declaredWorkspaceName)},`] : []),
     "  runtime: false,",
-    "  workspace: { mode: 'write' },",
+    "  workspace: {",
+    "    mode: 'write',",
+    ...(explicitSourceRoot ? [`    sourceRootDir: ${JSON.stringify(supportRoot)},`] : []),
+    "    sources: {",
+    ...(explicitInstructions && !String(explicitInstructions).startsWith("capability") ? [`      ${explicitInstructions === "destination" ? "explicitInstructions" : "__vitehubAgentInstructions"}: { content: 'Explicit instructions', materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' },`] : []),
+    ...(explicitSkill && explicitSkill !== "capability" ? [`      ${JSON.stringify(explicitSkill === "same key" ? "__vitehubAgentSkill:.agents/skills/review/SKILL.md" : "explicitSkill")}: { content: 'Explicit skill', materialize: 'startup', mount: '.agents/skills/review', workspacePath: 'SKILL.md' },`] : []),
+    "    },",
+    "  },",
     "})",
     "",
   ].join("\n"), "utf8")
@@ -299,6 +320,8 @@ async function createDeploymentRuntimeFixture(
       })
     },
     async workspace(name) {
+      const registered = capture.workspaceDefinitions[name]
+      if (registered) return registered
       const load = capture.workspaceRegistry[name]
       if (!load) throw new Error(`Workspace ${name} was not registered.`)
       const workspace = (await load()).default
@@ -433,8 +456,8 @@ describe("generated Agent deployment catalog", () => {
   it("registers the Workspace definition with colocated instructions and skills", async () => {
     expect(Object.keys(runtime!.capture.workspaceRegistry)).toEqual(["support"])
     const workspace = await runtime!.workspace("support")
-    const sources = workspace.sources as Record<string, { content: string }> | undefined
-    const skills = workspace[Symbol.for("vitehub.agent.colocatedSkills")] as Record<string, { content: Uint8Array }> | undefined
+    const sources = workspace.sources as Record<string, { content: string | Uint8Array }> | undefined
+    const skills = runtime!.capture.registeredAgent?.[Symbol.for("vitehub.agent.colocatedSkills")] as Record<string, { content: Uint8Array }> | undefined
     const settings = Object.getOwnPropertyDescriptor(workspace, "__vitehubAgentSettings")?.value as {
       driver?: { instructions?: unknown }
     } | undefined
@@ -442,10 +465,14 @@ describe("generated Agent deployment catalog", () => {
     expect(workspace.sourceRootDir).toBe(join(runtime!.supportRoot, "workspace"))
     expect(sources?.__vitehubAgentInstructions).toMatchObject({
       content: "Support the deployment catalog.\n",
-      materialize: "build",
+      materialize: "startup",
       workspacePath: "AGENTS.md",
     })
-    expect(new TextDecoder().decode(skills?.["__vitehubAgentSkill:skills/review/SKILL.md"]?.content)).toBe("# Review\n")
+    expect(sources?.["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]).toMatchObject({
+      materialize: "startup",
+      workspacePath: ".agents/skills/review/SKILL.md",
+    })
+    expect(new TextDecoder().decode(sources?.["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content as Uint8Array)).toBe("# Review\n")
     expect(settings?.driver?.instructions).toBeUndefined()
     await expect((await runtime!.request("support", "webhooks/channel")).json()).resolves.toMatchObject({
       instructions: "Support the deployment catalog.\n",
@@ -457,6 +484,98 @@ describe("generated Agent deployment catalog", () => {
     expect(extended?.description).toBe("Extended")
     expect(extended?.sourceRootDir).toBe(join(runtime!.supportRoot, "workspace"))
     expect(extended?.[Symbol.for("vitehub.agent.colocatedSkills")]).toEqual(skills)
+  })
+
+  it.each(["nitro", "deno", "netlify"] as const)("preserves explicit instruction destinations in %s deployment fallback", async (adapter) => {
+    await runtime!.close()
+    if (adapter === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    runtime = await createDeploymentRuntimeFixture(adapter, "support", true, undefined, undefined, true, "destination")
+    const workspace = await runtime.workspace("support")
+    expect(workspace.sources).not.toHaveProperty("__vitehubAgentInstructions")
+    expect(workspace.sources).toMatchObject({ explicitInstructions: { content: "Explicit instructions" } })
+  })
+
+  it.each((["nitro", "deno", "netlify"] as const).flatMap(adapter => (["capability same key", "capability destination"] as const).map(collision => ({ adapter, collision }))))("preserves explicit instruction Sources in $adapter deployment fallback ($collision)", async ({ adapter, collision }) => {
+    await runtime!.close()
+    if (adapter === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    runtime = await createDeploymentRuntimeFixture(adapter, "support", true, undefined, undefined, true, collision)
+    const workspace = await runtime.workspace("support")
+    expect(workspace.sources).toMatchObject({
+      [collision === "capability same key" ? "__vitehubAgentInstructions" : "explicitInstructions"]: { content: "Explicit instructions" },
+    })
+    if (collision === "capability destination") expect(workspace.sources).not.toHaveProperty("__vitehubAgentInstructions")
+    await runtime.request("support", "webhooks/channel")
+    expect(runtime.capture.lastAgent).toBeDefined()
+  })
+
+  it.each([false, true])("keeps startup instructions with an explicit source root and explicit override %s", async (explicitInstructions) => {
+    await runtime!.close()
+    runtime = await createDeploymentRuntimeFixture("nitro", "support", true, undefined, undefined, true, explicitInstructions)
+    const workspace = await runtime.workspace("support")
+    expect(workspace.sourceRootDir).toBe(runtime.supportRoot)
+    expect(workspace.sources).toMatchObject({
+      __vitehubAgentInstructions: {
+        content: explicitInstructions ? "Explicit instructions" : "Support the deployment catalog.\n",
+        materialize: "startup",
+        mount: "",
+        workspacePath: "AGENTS.md",
+      },
+    })
+  })
+
+  it.each((["nitro", "deno", "netlify"] as const).flatMap(adapter => (["same key", "destination", "capability"] as const).map(collision => ({ adapter, collision }))))("preserves explicit Skill sources in $adapter deployment fallback metadata ($collision)", async ({ adapter, collision }) => {
+    await runtime!.close()
+    if (adapter === "netlify") vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    runtime = await createDeploymentRuntimeFixture(adapter, "support", true, undefined, undefined, false, false, collision)
+    const workspace = await runtime.workspace("support")
+    expect(workspace.sources).toMatchObject({
+      [collision === "same key" ? "__vitehubAgentSkill:.agents/skills/review/SKILL.md" : "explicitSkill"]: { content: "Explicit skill" },
+    })
+    await runtime.request("support", "webhooks/channel")
+    expect(Reflect.get(runtime.capture.lastAgent!, Symbol.for("vitehub.agent.colocatedSkills"))).toBeUndefined()
+  })
+
+  it("materializes registered colocated files at startup and refreshes them after restart", async () => {
+    const workspace = await runtime!.workspace("support")
+    const storeRoot = join(runtime!.supportRoot, "persistent-workspace")
+    const definition = { ...workspace, name: "support" } as WorkspaceDefinition
+
+    const initialStore = createLocalWorkspaceStore(storeRoot)
+    await syncWorkspaceDefinition(definition, initialStore)
+    await materializeWorkspaceSources(definition, initialStore)
+    const firstStore = createLocalWorkspaceStore(storeRoot)
+    await expect(firstStore.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: ".agents/skills/review/SKILL.md", type: "file" }),
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+    ]))
+    await expect(firstStore.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("Support the deployment catalog.\n"),
+    })
+    await expect(firstStore.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Review\n"),
+    })
+
+    const sources = definition.sources as Record<string, { content?: string | Uint8Array }>
+    const restartedDefinition: WorkspaceDefinition = {
+      ...definition,
+      sources: {
+        ...sources,
+        __vitehubAgentInstructions: {
+          ...sources.__vitehubAgentInstructions,
+          content: "Updated support instructions.\n",
+        },
+      } as unknown as WorkspaceDefinition["sources"],
+    }
+    const restartStore = createLocalWorkspaceStore(storeRoot)
+    await syncWorkspaceDefinition(restartedDefinition, restartStore)
+    await materializeWorkspaceSources(restartedDefinition, restartStore)
+    const restartedStore = createLocalWorkspaceStore(storeRoot)
+    await expect(restartedStore.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("Updated support instructions.\n"),
+    })
+    await expect(restartedStore.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Review\n"),
+    })
   })
 
   it("registers an explicitly named production Agent under its resolved Workspace name", async () => {

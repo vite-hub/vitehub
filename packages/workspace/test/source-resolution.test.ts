@@ -1067,11 +1067,11 @@ describe("Workspace Source Resolution", () => {
     })
 
     await expect(workspace.fs.readFile("docs/ready.md")).resolves.toBe("prepared\n")
-    // Local snapshots must attempt replay to persist ownership before reuse.
-    expect(getItem).toHaveBeenCalledTimes(provider === "local" ? 2 : 1)
+    // Read-only inspection reuses matching snapshots after local sidecar loss.
+    expect(getItem).toHaveBeenCalledTimes(1)
   })
 
-  it("masks removed startup snapshot files after an overlay refresh", async () => {
+  it("retains removed startup files when overlay cleanup cannot remove them atomically", async () => {
     let keys = ["kept.md", "removed.md"]
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -1095,14 +1095,16 @@ describe("Workspace Source Resolution", () => {
     await workspace.fs.materializeSources?.({ sources: ["docs"] })
 
     await expect(workspace.fs.readFile("docs/kept.md")).resolves.toBe("kept.md\n")
-    await expect(workspace.fs.readFile("docs/removed.md")).rejects.toThrow("does not exist")
-    await expect(workspace.fs.exists("docs/removed.md")).resolves.toBe(false)
+    await expect(workspace.fs.readFile("docs/removed.md")).resolves.toBe("removed.md\n")
+    await expect(workspace.fs.exists("docs/removed.md")).resolves.toBe(true)
     await expect(workspace.fs.list("docs")).resolves.toEqual([
       expect.objectContaining({ path: "docs/kept.md", type: "file" }),
+      expect.objectContaining({ path: "docs/removed.md", type: "file" }),
     ])
+    await expect(base.readFile("docs/removed.md")).resolves.toBe("removed.md\n")
   })
 
-  it("masks removed root-mounted startup files after an overlay refresh", async () => {
+  it("retains removed root-mounted startup files when overlay cleanup is not atomic", async () => {
     let keys = ["kept.md", "removed.md"]
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -1127,7 +1129,13 @@ describe("Workspace Source Resolution", () => {
     await workspace.fs.materializeSources?.({ sources: ["root"] })
 
     await expect(workspace.fs.readFile("kept.md")).resolves.toBe("kept.md\n")
-    await expect(workspace.fs.exists("removed.md")).resolves.toBe(false)
+    await expect(workspace.fs.readFile("removed.md")).resolves.toBe("removed.md\n")
+    await expect(workspace.fs.exists("removed.md")).resolves.toBe(true)
+    await expect(workspace.fs.list("")).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "kept.md", type: "file" }),
+      expect.objectContaining({ path: "removed.md", type: "file" }),
+    ]))
+    await expect(base.readFile("removed.md")).resolves.toBe("removed.md\n")
   })
 
   it("does not serve startup snapshots outside the selected scope", async () => {

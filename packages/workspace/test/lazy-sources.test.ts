@@ -1,15 +1,18 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { WorkspaceStore } from "../src/index.ts"
 
+import { removedStartupPathMetaKey, sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
-import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } from "../src/sources/view.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
+import { sha256 } from "../src/core/path.ts"
+import { workspaceConflict } from "../src/core/errors.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 const globSource = glob
@@ -19,6 +22,116 @@ import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 
 const tempDirs: string[] = []
+
+describe("startup cleanup checkpoints", () => {
+  it.each(["promotion", "refresh", "retirement"].flatMap(mode => ["before", "during", "after"].map(timing => ({ mode, timing }))))("keeps user deletions visible after a replacement $timing $mode evidence publication", async ({ mode, timing }) => {
+    const store = createMemoryWorkspaceStore()
+    const skillPath = ".agents/skills/review/SKILL.md"
+    const sourcePath = mode === "promotion" ? skillPath : "file.md"
+    const sources = { generated: custom({ materialize: "startup", files: [{ path: sourcePath, content: "generated" }] }) }
+    const definition = { name: `cleanup-race-${mode}-${timing}`, sources }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    const path = mode === "promotion" ? skillPath : `generated/${sourcePath}`
+    await store.snapshot()
+    if (mode === "refresh") {
+      sources.generated = custom({ materialize: "startup", files: [] })
+      await invalidateWorkspaceSourceMaterialization(definition, store, ["generated"])
+    }
+    else Reflect.deleteProperty(sources, "generated")
+    const setMeta = store.setMeta!.bind(store)
+    let replaced = false
+    const replaceAndDelete = async () => {
+      await store.writeFile(path, { path, content: "user replacement" })
+      await store.rm(path)
+    }
+    store.setMeta = async (key, value) => {
+      if (!replaced && key === removedStartupPathMetaKey(definition.name, path) && value) {
+        replaced = true
+        if (timing === "before") await replaceAndDelete()
+        if (timing === "during") await store.writeFile(path, { path, content: "user replacement" })
+        await setMeta(key, value)
+        if (timing === "during") await store.rm(path)
+        if (timing === "after") await replaceAndDelete()
+        return
+      }
+      await setMeta(key, value)
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    expect(replaced).toBe(true)
+    registerWorkspace(definition.name, defineWorkspace({ store, sources }))
+    const workspace = await useRegisteredWorkspace(definition.name)
+    expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "removed" }))
+  })
+
+  it("retains startup files without Store creation history", async () => {
+    const store = createMemoryWorkspaceStore()
+    store.getPathCreationIdentity = undefined
+    const definition = { name: "no-creation-history", sources: {
+      generated: custom({ materialize: "startup", files: [{ path: "file.md", content: "generated" }] }),
+    } }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await createWorkspaceSourceView({ ...definition, sources: {} }, store).materializeSources()
+    await expect(store.readFile("generated/file.md")).resolves.toMatchObject({ content: "generated" })
+  })
+
+  it.each(["promotion", "refresh", "retirement"].flatMap(mode => ["operational", "conflict", "replacement"].map(failureKind => ({ mode, failureKind }))))("compensates $mode removal checkpoint failure: $failureKind", async ({ mode, failureKind }) => {
+    const store = createMemoryWorkspaceStore()
+    const skillPath = ".agents/skills/review/SKILL.md"
+    const sourcePath = mode === "promotion" ? skillPath : "file.md"
+    const sources = { generated: custom({ materialize: "startup", files: [{ path: sourcePath, content: "generated" }] }) }
+    const definition = { name: `cleanup-checkpoint-${mode}`, sources }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    const path = mode === "promotion" ? skillPath : `generated/${sourcePath}`
+    const original = await store.readFile(path)
+    expect(original).toBeDefined()
+    await store.snapshot()
+    if (mode === "refresh") {
+      sources.generated = custom({ materialize: "startup", files: [] })
+      await invalidateWorkspaceSourceMaterialization(definition, store, ["generated"])
+    }
+    else Reflect.deleteProperty(sources, "generated")
+    const setMeta = store.setMeta!.bind(store)
+    const failure = failureKind === "conflict" ? workspaceConflict("removal checkpoint unavailable") : new Error("removal checkpoint unavailable")
+    const replacement = { path, content: "user replacement", mediaType: "text/plain", metadata: { user: true } }
+    let failed = false
+    store.setMeta = async (key, value) => {
+      if (!failed && key === removedStartupPathMetaKey(definition.name, path) && value) {
+        failed = true
+        await expect(store.readFile(path)).resolves.toBeUndefined()
+        if (failureKind === "replacement") await store.writeFile(path, replacement)
+        throw failure
+      }
+      await setMeta(key, value)
+    }
+    const cleanup = createWorkspaceSourceView(definition, store).materializeSources()
+    if (mode === "refresh") await expect(cleanup).resolves.toMatchObject({ sources: [expect.objectContaining({ status: "error", error: failure.message })] })
+    else await expect(cleanup).rejects.toThrow(failure)
+    expect(failed).toBe(true)
+    if (failureKind === "replacement") {
+      await expect(store.readFile(path)).resolves.toMatchObject(replacement)
+      await createWorkspaceSourceView(definition, store).materializeSources()
+      await expect(store.readFile(path)).resolves.toMatchObject(replacement)
+      return
+    }
+    await expect(store.readFile(path)).resolves.toEqual(original)
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await expect(store.readFile(path)).resolves.toBeUndefined()
+    expect(await store.getMeta?.(removedStartupPathMetaKey(definition.name, path))).toBeTruthy()
+    registerWorkspace(definition.name, defineWorkspace({ store, sources }))
+    const workspace = await useRegisteredWorkspace(definition.name)
+    expect((await workspace.diff()).entries.some(entry => entry.path === path)).toBe(false)
+  })
+})
+
+async function expectRetiredFile(store: WorkspaceStore, path: string) {
+  if (store.conditionalRemoval) await expect(store.stat(path)).resolves.toBeUndefined()
+  else await expect(store.stat(path)).resolves.toMatchObject({ type: "file" })
+}
+
+async function expectRetiredDirectory(store: WorkspaceStore, path: string) {
+  if (store.conditionalDirectoryRemoval) await expect(store.stat(path)).resolves.toBeUndefined()
+  else await expect(store.stat(path)).resolves.toMatchObject({ type: "directory" })
+}
 
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-lazy-sources-"))
@@ -34,6 +147,691 @@ afterEach(async () => {
 })
 
 describe("lazy sources", () => {
+  it.each(["readFile", "stat", "exists"] as const)("materializes sibling root startup Sources before the first %s", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "sibling-startup-point-read",
+      sources: {
+        instructions: custom({ materialize: "startup", mount: "", files: [
+          { path: "AGENTS.md", content: "instructions" },
+          { path: "shared.md", content: "first" },
+        ] }),
+        skills: custom({ materialize: "startup", mount: "", files: [
+          { path: ".agents/skills/review/SKILL.md", content: "review skill" },
+          { path: "shared.md", content: "second" },
+        ] }),
+      },
+    }, store)
+
+    const path = "AGENTS.md"
+    if (operation === "readFile") await expect(view.readFile(path)).resolves.toBe("instructions")
+    else if (operation === "stat") await expect(view.stat(path)).resolves.toMatchObject({ type: "file" })
+    else await expect(view.exists(path)).resolves.toBe(true)
+    await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({ content: "review skill" })
+    await expect(view.readFile("shared.md")).resolves.toBe("first")
+    await expect(view.exists("missing.md")).resolves.toBe(false)
+  })
+
+  it.each(["directory", "ancestor file"])("preserves a promoted Skill replaced by %s", async (replacement) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    registerWorkspace("non-file-promotion", defineWorkspace({ store, sources: {
+      skills: custom({ materialize: "startup", mount: "source", files: [
+        { path: ".agents/skills/review/SKILL.md", content: "review skill" },
+      ] }),
+    } }))
+    const view = await useRegisteredWorkspace("non-file-promotion")
+    await view.materializeSources?.()
+    const path = replacement === "directory" ? ".agents/skills/review/SKILL.md" : ".agents/skills/review"
+    await rm(join(root, path), { recursive: true })
+    if (replacement === "directory") await mkdir(join(root, path))
+    else await writeFile(join(root, path), "user replacement")
+
+    await expect(view.materializeSources?.()).resolves.toBeDefined()
+    await expect(view.diff()).resolves.toBeDefined()
+    await expect(store.stat(path)).resolves.toMatchObject({ type: replacement === "directory" ? "directory" : "file" })
+    if (replacement === "ancestor file") await expect(readFile(join(root, path), "utf8")).resolves.toBe("user replacement")
+  })
+
+  it.each(["", "foo"])("transfers generated directory ownership to a retained ancestor mounted at %s", async (mount) => {
+    const store = createMemoryWorkspaceStore()
+    await store.mkdir("foo")
+    const retained = custom({ materialize: "startup", mount, files: [
+      { path: mount ? "bar/retained.md" : "foo/bar/retained.md", content: "retained" },
+    ] })
+    const initial = { name: "retained-ancestor", sources: {
+      removed: custom({ materialize: "startup", mount: "foo/bar", files: [{ path: "removed.md", content: "removed" }] }),
+      retained,
+    } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await syncWorkspaceDefinition({ name: initial.name, sources: { retained } }, store)
+    await expect(store.readFile("foo/bar/retained.md")).resolves.toMatchObject({ content: "retained" })
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("retained", initial.name))).resolves.toMatchObject({ ownedDirectories: expect.arrayContaining(["foo/bar"]) })
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("foo/bar")).resolves.toBeUndefined()
+    await expect(store.stat("foo")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each(["update", "remove"])("preserves legacy promoted skill ownership during source %s", async (action) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/review/SKILL.md"
+    const sources = { portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Original" }] }) }
+    const definition = { name: "legacy-promotion", sources }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.setMeta!(`workspace:promoted-source-skills:"legacy-promotion"`, {
+      [destination]: {
+        digest: await sha256("# Original"),
+        source: "portal",
+        sourcePath: `portal/${destination}`,
+        workspace: "legacy-promotion",
+      },
+    })
+    if (action === "update") {
+      sources.portal = custom({ materialize: "startup", files: [{ path: destination, content: "# Updated" }] })
+      await invalidateWorkspaceSourceMaterialization(definition, store, ["portal"])
+    }
+    else Reflect.deleteProperty(sources, "portal")
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    if (action === "update") await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Updated" })
+    else await expect(store.readFile(destination)).resolves.toBeUndefined()
+  })
+
+  it.each(["metadata", "mediaType"])("preserves promoted files with user-replaced %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/review/SKILL.md"
+    const sources = { portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Source" }] }) }
+    const view = createWorkspaceSourceView({ name: "promotion-attributes", sources }, store)
+    await view.materializeSources()
+    const file = (await store.readFile(destination))!
+    const replacement = { ...file, ...(attribute === "metadata" ? { metadata: { user: true } } : { mediaType: "text/plain" }) }
+    await store.writeFile(destination, replacement)
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
+    Reflect.deleteProperty(sources, "portal")
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
+  })
+
+  it.each(["metadata", "mediaType"])("preserves concurrent attribute replacements during promoted-file retirement: %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/review/SKILL.md"
+    const sources = { portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Source" }] }) }
+    const view = createWorkspaceSourceView({ name: "retirement-attributes", sources }, store)
+    await view.materializeSources()
+    const file = (await store.readFile(destination))!
+    const replacement = { ...file, ...(attribute === "metadata" ? { metadata: { user: true } } : { mediaType: "text/user" }) }
+    const remove = store.compareAndSwapFile!.bind(store)
+    let replaced = false
+    vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, next) => {
+      if (path === destination && !next) {
+        replaced = true
+        await store.writeFile(path, replacement)
+      }
+      await remove(path, expected, next)
+    })
+    Reflect.deleteProperty(sources, "portal")
+    await view.materializeSources()
+    expect(replaced).toBe(true)
+    await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
+  })
+
+  it.each(["shared", "shared/retained"])("keeps retained generated files out of diffs after ownership transfer to %s", async (mount) => {
+    const sources = {
+      removed: custom({ materialize: "startup", mount: "shared", files: [{ path: "removed.md", content: "removed" }] }),
+      retained: custom({ materialize: "startup", mount, files: [{ path: "retained.md", content: "retained" }] }),
+    }
+    registerWorkspace("transfer-diff", defineWorkspace({ store: { provider: "memory" }, sources }))
+    const workspace = await useRegisteredWorkspace("transfer-diff")
+    await workspace.materializeSources?.()
+    Reflect.deleteProperty(sources, "removed")
+    expect((await workspace.diff()).entries.some(entry => entry.path === `${mount}/retained.md`)).toBe(false)
+  })
+
+  it("keeps user deletions visible after recreating a retired startup path", async () => {
+    const sources = { generated: custom({ materialize: "startup", files: [{ path: "file.md", content: "generated" }] }) }
+    const store = createMemoryWorkspaceStore()
+    registerWorkspace("recreated-diff", defineWorkspace({ store, sources }))
+    const workspace = await useRegisteredWorkspace("recreated-diff")
+    await workspace.materializeSources?.()
+    const baseline = await workspace.snapshot()
+    Reflect.deleteProperty(sources, "generated")
+    await workspace.materializeSources?.()
+    const path = "generated/file.md"
+    expect((await workspace.diff()).entries.some(entry => entry.path === path)).toBe(false)
+    resetWorkspaceRegistry()
+    registerWorkspace("recreated-diff", defineWorkspace({ store, sources }))
+    const restarted = await useRegisteredWorkspace("recreated-diff")
+    await restarted.writeFile(path, "user recreation")
+    await restarted.rm(path)
+    for (const diff of [await restarted.diff(), await restarted.diff({ from: baseline })]) {
+      expect(diff.entries).toContainEqual(expect.objectContaining({ path, type: "removed" }))
+    }
+  })
+
+  it("promotes complete source skills while preserving their mounted files", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "source-skills",
+      sources: {
+        portal: custom({
+          materialize: "startup",
+          mount: "portal",
+          files: [
+            { path: ".agents/skills/perf-investigate/SKILL.md", content: "# Performance\n" },
+            { path: ".agents/skills/perf-investigate/checks.md", content: "# Checks\n" },
+            { path: ".agents/skills/k8s-environments/SKILL.md", content: "# Kubernetes\n" },
+            { path: ".claude/skills/legacy-review/SKILL.md", content: "# Legacy review\n" },
+            { path: ".claude/skills/legacy-review/reference.md", content: "# Legacy reference\n" },
+            { path: ".codex/skills/codex-review/SKILL.md", content: "# Codex review\n" },
+            { path: ".agents/skills/root-priority/SKILL.md", content: "# Canonical\n" },
+            { path: ".agents/skills/root-priority/canonical.md", content: "# Canonical companion\n" },
+            { path: ".claude/skills/root-priority/SKILL.md", content: "# Claude fallback\n" },
+            { path: ".claude/skills/root-priority/legacy.md", content: "# Legacy companion\n" },
+          ],
+        }),
+        zeta: custom({
+          materialize: "startup",
+          mount: "zeta",
+          files: [
+            { path: ".agents/skills/k8s-environments/SKILL.md", content: "# Conflicting Kubernetes\n" },
+            { path: ".agents/skills/k8s-environments/zeta.md", content: "# Zeta only\n" },
+          ],
+        }),
+      },
+    }, store)
+
+    await view.materializeSources()
+
+    await expect(view.readFile(".agents/skills/perf-investigate/SKILL.md")).resolves.toBe("# Performance\n")
+    await expect(view.readFile(".agents/skills/perf-investigate/checks.md")).resolves.toBe("# Checks\n")
+    await expect(view.readFile(".agents/skills/k8s-environments/SKILL.md")).resolves.toBe("# Kubernetes\n")
+    await expect(view.readFile(".agents/skills/legacy-review/SKILL.md")).resolves.toBe("# Legacy review\n")
+    await expect(view.readFile(".agents/skills/legacy-review/reference.md")).resolves.toBe("# Legacy reference\n")
+    await expect(view.readFile(".agents/skills/codex-review/SKILL.md")).resolves.toBe("# Codex review\n")
+    await expect(view.readFile(".agents/skills/root-priority/SKILL.md")).resolves.toBe("# Canonical\n")
+    await expect(view.readFile(".agents/skills/root-priority/canonical.md")).resolves.toBe("# Canonical companion\n")
+    await expect(view.exists(".agents/skills/root-priority/legacy.md")).resolves.toBe(false)
+    await expect(view.exists(".agents/skills/k8s-environments/zeta.md")).resolves.toBe(false)
+    await expect(view.readFile("portal/.agents/skills/perf-investigate/SKILL.md")).resolves.toBe("# Performance\n")
+    await expect(view.readFile("portal/.claude/skills/legacy-review/SKILL.md")).resolves.toBe("# Legacy review\n")
+    await expect(view.readFile("portal/.codex/skills/codex-review/SKILL.md")).resolves.toBe("# Codex review\n")
+    await expect(view.readFile("zeta/.agents/skills/k8s-environments/SKILL.md")).resolves.toBe("# Conflicting Kubernetes\n")
+    await expect(store.readFile(".agents/skills/perf-investigate/SKILL.md")).resolves.toMatchObject({
+      metadata: { promotedSourceSkill: { source: "portal", sourcePath: "portal/.agents/skills/perf-investigate/SKILL.md" } },
+    })
+  })
+
+  it.each([false, true])("preserves concurrent promotion writes (existing: %s)", async (existing) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/shared/SKILL.md"
+    let content = "# Original source"
+    const view = createWorkspaceSourceView({
+      name: "promotion-write-race",
+      sources: {
+        portal: custom({
+          materialize: "startup",
+          mount: "portal",
+          async getKeys() { return [destination] },
+          async getItem(key) { return { key, content } },
+        }),
+      },
+    }, store)
+    if (existing) await view.materializeSources()
+    content = "# Updated source"
+    const mkdir = store.mkdir.bind(store)
+    let raced = false
+    vi.spyOn(store, "mkdir").mockImplementation(async (path, options) => {
+      await mkdir(path, options)
+      if (path === ".agents/skills/shared" && !raced) {
+        raced = true
+        await store.writeFile(destination, { path: destination, content: "# Concurrent user edit" })
+      }
+    })
+
+    await view.materializeSources()
+
+    expect(raced).toBe(true)
+    await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Concurrent user edit" })
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Concurrent user edit" })
+  })
+
+  it.each(["metadata", "mediaType"])("preserves attribute-only promotion conflicts across the complete Skill: %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    const root = ".agents/skills/shared"
+    const destination = `${root}/checks.md`
+    let version = "Original"
+    const view = createWorkspaceSourceView({ name: "promotion-attribute-race", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [`${root}/SKILL.md`, destination, `${root}/other.md`] },
+        async getItem(key) { return { key, content: `${version}: ${key}` } },
+      }),
+    } }, store)
+    await view.materializeSources()
+    const original = (await store.readFile(destination))!
+    const replacement = { ...original, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }) }
+    version = "Updated"
+    const mkdir = store.mkdir.bind(store)
+    let writes = 0
+    vi.spyOn(store, "mkdir").mockImplementation(async (path, options) => {
+      await mkdir(path, options)
+      if (path === root && ++writes === 2) await store.writeFile(destination, replacement)
+    })
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toEqual(replacement)
+    await expect(store.readFile(`${root}/SKILL.md`)).resolves.toMatchObject({ content: `Original: ${root}/SKILL.md` })
+    await expect(store.readFile(`${root}/other.md`)).resolves.toMatchObject({ content: `Original: ${root}/other.md` })
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toEqual(replacement)
+    await expect(store.readFile(`${root}/SKILL.md`)).resolves.toMatchObject({ content: `Original: ${root}/SKILL.md` })
+  })
+
+  it.each(["metadata", "mediaType"])("retains single-file promotions without complete-file CAS: %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    store.compareAndSwapFile = undefined
+    const destination = ".agents/skills/shared/SKILL.md"
+    let content = "# Original"
+    const view = createWorkspaceSourceView({ name: "unsupported-promotion-refresh", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [destination] },
+        async getItem(key) { return { key, content } },
+      }),
+    } }, store)
+    await view.materializeSources()
+    const original = (await store.readFile(destination))!
+    content = "# Updated"
+    const write = store.writeFileConditional!.bind(store)
+    const writes = vi.spyOn(store, "writeFileConditional").mockImplementation(async (path, file, digest) => {
+      if (path === destination) {
+        await store.writeFile(path, { ...original, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }) })
+      }
+      await write(path, file, digest)
+    })
+    await view.materializeSources()
+    expect(writes.mock.calls.some(([path]) => path === destination)).toBe(false)
+    await expect(store.readFile(destination)).resolves.toEqual(original)
+    await expect(store.readFile(`portal/${destination}`)).resolves.toMatchObject({ content })
+  })
+
+  it.each([false, true])("preserves promotion destinations without conditional writes (existing: %s)", async (existing) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/shared/SKILL.md"
+    const view = createWorkspaceSourceView({ name: "unsupported-promotion", sources: {
+      portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Source" }] }),
+    } }, store)
+    if (existing) await view.materializeSources()
+    store.writeFileConditional = undefined
+    if (existing) await store.writeFile(destination, { path: destination, content: "# User" })
+    await view.materializeSources()
+    if (existing) await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# User" })
+    else await expect(store.readFile(destination)).resolves.toBeUndefined()
+    await expect(store.readFile(`portal/${destination}`)).resolves.toMatchObject({ content: "# Source" })
+  })
+
+  it.each([false, true].flatMap(completed => [false, true].map(canceled => ({ completed, canceled }))))("promotes only completed snapshots (previous success: $completed, canceled: $canceled)", async ({ completed, canceled }) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/shared/SKILL.md"
+    let fail = false
+    const abort = new AbortController()
+    const view = createWorkspaceSourceView({ name: "partial-promotion", sources: {
+      portal: custom({ materialize: "startup",
+        async getKeys() { return [destination, "z.md"] },
+        async getItem(key) {
+          if (fail && key === "z.md") {
+            if (canceled) abort.abort(new Error("incomplete Source"))
+            throw new Error("incomplete Source")
+          }
+          return { key, content: fail ? "# Partial" : "# Complete" }
+        },
+      }),
+    } }, store)
+    if (completed) await view.materializeSources()
+    fail = true
+    const result = view.materializeSources({ abortSignal: abort.signal })
+    if (canceled) await expect(result).rejects.toThrow("incomplete Source")
+    else await expect(result).resolves.toMatchObject({ sources: [{ status: "error" }] })
+    await view.materializeSources({ sources: [] })
+    if (completed) await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Complete" })
+    else await expect(store.readFile(destination)).resolves.toBeUndefined()
+  })
+
+  it.each(["changed", "deleted", "attributes"])("retains promoted skills when mounted evidence is %s", async (change) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/shared/SKILL.md"
+    const view = createWorkspaceSourceView({ name: "stale-promotion", sources: {
+      portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Source" }] }),
+    } }, store)
+    await view.materializeSources()
+    const path = `portal/${destination}`
+    const file = (await store.readFile(path))!
+    if (change === "deleted") await store.rm(path)
+    else await store.writeFile(path, { ...file, ...(change === "changed" ? { content: "# User" } : { metadata: { user: true } }) })
+    await view.materializeSources({ sources: [] })
+    await view.materializeSources({ sources: [] })
+    await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Source" })
+  })
+
+  it.each([false, true])("preserves retired directories against replacements (atomic: %s)", async (atomic) => {
+    const store = createMemoryWorkspaceStore()
+    const sources = { generated: custom({ materialize: "startup", files: [{ path: "file.md", content: "generated" }] }) }
+    const view = createWorkspaceSourceView({ name: "retired-directory-race", sources }, store)
+    await view.materializeSources()
+    Object.defineProperty(store, "conditionalDirectoryRemoval", { value: atomic })
+    const list = store.list.bind(store)
+    vi.spyOn(store, "list").mockImplementation(async (path, options) => {
+      const entries = await list(path, options)
+      if (path === "generated" && entries.length === 0) {
+        await store.rm(path)
+        await store.writeFile(path, { path, content: "replacement" })
+      }
+      return entries
+    })
+    Reflect.deleteProperty(sources, "generated")
+    await view.materializeSources()
+    if (atomic) await expect(store.readFile("generated")).resolves.toMatchObject({ content: "replacement" })
+    else await expect(store.stat("generated")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it("keeps deletions of released startup files in default diffs after restart", async () => {
+    const store = createMemoryWorkspaceStore()
+    const sources = { generated: custom({ materialize: "startup", files: [{ path: "file.md", content: "generated" }] }) }
+    registerWorkspace("released-diff", defineWorkspace({ store, sources }))
+    const workspace = await useRegisteredWorkspace("released-diff")
+    await workspace.readFile("generated/file.md")
+    await workspace.snapshot()
+    const path = "generated/file.md"
+    await store.writeFile(path, { ...(await store.readFile(path))!, content: "user edit" })
+    Reflect.deleteProperty(sources, "generated")
+    await workspace.materializeSources?.()
+    await expect(store.readFile(path)).resolves.toMatchObject({ content: "user edit" })
+    resetWorkspaceRegistry()
+    registerWorkspace("released-diff", defineWorkspace({ store, sources }))
+    const restarted = await useRegisteredWorkspace("released-diff")
+    await store.rm(path)
+    expect((await restarted.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "removed" }))
+  })
+
+  it.each([false, true])("restores cached empty mounts (local: %s)", async (local) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const getKeys = vi.fn(async () => [])
+    const definition = { name: "cached-empty-mount", sources: {
+      docs: custom({ materialize: "startup", cache: { maxAge: 3600 }, getKeys, async getItem(key) { return { key, content: key } } }),
+    } }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.rm("docs", { recursive: true })
+    const restarted = createWorkspaceSourceView(definition, store)
+    await restarted.materializeSources()
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    expect(getKeys).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([false, true])("retains promoted directories during cleanup (replacement: %s)", async (replacement) => {
+    const store = createMemoryWorkspaceStore()
+    const directory = ".agents/skills/shared"
+    const destination = `${directory}/SKILL.md`
+    let keys = [destination]
+    const view = createWorkspaceSourceView({
+      name: "promotion-directory-race",
+      sources: {
+        portal: custom({
+          materialize: "startup",
+          mount: "portal",
+          sync: { stale: "remove" },
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: "# Skill" } },
+        }),
+      },
+    }, store)
+    await view.materializeSources()
+    const remove = store.compareAndSwapFile!.bind(store)
+    let replaced = false
+    vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, next) => {
+      await remove(path, expected, next)
+      if (replacement && path === destination && !replaced) {
+        replaced = true
+        await store.rm(directory)
+        await store.writeFile(directory, { path: directory, content: "User replacement" })
+      }
+    })
+    keys = []
+    await view.materializeSources()
+    expect(replaced).toBe(replacement)
+    await expect(store.stat(directory)).resolves.toMatchObject({ type: replacement ? "file" : "directory" })
+    await view.materializeSources()
+    if (replacement) await expect(store.readFile(directory)).resolves.toMatchObject({ content: "User replacement" })
+    else await expect(store.list(directory)).resolves.toEqual([])
+  })
+
+  it.each([false, true])("retains the complete Skill when a companion conflicts (previous promotion: %s)", async (existing) => {
+    const store = createMemoryWorkspaceStore()
+    const root = ".agents/skills/review"
+    let files = [{ path: `${root}/SKILL.md`, content: "# Original" }]
+    const view = createWorkspaceSourceView({ name: "companion-conflict", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return files.map(file => file.path) },
+        async getItem(key) { return { key, ...files.find(file => file.path === key)! } },
+      }),
+    } }, store)
+    if (existing) await view.materializeSources()
+    await store.mkdir(root, { recursive: true })
+    await store.writeFile(`${root}/checks.md`, { path: `${root}/checks.md`, content: "User checks" })
+    files = [
+      { path: `${root}/SKILL.md`, content: "# Updated" },
+      { path: `${root}/checks.md`, content: "Source checks" },
+      { path: `${root}/other.md`, content: "Other companion" },
+    ]
+    await view.materializeSources()
+    expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(existing ? "# Original" : undefined)
+    expect((await store.readFile(`${root}/checks.md`))?.content).toBe("User checks")
+    await expect(store.readFile(`${root}/other.md`)).resolves.toBeUndefined()
+  })
+
+  it.each([false, true].flatMap(existing => [false, true].flatMap(replaceEarlier => ["none", "abort", "supersede"].map(cancellation => ({ existing, replaceEarlier, cancellation })))))("rolls back companion promotion races (existing: $existing, replace earlier: $replaceEarlier, cancellation: $cancellation)", async ({ existing, replaceEarlier, cancellation }) => {
+    const store = createMemoryWorkspaceStore()
+    const root = ".agents/skills/review"
+    let version = "Original"
+    const abort = new AbortController()
+    const definition = { name: "companion-write-race", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [`${root}/SKILL.md`, `${root}/checks.md`, `${root}/other.md`] },
+        async getItem(key) { return { key, content: `${version}: ${key}` } },
+      }),
+    } }
+    const view = createWorkspaceSourceView(definition, store)
+    if (existing) await view.materializeSources()
+    version = "Updated"
+    const mkdir = store.mkdir.bind(store)
+    let writes = 0
+    let raced = false
+    vi.spyOn(store, "mkdir").mockImplementation(async (path, options) => {
+      await mkdir(path, options)
+      if (path === root && ++writes === 2 && !raced) {
+        raced = true
+        await store.writeFile(`${root}/checks.md`, { path: `${root}/checks.md`, content: "User checks" })
+        if (replaceEarlier) await store.writeFile(`${root}/SKILL.md`, { path: `${root}/SKILL.md`, content: "User Skill" })
+        if (cancellation === "abort") abort.abort(new Error("promotion canceled"))
+        if (cancellation === "supersede") void invalidateWorkspaceSourceMaterialization(definition, store, ["portal"])
+      }
+    })
+    const result = view.materializeSources({ abortSignal: abort.signal })
+    if (cancellation === "none") await result
+    else await expect(result).rejects.toThrow(cancellation === "abort" ? "promotion canceled" : "superseded")
+    expect(raced).toBe(true)
+    const expectedSkill = replaceEarlier ? "User Skill" : existing ? `Original: ${root}/SKILL.md` : undefined
+    await vi.waitFor(async () => expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(expectedSkill))
+    expect((await store.readFile(`${root}/checks.md`))?.content).toBe("User checks")
+    expect((await store.readFile(`${root}/other.md`))?.content).toBe(existing ? `Original: ${root}/other.md` : undefined)
+    await view.materializeSources()
+    expect((await store.readFile(`${root}/SKILL.md`))?.content).toBe(expectedSkill)
+  })
+
+  it.each([false, true].flatMap(existing => ["mediaType", "metadata"].map(attribute => ({ existing, attribute }))))("preserves same-content replacements during promotion compensation (existing: $existing, attribute: $attribute)", async ({ existing, attribute }) => {
+    const store = createMemoryWorkspaceStore()
+    const root = ".agents/skills/review"
+    const destination = `${root}/SKILL.md`
+    let version = "Original"
+    const view = createWorkspaceSourceView({ name: "compensation-attributes", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [destination, `${root}/checks.md`] },
+        async getItem(key) { return { key, content: `${version}: ${key}` } },
+      }),
+    } }, store)
+    if (existing) await view.materializeSources()
+    version = "Updated"
+    const mkdir = store.mkdir.bind(store)
+    let writes = 0
+    vi.spyOn(store, "mkdir").mockImplementation(async (path, options) => {
+      await mkdir(path, options)
+      if (path === root && ++writes === 2) await store.writeFile(`${root}/checks.md`, { path: `${root}/checks.md`, content: "User checks" })
+    })
+    const compensate = store.compareAndSwapFile!.bind(store)
+    let replaced = false
+    vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, replacement) => {
+      if (path === destination && expected.content === `Updated: ${destination}`) {
+        replaced = true
+        await store.writeFile(path, { ...expected, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }) })
+      }
+      await compensate(path, expected, replacement)
+    })
+    await view.materializeSources()
+    expect(replaced).toBe(true)
+    await expect(store.readFile(destination)).resolves.toMatchObject({
+      content: `Updated: ${destination}`, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }),
+    })
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject({
+      content: `Updated: ${destination}`, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }),
+    })
+  })
+
+  it("retains multi-file Skills when the Store cannot roll back new companions", async () => {
+    const store = createLocalWorkspaceStore(await createRoot())
+    const root = ".agents/skills/review"
+    const view = createWorkspaceSourceView({ name: "unsupported-companion-rollback", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [`${root}/SKILL.md`, `${root}/checks.md`] },
+        async getItem(key) { return { key, content: key } },
+      }),
+    } }, store)
+    await view.materializeSources()
+    await expect(store.readFile(`${root}/SKILL.md`)).resolves.toBeUndefined()
+    expect(await store.readFile(`portal/${root}/SKILL.md`)).toBeDefined()
+  })
+
+  it("keeps explicit and edited root skills during source refresh", async () => {
+    const store = createMemoryWorkspaceStore()
+    let files = [
+      { path: ".agents/skills/shared/SKILL.md", content: "# Source shared\n" },
+      { path: ".agents/skills/shared/source.md", content: "# Source companion\n" },
+      { path: ".agents/skills/source-only/SKILL.md", content: "# Source only\n" },
+      { path: ".agents/skills/source-only/reference.md", content: "# Reference\n" },
+    ]
+    await store.mkdir(".agents/skills/shared", { recursive: true })
+    await store.writeFile(".agents/skills/shared/SKILL.md", { path: ".agents/skills/shared/SKILL.md", content: "# Explicit\n" })
+    const definition = {
+      name: "source-skill-collisions",
+      sources: {
+        portal: custom({
+          materialize: "startup" as const,
+          mount: "portal",
+          sync: { stale: "remove" as const },
+          async getKeys() { return files.map(file => file.path) },
+          async getItem(key: string) { return { key, ...files.find(file => file.path === key)! } },
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    await expect(view.readFile(".agents/skills/shared/SKILL.md")).resolves.toBe("# Explicit\n")
+    await expect(view.exists(".agents/skills/shared/source.md")).resolves.toBe(false)
+    await expect(view.readFile(".agents/skills/source-only/SKILL.md")).resolves.toBe("# Source only\n")
+    await expect(view.readFile(".agents/skills/source-only/reference.md")).resolves.toBe("# Reference\n")
+
+    await store.writeFile(".agents/skills/source-only/SKILL.md", { path: ".agents/skills/source-only/SKILL.md", content: "# Locally edited\n" })
+    files = []
+    await view.materializeSources()
+
+    await expect(view.readFile(".agents/skills/shared/SKILL.md")).resolves.toBe("# Explicit\n")
+    await expect(view.readFile(".agents/skills/source-only/SKILL.md")).resolves.toBe("# Locally edited\n")
+    await expect(view.readFile(".agents/skills/source-only/reference.md")).resolves.toBe("# Reference\n")
+  })
+
+  it("refreshes nested startup files before the first directory listing", async () => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["stale.md"]
+    const definition = {
+      name: "nested-startup-list",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          sync: { stale: "remove" },
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["current.md"]
+    const view = createWorkspaceSourceView({ ...definition }, store)
+    const entries = await view.list("docs", { recursive: true })
+    expect(entries.map(entry => entry.path)).toEqual(["docs/current.md"])
+    await expect(store.stat("docs/stale.md")).resolves.toBeUndefined()
+  })
+
+  it.each([false, true])("rechecks nested startup ownership in an existing view with snapshot reuse=%s", async (reuseStartupSnapshots) => {
+    const definition = {
+      name: "nested-startup-build-invalidation",
+      sources: {
+        built: custom({ materialize: "build", mount: "", files: [{ path: "docs/shared.md", content: "build" }] }),
+        generated: custom({ materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "startup" }] }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("startup")
+
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ content: "build" })
+    await expect(view.readFile("docs/shared.md")).resolves.toBe("startup")
+  })
+
+  it.each([false, true])("restores retained startup files after scoped owner cleanup with a new view=%s", async (newView) => {
+    const store = createMemoryWorkspaceStore()
+    let ownerKeys = ["shared.md"]
+    const definition = {
+      name: "scoped-owner-cleanup",
+      sources: {
+        retained: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "retained" }] }),
+        owner: custom({
+          materialize: "startup",
+          mount: "",
+          sync: { stale: "remove" },
+          async getKeys() { return ownerKeys },
+          async getItem(key) { return { key, content: "owner" } },
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources({ sources: ["retained"] })
+    await view.materializeSources({ sources: ["owner"] })
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "owner" })
+
+    ownerKeys = []
+    await view.materializeSources({ sources: ["owner"] })
+    const reader = newView ? createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true }) : view
+    await expect(reader.readFile("shared.md", { encoding: "utf8" })).resolves.toBe("retained")
+  })
+
   it("indexes custom file lists without resolving other content", async () => {
     const guideContent = vi.fn(async (context: { workspace: string }) => {
       expect(context.workspace).toBe("custom-files")
@@ -122,6 +920,796 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/foo.md")).resolves.toBe("# Source view\n")
     await expect(view.writeFile("docs/foo.md", "nope")).rejects.toThrow("read-only")
     await expect(view.writeFile("generated/result.md", "ok")).resolves.toBe("generated/result.md")
+  })
+
+  it.each([undefined, false, true].flatMap(recursive => ["", "/", "///"].map(path => ({ recursive, path }))))("materializes startup Sources during the first root listing at $path with recursive=$recursive", async ({ recursive, path }) => {
+    const store = createMemoryWorkspaceStore()
+    const list = vi.spyOn(store, "list")
+    const view = createWorkspaceSourceView({
+      name: "startup-root-list",
+      sources: {
+        instructions: {
+          content: "# Instructions\n",
+          materialize: "startup",
+          mount: "",
+          workspacePath: "AGENTS.md",
+        },
+        skill: {
+          content: new TextEncoder().encode("# Review\n"),
+          materialize: "startup",
+          mount: "",
+          workspacePath: ".agents/skills/review/SKILL.md",
+        },
+      },
+    }, store)
+
+    await expect(view.list(path, { recursive })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+      expect.objectContaining(recursive
+        ? { path: ".agents/skills/review/SKILL.md", type: "file" }
+        : { path: ".agents", type: "directory" }),
+    ]))
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# Instructions\n" })
+    await expect(store.readFile(".agents/skills/review/SKILL.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Review\n"),
+    })
+    // First startup only lists the Store for the consumer, not for source cleanup.
+    expect(list).toHaveBeenCalledExactlyOnceWith(path, { recursive })
+    // Once snapshots contain item paths, refresh only stats those paths.
+    list.mockClear()
+    await view.materializeSources()
+    expect(list).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])("refreshes non-recursive root listings with snapshot reuse=%s", async (reuseStartupSnapshots) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["stale.md"]
+    const definition = {
+      name: "startup-root-list-refresh",
+      sources: {
+        instructions: custom({
+          mount: "",
+          materialize: "startup" as const,
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["AGENTS.md"]
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+
+    await expect(view.list()).resolves.toEqual([
+      expect.objectContaining({ path: reuseStartupSnapshots ? "stale.md" : "AGENTS.md", type: "file" }),
+    ])
+  })
+
+  it.each(["", "docs"])("omits deleted startup files from the first recursive listing at mount '%s'", async (mount) => {
+    let keys = ["stale.md", "current.md"]
+    const definition = {
+      name: "startup-root-list-refresh",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          mount,
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+        pending: custom({
+          materialize: "lazy" as const,
+          async getKeys() { return ["later.md"] },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("user.md", { path: "user.md", content: "keep" })
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["docs"] })
+    keys = ["current.md"]
+    const view = createWorkspaceSourceView({ ...definition }, store)
+    const prefix = mount ? `${mount}/` : ""
+
+    const entries = await view.list("", { recursive: true })
+
+    expect(entries).not.toEqual(expect.arrayContaining([expect.objectContaining({ path: `${prefix}stale.md` })]))
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: `${prefix}current.md`, type: "file" }),
+      expect.objectContaining({ path: "user.md", type: "file" }),
+      expect.objectContaining({ path: "pending", type: "directory" }),
+    ]))
+    await expect(store.readFile(`${prefix}stale.md`)).resolves.toBeUndefined()
+  })
+
+  it.each(["stat", "exists"] as const)("refreshes root startup Sources before the first %s", async (operation) => {
+    for (const reuseStartupSnapshots of [false, true]) {
+      for (const removed of [false, true]) {
+        const store = createMemoryWorkspaceStore()
+        let content = "old"
+        let keys = ["AGENTS.md"]
+        const definition = {
+          name: "startup-root-metadata",
+          sources: {
+            instructions: custom({
+              materialize: "startup" as const,
+              mount: "",
+              async getKeys() { return keys },
+              async getItem(key) { return { key, content } },
+            }),
+          },
+        }
+        await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["instructions"] })
+        content = "updated instructions"
+        if (removed) keys = []
+        const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+
+        if (operation === "stat") {
+          if (removed && !reuseStartupSnapshots) {
+            await expect(view.stat("AGENTS.md")).rejects.toThrow("does not exist")
+          }
+          else {
+            await expect(view.stat("AGENTS.md")).resolves.toMatchObject({
+              size: reuseStartupSnapshots ? 3 : content.length,
+            })
+          }
+        }
+        else {
+          await expect(view.exists("AGENTS.md")).resolves.toBe(reuseStartupSnapshots || !removed)
+        }
+        await expect(store.readFile("AGENTS.md")).resolves.toEqual(
+          removed && !reuseStartupSnapshots
+            ? undefined
+            : expect.objectContaining({ content: reuseStartupSnapshots ? "old" : content }),
+        )
+      }
+    }
+  })
+
+  it.each(["prepare", "mkdir", "list"].flatMap(stage => [false, true].map(local => ({ stage, local }))))("claims a failed startup mount only after creation at $stage with local=$local", async ({ stage, local }) => {
+    const root = await createRoot()
+    const store = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "failed-startup-mount",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async prepare() {
+            if (stage === "prepare") throw new Error("prepare failed")
+          },
+          async getKeys() { throw new Error("list failed") },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    if (stage === "mkdir") vi.spyOn(store, "mkdir").mockRejectedValueOnce(new Error("mkdir failed"))
+    await expect(createWorkspaceSourceView(definition, store).materializeSources()).resolves.toMatchObject({
+      sources: [{ status: "error", error: `${stage} failed` }],
+    })
+    vi.restoreAllMocks()
+    if (stage !== "list") {
+      await expect(store.stat("docs")).resolves.toBeUndefined()
+      await store.mkdir("docs", { recursive: true })
+    }
+    const reopened = local ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+    if (stage === "list") await expectRetiredDirectory(reopened, "docs")
+    else await expect(reopened.stat("docs")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each(["abort", "write"].flatMap(stage => [false, true].map(local => ({ stage, local }))))("claims child directories only after creation at $stage with local=$local", async ({ stage, local }) => {
+    const root = await createRoot()
+    const store = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const abort = new AbortController()
+    const definition = {
+      name: "unwritten-startup-directory",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["child/file.md"] },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    if (stage === "abort") {
+      const readFile = store.readFile.bind(store)
+      vi.spyOn(store, "readFile").mockImplementation(async (path) => {
+        const file = await readFile(path)
+        if (path === "docs/child/file.md") abort.abort(new Error("write canceled"))
+        return file
+      })
+    }
+    else vi.spyOn(store, "writeFile").mockRejectedValueOnce(new Error("write failed"))
+    const materialization = createWorkspaceSourceView(definition, store).materializeSources({ abortSignal: abort.signal })
+    if (stage === "abort") await expect(materialization).rejects.toThrow("write canceled")
+    else await expect(materialization).resolves.toMatchObject({ sources: [{ status: "error", error: "write failed" }] })
+    vi.restoreAllMocks()
+    if (stage === "abort") {
+      await expect(store.stat("docs/child")).resolves.toBeUndefined()
+      await store.mkdir("docs/child", { recursive: true })
+    }
+    else await expect(store.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
+    const reopened = local ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+    if (stage === "write") await expectRetiredDirectory(reopened, "docs/child")
+    else await expect(reopened.stat("docs/child")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each([
+    { restart: false, replaceDirectory: "" },
+    { restart: true, replaceDirectory: "" },
+    { restart: false, replaceDirectory: "docs/child/nested" },
+    { restart: true, replaceDirectory: "docs/child/nested" },
+    { restart: false, replaceDirectory: "docs/child" },
+    { restart: true, replaceDirectory: "docs/child" },
+    { restart: false, replaceDirectory: "docs" },
+    { restart: true, replaceDirectory: "docs" },
+  ])("cleans failed Local Store stream directories without deleting replacements: %j", async ({ restart, replaceDirectory }) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const definition = {
+      name: "failed-startup-stream-directories",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["child/nested/file.md"] },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream<Uint8Array>({
+                pull(controller) { controller.error(new Error("stream failed")) },
+              }),
+            }
+          },
+        }),
+      },
+    }
+
+    await expect(createWorkspaceSourceView(definition, store).materializeSources()).resolves.toMatchObject({
+      sources: [{ status: "error", error: "stream failed" }],
+    })
+    await expect(store.stat("docs/child/nested")).resolves.toMatchObject({ type: "directory" })
+    await expect(store.stat("docs/child/nested/file.md")).resolves.toBeUndefined()
+
+    if (replaceDirectory) {
+      await store.rm(replaceDirectory, { recursive: true })
+      await store.writeFile(replaceDirectory, { path: replaceDirectory, content: "user replacement" })
+    }
+    const reopened = restart ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+    if (replaceDirectory) {
+      const replacement = await reopened.readFile(replaceDirectory)
+      expect(replacement).toBeDefined()
+      expect(typeof replacement!.content === "string" ? replacement!.content : new TextDecoder().decode(replacement!.content)).toBe("user replacement")
+    }
+    else {
+      await expectRetiredDirectory(reopened, "docs")
+    }
+  })
+
+  it("removes files owned by startup Sources removed from the definition", async () => {
+    const store = createMemoryWorkspaceStore()
+    const initial = {
+      name: "removed-startup-sources",
+      sources: {
+        instructions: {
+          content: "# Old instructions\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: "AGENTS.md",
+        },
+        oldSkill: {
+          content: "# Old skill\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: ".agents/skills/old/SKILL.md",
+        },
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["instructions", "oldSkill"] })
+    await store.writeFile("AGENTS.md", { path: "AGENTS.md", content: "# User instructions\n" })
+
+    await createWorkspaceSourceView({
+      name: initial.name,
+      sources: {
+        newSkill: {
+          content: "# New skill\n",
+          materialize: "startup" as const,
+          mount: "",
+          workspacePath: ".agents/skills/new/SKILL.md",
+        },
+      },
+    }, store).materializeSources({ sources: ["newSkill"] })
+
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "# User instructions\n" })
+    await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
+    await expect(store.stat(".agents/skills/old")).resolves.toBeUndefined()
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: "# New skill\n" })
+  })
+
+  it.each(["", "docs"].flatMap(mount => [false, true].map(restart => ({ mount, restart }))))("preserves pre-existing child directories at mount $mount with restart $restart", async ({ mount, restart }) => {
+    const root = await createRoot()
+    const store = restart ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    await store.mkdir(path("kept"), { recursive: true })
+    const initial = {
+      name: "preexisting-startup-directories",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          mount,
+          files: [
+            { path: "kept/file.md", content: "generated" },
+            { path: "created/file.md", content: "generated" },
+          ],
+        }),
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await createWorkspaceSourceView({ name: initial.name, sources: {} }, restart ? createLocalWorkspaceStore(root) : store).materializeSources()
+
+    await expect(store.stat(path("kept"))).resolves.toMatchObject({ type: "directory" })
+    await expectRetiredFile(store, path("kept/file.md"))
+    await expectRetiredDirectory(store, path("created"))
+  })
+
+  it.each(["", "docs"].flatMap(mount => [false, true].map(restart => ({ mount, restart }))))("preserves pre-existing child directories during refresh at mount $mount with restart $restart", async ({ mount, restart }) => {
+    const root = await createRoot()
+    const store = restart ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    await store.mkdir(path("kept"), { recursive: true })
+    const initial = {
+      name: "preexisting-startup-directories",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          mount,
+          files: [
+            { path: "kept/file.md", content: "generated" },
+            { path: "created/file.md", content: "generated" },
+          ],
+        }),
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await createWorkspaceSourceView({ name: initial.name, sources: { docs: custom({ materialize: "startup", mount, files: [] }) } }, restart ? createLocalWorkspaceStore(root) : store).materializeSources()
+
+    await expect(store.stat(path("kept"))).resolves.toMatchObject({ type: "directory" })
+    await expectRetiredFile(store, path("kept/file.md"))
+    if (restart) await expect(store.stat(path("created"))).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat(path("created"))).resolves.toBeUndefined()
+  })
+
+  it.each([
+    { mount: "", legacy: false },
+    { mount: "docs", legacy: false },
+    { mount: "", legacy: true },
+    { mount: "docs", legacy: true },
+  ])("preserves unchanged startup files without conditional removal after a local Store restart at mount $mount legacy=$legacy", async ({ mount, legacy }) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const initial = {
+      name: "restarted-startup-cleanup",
+      sources: {
+        instructions: custom({
+          materialize: "startup",
+          mount,
+          files: [
+            { path: "AGENTS.md", content: "old instructions" },
+            { path: ".agents/skills/old/SKILL.md", content: "old skill" },
+            { path: "edited.md", content: "original" },
+            { path: "claimed.md", content: "original" },
+          ],
+        }),
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    // Simulate snapshots written before Local Stores persisted per-file metadata.
+    if (legacy) await rm(join(root, ".vitehub/file-metadata"), { recursive: true, force: true })
+    const restarted = createLocalWorkspaceStore(root)
+    await expect(restarted.readFile(path("AGENTS.md"))).resolves.toMatchObject({ metadata: legacy ? undefined : expect.objectContaining({ source: "instructions" }) })
+    await writeFile(join(root, path("edited.md")), "user edit")
+    await restarted.writeFile(path("claimed.md"), { path: path("claimed.md"), content: "original", metadata: { source: "other" } })
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, restarted)
+
+    await expectRetiredFile(restarted, path("AGENTS.md"))
+    await expectRetiredDirectory(restarted, path(".agents/skills/old"))
+    await expectRetiredFile(restarted, path(".agents/skills/old/SKILL.md"))
+    await expect(restarted.readFile(path("edited.md"))).resolves.toMatchObject({ content: expect.any(Uint8Array) })
+    await expect(restarted.readFile(path("claimed.md"))).resolves.toMatchObject({ metadata: { source: "other" } })
+  })
+
+  it.each([undefined, "docs/generated"])("reconciles failed startup sources after materializing path %s", async (path) => {
+    const store = createMemoryWorkspaceStore()
+    const initial = {
+      name: "failed-startup-source",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return ["partial.md", "unavailable.md"] },
+          async getItem(key) {
+            if (key === "unavailable.md") throw new Error("Source unavailable")
+            return { key, content: "partial" }
+          },
+        }),
+      },
+    }
+    await expect(createWorkspaceSourceView(initial, store).materializeSources({ path })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+    await expect(store.readFile("docs/generated/partial.md")).resolves.toMatchObject({ content: "partial" })
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs/generated/partial.md")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+  })
+
+  it.each([
+    { preexisting: false, moved: false, userFile: false },
+    { preexisting: true, moved: false, userFile: false },
+    { preexisting: false, moved: true, userFile: false },
+    { preexisting: true, moved: true, userFile: false },
+    { preexisting: false, moved: false, userFile: true },
+    { preexisting: false, moved: true, userFile: true },
+  ])("cleans empty startup mounts with preexisting=$preexisting moved=$moved userFile=$userFile", async ({ preexisting, moved, userFile }) => {
+    const store = createMemoryWorkspaceStore()
+    if (preexisting) await store.mkdir("docs/generated", { recursive: true })
+    const source = (mount: string) => custom({
+      materialize: "startup",
+      mount,
+      async getKeys() { return [] },
+      async getItem(key) { return { key, content: "" } },
+    })
+    const initial = { name: "empty-startup-mount", sources: { generated: source("docs/generated") } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    // A later refresh must retain the original mount ownership.
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    if (userFile) await store.writeFile("docs/generated/user.md", { path: "docs/generated/user.md", content: "keep" })
+
+    await createWorkspaceSourceView({
+      name: initial.name,
+      sources: moved ? { generated: source("docs/moved") } : {},
+    }, store).materializeSources()
+
+    if (userFile) await expect(store.readFile("docs/generated/user.md")).resolves.toMatchObject({ content: "keep" })
+    if (preexisting || userFile) await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    if (preexisting || userFile || moved) await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+    else await expect(store.stat("docs")).resolves.toBeUndefined()
+    if (moved) await expect(store.stat("docs/moved")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each([true, false])("restores shared empty startup mounts after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
+    const store = createMemoryWorkspaceStore()
+    const source = () => custom({
+      materialize: "startup",
+      mount: "docs/generated",
+      async getKeys() { return [] },
+      async getItem(key) { return { key, content: "" } },
+    })
+    const retained = source()
+    const initial = { name: "shared-empty-startup-mount", sources: { removed: source(), retained } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("removed", "shared-empty-startup-mount"))).resolves.toMatchObject({ ownsMount: true })
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("retained", "shared-empty-startup-mount"))).resolves.toMatchObject({ ownsMount: false, status: "ready" })
+
+    const next = { name: initial.name, sources: { retained } }
+    await syncWorkspaceDefinition(next, store)
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/generated", type: "directory" }),
+    ]))
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+  })
+
+  it.each([
+    { local: false, reuseStartupSnapshots: false },
+    { local: false, reuseStartupSnapshots: true },
+    { local: true, reuseStartupSnapshots: false },
+    { local: true, reuseStartupSnapshots: true },
+  ])("transfers nonempty shared mount ownership with local=$local snapshot reuse=$reuseStartupSnapshots", async ({ local, reuseStartupSnapshots }) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    const source = (path: string) => custom({
+      materialize: "startup",
+      mount: "docs/generated",
+      files: [{ path, content: path }],
+    })
+    const retained = source("retained.md")
+    const initial = { name: "shared-nonempty-startup-mount", sources: { removed: source("removed.md"), retained } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("removed", "shared-nonempty-startup-mount"))).resolves.toMatchObject({ ownsMount: true })
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("retained", "shared-nonempty-startup-mount"))).resolves.toMatchObject({ ownsMount: false })
+
+    const next = { name: initial.name, sources: { retained } }
+    await syncWorkspaceDefinition(next, store)
+    await expect(store.stat("docs/generated/retained.md")).resolves.toMatchObject({ type: "file" })
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "docs/generated/retained.md", type: "file" }),
+    ]))
+    await expect(view.readFile("docs/generated/retained.md")).resolves.toBe("retained.md")
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expectRetiredDirectory(store, "docs/generated")
+    await expectRetiredDirectory(store, "docs")
+  })
+
+  it.each([
+    { local: false, reuseStartupSnapshots: false },
+    { local: false, reuseStartupSnapshots: true },
+    { local: true, reuseStartupSnapshots: false },
+    { local: true, reuseStartupSnapshots: true },
+  ])("transfers ancestor mount ownership with local=$local snapshot reuse=$reuseStartupSnapshots", async ({ local, reuseStartupSnapshots }) => {
+    const root = local ? await createRoot() : undefined
+    let store = root ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const source = (mount: string) => custom({
+      materialize: "startup",
+      mount,
+      files: [{ path: "file.md", content: mount }],
+    })
+    const retained = source("docs/generated")
+    const sibling = source("docs/sibling")
+    const initial = { name: "nested-startup-mount", sources: { removed: source("docs"), retained, sibling } }
+    await createWorkspaceSourceView(initial, store).materializeSources({ sources: ["removed"] })
+    await createWorkspaceSourceView(initial, store).materializeSources()
+
+    const next = { name: initial.name, sources: { retained, sibling } }
+    await syncWorkspaceDefinition(next, store)
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.readFile("docs/generated/file.md")).resolves.toBe("docs/generated")
+    await expect(view.readFile("docs/sibling/file.md")).resolves.toBe("docs/sibling")
+    // Ownership must survive both refresh and a persistent Store restart.
+    if (root) store = createLocalWorkspaceStore(root)
+    await syncWorkspaceDefinition({ name: initial.name, sources: { sibling } }, store)
+    await expectRetiredDirectory(store, "docs/generated")
+    await expect(store.stat("docs/sibling/file.md")).resolves.toMatchObject({ type: "file" })
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+    await expectRetiredDirectory(store, "docs")
+  })
+
+  it.each([true, false])("restores overlapping startup files after removing their owner with snapshot reuse %s", async (reuseStartupSnapshots) => {
+    const store = createMemoryWorkspaceStore()
+    const retainedKeys = vi.fn(async () => ["shared.md"])
+    const retained = custom({
+      cache: { maxAge: 3600 },
+      materialize: "startup",
+      mount: "",
+      getKeys: retainedKeys,
+      async getItem(key) { return { key, content: "retained" } },
+    })
+    const initial = {
+      name: "overlapping-startup-sources",
+      sources: {
+        retained,
+        removed: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return ["shared.md"] },
+          async getItem(key) { return { key, content: "removed" } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed" } })
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "removed" })
+
+    const next = { name: initial.name, sources: { retained } }
+    await syncWorkspaceDefinition(next, store)
+    const view = createWorkspaceSourceView(next, store, { reuseStartupSnapshots })
+    await expect(view.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "shared.md", type: "file" }),
+    ]))
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "retained" })
+    expect(retainedKeys).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([false, true])("retains active startup ownership across concurrent removal with abortable sync %s", async (abortableSync) => {
+    const store = createMemoryWorkspaceStore()
+    let signalStarted!: () => void
+    const started = new Promise<void>((resolve) => { signalStarted = resolve })
+    let release!: () => void
+    const resumed = new Promise<void>((resolve) => { release = resolve })
+    const initial = {
+      name: "active-startup-removal",
+      sources: {
+        removed: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return ["late.md"] },
+          async getItem(key) {
+            signalStarted()
+            await resumed
+            return { key, content: "late write" }
+          },
+        }),
+      },
+    }
+    const materialization = createWorkspaceSourceView(initial, store).materializeSources()
+    await started
+    const next = { name: initial.name, sources: {} }
+    try {
+      await syncWorkspaceDefinition(next, store, abortableSync ? new AbortController().signal : undefined)
+    }
+    finally {
+      release()
+    }
+    await materialization
+    await expect(store.readFile("late.md")).resolves.toMatchObject({ content: "late write" })
+
+    await syncWorkspaceDefinition(next, store)
+    await expect(store.stat("late.md")).resolves.toBeUndefined()
+    await expect(store.getMeta!(`workspace:"active-startup-removal":startup-sources`)).resolves.toEqual([])
+  })
+
+  it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
+    const store = createMemoryWorkspaceStore()
+    const source = (key: string) => custom({
+      materialize: "startup",
+      mount: "",
+      async getKeys() { return [key] },
+      async getItem(key) { return { key, content: key } },
+    })
+    const retained = source("shared.md")
+    const other = source("other.md")
+    await createWorkspaceSourceView({
+      name: "concurrent-startup-removal",
+      sources: { retained, other, removed: source("shared.md") },
+    }, store).materializeSources()
+    const shared = (await store.readFile("shared.md"))!
+    await store.writeFile("shared.md", { ...shared, metadata: { ...shared.metadata, source: "removed" } })
+    const remove = store.compareAndSwapFile!.bind(store)
+    const removals = vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, next) => {
+      // Let competing source materializations reach reconciliation before deletion.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      await remove(path, expected, next)
+    })
+    const definition = { name: "concurrent-startup-removal", sources: { retained, other } }
+    const view = createWorkspaceSourceView(definition, store)
+
+    await Promise.all([
+      ...(abortableSync ? [syncWorkspaceDefinition(definition, store, new AbortController().signal)] : []),
+      view.glob("**/*.md"),
+    ])
+
+    expect(removals.mock.calls.filter(([path]) => path === "shared.md")).toHaveLength(1)
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "shared.md" })
+    await expect(store.readFile("other.md")).resolves.toMatchObject({ content: "other.md" })
+  })
+
+  it.each(["directory", "ancestor"])("preserves Local non-file replacements during retirement: %s", async (replacement) => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const initial = { name: "retired-replacements", sources: { generated: custom({
+      materialize: "startup", mount: "generated", files: [{ path: "nested/file.md", content: "generated" }],
+    }) } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    const path = replacement === "directory" ? "generated/nested/file.md" : "generated/nested"
+    await rm(join(root, path), { recursive: true })
+    if (replacement === "directory") await mkdir(join(root, path))
+    else await writeFile(join(root, path), "user replacement")
+    const next = { name: initial.name, sources: {} }
+    await syncWorkspaceDefinition(next, store)
+    await createWorkspaceSourceView(next, createLocalWorkspaceStore(root)).list("")
+    await expect(store.stat(path)).resolves.toMatchObject({ type: replacement === "directory" ? "directory" : "file" })
+  })
+
+  it.each(["stat", "list", "rm"] as const)("retains retirement evidence after a directory %s failure", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    const initial = { name: "retirement-retry", sources: { generated: custom({
+      materialize: "startup", mount: "generated", files: [{ path: "file.md", content: "generated" }],
+    }) } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    const failure = Object.assign(new Error("Store unavailable"), { code: "EIO" })
+    const original = store[operation].bind(store)
+    const spy = vi.spyOn(store, operation).mockImplementation(async (...args: unknown[]) => {
+      if (args[0] === "generated") throw failure
+      return Reflect.apply(original, store, args)
+    })
+    const next = { name: initial.name, sources: {} }
+    await expect(syncWorkspaceDefinition(next, store)).rejects.toThrow("Store unavailable")
+    spy.mockRestore()
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("generated", "retirement-retry"))).resolves.toMatchObject({ ownsMount: true })
+    const restarted = store
+    await syncWorkspaceDefinition(next, restarted)
+    await expectRetiredDirectory(restarted, "generated")
+  })
+
+  it.each([true, false])("preserves removed startup history through lazy-only refresh with retained source %s", async (retainStartup) => {
+    const store = createMemoryWorkspaceStore()
+    const source = (materialize: "startup" | "lazy", workspacePath: string) => ({
+      content: workspacePath,
+      materialize,
+      mount: "",
+      workspacePath,
+    })
+    const retained = source("startup", "retained.md")
+    const lazy = source("lazy", "lazy.md")
+    await createWorkspaceSourceView({
+      name: "lazy-refresh-startup-history",
+      sources: { removed: source("startup", "removed.md"), retained, lazy },
+    }, store).materializeSources()
+
+    const next = createWorkspaceSourceView({
+      name: "lazy-refresh-startup-history",
+      sources: { ...(retainStartup ? { retained } : {}), lazy },
+    }, store)
+    await next.materializeSources({ sources: ["lazy"] })
+    await expect(store.readFile("lazy.md")).resolves.toMatchObject({ content: "lazy.md" })
+    await expect(store.readFile("removed.md")).resolves.toMatchObject({ content: "removed.md" })
+    await expect(store.readFile("retained.md")).resolves.toMatchObject({ content: "retained.md" })
+    await next.materializeSources()
+
+    await expect(store.stat("removed.md")).resolves.toBeUndefined()
+    if (retainStartup) {
+      await expect(store.readFile("retained.md")).resolves.toMatchObject({ content: "retained.md" })
+    }
+    else {
+      await expect(store.stat("retained.md")).resolves.toBeUndefined()
+    }
+  })
+
+  it("removes the final startup Source and files left at a previous mount", async () => {
+    const store = createMemoryWorkspaceStore()
+    const source = (mount: string) => custom({
+      materialize: "startup" as const,
+      mount,
+      async getKeys() { return ["SKILL.md"] },
+      async getItem(key) { return { key, content: mount } },
+    })
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/old") },
+    }, store).materializeSources({ sources: ["skill"] })
+
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/new") },
+    }, store).materializeSources({ sources: ["skill"] })
+
+    await expect(store.stat(".agents/skills/old/SKILL.md")).resolves.toBeUndefined()
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
+
+    await store.setMeta?.("workspace:startup-sources", [{ key: "skill", mountPath: ".agents/skills/old" }])
+    await createWorkspaceSourceView({
+      name: "moved-startup-source",
+      sources: { skill: source(".agents/skills/new") },
+    }, store).materializeSources({ sources: ["skill"] })
+    await expect(store.readFile(".agents/skills/new/SKILL.md")).resolves.toMatchObject({ content: ".agents/skills/new" })
+
+    await createWorkspaceSourceView({ name: "moved-startup-source", sources: {} }, store).materializeSources({ sources: [] })
+    await expect(store.stat(".agents/skills/new/SKILL.md")).resolves.toBeUndefined()
+  })
+
+  it("does not let snapshot-reusing inspection suppress normal startup refresh", async () => {
+    const getKeys = vi.fn(async () => ["AGENTS.md"])
+    const definition = {
+      name: "startup-inspection-isolation",
+      sources: {
+        instructions: custom({
+          materialize: "startup" as const,
+          mount: "",
+          getKeys,
+          async getItem(key: string) { return { key, content: "# Instructions\n" } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await invalidateWorkspaceSourceMaterialization(definition, store, ["instructions"])
+    await createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true }).list("", { recursive: true })
+    expect(getKeys).toHaveBeenCalledOnce()
+
+    await createWorkspaceSourceView(definition, store).list("", { recursive: true })
+    expect(getKeys).toHaveBeenCalledTimes(2)
   })
 
   it("normalizes keyed source mounts and cache defaults", () => {
@@ -856,7 +2444,7 @@ describe("lazy sources", () => {
     await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
       sources: [expect.objectContaining({ bytes: 6, files: 2, status: "error" })],
     })
-    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("docs", "lazy-keyed-failed-aggregates"))).resolves.toMatchObject({
       bytes: 6,
       files: 2,
       status: "error",
@@ -928,7 +2516,7 @@ describe("lazy sources", () => {
     cancel = true
     await expect(view.materializeSources({ abortSignal: abort.signal, path: "docs/b.md" })).rejects.toThrow("Canceled")
 
-    await expect(store.getMeta?.("source:docs:snapshot")).resolves.toMatchObject({
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("docs", "lazy-scoped-cancel"))).resolves.toMatchObject({
       status: "ready",
       items: {
         "docs/a.md": expect.any(Object),
@@ -1213,7 +2801,7 @@ describe("lazy sources", () => {
     const statuses: string[] = []
     const setMeta = store.setMeta!.bind(store)
     store.setMeta = async (key, value) => {
-      if (key === "source:docs:snapshot" && value && Object.prototype.hasOwnProperty.call(value, "status")) {
+      if (key === sourceSnapshotMetaKey("docs", "source-metadata-boundaries") && value && Object.prototype.hasOwnProperty.call(value, "status")) {
         statuses.push(String(Reflect.get(Object(value), "status")))
       }
       await setMeta(key, value)
@@ -1283,6 +2871,184 @@ describe("lazy sources", () => {
     expect(maxActiveReads).toBe(1)
     await expect(store.stat("b.bin")).resolves.toBeUndefined()
     await expect(store.stat("c.bin")).resolves.toBeUndefined()
+  })
+
+  it.each(["memory", "local"])("respects conditional removal for scoped startup writes on %s Stores", async (kind) => {
+    const root = await createRoot()
+    const store = kind === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "scoped-startup-removal",
+      sources: {
+        docs: custom({
+          materialize: "startup" as const,
+          files: [
+            { path: "a.md", content: "A" },
+            { path: "b.md", content: "B" },
+            { path: "edited.md", content: "generated" },
+          ],
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    for (const path of ["a.md", "b.md", "edited.md"]) {
+      await view.materializeSources({ path: `docs/${path}` })
+    }
+    await store.writeFile("docs/edited.md", { path: "docs/edited.md", content: "user edit" })
+    const reopened = kind === "local" ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+
+    await expectRetiredFile(reopened, "docs/a.md")
+    await expectRetiredFile(reopened, "docs/b.md")
+    const edited = await reopened.readFile("docs/edited.md")
+    expect(edited).toBeDefined()
+    expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
+  })
+
+  it.each(["memory", "local"])("retains prior cleanup evidence after a scoped startup configuration change on %s Stores", async (kind) => {
+    const root = await createRoot()
+    const store = kind === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "scoped-startup-config-change",
+      sources: {
+        docs: {
+          ...custom({
+            materialize: "startup",
+            files: [
+              { path: "old.md", content: "old" },
+              { path: "edited.md", content: "generated" },
+              { path: "current.md", content: "before" },
+            ],
+          }),
+          fingerprint: { version: 1 },
+        },
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.writeFile("docs/edited.md", { path: "docs/edited.md", content: "user edit" })
+    const changed = {
+      ...definition,
+      sources: {
+        docs: {
+          ...custom({ materialize: "startup", files: [{ path: "current.md", content: "after" }] }),
+          fingerprint: { version: 2 },
+        },
+      },
+    }
+    await createWorkspaceSourceView(changed, store).materializeSources({ path: "docs/current.md" })
+    await expect(store.stat("docs/old.md")).resolves.toBeDefined()
+    const reopened = kind === "local" ? createLocalWorkspaceStore(root) : store
+    await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+
+    await expectRetiredFile(reopened, "docs/old.md")
+    await expectRetiredFile(reopened, "docs/current.md")
+    const edited = await reopened.readFile("docs/edited.md")
+    expect(edited).toBeDefined()
+    expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
+  })
+
+  it.each(["memory", "local"].flatMap(kind => [false, true].map(retry => ({ kind, retry }))))("retains cleanup evidence through failed startup configuration refreshes on $kind with retry=$retry", async ({ kind, retry }) => {
+    const root = await createRoot()
+    const store = kind === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    const definition = {
+      name: "failed-startup-config-change",
+      sources: {
+        generated: {
+          ...custom({
+            materialize: "startup",
+            mount: "",
+            files: [
+              { path: "old.md", content: "old" },
+              { path: "edited.md", content: "generated" },
+            ],
+          }),
+          fingerprint: { version: 1 },
+        },
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await store.writeFile("edited.md", { path: "edited.md", content: "user edit" })
+    let fail = true
+    const changed = {
+      ...definition,
+      sources: {
+        generated: {
+          ...custom({
+            materialize: "startup",
+            mount: "",
+            async getKeys() { return ["current.md", "last.md"] },
+            async getItem(key) {
+              if (fail && key === "last.md") throw new Error("Source unavailable")
+              return { key, content: "new" }
+            },
+          }),
+          fingerprint: { version: 2 },
+        },
+      },
+    }
+    await expect(createWorkspaceSourceView(changed, store).materializeSources()).resolves.toMatchObject({
+      sources: [{ status: "error" }],
+    })
+    const reopened = kind === "local" ? createLocalWorkspaceStore(root) : store
+    if (retry) {
+      fail = false
+      await expect(createWorkspaceSourceView(changed, reopened).materializeSources()).resolves.toMatchObject({
+        sources: [{ status: "ready", files: 2, bytes: 6 }],
+      })
+    }
+    else {
+      await createWorkspaceSourceView({ name: definition.name, sources: {} }, reopened).materializeSources()
+    }
+    await expectRetiredFile(reopened, "old.md")
+    expect(Boolean(await reopened.stat("current.md"))).toBe(retry || !reopened.conditionalRemoval)
+    const edited = await reopened.readFile("edited.md")
+    expect(edited).toBeDefined()
+    expect(typeof edited!.content === "string" ? edited!.content : new TextDecoder().decode(edited!.content)).toBe("user edit")
+  })
+
+  it("does not reuse scoped startup evidence as a complete snapshot", async () => {
+    const store = createMemoryWorkspaceStore()
+    const definition = {
+      name: "scoped-startup-reuse",
+      sources: {
+        docs: custom({
+          cache: { maxAge: 3600 },
+          materialize: "startup" as const,
+          files: [{ path: "a.md", content: "A" }, { path: "b.md", content: "B" }],
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources({ path: "docs/a.md" })
+    await expect(store.readFile("docs/b.md")).resolves.toBeUndefined()
+
+    const view = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+    await expect(view.readFile("docs/b.md")).resolves.toBe("B")
+    await expect(store.readFile("docs/a.md")).resolves.toMatchObject({ content: "A" })
+  })
+
+  it("cleans completed scoped startup writes after cancellation", async () => {
+    const store = createMemoryWorkspaceStore()
+    const abort = new AbortController()
+    const view = createWorkspaceSourceView({
+      name: "scoped-startup-cancel",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["sub/a.md", "sub/b.md"] },
+          async getItem(key) {
+            if (key === "sub/b.md") {
+              abort.abort(new Error("Canceled"))
+              abort.signal.throwIfAborted()
+            }
+            return { key, content: key }
+          },
+        }),
+      },
+    }, store)
+    await expect(view.materializeSources({ path: "docs/sub", abortSignal: abort.signal })).rejects.toThrow("Canceled")
+    await expect(store.readFile("docs/sub/a.md")).resolves.toMatchObject({ content: "sub/a.md" })
+
+    await createWorkspaceSourceView({ name: "scoped-startup-cancel", sources: {} }, store).materializeSources()
+    await expect(store.readFile("docs/sub/a.md")).resolves.toBeUndefined()
   })
 
   it("keeps cache-hit aggregates after scoped materialization", async () => {
@@ -1368,6 +3134,37 @@ describe("lazy sources", () => {
       }],
     })
     expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("preserves streamed startup files after restart without conditional removal", async () => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const writeFileStream = store.writeFileStream!.bind(store)
+    store.writeFileStream = async (path, file) => ({
+      ...await writeFileStream(path, file),
+      digest: "native-store-digest",
+    })
+    const definition = {
+      name: "startup-stream-native-digest",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          async getKeys() { return ["stale.md", "edited.md"] },
+          async getItem(key) { return { key, contentStream: new Blob(["generated"]).stream() } },
+        }),
+      },
+    } satisfies import("../src/core/types.ts").WorkspaceDefinition
+    await syncWorkspaceDefinition(definition, store)
+    await createWorkspaceSourceView(definition, store).materializeSources()
+
+    await expect(store.stat("docs/stale.md")).resolves.toMatchObject({ type: "file" })
+
+    const restarted = createLocalWorkspaceStore(root)
+    await restarted.writeFile("docs/edited.md", { path: "docs/edited.md", content: "user edit" })
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
+
+    await expectRetiredFile(restarted, "docs/stale.md")
+    await expect(createWorkspaceSourceView({ name: definition.name }, restarted).readFile("docs/edited.md")).resolves.toBe("user edit")
   })
 
   it("rejects streaming Stores that omit the required digest", async () => {
@@ -1577,6 +3374,161 @@ describe("lazy sources", () => {
     await expect(view.readFile("AGENTS.md")).resolves.toBe("# Source\n")
   })
 
+  it.each(["file", "directory"] as const)("preserves a %s replacing a stale directory during removal", async (replacement) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["nested/file.md"]
+    const view = createWorkspaceSourceView({ name: "stale-race", sources: { generated: custom({
+      materialize: "startup", mount: "generated",
+      async getKeys() { return keys },
+      async getItem(key) { return { key, content: key } },
+    }) } }, store)
+    await view.materializeSources()
+    const original = store.rm.bind(store)
+    const spy = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+      if (path === "generated/nested") {
+        await original(path, { recursive: true })
+        if (replacement === "file") await store.writeFile(path, { path, content: "user" })
+        else await store.mkdir(path)
+      }
+      await original(path, options)
+    })
+    keys = []
+    await view.materializeSources()
+    spy.mockRestore()
+    await expect(store.stat("generated/nested")).resolves.toMatchObject({ type: replacement })
+  })
+
+  it.each(["stat", "list", "rm"] as const)("retries stale-directory cleanup after %s fails", async (operation) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["nested/file.md"]
+    const definition = { name: "stale-retry", sources: { generated: custom({
+      materialize: "startup", mount: "generated",
+      async getKeys() { return keys },
+      async getItem(key) { return { key, content: key } },
+    }) } }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    keys = []
+    const original = store[operation].bind(store)
+    const spy = vi.spyOn(store, operation).mockImplementation(async (...args: unknown[]) => {
+      if (args[0] === "generated/nested") throw Object.assign(new Error("Store unavailable"), { code: "EIO" })
+      return Reflect.apply(original, store, args)
+    })
+    const result = await view.materializeSources()
+    expect(result.sources[0]?.status).toBe("error")
+    spy.mockRestore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await expect(store.stat("generated/nested")).resolves.toBeUndefined()
+  })
+
+  it.each([false, true, "after-refresh"])("excludes generated removals from default diffs while retaining lazy removals (retired: %s)", async (retired) => {
+    let keys = ["file.md"]
+    const source = (materialize: "startup" | "lazy") => custom({
+      materialize, async getKeys() { return keys }, async getItem(key) { return { key, content: key } },
+    })
+    const sources = { generated: source("startup"), lazy: source("lazy") }
+    registerWorkspace("removed-diff", defineWorkspace({ store: { provider: "memory" }, sources }))
+    const workspace = await useRegisteredWorkspace("removed-diff")
+    await workspace.readFile("generated/file.md")
+    await workspace.readFile("lazy/file.md")
+    const baseline = await workspace.snapshot()
+    keys = []
+    if (retired === "after-refresh") await workspace.materializeSources?.()
+    if (retired) Reflect.deleteProperty(sources, "generated")
+    await workspace.materializeSources?.()
+    const diff = await workspace.diff()
+    expect(diff.entries.some(entry => entry.path === "generated/file.md")).toBe(false)
+    expect((await workspace.diff({ from: baseline })).entries).toContainEqual(expect.objectContaining({ path: "generated/file.md", type: "removed" }))
+    expect(diff.entries).toContainEqual(expect.objectContaining({ path: "lazy/file.md", type: "removed" }))
+  })
+
+  it("keeps user-owned ancestors when clearing a nested source mount", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.mkdir("docs")
+    let keys = ["nested/stale.md"]
+    const view = createWorkspaceSourceView({
+      name: "nested-source-cleanup",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }, store)
+    await view.materializeSources()
+    await expect(store.stat("docs/generated/nested/stale.md")).resolves.toMatchObject({ type: "file" })
+
+    keys = []
+    await view.materializeSources()
+
+    await expect(store.stat("docs/generated/nested/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.stat("docs")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each([false, true])("preserves a pre-existing mount during refresh with local Store %s", async (local) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    await store.mkdir("docs/generated", { recursive: true })
+    let keys = ["stale.md"]
+    const view = createWorkspaceSourceView({
+      name: "preexisting-refresh-directories",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }, store)
+    await view.materializeSources()
+    keys = []
+    await view.materializeSources()
+
+    await expectRetiredFile(store, "docs/generated/stale.md")
+    await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+  })
+
+  it.each([false, true])("relinquishes directories deleted during refresh with local Store %s", async (local) => {
+    const root = await createRoot()
+    const store = local ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+    let keys = ["nested/stale.md"]
+    const definition = {
+      name: "deleted-refresh-directories",
+      sources: {
+        generated: custom({
+          materialize: "startup",
+          mount: "docs/generated",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    keys = []
+    await view.materializeSources()
+
+    if (local) {
+      // Local filesystems cannot atomically bind rmdir to a directory identity.
+      await expect(store.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+      return
+    }
+    await expect(store.stat("docs/generated")).resolves.toBeUndefined()
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("generated", "deleted-refresh-directories"))).resolves.toMatchObject({
+      ownsMount: false,
+      ownedDirectories: [],
+    })
+    await store.mkdir("docs/generated/nested", { recursive: true })
+    const restarted = local ? createLocalWorkspaceStore(root) : store
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
+
+    await expect(restarted.stat("docs/generated")).resolves.toMatchObject({ type: "directory" })
+    await expect(restarted.stat("docs/generated/nested")).resolves.toMatchObject({ type: "directory" })
+  })
+
   it("removes stale root-mounted lazy source files on refresh", async () => {
     let keys = ["AGENTS.md", "nested/stale.md"]
     registerWorkspace("lazy-root-refresh", defineWorkspace({
@@ -1609,6 +3561,36 @@ describe("lazy sources", () => {
     await expect(workspace.readFile("AGENTS.md")).resolves.toBe("# AGENTS.md\n")
   })
 
+  it.each(["getMeta", "setMeta", "both"] as const)("cleans owned root files without %s snapshot support", async (missing) => {
+    const store: WorkspaceStore = createMemoryWorkspaceStore()
+    if (missing === "getMeta" || missing === "both") store.getMeta = undefined
+    if (missing === "setMeta" || missing === "both") store.setMeta = undefined
+    let keys = ["AGENTS.md", "nested/stale.md"]
+    const definition = {
+      name: "root-without-snapshot",
+      sources: {
+        rootFiles: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, path: key, content: key } },
+        }),
+      },
+    }
+    await store.writeFile("user.md", { path: "user.md", content: "user content" })
+    await store.writeFile("other.md", { path: "other.md", content: "other source", metadata: { source: "other" } })
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["AGENTS.md"]
+
+    await createWorkspaceSourceView(definition, store).materializeSources()
+
+    await expect(store.stat("nested/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("nested")).resolves.toMatchObject({ type: "directory" })
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "AGENTS.md" })
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user content" })
+    await expect(store.readFile("other.md")).resolves.toMatchObject({ content: "other source" })
+  })
+
   it("materializes root-mounted lazy sources for scoped paths", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
     registerWorkspace("lazy-root-scoped", defineWorkspace({
@@ -1631,6 +3613,35 @@ describe("lazy sources", () => {
       expect.objectContaining({ path: "docs/guide.md", type: "file" }),
     ])
     expect(getItem).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true].flatMap(reuseStartupSnapshots => ["", "docs"].map(mount => ({ reuseStartupSnapshots, mount }))))("refreshes startup files before first search at '$mount' with snapshot reuse=$reuseStartupSnapshots", async ({ reuseStartupSnapshots, mount }) => {
+    const store = createMemoryWorkspaceStore()
+    let keys = ["deleted.md", "changed.md"]
+    let content = "old needle"
+    const definition = {
+      name: "startup-search-refresh",
+      sources: {
+        docs: custom({
+          mount,
+          materialize: "startup" as const,
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content } },
+        }),
+      },
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    keys = ["changed.md"]
+    content = "new needle"
+    const view = createWorkspaceSourceView({ ...definition }, store, { reuseStartupSnapshots })
+
+    const hits = await view.search({ pattern: "needle", limit: 1 })
+    expect(hits).toHaveLength(1)
+    expect(hits[0]).toMatchObject({ text: reuseStartupSnapshots ? "old needle" : "new needle" })
+    if (!reuseStartupSnapshots) {
+      expect(hits[0]?.path).toBe(mount ? `${mount}/changed.md` : "changed.md")
+      await expect(view.search({ pattern: "old needle" })).resolves.toEqual([])
+    }
   })
 
   it("searches materialized source snapshots", async () => {
@@ -1949,6 +3960,218 @@ describe("lazy sources", () => {
     expect(prepare).toHaveBeenCalledTimes(2)
   })
 
+  it.each([false, true])("reconciles removed root startup sources after build invalidation with retained startup=%s", async (retainStartup) => {
+    const definition = {
+      name: "removed-invalidated-startup",
+      sources: {
+        docs: custom({ materialize: "build", mount: "docs", files: [{ path: "index.md", content: "docs" }] }),
+        generated: custom({
+          materialize: "startup",
+          mount: "",
+          files: [
+            { path: "docs/generated.md", content: "generated" },
+            { path: "generated/stale.md", content: "stale" },
+            { path: "replaced.md", content: "original" },
+          ],
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources({ sources: ["generated"] })
+    await store.writeFile("replaced.md", { path: "replaced.md", content: "user replacement" })
+    await store.writeFile("user.md", { path: "user.md", content: "user" })
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("generated", "removed-invalidated-startup"))).resolves.toMatchObject({ status: "updating" })
+    await expect(store.stat("generated/stale.md")).resolves.toBeDefined()
+
+    await syncWorkspaceDefinition({
+      name: definition.name,
+      sources: retainStartup
+        ? { retained: custom({ materialize: "startup", mount: "retained", files: [{ path: "index.md", content: "retained" }] }) }
+        : {},
+    }, store)
+
+    await expect(store.stat("generated/stale.md")).resolves.toBeUndefined()
+    await expect(store.stat("generated")).resolves.toBeUndefined()
+    await expect(store.readFile("replaced.md")).resolves.toMatchObject({ content: "user replacement" })
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user" })
+  })
+
+  it.each([
+    { buildMount: "", changeConfiguration: false },
+    { buildMount: "docs", changeConfiguration: false },
+    { buildMount: "", changeConfiguration: true },
+    { buildMount: "docs", changeConfiguration: true },
+  ])("retains startup cleanup evidence after a local restart and build invalidation at '$buildMount' with changed configuration=$changeConfiguration", async ({ buildMount, changeConfiguration }) => {
+    const root = await createRoot()
+    const definition = {
+      name: "restarted-invalidated-startup",
+      sources: {
+        built: custom({ materialize: "build", mount: buildMount, files: [{ path: "shared.md", content: "build" }] }),
+        generated: custom({
+          materialize: "startup",
+          mount: "",
+          files: [
+            { path: buildMount ? `${buildMount}/shared.md` : "shared.md", content: "startup" },
+            { path: "generated/stale.md", content: "stale" },
+            { path: "edited.md", content: "original" },
+            { path: "claimed.md", content: "original" },
+          ],
+        }),
+      },
+    }
+    const original = createLocalWorkspaceStore(root)
+    await syncWorkspaceDefinition(definition, original)
+    await createWorkspaceSourceView(definition, original).materializeSources({ sources: ["generated"] })
+
+    const restarted = createLocalWorkspaceStore(root)
+    await restarted.writeFile("edited.md", { path: "edited.md", content: "user edit" })
+    await restarted.writeFile("claimed.md", { path: "claimed.md", content: "original", metadata: { source: "other" } })
+    const currentDefinition = changeConfiguration
+      ? {
+          ...definition,
+          sources: {
+            ...definition.sources,
+            generated: custom({ ...definition.sources.generated, fingerprint: { version: 2 } }),
+          },
+        }
+      : definition
+    await syncWorkspaceDefinition(currentDefinition, restarted)
+    await expect(restarted.stat("generated/stale.md")).resolves.toBeDefined()
+
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
+
+    await expectRetiredFile(restarted, "generated/stale.md")
+    await expectRetiredDirectory(restarted, "generated")
+    await expect(createWorkspaceSourceView({ name: definition.name }, restarted).readFile("edited.md")).resolves.toBe("user edit")
+    await expect(restarted.readFile("claimed.md")).resolves.toMatchObject({ metadata: { source: "other" } })
+  })
+
+  it.each(["", "docs"])("preserves user edits when a changed startup source at '%s' refreshes after restart", async (mount) => {
+    const root = await createRoot()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    const definition = {
+      name: "restarted-changed-startup",
+      sources: {
+        generated: {
+          ...custom({
+            materialize: "startup",
+            mount,
+            files: [
+              { path: "stale.md", content: "stale" },
+              { path: "edited.md", content: "original" },
+              { path: "claimed.md", content: "original" },
+            ],
+          }),
+          fingerprint: { version: 1 },
+        },
+      },
+    }
+    await createWorkspaceSourceView(definition, createLocalWorkspaceStore(root)).materializeSources()
+    await writeFile(join(root, path("edited.md")), "user edit")
+    const restarted = createLocalWorkspaceStore(root)
+    await restarted.writeFile(path("claimed.md"), { path: path("claimed.md"), content: "original", metadata: { source: "other" } })
+    const currentDefinition = {
+      ...definition,
+      sources: {
+        generated: {
+          ...custom({ materialize: "startup", mount, files: [{ path: "new.md", content: "new" }] }),
+          fingerprint: { version: 2 },
+        },
+      },
+    }
+
+    await syncWorkspaceDefinition(currentDefinition, restarted)
+    await createWorkspaceSourceView(currentDefinition, restarted).materializeSources()
+
+    await expectRetiredFile(restarted, path("stale.md"))
+    await expect(readFile(join(root, path("edited.md")), "utf8")).resolves.toBe("user edit")
+    await expect(restarted.readFile(path("claimed.md"))).resolves.toMatchObject({ metadata: { source: "other" } })
+    await expect(readFile(join(root, path("new.md")), "utf8")).resolves.toBe("new")
+
+    await createWorkspaceSourceView(currentDefinition, restarted).materializeSources()
+    await expect(readFile(join(root, path("edited.md")), "utf8")).resolves.toBe("user edit")
+
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, restarted)
+    await expectRetiredFile(restarted, path("new.md"))
+    await expect(readFile(join(root, path("edited.md")), "utf8")).resolves.toBe("user edit")
+    await expect(restarted.readFile(path("claimed.md"))).resolves.toMatchObject({ metadata: { source: "other" } })
+  })
+
+  it("preserves released user edits after an empty startup refresh and removal", async () => {
+    const root = await createRoot()
+    const definition = {
+      name: "empty-startup-refresh",
+      sources: { docs: {
+        ...custom({ materialize: "startup", mount: "docs", files: [{ path: "edited.md", content: "original" }] }),
+        fingerprint: { version: 1 },
+      } },
+    }
+    await createWorkspaceSourceView(definition, createLocalWorkspaceStore(root)).materializeSources()
+    await writeFile(join(root, "docs/edited.md"), "user edit")
+    const empty = { ...definition, sources: { docs: {
+      ...custom({ materialize: "startup", mount: "docs", files: [] }),
+      fingerprint: { version: 2 },
+    } } }
+    for (let restart = 0; restart < 2; restart++) {
+      await createWorkspaceSourceView(empty, createLocalWorkspaceStore(root)).materializeSources()
+      await expect(readFile(join(root, "docs/edited.md"), "utf8")).resolves.toBe("user edit")
+    }
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, createLocalWorkspaceStore(root))
+    await expect(readFile(join(root, "docs/edited.md"), "utf8")).resolves.toBe("user edit")
+  })
+
+  it("removes stale root startup files after build cleanup invalidates their snapshot", async () => {
+    let keys = ["docs/generated.md", "stale.md", "AGENTS.md"]
+    const definition = {
+      name: "startup-cleared-snapshot-cleanup",
+      sources: {
+        docs: custom({ materialize: "build", mount: "docs", files: [{ path: "index.md", content: "docs" }] }),
+        generated: custom({
+          materialize: "startup",
+          mount: "",
+          async getKeys() { return keys },
+          async getItem(key) { return { key, content: key } },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources({ sources: ["generated"] })
+    await store.writeFile("user.md", { path: "user.md", content: "user" })
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("generated", "startup-cleared-snapshot-cleanup"))).resolves.toMatchObject({ status: "updating" })
+    await expect(store.stat("stale.md")).resolves.toBeDefined()
+    keys = ["AGENTS.md"]
+
+    await view.materializeSources({ sources: ["generated"] })
+
+    await expect(store.stat("stale.md")).resolves.toBeUndefined()
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({ content: "AGENTS.md" })
+    await expect(store.readFile("user.md")).resolves.toMatchObject({ content: "user" })
+    await expect(store.readFile("docs/index.md")).resolves.toMatchObject({ content: "docs" })
+  })
+
+  it.each([true, false])("restores startup ownership after overlapping root build writes with snapshot reuse %s", async (reuseStartupSnapshots) => {
+    const definition = {
+      name: "startup-overlapping-root-build",
+      sources: {
+        built: custom({ materialize: "build", mount: "", files: [{ path: "shared.md", content: "build" }] }),
+        generated: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "startup" }] }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "startup" })
+
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "build" })
+
+    const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots })
+    await expect(inspection.readFile("shared.md")).resolves.toBe("startup")
+    await expect(store.readFile("shared.md")).resolves.toMatchObject({ metadata: { source: "generated" } })
+  })
+
   it("preserves a disjoint root startup snapshot during root build cleanup", async () => {
     const getItem = vi.fn(async (key: string) => ({ key, content: "# Startup\n" }))
     const definition = {
@@ -2190,5 +4413,114 @@ describe("lazy sources", () => {
     await expect(preparation).rejects.toThrow("preparation stopped")
     await expect(read).resolves.toBe("ready\n")
     expect(getKeys).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("startup cleanup ownership", () => {
+  it.each([false, true])("preserves foreign workspace files after snapshot invalidation=%s", async (invalidate) => {
+    const store = createMemoryWorkspaceStore()
+    const initial = { name: "invalidated-owner", sources: { generated: custom({
+      materialize: "startup", mount: "docs", files: [{ path: "shared.md", content: "same content" }],
+    }) } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    if (invalidate) await store.setMeta?.(sourceSnapshotMetaKey("generated", initial.name), {})
+    const file = (await store.readFile("docs/shared.md"))!
+    const replacement = { ...file, metadata: { ...file.metadata, workspace: "other-workspace" } }
+    if (invalidate) await store.writeFile(file.path, replacement)
+    else {
+      const remove = store.compareAndSwapFile!.bind(store)
+      vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, next) => {
+        if (path === file.path) await store.writeFile(path, replacement)
+        await remove(path, expected, next)
+      })
+    }
+
+    await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+
+    await expect(store.readFile(file.path)).resolves.toMatchObject({ content: "same content", metadata: { workspace: "other-workspace" } })
+  })
+
+  it("does not borrow active source ownership from another Workspace", async () => {
+    const store = createMemoryWorkspaceStore()
+    const initial = { name: "first-active", sources: { generated: custom({
+      materialize: "startup", mount: "docs", files: [{ path: "first.md", content: "first" }],
+    }) } }
+    await createWorkspaceSourceView(initial, store).materializeSources()
+    let started!: () => void
+    let release!: () => void
+    const starting = new Promise<void>(resolve => { started = resolve })
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    const pending = createWorkspaceSourceView({ name: "second-active", sources: { generated: custom({
+      materialize: "startup", mount: "docs",
+      async getKeys() { started(); await blocked; return ["second.md"] },
+      async getItem(key) { return { key, content: "second" } },
+    }) } }, store).materializeSources()
+    await starting
+    try {
+      await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
+      await expect(store.stat("docs/first.md")).resolves.toBeUndefined()
+      await expect(store.getMeta?.(`workspace:"first-active":startup-sources`)).resolves.toEqual([])
+    }
+    finally { release() }
+    await pending
+    await expect(store.readFile("docs/second.md")).resolves.toMatchObject({ content: "second" })
+  })
+
+  it("keeps snapshots and file ownership separate for Workspaces sharing a source key and mount", async () => {
+    const store = createMemoryWorkspaceStore()
+    const definition = (name: string, files: string[]) => ({ name, sources: { generated: custom({
+      materialize: "startup", mount: "docs", files: files.map(path => ({ path, content: "same content" })),
+    }) } })
+    await createWorkspaceSourceView(definition("first", ["first.md", "shared.md"]), store).materializeSources()
+    await createWorkspaceSourceView(definition("second", ["second.md", "shared.md"]), store).materializeSources()
+
+    await syncWorkspaceDefinition({ name: "first", sources: {} }, store)
+
+    await expect(store.stat("docs/first.md")).resolves.toBeUndefined()
+    await expect(store.readFile("docs/second.md")).resolves.toMatchObject({ content: "same content" })
+    await expect(store.readFile("docs/shared.md")).resolves.toMatchObject({ metadata: { workspace: "second" } })
+    await expect(store.getMeta?.(sourceSnapshotMetaKey("generated", "second"))).resolves.toMatchObject({ status: "ready" })
+  })
+
+  it.each([false, true])("preserves a nested directory replaced before refresh with local Store %s", async (local) => {
+    const store = local ? createLocalWorkspaceStore(await createRoot()) : createMemoryWorkspaceStore()
+    let keys = ["nested/stale.md", "current.md"]
+    const definition = { name: "replaced-nested-before-refresh", sources: { generated: custom({
+      materialize: "startup", mount: "docs", async getKeys() { return keys },
+      async getItem(key) { return { key, content: key } },
+    }) } }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    await store.rm("docs/nested", { recursive: true })
+    await store.mkdir("docs/nested")
+    const replacement = await store.stat("docs/nested")
+    // Refresh writes into the replacement before a later refresh removes its last file.
+    await view.materializeSources()
+    keys = ["current.md"]
+
+    await view.materializeSources()
+    await syncWorkspaceDefinition({ name: definition.name, sources: {} }, store)
+
+    await expect(store.stat("docs/nested")).resolves.toMatchObject({ type: "directory", directoryIdentity: replacement?.directoryIdentity })
+  })
+
+  it.each([false, true])("preserves stale files without conditional removal during retirement=%s", async (retire) => {
+    const store = createMemoryWorkspaceStore()
+    Object.defineProperty(store, "conditionalRemoval", { value: false })
+    let keys = ["stale.md"]
+    const definition = { name: "unsupported-conditional-removal", sources: { generated: custom({
+      materialize: "startup", mount: "docs", async getKeys() { return keys },
+      async getItem(key) { return { key, content: key } },
+    }) } }
+    const view = createWorkspaceSourceView(definition, store)
+    await view.materializeSources()
+    keys = []
+    const remove = vi.spyOn(store, "rm")
+
+    if (retire) await syncWorkspaceDefinition({ name: definition.name, sources: {} }, store)
+    else await view.materializeSources()
+
+    await expect(store.readFile("docs/stale.md")).resolves.toMatchObject({ content: "stale.md" })
+    expect(remove.mock.calls.some(([path]) => path === "docs/stale.md")).toBe(false)
   })
 })
