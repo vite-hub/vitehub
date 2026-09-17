@@ -166,6 +166,30 @@ describe("hubMarkdownTemplate", () => {
     await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
   }, 15_000)
 
+  it.each(["?worker", "?markdown-template=false", "?worker#fragment"])("loads template paths when a resolver adds %s", async (query) => {
+    const root = await createRoot()
+    const entry = join(root, "entry.ts")
+    const template = join(root, "prompt.template.md")
+    await writeFile(template, "Hello {{ data.name }}.", "utf8")
+    await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default () => prompt({ name: "ViteHub" })\n', "utf8")
+
+    await build({
+      build: { lib: { entry, fileName: () => "entry.mjs", formats: ["es"] }, outDir: join(root, "dist") },
+      logLevel: "silent",
+      plugins: [hubMarkdownTemplate(), {
+        name: "resolver-query",
+        enforce: "pre",
+        resolveId(source) {
+          if (source === "./prompt.template.md") return `${template}${query}`
+        },
+      }],
+      root,
+    })
+    // SAFETY: The fixture exports the renderer invocation built above.
+    const bundled = await import(pathToFileURL(join(root, "dist", "entry.mjs")).href) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
+  })
+
   it("keeps missing import text literal when building a template", async () => {
     const root = await createRoot()
     const entry = join(root, "entry.ts")
