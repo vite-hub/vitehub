@@ -3986,7 +3986,16 @@ cli_auth_credentials_store = "keyring"
         async onStartSession() {
           const path = `${root}/${file}`
           const content = await readFile(path, "utf8")
-          expect(content).toContain("Mounted source provenance")
+          if (provider === "claude-code") {
+            expect(content).toBe(original)
+            const args = String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)
+            const promptFile = args.split("--append-system-prompt-file ")[1]!.slice(1, -1)
+            const prompt = await readFile(promptFile, "utf8")
+            expect(prompt).toMatch(/^Mounted source provenance/)
+            if (original) expect(prompt).not.toContain(original)
+          } else {
+            expect(content).toContain("Mounted source provenance")
+          }
           if (change === "edit") await writeFile(path, content.replace(original, "edited instructions") + "\nprovider addition")
           if (change === "replace") await writeFile(path, "replacement instructions")
           if (change === "delete") await rm(path)
@@ -5399,9 +5408,10 @@ cli_auth_credentials_store = "keyring"
       const threadId = "thread-retained-cleanup-timeout"
       const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
       provider.close.mockImplementationOnce(() => new Promise(() => {}))
+      const abort = new AbortController()
       const retained: Promise<unknown>[] = []
       const invocation = context(threadId, {
-        input: { prompt: "hello", timeout: 50 },
+        input: { prompt: "hello", abortSignal: abort.signal },
         runtime: {
           memo: (_key: string, create: () => unknown) => create(),
           run: { runId: `run-${threadId}`, threadId },
@@ -5413,7 +5423,8 @@ cli_auth_credentials_store = "keyring"
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       const result = createProviderAgentAdapter({ provider: "codex" }).generate(invocation as never)
 
-      await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())
+      await vi.waitUntil(() => provider.close.mock.calls.length === 1)
+      abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
       await vi.advanceTimersByTimeAsync(50)
       const runtimeCall = createProviderRuntime.mock.lastCall
       expect(runtimeCall).toBeDefined()
@@ -5433,14 +5444,19 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("bounds provider startup by the invocation timeout", async () => {
+    const abort = new AbortController()
     const threadId = "thread-start-timeout"
     const provider = runtime(threadId, [], { onStartSession: () => new Promise(() => {}) })
     const adapter = createProviderAgentAdapter({ provider: "codex" })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-    await expect(adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
-    }) as never)).rejects.toMatchObject({ name: "TimeoutError" })
+    const result = adapter.generate(context(threadId, {
+      input: { prompt: "hello", abortSignal: abort.signal },
+    }) as never)
+
+    await vi.waitUntil(() => provider.startSession.mock.calls.length === 1)
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
+    await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
 
     expect(provider.startSession).toHaveBeenCalledOnce()
     expect(provider.sendTurn).not.toHaveBeenCalled()
@@ -5580,6 +5596,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("retains thread ownership until late Workspace preparation closes", async () => {
+    const abort = new AbortController()
     const threadId = "thread-late-workspace"
     let finishPreparation!: (session: Record<string, unknown>) => void
     let finishClose!: () => void
@@ -5598,12 +5615,14 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const first = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
+      input: { prompt: "hello", abortSignal: abort.signal },
       workspace,
       workspaceDefinition: { mode: "write", name: "docs" },
       workspaceMode: "write",
     }) as never)
 
+    await vi.waitUntil(() => typeof finishPreparation === "function")
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
     await expect(first).rejects.toMatchObject({ name: "TimeoutError" })
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -5626,6 +5645,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("stops provider startup that settles after timeout before closing its runtime", async () => {
+    const abort = new AbortController()
     const threadId = "thread-late-start"
     let finishStartup!: () => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
@@ -5633,7 +5653,7 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
+      input: { prompt: "hello", abortSignal: abort.signal },
       runtime: {
         memo: (_key: string, create: () => unknown) => create(),
         run: { runId: `run-${threadId}`, threadId },
@@ -5643,6 +5663,8 @@ cli_auth_credentials_store = "keyring"
       },
     }) as never)
 
+    await vi.waitUntil(() => typeof finishStartup === "function")
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(provider.close).not.toHaveBeenCalled()
     finishStartup()
@@ -5652,6 +5674,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("stops deferred provider work before closing the Workspace", async () => {
+    const abort = new AbortController()
     const threadId = "thread-late-start-workspace"
     let finishStartup!: () => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>(resolve => finishStartup = resolve) })
@@ -5665,11 +5688,13 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
+      input: { prompt: "hello", abortSignal: abort.signal },
       workspace: { fs: {}, startSession: vi.fn(async () => session), tools: {} },
       workspaceDefinition: { mode: "write", name: "docs" },
     }) as never)
 
+    await vi.waitUntil(() => typeof finishStartup === "function")
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     expect(session.close).not.toHaveBeenCalled()
     finishStartup()
@@ -5680,6 +5705,7 @@ cli_auth_credentials_store = "keyring"
   })
 
   it("closes a provider runtime when startup rejects after timeout", async () => {
+    const abort = new AbortController()
     const threadId = "thread-late-start-rejection"
     let rejectStartup!: (error: Error) => void
     const provider = runtime(threadId, [], { onStartSession: () => new Promise<void>((_resolve, reject) => rejectStartup = reject) })
@@ -5687,7 +5713,7 @@ cli_auth_credentials_store = "keyring"
     const adapter = createProviderAgentAdapter({ provider: "codex" })
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     const result = adapter.generate(context(threadId, {
-      input: { prompt: "hello", timeout: 50 },
+      input: { prompt: "hello", abortSignal: abort.signal },
       runtime: {
         memo: (_key: string, create: () => unknown) => create(),
         run: { runId: `run-${threadId}`, threadId },
@@ -5697,6 +5723,8 @@ cli_auth_credentials_store = "keyring"
       },
     }) as never)
 
+    await vi.waitUntil(() => typeof rejectStartup === "function")
+    abort.abort(new DOMException("Invocation timed out", "TimeoutError"))
     await expect(result).rejects.toMatchObject({ name: "TimeoutError" })
     rejectStartup(new Error("late startup failed"))
     await vi.waitFor(() => expect(provider.close).toHaveBeenCalledOnce())

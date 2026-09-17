@@ -33,7 +33,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub parses instruction Markdown through Comark. A colocated document becomes the default when `driver.instructions` is absent. Provider Drivers receive the rendered document as `AGENTS.md` for Codex or `CLAUDE.md` for Claude Code.
+ViteHub parses instruction Markdown through Comark. A colocated document becomes the default when `driver.instructions` is absent. Provider Drivers receive the rendered document as `AGENTS.md` for Codex or a literal prompt file for Claude Code.
 
 Use `driver.instructions` for short or invocation-specific text:
 

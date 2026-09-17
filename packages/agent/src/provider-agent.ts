@@ -2541,38 +2541,21 @@ async function* runProvider<
       const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
         ? provenanceInstructions
         : instructions
-      // Claude treats `@path` in CLAUDE.md as an instruction import. Escape
-      // authored references so the non-recursive contract reaches the model
-      // literally while retaining the generated instruction file boundary.
       if (options.provider === "claude-code") {
-        // Keep caller-authored CLAUDE.md bytes intact; only generated provenance
-        // must be escaped to prevent Claude's native import expansion.
-        if (provenanceInstructions) {
-          const nativePart = instructions.endsWith(provenanceInstructions)
-            ? instructions.slice(0, -provenanceInstructions.length)
-            : instructions
-          const generatedPart = preserveNativeInstructions
-            ? nativePart
-            : nativePart.replace(/(^|[^\\])@/g, "$1\\@")
-          const escapedProvenance = provenanceInstructions.replace(/(^|[^\\])@/g, "$1\\@");
-          instructions = `${generatedPart}${escapedProvenance}`
-        } else if (materializeInstructions && !preserveNativeInstructions) {
-          instructions = instructions.replace(/(^|[^\\])@/g, "$1\\@");
+        // Deliver generated instructions once, without Claude's native @path imports.
+        // Preserve native instruction files when only adding source provenance.
+        if (!preserveNativeInstructions) {
+          generatedProviderFiles.push(await materializeGeneratedProviderFile(root, join(root, "CLAUDE.md"), ""))
         }
-      }
-      const instructionFile = options.provider === "codex" ? "AGENTS.md" : "CLAUDE.md"
-      const generated = await materializeGeneratedProviderFile(root, join(root, instructionFile), instructions)
-      if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
-        // Remove only the injected text so native instruction edits reach Workspace write-back.
-        const escapedProvenance = options.provider === "claude-code"
-          ? provenanceInstructions.replace(/(^|[^\\])@/g, "$1\\@")
-          : provenanceInstructions
-        generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${escapedProvenance}`
-      }
-      generatedProviderFiles.push(generated)
-      if (options.provider === "claude-code") {
         claudePromptFile = join(root, ".claude", "vitehub-system-prompt.md")
         generatedProviderFiles.push(await materializeGeneratedProviderFile(root, claudePromptFile, promptFileInstructions))
+      } else {
+        const generated = await materializeGeneratedProviderFile(root, join(root, "AGENTS.md"), instructions)
+        if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
+          // Remove only the injected text so native instruction edits reach Workspace write-back.
+          generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
+        }
+        generatedProviderFiles.push(generated)
       }
     }
     const colocatedSkills = context.context.get(colocatedAgentSkillsContextKey)
