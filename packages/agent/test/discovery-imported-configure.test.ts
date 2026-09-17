@@ -193,7 +193,14 @@ it.each([
   for (const workspace of ['{}', '"shared"']) {
     const definitions = await discover(source.replace(settings, `${settings}, workspace: ${workspace}`))
     expect(definitions[0]?.workspace).toBe(workspace === '{}' ? "notes" : undefined)
+    await expect(discover(source.replace(settings, `workspace: ${workspace}, ${settings}`))).rejects.toThrow("cannot inspect opaque Agent settings")
+    await expect(discover(`import importedSettings from "./settings"; import * as namespace from "./settings"; const alias = importedSettings; export default defineAgent({ workspace: ${workspace}, ${settings} })`)).rejects.toThrow("cannot inspect opaque Agent settings")
   }
+})
+
+it("preserves Workspace overrides inside nested opaque spreads", async () => {
+  const definitions = await discover('import settings from "./settings"; export default defineAgent({ workspace: "shared", ...{ ...settings, workspace: {} } })')
+  expect(definitions[0]?.workspace).toBe("notes")
 })
 
 it("inspects local settings spreads and respects local import shadowing", async () => {

@@ -551,7 +551,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
   }
 
-  function properties(index: number, inspectChannels = false, inspectSettings = false): Map<string, number> {
+  function properties(index: number, inspectChannels = false, inspectSettings = false, onOpaqueSettings?: () => void): Map<string, number> {
     const result = new Map<string, number>()
     index = resolveReference(index)
     // Preserve object literals wrapped in value-preserving helpers such as
@@ -568,6 +568,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       }
     }
     if (tokens[index] !== "{") {
+      onOpaqueSettings?.()
       if (inspectSettings) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect opaque Agent settings. Define settings locally, or add an explicit workspace: {} ownership marker or named Workspace reference to the Agent definition.")
       }
@@ -580,7 +581,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (depth === 0 && token === "}") break
       if (depth === 0 && atProperty) {
         if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
-          const spread = properties(i + 3, inspectChannels, inspectSettings)
+          const spread = properties(i + 3, inspectChannels, inspectSettings, () => {
+            // Opaque spreads can replace an earlier Workspace marker. A later
+            // explicit field, including one inside this spread, restores it.
+            result.delete("workspace")
+            onOpaqueSettings?.()
+          })
           for (const [key, value] of spread) result.set(key, value)
           i += 2
           atProperty = false
@@ -881,6 +887,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       const returnedDefinitions: number[] = []
       let callbackDepth = 0
       let returnExpression = false
+      let returnExpressionDepth = -1
       const body = tokens[bodyStart] === ">" ? bodyStart + 1 : bodyStart
       const callbackScope = variableScope(tokens[body] === "{" ? body + 1 : body)
       for (let i = bodyStart; i < callbackEnd; i++) {
@@ -909,7 +916,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             // part of the returned expression; only the final operand is the
             // callback value (the fallback below selects it).
             (arrow >= 0 && !returnExpression && callbackDepth === 0 && tokens[i - 1] === ",") ||
-            tokens[expressionStart - 1] === "return" || tokens[expressionStart - 1] === "?" || tokens[expressionStart - 1] === ":"
+            tokens[expressionStart - 1] === "return" ||
+            ((returnExpression || tokens[body] !== "{") && ["?", ":"].includes(tokens[expressionStart - 1]))
           if (returned) {
             returnGroup.depth = Math.min(returnGroup.depth, expressionDepth)
             returnGroups.set(i, returnGroup)
@@ -925,14 +933,16 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         }
         if (token === "return" && inCallbackScope) {
           returnExpression = true
+          returnExpressionDepth = callbackDepth
           // Each return has its own expression depth. Control-flow blocks may
           // nest an early return deeper than the callback's final return.
           returnGroup = { depth: Number.POSITIVE_INFINITY }
         }
-        else if ((token === "?" || token === ":") && returnExpression) returnExpression = true
-        else if (token === ";" && callbackDepth === 0) returnExpression = false
+        // Declarations also end a preceding semicolon-free return statement.
+        else if (callbackDepth === returnExpressionDepth && [";", "const", "let", "var"].includes(token)) returnExpression = false
         if (["{", "(", "["].includes(token)) callbackDepth++
         else if (["}", ")", "]"].includes(token)) callbackDepth--
+        if (callbackDepth < returnExpressionDepth) returnExpression = false
       }
       // Exclude nested settings within each returned expression independently.
       // Function scope checks above exclude returns belonging to nested helpers.

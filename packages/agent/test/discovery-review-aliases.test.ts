@@ -278,3 +278,12 @@ it.each([
 it("requires explicit ownership for an opaque early configure return", async () => {
   await expect(workspaceFor('const build = () => defineAgent({ workspace: {} }); export default defineAgent({ options: {}, configure: options => { if (options.storage) { return build() } return defineAgent({}) } })')).rejects.toThrow("cannot inspect a configure result factory")
 })
+
+it.each([
+  "if (options.early) return defineAgent({}); const ignored = options.other ? defineAgent({ workspace: {} }) : defineAgent({});",
+  "if (options.early) return defineAgent({})\nconst ignored = options.other ? defineAgent({ workspace: {} }) : defineAgent({})\n",
+  "if (options.early) { return defineAgent({}) } options.other ? defineAgent({ workspace: {} }) : defineAgent({});",
+  "if (options.early) return defineAgent({}); options.other ? defineAgent({ workspace: {} }) : defineAgent({});",
+])("excludes unused conditionals after a configure return: %s", async (body) => {
+  await expect(workspaceFor(`export default defineAgent({ options: {}, configure: options => { ${body} return defineAgent({}) } })`)).resolves.toBeUndefined()
+})
