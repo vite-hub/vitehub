@@ -445,3 +445,18 @@ it.each(["accessor", "data"])("copies RegExp slots without reading shadowing %s 
   }
   expect(getter).not.toHaveBeenCalled()
 })
+
+it.each(["accessor", "data"])("copies URL state without reading a shadowing %s href", kind => {
+  const url = new URL("https://example.com/original?value=1")
+  const getter = vi.fn(() => { throw new Error("application accessor") })
+  Object.defineProperty(url, "href", kind === "accessor" ? { get: getter } : { value: "https://wrong.example/" })
+  const configure = vi.fn((_options: { url: URL }) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options: { url }, configure })
+  const inherited = defineAgent({ extends: preset })
+  for (const options of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
+    expect(options.url === url).toBe(false)
+    expect(URL.prototype.toString.call(options.url)).toBe("https://example.com/original?value=1")
+    expect(Object.getOwnPropertyDescriptor(options.url, "href")).toEqual(Object.getOwnPropertyDescriptor(url, "href"))
+  }
+  expect(getter).not.toHaveBeenCalled()
+})

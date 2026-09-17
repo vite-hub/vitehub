@@ -333,7 +333,9 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   }
   if (value instanceof URL) {
     if (Object.getPrototypeOf(value) !== URL.prototype) return value
-    return finish(new URL(value.href))
+    // SAFETY: The intrinsic accessor reads URL state without invoking an own href property.
+    const href = Object.getOwnPropertyDescriptor(URL.prototype, "href")!.get!.call(value) as string
+    return finish(new URL(href))
   }
   if (value instanceof URLSearchParams) {
     if (Object.getPrototypeOf(value) !== URLSearchParams.prototype) return value

@@ -172,3 +172,36 @@ it.each(["as Capability[]", "satisfies Capability[]", "as const"])("preserves st
     await expect(workspaceFor(`const plain = defineCapability({}); const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ([${capability}] ${assertion}) }) })`)).resolves.toBe(workspace)
   }
 })
+
+it.each([
+  'false || [storage]',
+  'true && [storage]',
+  'undefined ?? [storage]',
+  '((false || [storage]))',
+  '([plain]) && [storage]',
+  '[...(false || [storage])]',
+])("requires explicit ownership for logical Capability expressions: %s", async capabilities => {
+  const source = `const plain = defineCapability({}); const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ${capabilities} }) })`
+  await expect(workspaceFor(source)).rejects.toThrow("logical Capability expression")
+  await expect(workspaceFor(source.replace("capabilities:", "workspace: {}, capabilities:"))).resolves.toBe("support")
+})
+
+it.each([
+  'condition ? "workspace" : "plain"',
+  'selection',
+  '`work${suffix}`',
+  '"work" + suffix',
+  '("plain") && "workspace"',
+  '("plain") ? "workspace" : "plain"',
+])("requires explicit ownership for dynamic preset selection: %s", async preset => {
+  const source = `const selection = condition ? "workspace" : "plain"; const storage = defineAgent({ workspace: {} }); const plain = defineAgent({}); export default defineAgent({ presets: { workspace: storage, plain }, preset: ${preset} })`
+  await expect(workspaceFor(source)).rejects.toThrow("dynamic preset selection")
+  await expect(workspaceFor(source.replace("presets:", "workspace: {}, presets:"))).resolves.toBe("support")
+})
+
+
+it("preserves a static preset alias without semicolons", async () => {
+  await expect(workspaceFor(`const selection = "workspace"
+const storage = defineAgent({ workspace: {} })
+export default defineAgent({ presets: { workspace: storage }, preset: selection })`)).resolves.toBe("support")
+})

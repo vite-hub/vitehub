@@ -339,12 +339,30 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return undefined
   }
 
+  function hasLogicalOperator(index: number): boolean {
+    let depth = 0
+    for (let i = index; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (depth === 0 && [",", ";", ")", "]", "}"].includes(token)) break
+      if (depth === 0 && ["|", "&", "?"].includes(token) && tokens[i + 1] === token) {
+        return true
+      }
+      if (["(", "[", "{"].includes(token)) depth++
+      else if ([")", "]", "}"].includes(token)) depth--
+    }
+    return false
+  }
+
   function capabilityOwnsWorkspace(index: number, seen = new Set<number>()): boolean {
     if (tokens[index] === "." && tokens[index + 1] === "." && tokens[index + 2] === ".") index += 3
+    const outerIndex = index
     const outerBranches = conditionalBranches(index)
     if (outerBranches) return outerBranches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
     let wrappers = 0
     while (tokens[index] === "(") { index++; wrappers++ }
+    if (hasLogicalOperator(outerIndex) || hasLogicalOperator(index)) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect a logical Capability expression. Use a literal Capability list with direct local bindings, or add an explicit Workspace ownership marker.")
+    }
     if (seen.has(index)) return false
     seen.add(index)
     const branches = conditionalBranches(index)
@@ -967,10 +985,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (returnedDefinitions.some((index) => ownsWorkspace(index, new Set(seen)))) return true
     }
     if (preset === undefined || registry === undefined) return false
-    const selection = tokens[resolveReference(preset)]
-    if (!/^["'`]/.test(selection)) {
-      // Runtime-dependent selections cannot identify a registry entry safely.
-      return false
+    const selectionIndex = resolveReference(preset)
+    const selection = tokens[selectionIndex]
+    if (!/^["'`]/.test(selection) || (selection.startsWith("`") && selection.includes("${"))
+      || hasLogicalOperator(preset) || hasLogicalOperator(selectionIndex) || conditionalBranches(preset)
+      || ["+", "?", ".", "[", "("].includes(tokens[selectionIndex + 1])) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic preset selection. Use a statically known preset name or add an explicit Workspace ownership marker.")
     }
     const entry = properties(registry).get(propertyName(selection))
     return entry !== undefined && ownsWorkspace(entry, seen, true)
