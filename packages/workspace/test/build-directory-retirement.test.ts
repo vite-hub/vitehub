@@ -58,6 +58,32 @@ it.each(["workspace:build-directory-users", "workspace:retirement:build-director
   }
 })
 
+it.each([false, true])("retires orphaned shared claims after reopening, shared=%s", async (shared) => {
+  const root = await mkdtemp(join(tmpdir(), "build-directory-retirement-"))
+  try {
+    const store = createLocalWorkspaceStore(root)
+    const sources = { docs: custom({ materialize: "build", mount: "docs", files: [] }) }
+    await syncWorkspaceDefinition({ name: "first", sources }, store)
+    if (shared) await syncWorkspaceDefinition({ name: "second", sources }, store)
+    const setMeta = store.setMeta!.bind(store)
+    store.setMeta = async (key, value) => {
+      if (key === "workspace:build-directory-users") throw new Error("metadata unavailable")
+      await setMeta(key, value)
+    }
+    await expect(syncWorkspaceDefinition({ name: "first", sources: {} }, store)).rejects.toThrow("metadata unavailable")
+    const reopened = createLocalWorkspaceStore(root)
+    // The final owner can clean up even if the retired Workspace never retries.
+    await syncWorkspaceDefinition({ name: shared ? "second" : "first", sources: {} }, reopened)
+    await expect(reopened.getMeta!("workspace:build-directory-users")).resolves.toEqual({})
+    if (shared) await expect(reopened.stat("docs")).resolves.toBeUndefined()
+    else await expect(reopened.stat("docs")).resolves.toMatchObject({ type: "directory" })
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
+  }
+})
+
 it("retains failed removal authority across Store reopen without reviving completed removals", async () => {
   const root = await mkdtemp(join(tmpdir(), "build-directory-retirement-"))
   try {

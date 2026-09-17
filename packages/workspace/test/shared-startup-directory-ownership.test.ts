@@ -10,6 +10,33 @@ import { materializeWorkspaceSources, reconcileRemovedStartupSources } from "../
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 
+it.each(["memory", "volatile", "local"] as const)("preserves a retained empty startup mount until its last owner is removed (%s)", async (backend) => {
+  const root = backend === "local" ? await mkdtemp(join(tmpdir(), "vitehub-empty-shared-directory-")) : undefined
+  const store = root ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+  if (backend === "volatile") {
+    store.getMeta = undefined
+    store.setMeta = undefined
+  }
+  const source = () => custom({ files: [], materialize: "startup", mount: "shared/nested" })
+  try {
+    await materializeWorkspaceSources({ name: "first", sources: { docs: source() } }, store)
+    await materializeWorkspaceSources({ name: "second", sources: { docs: source() } }, store)
+    const cleanupStore = root ? createLocalWorkspaceStore(root) : store
+    await reconcileRemovedStartupSources("first", cleanupStore, [])
+    await expect(cleanupStore.stat("shared/nested")).resolves.toMatchObject({ type: "directory" })
+    await expect(cleanupStore.list("shared/nested")).resolves.toEqual([])
+    await reconcileRemovedStartupSources("second", cleanupStore, [])
+    await expect(cleanupStore.stat("shared/nested")).resolves.toBeUndefined()
+    await expect(cleanupStore.stat("shared")).resolves.toBeUndefined()
+  }
+  finally {
+    if (root) {
+      await rm(root, { recursive: true, force: true })
+      await rm(`${root}.meta.json`, { force: true })
+    }
+  }
+})
+
 it.each([false, true])("cleans nested mount ancestors while preserving existing parents (%j)", async (existingParent) => {
   const store = createMemoryWorkspaceStore()
   if (existingParent) await store.mkdir("shared")

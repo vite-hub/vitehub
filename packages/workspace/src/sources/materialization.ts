@@ -563,13 +563,13 @@ async function reconcileRemovedStartupSourcesInternal(
     }
     let directoryCleanupUnavailable = false
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
+      let ownershipTransferred = false
       for (const { workspace: retainedWorkspace, source: currentSource } of retainedSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, retainedWorkspace, currentSource.key)
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
         const containsMount = pathContains(path, currentSource.mountPath)
         if (!containsMount && !Object.keys(retainedSnapshot.items || {}).some(item => pathContains(path, item))) continue
-        // Retained files can keep this directory nonempty. Carry its ownership
-        // forward even when the removal below cannot delete the shared mount.
+        // Retained Sources keep their directories even when their mounts are empty.
         // This metadata-only transfer preserves the retained snapshot's validity.
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, retainedWorkspace, {
           ...retainedSnapshot,
@@ -579,7 +579,9 @@ async function reconcileRemovedStartupSourcesInternal(
               ? { ownedAncestors: [...new Set([...(retainedSnapshot.ownedAncestors || []), path])] }
               : { ownedDirectories: [...new Set([...(retainedSnapshot.ownedDirectories || []), path])] }),
         }))
+        ownershipTransferred = true
       }
+      if (ownershipTransferred) continue
       // Files left after ownership cleanup belong to retained Sources or users.
       // Decide whether removal is needed before calling the Store, so an actual
       // removal failure always preserves the snapshot and index for a retry.

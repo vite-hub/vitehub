@@ -63,9 +63,25 @@ async function readBuildDirectoryUsers(store: WorkspaceStore): Promise<Record<st
   const users: Record<string, string[]> = Object.create(null)
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Shared directory claims are an untyped persistence boundary.
   if (!value || typeof value !== "object" || Array.isArray(value)) return users
-  return Object.assign(users, Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string[]] =>
+  const entries = Object.entries(value).filter((entry): entry is [string, string[]] =>
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate persisted Workspace names before using shared claims.
-    Array.isArray(entry[1]) && entry[1].every(name => typeof name === "string"))))
+    Array.isArray(entry[1]) && entry[1].every(name => typeof name === "string"))
+  const directories = new Map<string, string[]>()
+  for (const [path, names] of entries) {
+    const current: string[] = []
+    for (const name of names) {
+      let owned = directories.get(name)
+      if (!owned) {
+        owned = await readBuildDirectories(store, name)
+        directories.set(name, owned)
+      }
+      // Retirement removes authority first. A failed shared-index write must
+      // not leave a claimant that blocks the final owner's cleanup after reopen.
+      if (owned.includes(path)) current.push(name)
+    }
+    if (current.length) users[path] = current
+  }
+  return users
 }
 
 async function missingBuildDirectories(store: WorkspaceStore, paths: string[]): Promise<Set<string>> {

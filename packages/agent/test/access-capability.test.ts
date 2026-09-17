@@ -1,5 +1,8 @@
 import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import type { AgentToolSet, ResolvedAgentRuntimeContext } from "../src/types.ts"
 import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
@@ -302,7 +305,7 @@ describe("access capability", () => {
     await expect(resolved.tools!.inScope.execute!({ path: "customers/globex/brief.md" })).resolves.toBe(false)
   })
 
-  it("inspects root startup Sources through a restricted Workspace Scope", async () => {
+  it.each(["memory", "local"] as const)("inspects root startup Sources through a restricted Workspace Scope with a %s Store", async (provider) => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
     const name = `scoped-root-source-${crypto.randomUUID()}`
@@ -314,7 +317,12 @@ describe("access capability", () => {
       materialize: "startup",
       mount: "",
     })
-    registerWorkspace(name, { sources: { docs: source }, store: { provider: "memory" } })
+    const root = await mkdtemp(join(tmpdir(), "vitehub-scoped-source-"))
+    onTestFinished(async () => {
+      await rm(root, { recursive: true, force: true })
+      await rm(`${root}.meta.json`, { force: true })
+    })
+    registerWorkspace(name, { sources: { docs: source }, store: { provider, root } })
     const workspace = useWorkspace(name)
     await workspace.fs.list("")
     const resolved = await resolveAgentCapabilities({

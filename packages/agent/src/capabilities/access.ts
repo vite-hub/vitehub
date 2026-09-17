@@ -977,13 +977,19 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       const metadata = await Reflect.apply(resolveMetadata, workspace, []) as { workspaceName?: string, getMeta?: (key: string) => Promise<unknown>, list?: (path: string, options?: ListOptions) => Promise<WorkspaceEntry[]> } | undefined
       if (!metadata) return
       const list = metadata.list?.bind(metadata)
-      return {
+      const scopedMetadata = {
         workspaceName: metadata.workspaceName,
         getMeta: metadata.getMeta?.bind(metadata),
         list: list
           ? async (path: string, options?: ListOptions) => filterEntries(scope, await list(path, options))
           : undefined,
       }
+      const storeTarget = Symbol.for("vitehub.workspace.storeTarget")
+      const resolveStoreTarget = Reflect.get(metadata, storeTarget)
+      if (hasRuntimeType(resolveStoreTarget, "function")) {
+        Reflect.set(scopedMetadata, storeTarget, resolveStoreTarget.bind(metadata))
+      }
+      return scopedMetadata
     })
   }
   if (facadeStarter) {
