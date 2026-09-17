@@ -25,9 +25,9 @@ export function filterColocatedAgentSkills(skills: ColocatedAgentSkills, explici
     if (blocked) for (const root of roots) blockedSkillRoots.add(root)
     return { key, source, roots, blocked }
   })
-  return Object.fromEntries(entries
-    .filter(entry => !entry.blocked && !entry.roots.some(root => blockedSkillRoots.has(root)))
-    .map(({ key, source }) => [key, source]))
+  const filtered = entries.filter(entry => !entry.blocked && !entry.roots.some(root => blockedSkillRoots.has(root)))
+  if (filtered.length === entries.length) return skills
+  return Object.fromEntries(filtered.map(({ key, source }) => [key, source]))
 }
 
 interface EncodedColocatedAgentSkillSource {
