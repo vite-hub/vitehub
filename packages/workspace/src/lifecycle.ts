@@ -10,6 +10,7 @@ import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
 import { workspaceStoreIdentity, registerWorkspaceStoreAlias } from "./storage/identity.ts"
+import { withWorkspaceStoreMutation } from "./storage/mutation.ts"
 import { createWorkspaceStoreFromProvider } from "./storage/provider.ts"
 import { createCurrentSnapshotFromStore } from "./storage/utils.ts"
 
@@ -72,23 +73,6 @@ async function missingBuildDirectories(store: WorkspaceStore, paths: string[]): 
   return missing
 }
 
-// Shared claims and pruning use one queue across Store wrappers.
-const buildDirectoryUpdates = new WeakMap<object, Promise<void>>()
-
-async function updateBuildDirectories<T>(store: WorkspaceStore, operation: () => Promise<T>): Promise<T> {
-  const identity = workspaceStoreIdentity(store)
-  const previous = buildDirectoryUpdates.get(identity) ?? Promise.resolve()
-  const pending = previous.then(operation)
-  const settled = pending.then(() => {}, () => {})
-  buildDirectoryUpdates.set(identity, settled)
-  try {
-    return await pending
-  }
-  finally {
-    if (buildDirectoryUpdates.get(identity) === settled) buildDirectoryUpdates.delete(identity)
-  }
-}
-
 async function recordBuildDirectories(store: WorkspaceStore, workspace: string, paths: string[], missing: Set<string>): Promise<void> {
   const owned = new Set(await readBuildDirectories(store, workspace))
   const users = await readBuildDirectoryUsers(store)
@@ -103,7 +87,7 @@ async function recordBuildDirectories(store: WorkspaceStore, workspace: string, 
 }
 
 async function pruneBuildDirectories(store: WorkspaceStore, workspace: string): Promise<void> {
-  await updateBuildDirectories(store, async () => {
+  await withWorkspaceStoreMutation(store, async () => {
     const owned = await readBuildDirectories(store, workspace)
     const users = await readBuildDirectoryUsers(store)
     const retained: string[] = []
@@ -152,7 +136,7 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
   let writes = Promise.resolve()
   const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
     abortSignal?.throwIfAborted()
-    const pending = writes.then(() => updateBuildDirectories(mutationStore, operation))
+    const pending = writes.then(() => withWorkspaceStoreMutation(mutationStore, operation))
     writes = pending.then(() => {}, () => {})
     return trackOperation ? trackOperation(pending) : pending
   }
@@ -396,7 +380,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
     abortSignal?.throwIfAborted()
     const buildKeys = [...previousSources, ...currentSources].filter(source => source.mountPath === mountPath).map(source => source.key)
-    await mutate(() => updateBuildDirectories(materializationStore, async () => {
+    await mutate(() => withWorkspaceStoreMutation(materializationStore, async () => {
       const removedPaths = await buildSourceFilePaths(materializationStore, definition.name, mountPath, buildKeys)
       const affected: ResolvedWorkspaceSource[] = []
       for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
@@ -416,7 +400,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
   const rootSourceKeys = new Set([...previousSources, ...currentSources].filter(source => !source.mountPath).map(source => source.key))
   for (const key of rootSourceKeys) {
     abortSignal?.throwIfAborted()
-    await mutate(() => updateBuildDirectories(materializationStore, async () => {
+    await mutate(() => withWorkspaceStoreMutation(materializationStore, async () => {
       const removedPaths = await buildSourceFilePaths(materializationStore, definition.name, "", [key])
       const affected: ResolvedWorkspaceSource[] = []
       for (const startup of startupSources) {
@@ -438,7 +422,7 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
 
   for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].filter(Boolean).sort((a, b) => a.length - b.length)) {
     abortSignal?.throwIfAborted()
-    await mutate(() => updateBuildDirectories(materializationStore, async () => {
+    await mutate(() => withWorkspaceStoreMutation(materializationStore, async () => {
       const directories = [...parentPaths(mountPath), mountPath]
       const missing = await missingBuildDirectories(materializationStore, directories)
       await materializationStore.mkdir(mountPath, { recursive: true })
@@ -596,8 +580,8 @@ async function buildSourceFilePaths(store: WorkspaceStore, workspace: string, mo
 async function removeBuildSourceFiles(store: WorkspaceStore, workspace: string, paths: string[]) {
   const records = await readBuildFiles(store, workspace)
   for (const path of paths) {
-    await store.rm(path, { force: true })
     await removeWorkspaceFileOwner(store, path)
+    await store.rm(path, { force: true })
     delete records[path]
     await writeBuildMetadata(store, buildFilesMetaKey(workspace), records)
   }

@@ -10,9 +10,10 @@ import { normalizeMetadataValue, normalizeSourceFileMetadata } from "./file-meta
 import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
+import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
-import { recordWorkspaceFileOwner, readWorkspaceFileOwner } from "./file-ownership.ts"
+import { recordWorkspaceFileOwner, readWorkspaceFileOwner, removeWorkspaceFileOwner } from "./file-ownership.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -508,25 +509,28 @@ async function reconcileRemovedStartupSourcesInternal(
     const staleDirectories = new Set([...(snapshot?.ownedAncestors || []), ...(snapshot?.ownedDirectories || []).filter(path => sourceOwnsDirectory(source, path))])
     if (source.mountPath && snapshot?.ownsMount) staleDirectories.add(source.mountPath)
     for (const path of previousPaths) {
-      const file = await store.readFile(path)
-      if (!file) continue
-      const durableOwner = await readWorkspaceFileOwner(store, path)
-      if (file.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) continue
-      const owner = file.metadata?.source ?? durableOwner?.source
-      const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
-      // A durable owner authorizes cleanup only while its written content remains.
-      if (file.metadata?.source === undefined
-        && (!durableOwner?.digest || await sha256(file.content) !== durableOwner.digest)) continue
-      // Persisted metadata does not prove that externally edited content is ours.
-      if ((!store.getMeta || !store.setMeta || (await resolveWorkspaceStoreTarget(store))?.provider === "local") && snapshot?.items
-        && (!recordedDigest || await sha256(file.content) !== recordedDigest)) continue
-      if (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest)) continue
-      for (const currentSource of currentSources) {
-        const retainedSnapshot = await readSourceSnapshotMetadata(store, workspace, currentSource.key)
-        if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
-        await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, { ...retainedSnapshot, status: "updating" }))
-      }
-      await control.mutate(() => store.rm(path, { force: true }))
+      await control.mutate(() => withWorkspaceStoreMutation(store, async () => {
+        const file = await store.readFile(path)
+        if (!file) return
+        const durableOwner = await readWorkspaceFileOwner(store, path)
+        if (file.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) return
+        const owner = file.metadata?.source ?? durableOwner?.source
+        const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
+        // A durable owner authorizes cleanup only while its written content remains.
+        if (file.metadata?.source === undefined
+          && (!durableOwner?.digest || await sha256(file.content) !== durableOwner.digest)) return
+        // Persisted metadata does not prove that externally edited content is ours.
+        if ((!store.getMeta || !store.setMeta || (await resolveWorkspaceStoreTarget(store))?.provider === "local") && snapshot?.items
+          && (!recordedDigest || await sha256(file.content) !== recordedDigest)) return
+        if (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest)) return
+        for (const currentSource of currentSources) {
+          const retainedSnapshot = await readSourceSnapshotMetadata(store, workspace, currentSource.key)
+          if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
+          await writeSourceSnapshotMetadata(store, workspace, { ...retainedSnapshot, status: "updating" })
+        }
+        await removeWorkspaceFileOwner(store, path)
+        await store.rm(path, { force: true })
+      }))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       for (const { workspace: retainedWorkspace, source: currentSource } of retainedSources) {
@@ -913,7 +917,7 @@ async function materializeWorkspaceSourcesInternal(
         }
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]
-        const written = await control.mutate(async () => {
+        const written = await control.mutate(() => withWorkspaceStoreMutation(store, async () => {
           const result = await writeMaterializedFile(store, path, {
             path,
             content: entry.content,
@@ -932,7 +936,7 @@ async function materializeWorkspaceSourcesInternal(
             materializedMetadata: observableFileMetadata(fileMetadata),
           }
           return result
-        })
+        }))
         sourceFiles++
         sourceBytes += written.size || 0
         persistedBytesDelta += (written.size || 0) - (tracked

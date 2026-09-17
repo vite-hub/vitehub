@@ -86,3 +86,29 @@ it.each(cases)("serializes build cleanup with another Workspace write at '$mount
   await expect(store.readFile(path)).resolves.toMatchObject({ content: "second" })
   await expect(readWorkspaceFileOwner(store, path)).resolves.toMatchObject({ workspace: "second" })
 })
+
+it("keeps build output until ownership retirement succeeds", async () => {
+  const store = createStore(false)
+  const definition: WorkspaceDefinition = { name: "retirement-failure", sources: {
+    build: custom({ materialize: "build", mount: "", files: [{ path: "shared.md", content: "same" }] }),
+  } }
+  await syncWorkspaceDefinition(definition, store)
+  await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "same" })
+  const setMeta = store.setMeta!.bind(store)
+  let fail = true
+  store.setMeta = async (key, value) => {
+    if (fail && key.startsWith("workspace-file-owner:") && value === null) {
+      fail = false
+      throw new Error("metadata unavailable")
+    }
+    await setMeta(key, value)
+  }
+  const empty = { name: definition.name, sources: {} }
+  await expect(syncWorkspaceDefinition(empty, store)).rejects.toThrow("metadata unavailable")
+  await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "same" })
+  await syncWorkspaceDefinition(empty, store)
+  await expect(store.readFile("shared.md")).resolves.toBeUndefined()
+  await store.writeFile("shared.md", { path: "shared.md", content: "same" })
+  await syncWorkspaceDefinition(empty, store)
+  await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "same" })
+})
