@@ -12,16 +12,20 @@ export async function withWorkspaceFileCheckpoint<T>(store: WorkspaceStore, path
   catch (error) {
     try {
       if (previous) {
-        // Bind cleanup to the failed write before restoring unowned bytes. A
-        // failed owner clear must not claim the restored file after Store reopen.
-        if (!owner) await markWorkspaceFileRemoval(store, path)
-        await store.writeFile(path, previous)
         try {
-          if (owner) await recordWorkspaceFileOwner(store, path, owner)
-          else await removeWorkspaceFileOwner(store, path)
+          // Bind the failed owner's cleanup to its revision, even when restoring
+          // another owner. Marker persistence must not prevent byte restoration.
+          await markWorkspaceFileRemoval(store, path)
         }
         finally {
-          await rollbackCheckpoint?.()
+          await store.writeFile(path, previous)
+          try {
+            if (owner) await recordWorkspaceFileOwner(store, path, owner)
+            else await removeWorkspaceFileOwner(store, path)
+          }
+          finally {
+            await rollbackCheckpoint?.()
+          }
         }
       }
       else {

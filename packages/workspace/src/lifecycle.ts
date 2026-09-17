@@ -83,8 +83,9 @@ async function recordBuildDirectories(store: WorkspaceStore, workspace: string, 
     owned.add(path)
     users[path] = [...new Set([...(Object.hasOwn(users, path) ? users[path]! : []), workspace])]
   }
-  await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
+  // Persist cleanup authority before publishing a claim that other Workspaces retain.
   await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), [...owned])
+  await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
 }
 
 async function pruneBuildDirectories(store: WorkspaceStore, workspace: string): Promise<void> {
@@ -572,6 +573,7 @@ async function readBuildFiles(store: WorkspaceStore, workspace: string): Promise
     const record: unknown = entry[1]
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted entries must validate both ownership fields before authorizing cleanup.
     return !!record && typeof record === "object" && "source" in record && typeof record.source === "string"
+      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Persisted digests must be strings before authorizing cleanup.
       && "digest" in record && typeof record.digest === "string"
   }))
 }
