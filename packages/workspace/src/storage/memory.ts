@@ -42,6 +42,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
 
   #nodes = new Map<string, MemoryNode>([["", { type: "directory", mtime: now() }]])
   #meta = new Map<string, unknown>()
+  #creationIdentities = new Map<string, string>()
   #baseline: WorkspaceSnapshot | undefined
   #mutationQueue: Promise<void> = Promise.resolve()
 
@@ -85,6 +86,12 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     })
   }
 
+  async getPathCreationIdentity(path: string): Promise<string> {
+    const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
+    return JSON.stringify(["", ...parts.map((_, index) => parts.slice(0, index + 1).join("/"))]
+      .map(parent => this.#creationIdentities.get(parent) ?? null))
+  }
+
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const result: WorkspaceEntry[] = []
@@ -120,6 +127,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       }
       if (!existing) {
         const directoryIdentity = crypto.randomUUID()
+        this.#creationIdentities.set(normalized, directoryIdentity)
         this.#nodes.set(normalized, { type: "directory", mtime: now(), directoryIdentity })
         options.onCreate?.(normalized, directoryIdentity)
       }
@@ -191,6 +199,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     file = { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }
     const normalized = normalizeWorkspacePath(path)
     this.#ensureParents(normalized)
+    this.#creationIdentities.set(normalized, crypto.randomUUID())
     this.#nodes.set(normalized, {
       type: "file",
       content: file.content,
@@ -212,6 +221,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       const dir = parts.slice(0, index).join("/")
       if (!this.#nodes.has(dir)) {
         const directoryIdentity = crypto.randomUUID()
+        this.#creationIdentities.set(dir, directoryIdentity)
         this.#nodes.set(dir, { type: "directory", mtime: now(), directoryIdentity })
         onCreate?.(dir, directoryIdentity)
       }

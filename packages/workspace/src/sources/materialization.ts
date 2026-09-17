@@ -85,9 +85,10 @@ export function removedStartupPathMetaKey(workspaceName: string | undefined, pat
   return `workspace:${workspaceMetadataScope(workspaceName)}:removed-startup-path:${JSON.stringify(path)}`
 }
 async function captureStartupFileRemoval(store: WorkspaceStore, path: string, source: string) {
-  return { source, mutations: await captureStartupPathMutations(store, path) }
+  return { source, creationIdentity: await store.getPathCreationIdentity?.(path), mutations: await captureStartupPathMutations(store, path) }
 }
 export async function removedStartupFileMatches(store: WorkspaceStore, workspaceName: string | undefined, path: string, source: string) {
+  if (!store.getPathCreationIdentity) return false
   return isDeepStrictEqual(await store.getMeta?.(removedStartupPathMetaKey(workspaceName, path)), await captureStartupFileRemoval(store, path, source))
 }
 export { removedStartupDirectoryMetaKey } from "./startup-directory-evidence.ts"
@@ -445,7 +446,7 @@ async function reconcilePromotedSourceSkills(
     if (existing && await promotedFileMatches(existing, prior)) {
       const latest = await readSourceFile(store, destination)
       if (latest && await promotedFileMatches(latest, prior)) {
-        if (store.compareAndSwapFile) {
+        if (store.compareAndSwapFile && (latest.metadata?.sourceMaterialize !== "startup" || store.getPathCreationIdentity)) {
           const removalEvidence = latest.metadata?.sourceMaterialize === "startup"
             ? await captureStartupFileRemoval(store, destination, prior.source)
             : undefined
@@ -711,7 +712,7 @@ async function removeStaleMaterializedSourceFiles(
           || (recorded.materializedAttributes && latestOwner === undefined && !fileAttributesUnavailable(latest))) continue
       }
       // Digest and ownership conditions cannot detect concurrent attribute edits.
-      if (!store.compareAndSwapFile || !store.writeFileConditional) continue
+      if (!store.compareAndSwapFile || !store.writeFileConditional || (source.materialize === "startup" && !store.getPathCreationIdentity)) continue
       const removalEvidence = await captureStartupFileRemoval(store, entry.path, source.key)
       try {
         await control.mutate(() => store.compareAndSwapFile!(entry.path, latest, undefined))
@@ -846,7 +847,7 @@ async function reconcileRemovedStartupSourcesInternal(
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
-      if (!store.compareAndSwapFile || !store.writeFileConditional) continue
+      if (!store.compareAndSwapFile || !store.writeFileConditional || !store.getPathCreationIdentity) continue
       const removalEvidence = await captureStartupFileRemoval(store, path, source.key)
       try {
         await control.mutate(() => store.compareAndSwapFile!(path, file, undefined))

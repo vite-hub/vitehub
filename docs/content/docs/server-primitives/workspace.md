@@ -303,6 +303,8 @@ This reuses current persisted snapshots of Sources with `materialize: 'startup'`
 
 Source snapshot ownership is scoped to the Workspace name. Cleanup removes stale Source files only when the Store supports atomic conditional removal. Stores without that capability, including the Local Store, retain stale files to protect concurrent user edits. Directory cleanup also requires the original directory identity; replaced directories remain intact.
 
+Startup file cleanup also requires Store creation history through `getPathCreationIdentity`. This keeps later user deletions visible in the default diff, including replacements made directly through the Store. Memory Stores support this; Stores without it retain startup files during cleanup.
+
 Startup Source Skills can be copied into `.agents/skills`. Creating a promotion with multiple files requires a Store with atomic conditional removal, so a conflicting copy can roll back without deleting user edits. Stores without that capability, including the Local Store, keep these Skills at their original mounted paths.
 
 `refresh: false` applies only to read mode. It does not disable refreshes for other Sources or change explicit `sync()` and `materializeSources()` calls on a writable facade. Write mode keeps normal refresh behavior.

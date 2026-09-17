@@ -24,6 +24,56 @@ import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 const tempDirs: string[] = []
 
 describe("startup cleanup checkpoints", () => {
+  it.each(["promotion", "refresh", "retirement"].flatMap(mode => ["before", "during", "after"].map(timing => ({ mode, timing }))))("keeps user deletions visible after a replacement $timing $mode evidence publication", async ({ mode, timing }) => {
+    const store = createMemoryWorkspaceStore()
+    const skillPath = ".agents/skills/review/SKILL.md"
+    const sourcePath = mode === "promotion" ? skillPath : "file.md"
+    const sources = { generated: custom({ materialize: "startup", files: [{ path: sourcePath, content: "generated" }] }) }
+    const definition = { name: `cleanup-race-${mode}-${timing}`, sources }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    const path = mode === "promotion" ? skillPath : `generated/${sourcePath}`
+    await store.snapshot()
+    if (mode === "refresh") {
+      sources.generated = custom({ materialize: "startup", files: [] })
+      await invalidateWorkspaceSourceMaterialization(definition, store, ["generated"])
+    }
+    else Reflect.deleteProperty(sources, "generated")
+    const setMeta = store.setMeta!.bind(store)
+    let replaced = false
+    const replaceAndDelete = async () => {
+      await store.writeFile(path, { path, content: "user replacement" })
+      await store.rm(path)
+    }
+    store.setMeta = async (key, value) => {
+      if (!replaced && key === removedStartupPathMetaKey(definition.name, path) && value) {
+        replaced = true
+        if (timing === "before") await replaceAndDelete()
+        if (timing === "during") await store.writeFile(path, { path, content: "user replacement" })
+        await setMeta(key, value)
+        if (timing === "during") await store.rm(path)
+        if (timing === "after") await replaceAndDelete()
+        return
+      }
+      await setMeta(key, value)
+    }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    expect(replaced).toBe(true)
+    registerWorkspace(definition.name, defineWorkspace({ store, sources }))
+    const workspace = await useRegisteredWorkspace(definition.name)
+    expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "removed" }))
+  })
+
+  it("retains startup files without Store creation history", async () => {
+    const store = createMemoryWorkspaceStore()
+    store.getPathCreationIdentity = undefined
+    const definition = { name: "no-creation-history", sources: {
+      generated: custom({ materialize: "startup", files: [{ path: "file.md", content: "generated" }] }),
+    } }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await createWorkspaceSourceView({ ...definition, sources: {} }, store).materializeSources()
+    await expect(store.readFile("generated/file.md")).resolves.toMatchObject({ content: "generated" })
+  })
+
   it.each(["promotion", "refresh", "retirement"].flatMap(mode => ["operational", "conflict", "replacement"].map(failureKind => ({ mode, failureKind }))))("compensates $mode removal checkpoint failure: $failureKind", async ({ mode, failureKind }) => {
     const store = createMemoryWorkspaceStore()
     const skillPath = ".agents/skills/review/SKILL.md"

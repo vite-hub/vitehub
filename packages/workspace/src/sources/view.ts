@@ -469,6 +469,20 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
             if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "EISDIR") throw error
           }
           if (!file || !await materializedFileMatches(file, item)) {
+            // An external file can replace an indexed parent even at a root mount.
+            // Its descendants are unavailable, not missing files to recover.
+            if (!file) {
+              let replacedAncestor = false
+              const segments = path.split("/")
+              for (let index = 1; index < segments.length; index++) {
+                const ancestor = await store.stat(segments.slice(0, index).join("/"))
+                if (ancestor?.type === "file") {
+                  replacedAncestor = true
+                  break
+                }
+              }
+              if (replacedAncestor) continue
+            }
             // A ready higher-priority snapshot may own the visible bytes.
             // Keep that file with its owner rather than replaying it as this Source.
             let shadowed = false

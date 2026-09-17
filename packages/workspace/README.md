@@ -81,6 +81,8 @@ export default defineEventHandler(async () => {
 
 Source snapshot ownership is scoped to the Workspace name. Cleanup removes stale Source files only when the Store supports atomic conditional removal. Stores without that capability, including the Local Store, retain stale files to protect concurrent user edits. Directory cleanup also requires the original directory identity; replaced directories remain intact. Public `fs.rm` calls with file preconditions reject when the Store does not support conditional removal.
 
+Startup file cleanup also requires `getPathCreationIdentity`. The Store must change this opaque identity atomically on every write or directory creation at the path or its ancestors, and retain it after deletion and across restarts. Cleanup records the identity before removal so a later replacement invalidates removal evidence, even when that replacement is deleted before inspection. Memory Stores support this; Stores without it retain startup files during cleanup.
+
 Startup Source Skills can be copied into `.agents/skills`. Creating or refreshing a promotion with multiple files requires atomic `compareAndSwapFile` support. Compensation checks content, media type, and metadata before restoring or removing a copied file, preserving concurrent user replacements. Stores without that capability, including the Local Store, keep these Skills at their original mounted paths.
 
 `refresh: false` applies only to read mode. It does not disable refreshes for other Sources or change explicit `sync()` and `materializeSources()` calls on a writable facade. `useWorkspace(name, { mode: "write" })` keeps normal refresh behavior.

@@ -338,6 +338,8 @@ export interface WorkspaceStore {
   writeFileConditional?(path: string, file: WorkspaceFile, ifDigest: string | null): Promise<void>
   /** Atomically restore or remove a file only when its content, media type, and metadata still match; otherwise throw WORKSPACE_CONFLICT. */
   compareAndSwapFile?(path: string, expected: WorkspaceFile, replacement: WorkspaceFile | undefined): Promise<void>
+  /** Opaque creation history for this path and its ancestors, including absent paths. Changes atomically on every file write or directory creation, survives deletion, and remains stable across reads/restarts. */
+  getPathCreationIdentity?(path: string): Promise<string>
   writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat & { digest: string }>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
