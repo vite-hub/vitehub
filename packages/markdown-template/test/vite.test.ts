@@ -67,16 +67,14 @@ describe("hubMarkdownTemplate", () => {
     const resolveId = resolveIdCandidate as (
       this: { resolve: (source: string) => Promise<{ id: string }> },
       source: string,
-    ) => Promise<string | undefined>
+    ) => Promise<{ id: string } | undefined>
 
     const resolve = vi.fn(async (source: string) => ({ id: `/app/${source.slice(2)}` }))
-    await expect(resolveId.call({ resolve }, "./reply.template.md?markdown-template")).resolves.toBe(
-      "/app/reply.template.md?markdown-template",
-    )
+    await expect(resolveId.call({ resolve }, "./reply.template.md?markdown-template")).resolves.toEqual({ id: "/app/reply.template.md?markdown-template" })
     expect(resolve).toHaveBeenCalledWith("./reply.template.md", undefined, { skipSelf: true })
     await expect(resolveId.call({
       resolve: async source => ({ id: `${source}?markdown-template` }),
-    }, "/app/reply.template.md")).resolves.toBe("/app/reply.template.md?markdown-template")
+    }, "/app/reply.template.md")).resolves.toEqual({ id: "/app/reply.template.md?markdown-template" })
   })
 
   it("bundles caller-relative templates as typed render functions", async () => {
@@ -166,33 +164,21 @@ describe("hubMarkdownTemplate", () => {
     await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
   }, 15_000)
 
-  it.each(["?worker", "?markdown-template=false", "?worker#fragment"])("loads template paths when a resolver adds %s", async (query) => {
+  it.each([
+    "\0virtual:prompt?worker#fragment",
+    "virtual:prompt?markdown-template",
+    "/prompt.template.md?generated",
+    "/missing.template.md?generated",
+    "/prompt.template.md#generated",
+    "/prompt.template.md?worker",
+    "/prompt.template.md?markdown-template=false",
+    "/prompt.template.md?worker#fragment",
+  ])("preserves plugin-owned module %s", async (resolvedId) => {
     const root = await createRoot()
+    const id = resolvedId.startsWith("/") ? join(root, resolvedId) : resolvedId
     const entry = join(root, "entry.ts")
-    const template = join(root, "prompt.template.md")
-    await writeFile(template, "Hello {{ data.name }}.", "utf8")
-    await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default () => prompt({ name: "ViteHub" })\n', "utf8")
-
-    await build({
-      build: { lib: { entry, fileName: () => "entry.mjs", formats: ["es"] }, outDir: join(root, "dist") },
-      logLevel: "silent",
-      plugins: [hubMarkdownTemplate(), {
-        name: "resolver-query",
-        enforce: "pre",
-        resolveId(source) {
-          if (source === "./prompt.template.md") return `${template}${query}`
-        },
-      }],
-      root,
-    })
-    // SAFETY: The fixture exports the renderer invocation built above.
-    const bundled = await import(pathToFileURL(join(root, "dist", "entry.mjs")).href) as { default: () => Promise<string> }
-    await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
-  })
-
-  it.each(["\0virtual:prompt?worker#fragment", "virtual:prompt?markdown-template"])("preserves plugin-owned module %s", async (id) => {
-    const root = await createRoot()
-    const entry = join(root, "entry.ts")
+    // An existing source file must not override the owning plugin's generated module.
+    await writeFile(join(root, "prompt.template.md"), "Wrong disk content", "utf8")
     await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default () => prompt({ name: "ViteHub" })\n', "utf8")
     const load = vi.fn((source: string) => {
       if (source === id) return renderMarkdownTemplateModule("Hello {{ data.name }}.")
@@ -202,6 +188,7 @@ describe("hubMarkdownTemplate", () => {
       logLevel: "silent",
       plugins: [hubMarkdownTemplate(), {
         name: "virtual-template-owner",
+        enforce: "pre",
         resolveId(source) {
           if (source === "./prompt.template.md") return id
         },

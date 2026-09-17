@@ -61,11 +61,9 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
       if (!resolved || resolved.external) {
         this.error(`[vitehub] Could not resolve Markdown template ${JSON.stringify(request.path)}${importer ? ` from ${JSON.stringify(importer)}` : ""}.`)
       }
-      // Virtual modules belong to the resolving plugin, including their query and fragment.
-      if (!isFileId(resolved.id)) return resolved
-      // Template imports read the resolved file directly, without other query transforms.
-      const path = resolved.id.split(/[?#]/, 1)[0]!
-      return `${path}?${markdownTemplateModuleQuery}`
+      // Resolver queries and fragments identify plugin-owned modules, even on absolute paths.
+      if (!isFileId(resolved.id) || /[?#]/.test(resolved.id)) return resolved
+      return { ...resolved, id: `${resolved.id}?${markdownTemplateModuleQuery}` }
     },
     async load(id) {
       if (!isFileId(id)) return

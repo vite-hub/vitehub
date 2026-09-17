@@ -50,7 +50,7 @@ export const replies = {
 } as const
 ```
 
-The query form must end with exactly `?markdown-template`. Compound queries and hash fragments are not supported.
+The query form must end with exactly `?markdown-template`. Compound queries and hash fragments are not supported. If another Vite plugin resolves a template import to a virtual ID or an ID with its own query or fragment, that identity is preserved for the owning plugin to load.
 
 The `vitehub()` preset installs the template module integration. Modular Vite configurations can add `hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite`. Both forms generate the ambient module type under `.vitehub/types`, which the application `tsconfig.json` must include.
 

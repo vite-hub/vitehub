@@ -111,3 +111,7 @@ Conditions cannot call functions, read globals, or traverse inherited properties
 ### Keep import references literal
 
 References such as `@./policy.md` and `@workspace.policy` remain literal text. Render related Markdown explicitly with `renderMarkdownFile()` or pass trusted content through the `:insert` binding; this package does not recursively resolve template imports.
+
+## Vite module resolution
+
+`hubMarkdownTemplate()` from `@vite-hub/markdown-template/vite` turns plain resolved template file paths into renderer modules. It preserves virtual IDs and resolver-provided queries or fragments so their owning plugins can load them. The exact `?markdown-template` suffix selects this package’s file renderer.
