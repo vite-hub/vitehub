@@ -124,6 +124,10 @@ catalogs:
     comark-content:
       specifier: 0.4.0
       version: 0.4.0
+  nitro-compat:
+    nitro:
+      specifier: ^3.0.260603-beta || ^3.0.260610-beta || ^3.0.260903-beta
+      version: 3.0.260903-beta
   nuxt:
     '@nuxt/content':
       specifier: ^3.16.0
@@ -952,7 +956,7 @@ importers:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
       nitro:
-        specifier: catalog:unjs
+        specifier: catalog:nitro-compat
         version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
       nitropack:
         specifier: catalog:unjs
@@ -1535,7 +1539,7 @@ importers:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
       nitro:
-        specifier: catalog:unjs
+        specifier: catalog:nitro-compat
         version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
       nitropack:
         specifier: catalog:unjs
@@ -1603,7 +1607,7 @@ importers:
         specifier: catalog:unjs
         version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
       nitro:
-        specifier: catalog:unjs
+        specifier: catalog:nitro-compat
         version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
       nitropack:
         specifier: catalog:unjs
@@ -1867,7 +1871,7 @@ importers:
         specifier: catalog:tooling
         version: 0.28.2
       nitro:
-        specifier: catalog:unjs
+        specifier: catalog:nitro-compat
         version: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
       nitropack:
         specifier: catalog:unjs

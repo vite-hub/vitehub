@@ -150,6 +150,16 @@ console.log('packed Nitro ${version} owner imports compiled')
       await run(["install", "--no-hoist", "--strict-peer-dependencies"], app)
       const result = await run(["exec", "node", "generate-and-build.mjs"], app)
       expect(result.stdout).toContain(`packed Nitro ${version} owner imports compiled`)
+
+      if (version === 3) {
+        // Each dated prerelease needs its own semver admission. Keep development pinned,
+        // but prove published peers also accept the older supported consumer hosts.
+        for (const compatibleVersion of ["3.0.260603-beta", "3.0.260610-beta"]) {
+          await run(["add", `nitro@${compatibleVersion}`, "--no-hoist", "--strict-peer-dependencies", "--ignore-scripts"], app)
+          const installed = JSON.parse(await readFile(join(app, "node_modules/nitro/package.json"), "utf8")) as { version: string }
+          expect(installed.version).toBe(compatibleVersion)
+        }
+      }
     }
   }
   finally {

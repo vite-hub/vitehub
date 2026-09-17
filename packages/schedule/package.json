@@ -60,7 +60,7 @@
   },
   "peerDependencies": {
     "@vite-hub/kv": "workspace:*",
-    "nitro": "catalog:unjs",
+    "nitro": "catalog:nitro-compat",
     "nitropack": "catalog:unjs",
     "vite": "catalog:vite-compat"
   },

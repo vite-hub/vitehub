@@ -57,6 +57,9 @@ catalogs:
     "@types/mdast": ^4.0.4
     comark: 0.7.0
     comark-content: 0.4.0
+  # npm semver admits prereleases only for explicitly named version triples.
+  nitro-compat:
+    nitro: ^3.0.260603-beta || ^3.0.260610-beta || ^3.0.260903-beta
   nuxt:
     "@takumi-rs/core": 2.10.0
     "@nuxt/content": ^3.16.0

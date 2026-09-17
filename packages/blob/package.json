@@ -147,7 +147,7 @@
     "box-typescript-sdk-gen": "catalog:storage",
     "dropbox": "catalog:storage",
     "google-auth-library": "catalog:storage",
-    "nitro": "catalog:unjs",
+    "nitro": "catalog:nitro-compat",
     "nitropack": "catalog:unjs",
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat"
