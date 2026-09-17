@@ -2653,6 +2653,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   if (hasRuntimeType(originalRun, "function") && syntheticWorkspaceRun in originalRun) delete decorations.run
   // Keep custom lifecycle properties, but regenerate closures over the rebuilt definition.
   for (const [property, marker] of [["health", baseAgentDefinitionHealth], ["status", baseAgentDefinitionStatus]] as const) {
+    // SAFETY: Agent definitions are object values, so this assertion is required for reflective property access.
     if (decorations[property]?.value === Reflect.get(agent as object, marker)) delete decorations[property]
     Reflect.deleteProperty(decorations, marker)
   }
