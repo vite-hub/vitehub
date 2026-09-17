@@ -364,6 +364,7 @@ async function removeStaleMaterializedSourceFiles(
   control: MaterializationControl,
   previousSnapshot: SourceSnapshotMetadata | undefined,
   ownedDirectories: Set<string>,
+  checkpointDirectoryOwnership: (path: string, owned: boolean) => Promise<void>,
   onRemoved?: (path: string, bytes: number) => void,
 ) {
   const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
@@ -451,7 +452,14 @@ async function removeStaleMaterializedSourceFiles(
         // Mutation admission can wait while another writer replaces the path.
         if ((await store.list(path)).length) return false
         if ((await store.stat(path))?.type !== "directory") return true
-        await store.removeEmptyDirectory!(path)
+        await checkpointDirectoryOwnership(path, false)
+        try {
+          await store.removeEmptyDirectory!(path)
+        }
+        catch (error) {
+          await checkpointDirectoryOwnership(path, true)
+          throw error
+        }
         return true
       })
       if (removed) {
@@ -562,6 +570,25 @@ async function reconcileRemovedStartupSourcesInternal(
       }))
     }
     let directoryCleanupUnavailable = false
+    let cleanupSnapshot = snapshot
+    const retireDirectory = async (path: string) => {
+      if (!cleanupSnapshot) return
+      const previous = cleanupSnapshot
+      const retired = {
+        ...cleanupSnapshot,
+        ownsMount: path === source.mountPath ? false : cleanupSnapshot.ownsMount,
+        ownedAncestors: cleanupSnapshot.ownedAncestors?.filter(directory => directory !== path),
+        ownedDirectories: cleanupSnapshot.ownedDirectories?.filter(directory => directory !== path),
+      }
+      try {
+        await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, retired))
+      }
+      catch (error) {
+        await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, previous))
+        throw error
+      }
+      cleanupSnapshot = retired
+    }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       let ownershipTransferred = false
       for (const { workspace: retainedWorkspace, source: currentSource } of retainedSources) {
@@ -569,6 +596,7 @@ async function reconcileRemovedStartupSourcesInternal(
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
         const containsMount = pathContains(path, currentSource.mountPath)
         if (!containsMount && !Object.keys(retainedSnapshot.items || {}).some(item => pathContains(path, item))) continue
+        if (!ownershipTransferred) await retireDirectory(path)
         // Retained Sources keep their directories even when their mounts are empty.
         // This metadata-only transfer preserves the retained snapshot's validity.
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, retainedWorkspace, {
@@ -592,7 +620,20 @@ async function reconcileRemovedStartupSourcesInternal(
       }
       await control.mutate(async () => {
         if ((await store.list(path)).length || (await store.stat(path))?.type !== "directory") return
-        await store.removeEmptyDirectory!(path)
+        const previousSnapshot = cleanupSnapshot
+        // Retire authority before deletion so later checkpoint failures cannot
+        // authorize cleanup of a directory recreated at the same path.
+        await retireDirectory(path)
+        try {
+          await store.removeEmptyDirectory!(path)
+        }
+        catch (error) {
+          if (previousSnapshot) {
+            await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, previousSnapshot))
+            cleanupSnapshot = previousSnapshot
+          }
+          throw error
+        }
       })
     }
     if (directoryCleanupUnavailable) {
@@ -1018,7 +1059,35 @@ async function materializeWorkspaceSourcesInternal(
         }
       }
       throwIfAborted(options.abortSignal)
-      const removedDirectories = await removeStaleMaterializedSourceFiles(store, workspace, source, configuredSources, nextPaths, options, control, existing, ownedDirectories, (path, removedBytes) => {
+      const removedDirectories = await removeStaleMaterializedSourceFiles(store, workspace, source, configuredSources, nextPaths, options, control, existing, ownedDirectories, async (path, owned) => {
+        const previouslyOwned = ownedDirectories.has(path)
+        const previouslyOwnedMount = ownsMount
+        if (owned) ownedDirectories.add(path)
+        else ownedDirectories.delete(path)
+        if (path === source.mountPath) ownsMount = owned
+        try {
+          await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, {
+            configHash,
+            source: source.key,
+            mountPath: source.mountPath,
+            ownsMount,
+            ownedAncestors,
+            ownedDirectories: [...ownedDirectories],
+            status: "updating",
+            revision,
+            items: checkpointItems(itemMetadata),
+            cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+          }))
+        }
+        catch (error) {
+          if (!owned) {
+            if (previouslyOwned) ownedDirectories.add(path)
+            else ownedDirectories.delete(path)
+            ownsMount = previouslyOwnedMount
+          }
+          throw error
+        }
+      }, (path, removedBytes) => {
         counts.removed++
         if (Object.hasOwn(itemMetadata, path)) persistedBytesDelta -= itemMetadata[path]?.materializedBytes ?? removedBytes
         delete itemMetadata[path]
