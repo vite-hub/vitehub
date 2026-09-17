@@ -167,7 +167,7 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "vp run -t @vite-hub/agent#build && vp test"
+    "test": "vp run -t @vite-hub/agent#build && vp test && node --test test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/gateway": "catalog:ai",
@@ -190,6 +190,7 @@
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "nostics": "catalog:runtime",
+    "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
@@ -199,6 +200,7 @@
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
+    "@types/proper-lockfile": "catalog:",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
@@ -232,6 +234,7 @@
     "@types/mdast": "catalog:markdown",
     "askweb": "catalog:ai",
     "evalite": "catalog:ai",
+    "h3": "^1.15.11 || ^2.0.1-rc.31",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
@@ -264,6 +267,9 @@
       "optional": true
     },
     "evalite": {
+      "optional": true
+    },
+    "h3": {
       "optional": true
     },
     "vite": {

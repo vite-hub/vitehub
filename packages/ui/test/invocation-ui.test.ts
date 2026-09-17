@@ -3723,4 +3723,149 @@ describe("Agent Invocation UI", () => {
     expect(shortened.get(".vh-invocation-inspector__group--execution").text()).not.toContain("unknown");
 
   });
+  it("preserves terminal usage and capability visibility in details", () => {
+    const invocation: AgentInvocationView = {
+      id: "summary", status: "completed", traceId: "trace", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:00Z", observations: [],
+      usage: { totalTokens: 1234, cost: { display: "$0.02", estimated: true } },
+      configuration: { capabilities: [{ id: "files" }] },
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation, showCapabilities: false } });
+    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("1,234");
+    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("$0.02 (estimated)");
+    expect(wrapper.text()).not.toContain("Capabilities");
+    expect(mount(AgentInvocationInspector, { props: { invocation } }).text()).toContain("Capabilities");
+  });
+
+  it("forwards workspace artifact paths without navigating", async () => {
+    const invocation: AgentInvocationView = { id: "artifact", status: "running", traceId: "trace", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:00Z", observations: [] };
+    const wrapper = mount(AgentInvocation, { props: { invocation }, slots: { footer: () => h("a", { href: "/workspace/id/reports/a%23b.md" }, "Artifact") } });
+    await wrapper.get("a").trigger("click");
+    expect(wrapper.emitted("inspect")).toEqual([["workspace", "reports/a#b.md"]]);
+    await wrapper.setProps({ workspaceInspectable: false });
+    await wrapper.get("a").trigger("click");
+    expect(wrapper.emitted("inspect")).toHaveLength(1);
+  });
+
+  it("forwards each recorded skill path", async () => {
+    const timestamp = "2026-09-05T00:00:00Z";
+    const wrapper = mount(AgentInvocation, { props: { invocation: {
+      id: "skills", status: "running", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      observations: [{ name: "agent.tool.completed", type: "run", timestamp, sequence: 1, attributes: {
+        "tool.name": "read", "tool.output": { commandActions: [
+          { type: "read", path: ".agents/skills/first/SKILL.md" },
+          { type: "read", path: ".agents/skills/second/SKILL.md" },
+        ] },
+      } }],
+    } } });
+    const buttons = wrapper.findAll("button").filter(button => button.text().startsWith("Read "));
+    expect(buttons).toHaveLength(2);
+    await buttons[0]!.trigger("click");
+    await buttons[1]!.trigger("click");
+    expect(wrapper.emitted("inspect")).toEqual([["workspace", ".agents/skills/first/SKILL.md"], ["workspace", ".agents/skills/second/SKILL.md"]]);
+  });
+
+  it("keeps late commentary after the final answer", () => {
+    const timestamp = "2026-09-05T00:00:00Z";
+    const wrapper = mount(AgentInvocation, { props: { invocation: {
+      id: "phases", status: "completed", traceId: "trace", createdAt: timestamp, updatedAt: timestamp,
+      observations: [...[
+        { role: "user", body: "Question", phase: "message" },
+        { role: "assistant", body: "Final answer", phase: "final" },
+        { role: "assistant", body: "Late commentary", phase: "commentary" },
+      ].map((message, index) => ({ name: "agent.message", type: "run" as const, timestamp, sequence: index + 1, attributes: { "message.id": String(index), "message.role": message.role, "message.content": message.body, "message.phase": message.phase } })), { name: "agent.step.completed", type: "run", timestamp, sequence: 4, attributes: {} }],
+    } } });
+    expect(wrapper.text().indexOf("Final answer")).toBeLessThan(wrapper.text().indexOf("Late commentary"));
+    expect(wrapper.text()).toContain("Final answer");
+    expect(wrapper.findAll(".vh-invocation-message").map(message => message.get(".vh-invocation-message__body").text())).toEqual(["Question", "Final answer", "Late commentary"]);
+  });
+
+  it("preserves input message roles and turn boundaries", async () => {
+    const timestamp = "2026-08-22T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "invocation",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "system", parts: [{ text: "Follow the repository rules.", type: "text" }], role: "system" },
+            { id: "user", parts: [{ text: "Review this change.", type: "text" }], role: "user" },
+            { id: "assistant", parts: [{ text: "I found one issue.", type: "text" }], role: "assistant" },
+            { id: "tool", parts: [{ text: "The check passed.", type: "text" }], role: "tool" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+
+    expect(invocationActivities(invocation).map(activity => [activity.role, activity.body])).toEqual([
+      ["system", "Follow the repository rules."],
+      ["user", "Review this change."],
+      ["assistant", "I found one issue."],
+      ["tool", "The check passed."],
+    ]);
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.get('[data-role="system"] .vh-visually-hidden').text()).toBe("System message");
+    expect(wrapper.get('[data-role="user"] .vh-visually-hidden').text()).toBe("User message");
+    expect(wrapper.get('[data-role="assistant"] .vh-visually-hidden').text()).toBe("Assistant message");
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    expect(wrapper.get('[data-role="tool"] .vh-visually-hidden').text()).toBe("Tool message");
+  });
+
+  it("preserves input transcript order when the latest user has no response", () => {
+    const timestamp = "2026-08-24T00:00:00.000Z";
+    const invocation = {
+      createdAt: timestamp,
+      id: "unanswered-turn",
+      observations: [{
+        attributes: {
+          "input.messages": [
+            { id: "user-1", parts: [{ text: "First question", type: "text" }], role: "user" },
+            { id: "assistant-1", parts: [{ text: "First answer", type: "text" }], role: "assistant" },
+            { id: "user-2", parts: [{ text: "Unanswered question", type: "text" }], role: "user" },
+          ],
+        },
+        name: "agent.invocation.started",
+        sequence: 1,
+        timestamp,
+        type: "lifecycle" as const,
+      }],
+      status: "completed" as const,
+      traceId: "trace",
+      updatedAt: timestamp,
+    } satisfies AgentInvocationView;
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const messages = wrapper.findAll(".vh-invocation-message");
+
+    expect(messages.map(message => message.get(".vh-invocation-message__content").text()))
+      .toEqual(["First question", "First answer", "Unanswered question"]);
+    expect(messages.at(-1)!.attributes("data-role")).toBe("user");
+  });
+
+  it("renders structured workspace sources alongside historical source strings", () => {
+    const invocation: AgentInvocationView = {
+      id: "sources", traceId: "sources", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:01Z",
+      status: "completed", observations: [],
+      configuration: { workspace: { sources: [
+        { id: "docs", repository: "vite-hub/vitehub" },
+        { id: "local" },
+        "github:legacy/repo",
+      ] } },
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    const sources = wrapper.findAll(".vh-invocation-inspector__group").find(group => group.find("strong").exists() && group.find("strong").text() === "Sources");
+    expect(sources?.findAll(".vh-invocation-inspector__badge").map(badge => badge.text())).toEqual([
+      "docs", "local", "github:legacy/repo",
+    ]);
+  });
+
+
 });

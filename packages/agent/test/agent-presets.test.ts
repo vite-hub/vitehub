@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
-import { agentWithColocatedInstructions, defineAgent, runAgent } from "../src/index.ts"
+import { agentWithColocatedInstructions, defineAgent, defineCapability, runAgent } from "../src/index.ts"
 import { getAgentLayerOptions } from "../src/agent-layers.ts"
 import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
-import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
+import { markWorkspaceAgentDefinitionRegistered, workspaceAgentUsesRegisteredDefinition, workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
 describe("named Agent presets", () => {
   it("runs a selected published definition with local overrides", async () => {
@@ -49,6 +49,42 @@ describe("named Agent presets", () => {
 })
 
 describe("configured Agent presets", () => {
+  it("keeps separate overrides of shared defaults and cycles from child options", () => {
+    const shared = { value: 1 }
+    const child: { value: number, self?: unknown } = { value: 4 }
+    child.self = child
+    const preset = defineAgent({
+      options: { left: shared, right: shared, child: {} as typeof child },
+      configure: () => defineAgent({ driver: "codex" }),
+    })
+    const extended = defineAgent({ extends: preset, options: { left: { value: 2 }, right: { value: 3 }, child } })
+    expect(extended.options.left.value).toBe(2)
+    expect(extended.options.right.value).toBe(3)
+    expect(extended.options.left).not.toBe(extended.options.right)
+    expect(extended.options.child.self).toBe(extended.options.child)
+    expect(extended.options.child).not.toBe(child)
+    expect(shared.value).toBe(1)
+  })
+
+  it.each([{}, { self: undefined }])("preserves inherited option cycles with omitted or undefined overrides: %j", (overrides) => {
+    const defaults: { value: number, self?: unknown, nested: { parent?: unknown } } = { value: 1, nested: {} }
+    defaults.self = defaults
+    defaults.nested.parent = defaults
+    const configure = vi.fn((_options: typeof defaults) => defineAgent({ driver: "codex" }))
+    const preset = defineAgent({ options: defaults, configure })
+    const extended = defineAgent({ extends: preset, options: { value: 2, ...overrides } })
+    const options = extended.options
+    expect(options.self).toBe(options)
+    expect(options.nested.parent).toBe(options)
+    expect(options.value).toBe(2)
+    expect(options).not.toBe(defaults)
+    expect(defaults.value).toBe(1)
+    const callbackOptions = configure.mock.calls.at(-1)?.[0]
+    expect(callbackOptions?.self).toBe(callbackOptions)
+    expect(callbackOptions?.nested.parent).toBe(callbackOptions)
+    expect(callbackOptions?.value).toBe(2)
+  })
+
   it("runs with merged options and preserves overrides through multiple generations", async () => {
     const defaults = { filter: { author: { allow: ["original"] }, labels: { deny: ["blocked"] } }, autoMerge: true }
     const factory = vi.fn((options: typeof defaults) => defineAgent({
@@ -173,4 +209,113 @@ it("keeps discovery defaults below reconfigured workspace values", () => {
   const child = defineAgent({ extends: discovered, options: { mode: "write", sourceRootDir: "/configured" } })
   expect(getAgentLayerOptions(child)?.workspace).toMatchObject({ mode: "write", sourceRootDir: "/configured", sources: { __vitehubAgentInstructions: { content: "Repository context." } } })
   expect(getAgentLayerOptions(discovered)?.workspace).toMatchObject({ mode: "read", sourceRootDir: "/discovered" })
+})
+
+it("does not restore discovered Workspace access when configure returns a plain Agent", () => {
+  const preset = defineAgent({ options: { workspace: true }, configure: options => options.workspace
+    ? defineAgent({ driver: "codex", workspace: {} })
+    : defineAgent({ driver: "codex" }) })
+  const discovered = workspaceAgentWithSourceRoot(preset, "/discovered", "Repository context.")
+  const plain = defineAgent({ extends: discovered, options: { workspace: false } })
+  expect(plain).not.toHaveProperty("__vitehubWorkspaceAgent")
+  expect(getAgentLayerOptions(plain)?.workspace).toBeUndefined()
+  expect(defineAgent({ extends: plain })).not.toHaveProperty("__vitehubWorkspaceAgent")
+  const restored = defineAgent({ extends: plain, options: { workspace: true } })
+  expect(restored).toHaveProperty("__vitehubWorkspaceAgent", true)
+  expect(getAgentLayerOptions(restored)?.workspace).toMatchObject({ sourceRootDir: "/discovered", sources: { __vitehubAgentInstructions: { content: "Repository context." } } })
+  const explicit = defineAgent({ extends: discovered, options: { workspace: false }, workspace: { mode: "write" } })
+  expect(explicit).toHaveProperty("__vitehubWorkspaceAgent", true)
+  expect(getAgentLayerOptions(explicit)?.workspace).toMatchObject({ mode: "write", sourceRootDir: "/discovered" })
+})
+
+it.each(["capability", "channel", "channel factory"])("preserves discovered defaults when a plain callback gains Workspace through a %s", (kind) => {
+  const preset = defineAgent({ options: { workspace: true }, configure: options => options.workspace
+    ? defineAgent({ driver: "codex", workspace: {} })
+    : defineAgent({ driver: "codex" }) })
+  const discovered = workspaceAgentWithSourceRoot(preset, "/discovered", "Repository context.")
+  const capability = defineCapability({ id: "storage", workspace: {} })
+  const channel = { kind: "custom" as const, capabilities: [capability] }
+  let factoryCalls = 0
+  const extension = kind === "capability"
+    ? { capabilities: [capability] }
+    : { channels: { custom: kind === "channel factory" ? () => { factoryCalls++; return channel } : channel } }
+  const child = defineAgent({ extends: discovered, options: { workspace: false }, ...extension })
+  expect(child).toHaveProperty("__vitehubWorkspaceAgent", true)
+  expect(getAgentLayerOptions(child)?.workspace).toMatchObject({ sourceRootDir: "/discovered", sources: { __vitehubAgentInstructions: { content: "Repository context." } } })
+  expect(factoryCalls).toBe(kind === "channel factory" ? 1 : 0)
+  // SAFETY: The parameterized fixture varies contributor types; this checks their runtime replacement.
+  const removed = defineAgent({ extends: child, capabilities: [defineCapability({ id: "storage" })], channels: { custom: { kind: "custom" } } } as never)
+  expect(removed).not.toHaveProperty("__vitehubWorkspaceAgent")
+})
+
+it("promotes configured presets when capabilities or channels contribute Workspace access", () => {
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const capability = defineCapability({ id: "workspace", workspace: {} })
+  const selected = defineAgent({ preset: "plain", presets: { plain }, capabilities: [capability] })
+  const extended = defineAgent({ extends: plain, capabilities: [capability] })
+  const channel = defineAgent({ preset: "plain", presets: { plain }, channels: { custom: { kind: "custom", capabilities: [capability] } } })
+  for (const agent of [selected, extended, channel, defineAgent({ extends: channel })]) {
+    expect(agent.__vitehubWorkspaceAgent).toBe(true)
+    expect(agent.options).toEqual({ enabled: true })
+  }
+})
+
+it("removes contributed Workspace access when its last channel or capability is replaced", () => {
+  const plain = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex" }) })
+  const capability = defineCapability({ id: "workspace", workspace: {} })
+  const replacement = defineCapability({ id: "workspace", metadata: {} })
+  const channel = defineAgent({ extends: plain, channels: { custom: { kind: "custom", capabilities: [capability] } } })
+  const removedChannel = defineAgent({ extends: channel, channels: { custom: { kind: "custom" } } })
+  expect(removedChannel).not.toHaveProperty("__vitehubWorkspaceAgent")
+  const decoratedChannel = defineAgent({ extends: channel, name: "callback-default" })
+  const decoration = Symbol("published-metadata")
+  Object.defineProperty(decoratedChannel, decoration, { value: { published: true } })
+  Object.defineProperty(decoratedChannel, "publishedMetadata", { value: { published: true } })
+  const callbackPreset = defineAgent({ options: { enabled: true }, configure: () => decoratedChannel })
+  expect(callbackPreset.__vitehubWorkspaceAgent).toBe(true)
+  const callbackChild = defineAgent({ extends: callbackPreset, channels: { custom: { kind: "custom" } } })
+  expect(callbackChild).not.toHaveProperty("__vitehubWorkspaceAgent")
+  expect(callbackChild.name).toBeUndefined()
+  expect(callbackChild).toHaveProperty("publishedMetadata", { published: true })
+  expect(Object.getOwnPropertyDescriptor(callbackChild, decoration)?.value).toEqual({ published: true })
+  expect(defineAgent({ extends: callbackPreset, workspace: {} })).toHaveProperty("publishedMetadata", { published: true })
+  const withCapability = defineAgent({ extends: plain, capabilities: [capability] })
+  const removedCapability = defineAgent({ preset: "base", presets: { base: withCapability }, capabilities: [replacement] })
+  expect(removedCapability).not.toHaveProperty("__vitehubWorkspaceAgent")
+  const explicit = defineAgent({ extends: channel, workspace: {} })
+  expect(defineAgent({ extends: explicit, channels: { custom: { kind: "custom" } } }).__vitehubWorkspaceAgent).toBe(true)
+})
+
+it.each([new EventTarget(), new ReadableStream(), new WritableStream(), new TransformStream(), [], () => true, new Request("https://example.com"), new Response(), new Blob([]), new File([], "input"), new Date(), new WeakMap(), new WeakSet(), new Error(), new AbortController(), new AbortController().signal, new class Client { connect() { return true } }()])("rejects non-record configured option roots", options => {
+  expect(() => defineAgent({ options, configure: () => defineAgent({ driver: "codex" }) } as never)).toThrow("requires only options defaults and a configure callback")
+})
+
+it("keeps Workspace registration state separate from configured definitions", () => {
+  const base = defineAgent({ name: "base", driver: "codex", workspace: {} })
+  markWorkspaceAgentDefinitionRegistered(base, "base")
+  const preset = defineAgent({ options: { enabled: true }, configure: () => base })
+  const selected = defineAgent({ preset: "base", presets: { base: preset }, name: "selected" })
+  const extended = defineAgent({ extends: preset, name: "extended" })
+  for (const definition of [preset, selected, extended]) {
+    expect(workspaceAgentUsesRegisteredDefinition(definition, "base")).toBe(false)
+  }
+  markWorkspaceAgentDefinitionRegistered(selected, "selected")
+  expect(workspaceAgentUsesRegisteredDefinition(selected, "selected")).toBe(true)
+  for (const definition of [base, preset, extended]) {
+    expect(workspaceAgentUsesRegisteredDefinition(definition, "selected")).toBe(false)
+  }
+  expect(workspaceAgentUsesRegisteredDefinition(base, "base")).toBe(true)
+})
+
+it("preserves nested streams through preset configuration", () => {
+  const streams = { input: new ReadableStream<string>(), output: new WritableStream<string>(), transform: new TransformStream<string, number>() }
+  const configure = vi.fn((options: typeof streams) => {
+    expect(options.input).toBe(streams.input)
+    expect(options.output).toBe(streams.output)
+    expect(options.transform).toBe(streams.transform)
+    return defineAgent({ driver: "codex" })
+  })
+  const preset = defineAgent({ options: streams, configure })
+  defineAgent({ extends: preset })
+  expect(configure).toHaveBeenCalledTimes(2)
 })

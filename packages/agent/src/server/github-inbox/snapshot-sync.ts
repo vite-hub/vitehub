@@ -69,12 +69,20 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
   const pr = parsePullRequest(raw)
   if (!pr.head?.sha) throw new Error('GitHub returned no pull request head.')
   if (pr.state !== 'open') return { pr }
+  const readAll = async (path: string, projection?: string) => {
+    const items: unknown[] = []
+    for (let page = 1; ; page++) {
+      const batch = await read(`${path}&page=${page}`, projection)
+      items.push(...batch)
+      if (batch.length < 100) return items
+    }
+  }
   const [comments, reviews, reviewComments, checks, statuses, threads] = await Promise.all([
-    read(`${prefix}/issues/${number}/comments?per_page=100`),
-    read(`${prefix}/pulls/${number}/reviews?per_page=100`),
-    read(`${prefix}/pulls/${number}/comments?per_page=100`),
-    read(`${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`, '.check_runs[]'),
-    read(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
+    readAll(`${prefix}/issues/${number}/comments?per_page=100`),
+    readAll(`${prefix}/pulls/${number}/reviews?per_page=100`),
+    readAll(`${prefix}/pulls/${number}/comments?per_page=100`),
+    readAll(`${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`, '.check_runs[]'),
+    readAll(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
     readThreads?.(repository, number),
   ])
   const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))

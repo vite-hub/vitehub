@@ -103,7 +103,7 @@ test('REST hydration preserves all reviewer bots and maps full inline text to ex
  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repo]}); t.onTestFinished(() => inbox.close()); inbox.seed(repo, pr)
  const user = { login: 'future-reviewer-bot[bot]', type: 'Bot' }
  const fetch = async (path: string) => {
-  if (path.endsWith('/reviews?per_page=100')) return [{ id: 8, user, state: 'CHANGES_REQUESTED', body: 'Entire reviewer body' }]
+  if (/(?:^|\/)repos\/vite-hub\/vitehub\/pulls\/7\/reviews\?per_page=100(?:&|$)/.test(path)) return [{ id: 8, user, state: 'CHANGES_REQUESTED', body: 'Entire reviewer body' }]
   if (path.includes('/pulls/7/comments')) return [{ id: 9, node_id: 'inline-node', user, body: 'Entire inline finding' }]
   return read(path)
  }

@@ -26,3 +26,6 @@ export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from 
 export { createGitHubPullRequestOperations } from './github-auto-merge.ts'
 export type { GitHubAutoMergeResult, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot } from './github-auto-merge.ts'
 export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
+
+export { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from './github-required-checks.ts'
+export type { GitHubRequiredCheck, GitHubRequiredCheckPolicy, GitHubRequiredCheckPolicyReader, GitHubReadCheckPolicy, GitHubCheckPolicyResponse, GitHubRequiredCheckState, GitHubCheckEvidence, GitHubCheckRun, GitHubCommitStatus } from './github-required-checks.ts'

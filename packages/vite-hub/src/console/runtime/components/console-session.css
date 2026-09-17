@@ -1622,3 +1622,21 @@
 .vitehub-console .vh-invocation-thread__content {
   padding-top: 0.75rem;
 }
+.session-inspector__diff {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.session-inspector__diff-toolbar {
+  align-items: center;
+  border-bottom: 1px solid var(--ui-border);
+  display: flex;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+}
+.session-inspector__diff-toolbar > div { display: flex; flex-direction: column; gap: 0.15rem; }
+.session-inspector__diff-list { overflow: auto; padding: 0.75rem 1rem 2rem; }
+.session-inspector__diff-turn { border: 1px solid var(--ui-border); border-radius: 0.5rem; margin-bottom: 0.75rem; overflow: hidden; }
+.session-inspector__diff-select { align-items: center; background: var(--ui-bg-muted); display: flex; gap: 0.5rem; padding: 0.45rem 0.65rem; font-size: 0.75rem; }
+.session-inspector__patch { min-height: 12rem; }

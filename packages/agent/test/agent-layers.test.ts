@@ -79,6 +79,26 @@ describe("Agent definition layers", () => {
     expect(claude.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "claude-code" })
   })
 
+  it.each([
+    { command: "child" },
+    { command: "child", onExit: undefined },
+    { command: "child", onExit: vi.fn() },
+    () => ({ command: "child" }),
+  ])("replaces the complete provider launch when a child supplies one (%j)", (launch) => {
+    const parentLaunch = { command: "parent", args: ["parent-only"], onExit: vi.fn() }
+    const base = defineAgent({ workspace: {}, driver: { kind: "codex", launch: parentLaunch } })
+    const child = defineAgent({ extends: base, driver: { launch } })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "codex", launch })
+    expect(base.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "codex", launch: parentLaunch })
+  })
+
+  it("inherits the provider launch when a child only changes the model", () => {
+    const launch = { command: "parent", onExit: vi.fn() }
+    const base = defineAgent({ workspace: {}, driver: { kind: "codex", launch } })
+    const child = defineAgent({ extends: base, driver: { model: "child" } })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "codex", model: "child", launch })
+  })
+
   it("replaces registered workspace references without leaking inline sources", () => {
     const base = defineAgent({ driver: "codex", workspace: { sources: { docs: github({ repo: "owner/base" }) } } })
     const child = defineAgent({ extends: base, workspace: { name: "registered" } })

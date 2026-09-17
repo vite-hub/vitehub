@@ -167,6 +167,13 @@ function normalizeProviderLaunchCommand(value: unknown): AgentProviderLaunchComm
   }
   const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
   if (value.args !== undefined) launch.args = [...value.args]
+  if (value.onExit !== undefined) {
+    if (!isRuntimeFunction(value.onExit)) {
+      throw agentDiagnostics.AGENT_R0468({ message: "[vitehub] defineAgent({ driver.launch.onExit }) must be a function." })
+    }
+    // SAFETY: The runtime check verifies a callable; launch supplies its typed exit context.
+    launch.onExit = value.onExit as AgentProviderLaunchCommand["onExit"]
+  }
   return launch
 }
 

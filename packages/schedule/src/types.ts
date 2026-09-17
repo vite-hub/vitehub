@@ -14,12 +14,14 @@ export type ScheduleHandler<TResult = unknown, TInput = unknown> = {
 }["bivarianceHack"]
 
 export interface ScheduleDefinitionInput<TResult = unknown> {
+  manual?: boolean
   allowRuntimeSchedules?: boolean
   cron: string
   handler: ScheduleHandler<TResult>
 }
 
 export interface ScheduleDefinitionOptions {
+  manual?: boolean
   allowRuntimeSchedules?: boolean
 }
 
@@ -160,6 +162,7 @@ export interface ScheduleRunStore {
 }
 
 export interface DiscoveredScheduleDefinition {
+  manual?: boolean
   allowRuntimeSchedules?: boolean
   handler: string
   name: string

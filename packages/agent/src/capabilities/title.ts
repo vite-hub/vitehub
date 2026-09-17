@@ -1,9 +1,10 @@
+import { recordAuxiliaryUsage } from "../internal/auxiliary-usage.ts"
 import { withProviderCallbackMetadata } from "../internal/provider-callback-metadata.ts"
 import { createTraceEventLog, resolveRuntimeValue } from "@vite-hub/runtime"
+import { safeAgentTelemetryMetadata } from "../internal/agent-telemetry.ts"
 import { codexLaunchArgs } from "../internal/codex-launch-args.ts"
 import { hasRuntimeType, isRuntimeObject } from "../internal/runtime-type.ts"
 import { capabilityInvocationStartSymbol, defineCapability } from "../capability-runtime.ts"
-import { recordAuxiliaryUsage } from "../internal/auxiliary-usage.ts"
 import { resolveAgentUsageRecord, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "../agent-output.ts"
 import { messageChannelTitleSupportContextKey } from "../channels.ts"
 import {
@@ -46,6 +47,7 @@ import type {
 import type { MessageChannelTitleDeliveryAttempt } from "../internal/channels.ts"
 import type { TraceEventLog } from "@vite-hub/runtime"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { redactCredentialText } from "../internal/credential-redaction.ts"
 
 type ToUIMessageStream = (...args: unknown[]) => ReadableStream<unknown>
 type TitleResolutionValue = string | typeof skippedTitleDelivery | undefined
@@ -134,6 +136,7 @@ export interface TitleOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentR
   instructions?: string
   maxLength?: number
   model?: AgentModelResolver<TRuntimeConfig>
+  /** Reasoning effort override for an inherited Codex provider. */
   reasoningEffort?: string
   template?: TitleTemplate
   timeoutMs?: number
@@ -205,14 +208,19 @@ function titleTraceLog(traceLog: TraceEventLog | undefined): TraceEventLog | und
     async append(event) {
       const tagged = {
         ...event,
-        attributes: { ...event.attributes, [auxiliaryTraceKindAttribute]: "title" },
+        attributes: {
+          ...(event.name === "agent.stream.error" ? safeAgentTelemetryMetadata(event.attributes) : event.attributes),
+          [auxiliaryTraceKindAttribute]: "title",
+        },
       }
       const entry = await local.append(tagged)
+      if (event.name === "agent.stream.error") {
+        await traceLog.append({ ...tagged, name: "agent.title.error" })
+      }
       if (event.name !== "run.error"
         && event.name !== "run.finish"
         && event.name !== "agent.invocation.finish"
-        && event.name !== "agent.message.delta"
-        && (event.name !== "agent.stream.error" || event.attributes?.["error.recoverable"] === true)
+        && event.name !== "agent.stream.error"
         && event.name !== "agent.invocation.error"
         && event.name !== "agent.invocation.cancelled") {
         await traceLog.append(tagged)
@@ -1014,19 +1022,18 @@ function titleUiMessageStreamOverride(
 export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: TitleOptions<TRuntimeConfig> = {},
 ): AgentCapabilityDefinition<TRuntimeConfig> {
+  if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 2_147_483_647)) {
+    throw agentDiagnostics.AGENT_R0926({ message: "[vitehub] title({ timeoutMs }) must be an integer between 1 and 2147483647 milliseconds." })
+  }
   if (hasRuntimeType(options.model, "string")) {
     if (!options.model.trim()) {
-      throw agentDiagnostics.AGENT_R0474({ message: "[vitehub] title({ model }) must be a non-empty string." })
+      throw agentDiagnostics.AGENT_R0925({ message: "[vitehub] title({ model }) must be a non-empty string." })
     }
-    // Preserve opaque provider model identifiers exactly as supplied; only
-    // boundary whitespace validation is performed here.
-  }
-  if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 2_147_483_647)) {
-    throw agentDiagnostics.AGENT_R0922({ message: "[vitehub] title({ timeoutMs }) must be an integer between 1 and 2147483647 milliseconds." })
+    options = { ...options, model: options.model.trim() }
   }
   if (options.reasoningEffort !== undefined) {
     if (!hasRuntimeType(options.reasoningEffort, "string") || !options.reasoningEffort.trim()) {
-      throw agentDiagnostics.AGENT_R0484({ message: "[vitehub] title({ reasoningEffort }) must be a non-empty model-advertised value." })
+      throw agentDiagnostics.AGENT_R0927({ message: "[vitehub] title({ reasoningEffort }) must be a non-empty model-advertised value." })
     }
     options = { ...options, reasoningEffort: options.reasoningEffort.trim() }
   }
@@ -1089,6 +1096,12 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
     },
     output(context) {
+      // SAFETY: The invocation runtime supplies the normalized enclosing driver.
+      const driver = context.agentDriver as NormalizedAgentDriver | undefined
+      if (!options.execute && !options.driver && (options.model === undefined || hasRuntimeType(options.model, "string"))
+        && driver?.kind === "provider" && driver.provider !== "codex" && options.reasoningEffort !== undefined) {
+        throw agentDiagnostics.AGENT_R0924({ message: "[vitehub] title({ reasoningEffort }) requires an inherited Codex provider." })
+      }
       let channelDeliveryAttempt: MessageChannelTitleDeliveryAttempt | Promise<MessageChannelTitleDeliveryAttempt> | undefined
       const getChannelDeliveryAttempt = () => {
         const state = context.context.get(messageChannelStateContextKey)
@@ -1127,7 +1140,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           run: context.run,
           runtime: context.runtimeContext,
         }, {
-          attributes: { "vitehub.session.title": value.trim() },
+          attributes: { "vitehub.session.title": redactCredentialText(value.trim()) },
           name: "agent.title.recorded",
           type: "run",
         })

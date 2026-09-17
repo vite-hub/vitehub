@@ -1,10 +1,17 @@
 import type { AgentDefinition } from "./types.ts"
 
-/** Partial option overrides. Arrays and callbacks are replaced as whole values. */
-export type AgentPresetOptions<T> = T extends (...args: never[]) => unknown ? T
+/** Partial option overrides. Arrays, callbacks, and method-bearing values must be complete. */
+export type AgentPresetOptions<T> = { [K in keyof T]?: AgentPresetOptionValue<T[K]> }
+
+type RequiredMethodKeys<T> = { [K in keyof T]-?: T[K] extends (...args: never[]) => unknown ? K : never }[keyof T]
+
+type AgentPresetOptionValue<T> = T extends (...args: never[]) => unknown ? T
   : T extends readonly unknown[] ? T
-    : T extends object ? { [K in keyof T]?: AgentPresetOptions<T[K]> }
-      : T
+    : T extends Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | URLSearchParams | ArrayBuffer | ArrayBufferView | SharedArrayBuffer ? T
+      // TypeScript cannot distinguish class methods from record callbacks.
+      // Require complete method-bearing values to preserve instance contracts.
+      : T extends object ? [RequiredMethodKeys<T>] extends [never] ? AgentPresetOptions<T> : T
+        : T
 
 /** An ordinary Agent Definition with typed preset configuration. */
 export type ConfiguredAgentDefinition<TOptions extends object, TDefinition = AgentDefinition> = Omit<TDefinition, "options"> & {

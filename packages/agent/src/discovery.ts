@@ -74,17 +74,36 @@ function stripComments(source: string) {
 }
 
 // Keep literals as single tokens so their punctuation cannot change object depth.
-function tokenizeAgentSource(source: string): string[] {
-  return source.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|[A-Za-z_$][\w$]*|[^\s]/g)
-    ?.filter(token => !token.startsWith("//") && !token.startsWith("/*")) ?? []
+function tokenizeAgentSource(source: string) {
+  const tokens: string[] = []
+  const lineBreaks = new Set<number>()
+  let previousEnd = 0
+  for (const match of source.matchAll(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|[A-Za-z_$][\w$]*|[^\s]/g)) {
+    const token = match[0]
+    if (token.startsWith("//") || token.startsWith("/*")) continue
+    if (/[\r\n\u2028\u2029]/.test(source.slice(previousEnd, match.index))) lineBreaks.add(tokens.length)
+    tokens.push(token)
+    previousEnd = match.index + token.length
+  }
+  return { tokens, lineBreaks }
 }
 
 function isWorkspaceAgentDefinition(source: string): boolean {
-  const tokens = tokenizeAgentSource(source)
+  const { tokens, lineBreaks } = tokenizeAgentSource(source)
+  function startsStatement(index: number): boolean {
+    if (!lineBreaks.has(index) || !/^(?:[A-Za-z_$][\w$]*$|["'0-9])/.test(tokens[index] ?? "")) return false
+    if (["in", "instanceof", "as", "satisfies"].includes(tokens[index])) return false
+    const previous = tokens[index - 1]
+    return [")", "]", "}"].includes(previous) ||
+      (/^[A-Za-z_$][\w$]*$/.test(previous ?? "") && !["return", "throw", "yield", "await", "new", "typeof", "void", "delete", "in", "instanceof", "as", "satisfies"].includes(previous))
+  }
   const declarations = new Map<string, number>()
   const imported = new Set<string>()
   const importedNamespaces = new Set<string>()
   const importedAgentBindings = new Set<string>()
+  const importedCapabilityBindings = new Set<string>()
+  const importedChannelBindings = new Set<string>()
+  const importedChannelNamespaces = new Set<string>()
   let exported: number | undefined
   let depth = 0
   for (let i = 0; i < tokens.length; i++) {
@@ -130,6 +149,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             }
             const moduleName = moduleToken?.slice(1, -1)
             if (moduleName === "@vite-hub/agent" || moduleName === "vite-hub/agent") importedNamespaces.add(tokens[j + 1])
+            if (moduleName === "@vite-hub/agent/channels" || moduleName === "vite-hub/agent/channels") importedChannelNamespaces.add(tokens[j + 1])
             continue
           }
           if (!sawFrom && /^['"`]/.test(token)) { i = j; break }
@@ -140,13 +160,20 @@ function isWorkspaceAgentDefinition(source: string): boolean {
                 const bindings = tokens.slice(i + 1, j)
                 for (let b = 0; b < bindings.length; b++) {
                   if (bindings[b] === "defineAgent") importedAgentBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
+                  if (bindings[b] === "defineCapability") importedCapabilityBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
+                }
+              }
+              if (moduleName === "@vite-hub/agent/channels" || moduleName === "vite-hub/agent/channels") {
+                const bindings = tokens.slice(i + 1, j)
+                for (let b = 0; b < bindings.length; b++) {
+                  if (bindings[b] === "defineChannel") importedChannelBindings.add(bindings[b + 1] === "as" ? bindings[b + 2] : bindings[b])
                 }
               }
               i = j; break
             }
             continue
           }
-          if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token)) imported.add(token)
+          if (/^[A-Za-z_$]/.test(token) && !["from", "as", "type"].includes(token) && tokens[j + 1] !== "as") imported.add(token)
         }
       }
       if (["const", "let", "var"].includes(tokens[i])) {
@@ -154,6 +181,12 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         let equals = i + 2
         while (equals < tokens.length && tokens[equals] !== "=" && tokens[equals] !== ";" && tokens[equals] !== ",") equals++
         if (name && tokens[equals] === "=") declarations.set(name, equals + 1)
+      }
+      // Hoisted function declarations are valid callback bindings too. Keep
+      // the reference at the `function` token so callback scanning can locate
+      // their parameter list and body just like function expressions.
+      if (tokens[i] === "function" && tokens[i + 1] && tokens[i + 1] !== "*") {
+        declarations.set(tokens[i + 1], i)
       }
       if (tokens[i] === "export" && tokens[i + 1] === "default") exported = i + 2
       if (tokens[i] === "export" && tokens[i + 1] === "{" ) {
@@ -163,6 +196,280 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     }
     if (["{", "(", "["].includes(tokens[i])) depth++
     if (["}", ")", "]"].includes(tokens[i])) depth--
+  }
+
+  // A declaration is visible only in its containing scope and descendants.
+  const tokenScopes: (number | undefined)[] = []
+  const scopeParents = new Map<number, number | undefined>()
+  const openingDelimiters = new Map<number, number>()
+  const functionScopes = new Set<number>()
+  const scopes: number[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    tokenScopes[i] = scopes.at(-1)
+    if (["{", "(", "["].includes(tokens[i])) {
+      scopeParents.set(i, scopes.at(-1))
+      if (tokens[i] === "{") {
+        const parameters = openingDelimiters.get(i - 1)
+        const arrowBody = tokens[i - 2] === "=" && tokens[i - 1] === ">"
+        const functionBody = tokens[i - 1] === ")" && parameters !== undefined
+          && !["if", "for", "while", "switch", "catch", "with"].includes(tokens[parameters - 1])
+        if (arrowBody || functionBody) functionScopes.add(i)
+      }
+      scopes.push(i)
+    } else if (["}", ")", "]"].includes(tokens[i])) {
+      const opening = scopes.pop()
+      if (opening !== undefined) openingDelimiters.set(i, opening)
+    }
+  }
+
+  function variableScope(index: number): number | undefined {
+    let scope = tokenScopes[index]
+    while (scope !== undefined && !functionScopes.has(scope)) scope = scopeParents.get(scope)
+    return scope
+  }
+
+  const callbackParameters: { start: number; end: number; names: Set<string> }[] = []
+
+  function callbackBindingNames(start: number, end: number): Set<string> {
+    const names = new Set<string>()
+    let cursor = start
+    if (tokens[cursor] === "async") cursor++
+    if (tokens[cursor] === "function") cursor = tokens.indexOf("(", cursor)
+    // Method callbacks may point at their body after parameter scanning.
+    if (tokens[cursor] === "{" && tokens[cursor - 1] === ")") {
+      let depth = 1
+      cursor -= 2
+      while (cursor >= 0 && depth) {
+        if (tokens[cursor] === ")") depth++
+        else if (tokens[cursor] === "(") depth--
+        if (depth) cursor--
+      }
+    }
+    function skipValue(close: string) {
+      let depth = 0
+      let type = tokens[cursor] === ":" || tokens[cursor] === "?"
+      for (; cursor < end; cursor++) {
+        const token = tokens[cursor]
+        if (depth === 0 && (token === "," || token === close)) return
+        if (depth === 0 && token === "=") type = false
+        if (["(", "[", "{"].includes(token) || (type && token === "<")) depth++
+        else if ([")", "]", "}"].includes(token) || (type && token === ">" && tokens[cursor - 1] !== "=")) depth--
+      }
+    }
+    function binding() {
+      if (tokens[cursor] === "." && tokens[cursor + 1] === "." && tokens[cursor + 2] === ".") cursor += 3
+      const token = tokens[cursor]
+      if (token === "{" || token === "[") {
+        const close = token === "{" ? "}" : "]"
+        cursor++
+        while (cursor < end && tokens[cursor] !== close) {
+          if (tokens[cursor] === ",") { cursor++; continue }
+          if (token === "{" && tokens[cursor] === "[") {
+            // Computed property expressions do not introduce bindings.
+            let depth = 1
+            for (cursor++; cursor < end && depth; cursor++) {
+              if (tokens[cursor] === "[") depth++
+              else if (tokens[cursor] === "]") depth--
+            }
+            if (tokens[cursor] === ":") cursor++
+          } else if (token === "{" && tokens[cursor + 1] === ":") cursor += 2
+          binding()
+          skipValue(close)
+        }
+        cursor++
+      } else {
+        if (/^[A-Za-z_$][\w$]*$/.test(token ?? "")) names.add(token)
+        cursor++
+      }
+    }
+    if (tokens[cursor] !== "(") { binding(); return names }
+    cursor++
+    while (cursor < end && tokens[cursor] !== ")") {
+      if (tokens[cursor] === ",") { cursor++; continue }
+      binding()
+      skipValue(")")
+    }
+    return names
+  }
+
+  const destructuredBindings = new Map<number, Set<string>>()
+  const variableDeclarations = new Map<number, number>()
+  for (let i = 0; i < tokens.length; i++) {
+    if (!["const", "let", "var"].includes(tokens[i])) continue
+    variableDeclarations.set(i, i)
+    const scope = tokenScopes[i]
+    for (let cursor = i + 1; cursor < tokens.length; cursor++) {
+      if (tokenScopes[cursor] !== scope) continue
+      if ([";", "const", "let", "var", "export", "return", "in", "of", "}", ")"].includes(tokens[cursor])) break
+      if (tokens[cursor] === "," && (["[", "{"].includes(tokens[cursor + 1])
+        || (/^[A-Za-z_$][\w$]*$/.test(tokens[cursor + 1] ?? "") && ["=", ":", "!"].includes(tokens[cursor + 2])))) {
+        variableDeclarations.set(cursor, i)
+      }
+    }
+  }
+  for (const binding of variableDeclarations.keys()) {
+    if (["[", "{"].includes(tokens[binding + 1])) {
+      destructuredBindings.set(binding, callbackBindingNames(binding + 1, tokens.length))
+    }
+  }
+
+  function visibleDeclaration(index: number): number | undefined {
+    const visibleScopes: (number | undefined)[] = []
+    for (let scope = tokenScopes[index]; scope !== undefined; scope = scopeParents.get(scope)) visibleScopes.push(scope)
+    visibleScopes.push(undefined)
+    const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
+    for (const scope of visibleScopes) {
+      let binding: number | undefined
+      for (const [i, declaration] of variableDeclarations) {
+        if (i < (parameterScope?.start ?? 0)
+          || (tokens[i + 1] !== tokens[index] && !destructuredBindings.get(i)?.has(tokens[index]))) continue
+        const bindingScope = tokens[declaration] === "var" ? variableScope(declaration) : tokenScopes[declaration]
+        if (bindingScope !== scope) continue
+        if (binding === undefined || i < index) binding = i
+      }
+      if (binding === undefined) continue
+      return binding
+    }
+    return undefined
+  }
+
+  function conditionalBranches(index: number): [number, number] | undefined {
+    let expressionDepth = 0
+    let conditionalDepth = 0
+    let consequent: number | undefined
+    for (let i = index; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (expressionDepth === 0) {
+        if (i > index && conditionalDepth === 0 && startsStatement(i)) break
+        if ([";", ",", ":", "export", "const", "let", "var", ")", "}", "]"].includes(token) && conditionalDepth === 0) break
+        if (token === "?" && tokens[i + 1] !== "." && tokens[i + 1] !== "?" && tokens[i - 1] !== "?") {
+          if (conditionalDepth === 0) consequent = i + 1
+          conditionalDepth++
+        }
+        if (token === ":" && conditionalDepth > 0 && --conditionalDepth === 0 && consequent !== undefined) {
+          return [consequent, i + 1]
+        }
+      }
+      if (["{", "(", "["].includes(token)) expressionDepth++
+      if (["}", ")", "]"].includes(token)) expressionDepth--
+    }
+    return undefined
+  }
+
+  function hasLogicalOperator(index: number): boolean {
+    let depth = 0
+    for (let i = index; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (depth === 0 && [",", ";", ")", "]", "}"].includes(token)) break
+      if (depth === 0 && ["|", "&", "?"].includes(token) && tokens[i + 1] === token) {
+        return true
+      }
+      if (["(", "[", "{"].includes(token)) depth++
+      else if ([")", "]", "}"].includes(token)) depth--
+    }
+    return false
+  }
+
+  function capabilityOwnsWorkspace(index: number, seen = new Set<number>()): boolean {
+    if (tokens[index] === "." && tokens[index + 1] === "." && tokens[index + 2] === ".") index += 3
+    const outerIndex = index
+    const outerBranches = conditionalBranches(index)
+    if (outerBranches) return outerBranches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
+    let wrappers = 0
+    while (tokens[index] === "(") {
+      let end = index + 1
+      for (let depth = 1; end < tokens.length && depth > 0; end++) {
+        if (["(", "[", "{"].includes(tokens[end])) depth++
+        else if ([")", "]", "}"].includes(tokens[end])) depth--
+        else if (depth === 1 && tokens[end] === ",") {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a sequence Capability expression. Use a literal Capability list, or add an explicit Workspace ownership marker.")
+        }
+      }
+      while (tokens[end] === "!" || tokens[end] === "as" || tokens[end] === "satisfies") {
+        end = tokens[end] === "!" ? end + 1 : skipAssertion(end)
+      }
+      if (["(", ".", "[", "?"].includes(tokens[end])) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
+      }
+      index++
+      wrappers++
+    }
+    if (hasLogicalOperator(outerIndex) || hasLogicalOperator(index)) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect a logical Capability expression. Use a literal Capability list with direct local bindings, or add an explicit Workspace ownership marker.")
+    }
+    if (tokens[index] === "await") {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an awaited Capability expression. Use a literal Capability list, or add an explicit Workspace ownership marker.")
+    }
+    if (seen.has(index)) return false
+    seen.add(index)
+    const branches = conditionalBranches(index)
+    if (branches) return branches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
+    if (tokens[index] === "[") {
+      let end = index + 1
+      let brackets = 1
+      for (; end < tokens.length && brackets > 0; end++) {
+        if (tokens[end] === "[") brackets++
+        else if (tokens[end] === "]") brackets--
+      }
+      while (end < tokens.length) {
+        if (tokens[end] === ")" && wrappers > 0) { end++; wrappers--; continue }
+        if (tokens[end] === "as" || tokens[end] === "satisfies") { end = skipAssertion(end); continue }
+        break
+      }
+      if ([".", "[", "?", "!"].includes(tokens[end])) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
+      }
+      let depth = 0
+      for (let i = index + 1; i < tokens.length; i++) {
+        if (depth === 0 && tokens[i] === "]") break
+        if (depth === 0 && (i === index + 1 || tokens[i - 1] === ",") && capabilityOwnsWorkspace(i, new Set(seen))) return true
+        if (["{", "(", "["].includes(tokens[i])) depth++
+        else if (["}", ")", "]"].includes(tokens[i])) depth--
+      }
+      return false
+    }
+    const parameterScope = callbackParameters.findLast(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))
+    const binding = visibleDeclaration(index)
+    let capabilityCall = binding !== undefined || parameterScope ? -1 : tokens[index] === "defineCapability" || importedCapabilityBindings.has(tokens[index])
+      ? index + 1
+      : importedNamespaces.has(tokens[index]) && tokens[index + 1] === "." && tokens[index + 2] === "defineCapability"
+        ? index + 3
+        : -1
+    if (tokens[capabilityCall] === "<") capabilityCall = skipTypeArguments(capabilityCall)
+    if (tokens[capabilityCall] === "(" && tokens[capabilityCall + 1] === ")" && tokens[capabilityCall + 2] === "(") capabilityCall += 2
+    if (tokens[capabilityCall] === "(") {
+      const options = properties(capabilityCall + 1, false, true)
+      const workspace = options.get("workspace")
+      if (workspace !== undefined && !undefinedValue(workspace)) return true
+      const nested = options.get("capabilities")
+      return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
+    }
+    if (!/^[A-Za-z_$][\w$]*$/.test(tokens[index] ?? "")) return false
+    let suffix = index + 1
+    while (tokens[suffix] === "!") suffix++
+    if (binding !== undefined) {
+      if (destructuredBindings.has(binding)) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a destructured Capability binding. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
+      }
+      if (["(", "<", ".", "["].includes(tokens[suffix]) || (tokens[suffix] === "?" && tokens[suffix + 1] === ".")) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Capability member or helper call. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
+      }
+      // Later declarations shadow outer bindings before their initializer runs.
+      if (binding > index) return false
+      let initializer = binding + 2
+      while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
+      return tokens[initializer] === "=" && capabilityOwnsWorkspace(initializer + 1, seen)
+    }
+    if (parameterScope) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an option-derived Capability expression. Use a literal Capability list with direct local bindings, or add an explicit Workspace ownership marker to the Agent definition.")
+    }
+    if (imported.has(tokens[index])) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Capability. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or define the Capability locally so discovery can inspect it.")
+    }
+    if (!parameterScope && !imported.has(tokens[index]) && (tokens[index] === "new" || ["(", "<"].includes(tokens[suffix]) || (tokens[index] === "Array" && tokens[memberCallEnd(index)] === "(") || [".", "["].includes(tokens[suffix]) || (tokens[suffix] === "?" && tokens[suffix + 1] === "."))) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
+    }
+    return false
   }
 
   function skipTypeArguments(index: number): number {
@@ -176,14 +483,96 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return index
   }
 
-  function resolveReference(index: number, seen = new Set<number>()): number {
+  function skipAssertion(index: number): number {
+    let end = index + 1
+    let depth = 0
+    for (; end < tokens.length; end++) {
+      const token = tokens[end]
+      if (depth === 0 && [")", ",", ";", "}"].includes(token)) break
+      if (["(", "[", "{", "<"].includes(token)) depth++
+      else if ([")", "]", "}", ">"].includes(token) && tokens[end - 1] !== "=") depth--
+    }
+    return end
+  }
+
+  function memberCallEnd(index: number): number {
+    let end = index + 1
+    let wrappers = 0
+    for (let i = index - 1; tokens[i] === "("; i--) wrappers++
+    while (end < tokens.length) {
+      if (tokens[end] === "!") { end++; continue }
+      if (tokens[end] === "?" && tokens[end + 1] === ".") {
+        end += 2
+        if (!["(", "[", "<"].includes(tokens[end])) end++
+        continue
+      }
+      if (tokens[end] === ".") { end += 2; continue }
+      if (tokens[end] === "[") {
+        let depth = 1
+        for (end++; end < tokens.length && depth > 0; end++) {
+          if (tokens[end] === "[") depth++
+          else if (tokens[end] === "]") depth--
+        }
+        continue
+      }
+      if (tokens[end] === "<") { end = skipTypeArguments(end); continue }
+      if (tokens[end] === "as" || tokens[end] === "satisfies") {
+        // A parenthesized assertion preserves the callable expression. Skip
+        // its type, including nested function types, until the wrapper closes.
+        end = skipAssertion(end)
+        continue
+      }
+      if (tokens[end] === ")" && wrappers > 0) { wrappers--; end++; continue }
+      break
+    }
+    return end
+  }
+
+  function resolveReference(index: number, seen = new Set<number>(), preserveCalls = false): number {
     while (tokens[index] === "(" || tokens[index] === "<") {
-      index = tokens[index] === "<" ? skipTypeArguments(index) : index + 1
+      if (tokens[index] === "<") { index = skipTypeArguments(index); continue }
+      let last = index + 1
+      let depth = 1
+      for (let i = index + 1; i < tokens.length && depth > 0; i++) {
+        if (["(", "[", "{"].includes(tokens[i])) depth++
+        else if ([")", "]", "}"].includes(tokens[i])) depth--
+        else if (depth === 1 && tokens[i] === ",") last = i + 1
+      }
+      index = last
     }
     if (seen.has(index)) return index
     seen.add(index)
+    if (preserveCalls) {
+      const call = memberCallEnd(index)
+      if (tokens[call] === "(" || [".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === ".")) return index
+    }
+    const binding = visibleDeclaration(index)
+    if (binding !== undefined) {
+      if (destructuredBindings.has(binding)) return index
+      if (binding > index) return index
+      let initializer = binding + 2
+      while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
+      return tokens[initializer] === "=" ? resolveReference(initializer + 1, seen, preserveCalls) : index
+    }
+    if (callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) return index
     const reference = declarations.get(tokens[index])
-    return reference === undefined ? index : resolveReference(reference, seen)
+    return reference === undefined ? index : resolveReference(reference, seen, preserveCalls)
+  }
+
+  function undefinedValue(index: number): boolean {
+    index = resolveReference(index)
+    if (tokens[index] !== "void") return tokens[index] === "undefined"
+    let depth = 0
+    for (let i = index + 1; i < tokens.length; i++) {
+      const token = tokens[i]
+      if (depth === 0 && [",", ";", ")", "]", "}"].includes(token)) break
+      if (depth === 0 && ["|", "&", "?", "+", "-", "*", "/", "%", "<", ">", "=", "!"].includes(token)) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a compound void expression. Use a direct Workspace value or an explicit ownership marker.")
+      }
+      if (["(", "[", "{"].includes(token)) depth++
+      else if ([")", "]", "}"].includes(token)) depth--
+    }
+    return true
   }
 
   function propertyName(token: string): string {
@@ -195,11 +584,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         : JSON.parse(`"${token.slice(1, -1).replace(/\\"/g, '\\\\"')}"`)
       return parse(string(), value)
     } catch {
-      return token.slice(1, -1)
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an escaped settings key. Use an unescaped literal key.")
     }
   }
 
-  function properties(index: number): Map<string, number> {
+  function properties(index: number, inspectChannels = false, inspectSettings = false, onOpaqueSettings?: () => void): Map<string, number> {
     const result = new Map<string, number>()
     index = resolveReference(index)
     // Preserve object literals wrapped in value-preserving helpers such as
@@ -207,15 +596,34 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (tokens[index + 1] === "." && tokens[index + 2] === "freeze" && tokens[index + 3] === "(") {
       index = resolveReference(index + 4)
     }
-    if (tokens[index] !== "{") return result
+    if (inspectChannels && imported.has(tokens[index]) && visibleDeclaration(index) === undefined
+      && !callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) {
+      let referenceEnd = index + 1
+      while (tokens[referenceEnd] === ".") referenceEnd += 2
+      if (!["(", "<"].includes(tokens[referenceEnd])) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Channel. Add workspace: {} to the Agent definition when the Channel owns a Workspace, or define the Channel locally so discovery can inspect it.")
+      }
+    }
+    if (tokens[index] !== "{") {
+      onOpaqueSettings?.()
+      if (inspectSettings) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect opaque Agent settings. Define settings locally, or add an explicit workspace: {} ownership marker or named Workspace reference to the Agent definition.")
+      }
+      return result
+    }
     let depth = 0
     let atProperty = true
     for (let i = index + 1; i < tokens.length; i++) {
-      const token = tokens[i]
+      let token = tokens[i]
       if (depth === 0 && token === "}") break
       if (depth === 0 && atProperty) {
         if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
-          const spread = properties(i + 3)
+          const spread = properties(i + 3, inspectChannels, inspectSettings, () => {
+            // Opaque spreads can replace an earlier Workspace marker. A later
+            // explicit field, including one inside this spread, restores it.
+            result.delete("workspace")
+            onOpaqueSettings?.()
+          })
           for (const [key, value] of spread) result.set(key, value)
           i += 2
           atProperty = false
@@ -230,7 +638,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
             else if (tokens[close] === "]") bracketDepth--
             close++
           }
-          if (bracketDepth === 0 && tokens[close] === ":") {
+          if (bracketDepth === 0 && (tokens[close] === ":" || tokens[close] === "(")) {
             const expression = tokens.slice(i + 1, close - 1).filter(token => token !== "(" && token !== ")")
             let key: string | undefined
             const literalParts: string[] = []
@@ -241,17 +649,43 @@ function isWorkspaceAgentDefinition(source: string): boolean {
               const partIndex = tokens.indexOf(part, i + 1)
               const resolved = partIndex >= 0 ? resolveReference(partIndex) : partIndex
               const value = resolved >= 0 ? tokens[resolved] : part
-              if (!value || !/^["'`]/.test(value)) { valid = false; break }
+              if (!value || !/^["'`]/.test(value) || (value.startsWith("`") && (value.includes("${") || value.includes("\\")))) { valid = false; break }
               literalParts.push(propertyName(value))
               if (p + 1 < expression.length && expression[p + 1] !== "+") { valid = false; break }
             }
             if (valid && literalParts.length) key = literalParts.join("")
-            if (key !== undefined) result.set(key, close + 1)
+            let valueIndex = close + 1
+            if (tokens[close] === "(") {
+              // Skip the complete parameter list (including destructuring)
+              // and point directly at the method body so callback discovery
+              // cannot mistake a parameter object for the returned Agent.
+              let parameters = 1
+              while (valueIndex < tokens.length && parameters > 0) {
+                if (tokens[valueIndex] === "(") parameters++
+                else if (tokens[valueIndex] === ")") parameters--
+                valueIndex++
+              }
+            }
+            if (key === undefined && inspectSettings) {
+              throw new Error("[vitehub] Agent Workspace discovery cannot inspect a computed Agent settings key. Use a literal key, or add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
+            }
+            if (key !== undefined) result.set(key, valueIndex)
+            else {
+              result.delete("workspace")
+              onOpaqueSettings?.()
+            }
+            // Continue depth tracking at the value separator or method opener.
+            // The computed key's brackets have already been consumed.
             i = close
+            token = tokens[i]
             atProperty = false
           }
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
         else if ([",", "}"].includes(tokens[i + 1])) result.set(propertyName(token), i)
+        // Object method shorthand (e.g. `configure() { ... }`) has no colon;
+        // retain the method's opening parenthesis so callback discovery can
+        // inspect its body just like an arrow or function expression.
+        else if (tokens[i + 1] === "(") result.set(propertyName(token), i + 1)
         atProperty = false
       }
       if (depth === 0 && token === ",") atProperty = true
@@ -261,75 +695,371 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return result
   }
 
-  function ownsWorkspace(index: number, seen = new Set<number>()): boolean {
-    index = resolveReference(index)
+  function factoryCall(index: number, name: "defineAgent" | "defineChannel" = "defineAgent"): number | undefined {
+    const reference = resolveReference(index)
+    if (visibleDeclaration(reference) !== undefined || callbackParameters.some(scope =>
+      reference >= scope.start && reference < scope.end && scope.names.has(tokens[reference]))) return undefined
+    // A binding to an Agent value is not an alias of the factory itself.
+    let identityEnd = reference + 1
+    while (tokens[identityEnd] === ".") identityEnd += 2
+    if (tokens[identityEnd] === "<") identityEnd = skipTypeArguments(identityEnd)
+    if (reference !== index && tokens[identityEnd] === "(") return undefined
+    let scope = tokenScopes[reference]
+    while (true) {
+      if (tokens.some((token, declaration) => {
+        if (token !== "function" && token !== "class") return false
+        const preceding = tokens[declaration - 1] === "async" ? declaration - 2 : declaration - 1
+        if (["=", "(", "return", ":", ",", ">"].includes(tokens[preceding])) return false
+        return tokens[declaration + 1] === tokens[reference] && tokenScopes[declaration] === scope
+      })) return undefined
+      if (scope === undefined) break
+      scope = scopeParents.get(scope)
+    }
+    const factory = tokens[reference]
+    const bindings = name === "defineAgent" ? importedAgentBindings : importedChannelBindings
+    const namespaces = name === "defineAgent" ? importedNamespaces : importedChannelNamespaces
+    if (!(factory === name && !imported.has(factory)) && !bindings.has(factory) &&
+        !(namespaces.has(factory) && tokens[reference + 1] === "." && tokens[reference + 2] === name)) return undefined
+    let call = index + 1
+    while (tokens[call] === ".") call += 2
+    if (tokens[call] === "<") call = skipTypeArguments(call)
+    return tokens[call] === "(" ? call : undefined
+  }
+
+  function ownsWorkspace(index: number, seen = new Set<number>(), inspectParent = false): boolean {
+    index = resolveReference(index, new Set(), true)
     if (seen.has(index)) return false
     seen.add(index)
-    // Either exported branch may be selected at runtime. Inspect only those
-    // values, without including other definitions elsewhere in the module.
-    let expressionDepth = 0
-    let conditionalDepth = 0
-    let consequent: number | undefined
-    for (let i = index; i < tokens.length; i++) {
-      const token = tokens[i]
-      if (expressionDepth === 0) {
-        if ([";", ",", ":", "export", "const", "let", "var", ")", "}", "]"].includes(token) && conditionalDepth === 0) break
-        if (token === "?" && tokens[i + 1] !== "." && tokens[i + 1] !== "?" && tokens[i - 1] !== "?") {
-          if (conditionalDepth === 0) consequent = i + 1
-          conditionalDepth++
-        }
-        if (token === ":" && conditionalDepth > 0 && --conditionalDepth === 0 && consequent !== undefined) {
-          return ownsWorkspace(consequent, new Set(seen)) || ownsWorkspace(i + 1, new Set(seen))
-        }
+    const branches = conditionalBranches(index)
+    if (branches) return branches.some(branch => ownsWorkspace(branch, new Set(seen), inspectParent))
+    const call = factoryCall(index)
+    if (call === undefined) {
+      if (inspectParent && imported.has(tokens[index]) && visibleDeclaration(index) === undefined
+        && !callbackParameters.some(scope => index >= scope.start && index < scope.end && scope.names.has(tokens[index]))) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Agent parent. Add workspace: {} to the Agent definition when the parent owns a Workspace, or define the parent locally so discovery can inspect it.")
       }
-      if (["{", "(", "["].includes(token)) expressionDepth++
-      if (["}", ")", "]"].includes(token)) expressionDepth--
+      return false
     }
-    if (tokens[index] !== "defineAgent" && !importedAgentBindings.has(tokens[index])) {
-      if (!(tokens[index + 1] === "." && tokens[index + 2] === "defineAgent" && importedNamespaces.has(tokens[index]))) return false
-      index += 2
-    }
-    let call = index + 1
-    if (tokens[call] === "<") call = skipTypeArguments(call)
-    if (tokens[call] !== "(") return false
     const options = properties(call + 1)
     const workspace = options.get("workspace")
-    if (workspace !== undefined) {
-      const value = resolveReference(workspace)
-      if (tokens[value] === "{") {
-        // A `{ name: "shared" }` value is a Workspace reference, not an
-        // owned Workspace definition. Runtime applies the same distinction.
-        const workspaceProperties = properties(value)
-        const name = workspaceProperties.get("name")
-        if (name !== undefined) {
+    if (workspace !== undefined && !undefinedValue(workspace)) {
+      function workspaceOwnsDefinition(index: number): boolean {
+        const value = resolveReference(index, new Set(), true)
+        const branches = conditionalBranches(value)
+        if (branches) return branches.some(workspaceOwnsDefinition)
+        if (tokens[value] === "{") {
+          const name = properties(value, false, true).get("name")
+          if (name === undefined) return true
           const nameValue = resolveReference(name)
-          if (/^(["\'`])/.test(tokens[nameValue] ?? "")) return false
+          if (undefinedValue(nameValue)) return true
+          if (/^["'`]/.test(tokens[nameValue] ?? "")) return false
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic Workspace name. Use a statically known string reference or workspace: {} ownership marker.")
+        }
+        if (undefinedValue(value) || /^["'`]/.test(tokens[value] ?? "")) return false
+        // A dynamic member may resolve to either a named reference or owned
+        // storage. Require an explicit contract instead of guessing ownership.
+        const optionBinding = callbackParameters.some(scope => value >= scope.start && value < scope.end && scope.names.has(tokens[value]))
+        let suffix = value + 1
+        while (tokens[suffix] === "!") suffix++
+        if (optionBinding || ["(", "<", ".", "["].includes(tokens[suffix]) || (tokens[suffix] === "?" && tokens[suffix + 1] === ".")) {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic Workspace value. Add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
         }
         return true
       }
-      if (tokens[value] === "defineWorkspace") return true
-      // Imported Workspace configurations cannot be resolved to a local
-      // declaration, but they are valid runtime values and therefore imply
-      // that this Agent owns a Workspace.
-      if (imported.has(tokens[value])) return true
-      if (/^["'`]/.test(tokens[value] ?? "")) return false
-      // An explicit Workspace value (including a string reference or an
-      // unresolved imported binding) overrides any preset Workspace. Do not
-      // fall through to preset lookup when the child supplied `workspace`.
-      return true
+      return workspaceOwnsDefinition(workspace)
+    }
+
+    // Unknown spreads can supply Workspace settings even when no visible field does.
+    // An explicit Workspace marker above provides the required ownership contract.
+    properties(call + 1, false, true)
+    const capabilities = options.get("capabilities")
+    if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
+    const channels = options.get("channels")
+    if (channels !== undefined) {
+      for (const channel of properties(channels, true).values()) {
+        let channelOptions = resolveReference(channel, new Set(), true)
+        const channelCall = factoryCall(channelOptions, "defineChannel")
+        if (channelCall !== undefined) {
+          // defineChannel(kind, options) contributes the options of this invocation.
+          let depth = 0
+          let hasOptions = false
+          for (let i = channelCall + 1; i < tokens.length; i++) {
+            if (depth === 0 && tokens[i] === ")") break
+            if (depth === 0 && tokens[i] === ",") { channelOptions = i + 1; hasOptions = true; break }
+            if (["{", "(", "["].includes(tokens[i])) depth++
+            else if (["}", ")", "]"].includes(tokens[i])) depth--
+          }
+          if (!hasOptions || undefinedValue(channelOptions) || tokens[channelOptions] === ")") continue
+        }
+        channelOptions = resolveReference(channelOptions, new Set(), true)
+        const channelProperties = properties(channelOptions, true)
+        if (tokens[channelOptions] !== "{" || tokens[channelOptions - 1] === ")") {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Channel factory or opaque Channel value or call. Use a local Channel object, or add workspace: {} to the Agent definition when the Channel owns a Workspace.")
+        }
+        const capabilities = channelProperties.get("capabilities")
+        if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
+      }
     }
     const inherited = options.get("extends")
-    if (inherited !== undefined && ownsWorkspace(inherited, seen)) return true
+    if (inherited !== undefined && ownsWorkspace(inherited, seen, true)) return true
     const preset = options.get("preset")
     const registry = options.get("presets")
-    if (preset === undefined || registry === undefined) return false
-    const selection = tokens[resolveReference(preset)]
-    if (!/^["'`]/.test(selection)) {
-      // Runtime-dependent selections cannot identify a registry entry safely.
-      return false
+    const configure = options.get("configure")
+    if (configure !== undefined) {
+      // A configure callback may return an existing Agent binding directly;
+      // follow that binding so its Workspace metadata is preserved.
+      let callbackStart = configure
+      const callbackReferences = new Set<number>()
+      while (declarations.has(tokens[callbackStart]) && !callbackReferences.has(callbackStart)
+        && !(tokens[callbackStart + 1] === "=" && tokens[callbackStart + 2] === ">")) {
+        callbackReferences.add(callbackStart)
+        callbackStart = declarations.get(tokens[callbackStart])!
+      }
+      const configuredReference = tokens[callbackStart + 1] === "=" && tokens[callbackStart + 2] === ">"
+        ? callbackStart
+        : resolveReference(configure)
+      let parameterEnd = configuredReference + 1
+      if (tokens[callbackStart] === "(") {
+        let depth = 0
+        for (let i = callbackStart; i < tokens.length; i++) {
+          if (tokens[i] === "(") depth++
+          else if (tokens[i] === ")" && --depth === 0) { parameterEnd = i + 1; break }
+        }
+      }
+      const importedCallback = imported.has(tokens[configuredReference])
+        && !(tokens[parameterEnd] === "=" && tokens[parameterEnd + 1] === ">")
+      if (importedCallback) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported configure callback. Define configure locally in the Agent file and return a discoverable defineAgent() call.")
+      }
+      if (configuredReference !== configure && ownsWorkspace(configuredReference, new Set(seen))) return true
+      // Computed and shorthand methods record the parameter-list opening;
+      // do not resolve through it or destructured parameters can be mistaken for the body.
+      let start = tokens[callbackStart] === "(" ? callbackStart : configuredReference
+      // Scan the Agent definition returned by the callback, rather than the
+      // callback's parameter list (which commonly contains parentheses).
+      // Prefer the definition expression in the callback body. A callback's
+      // parameter list may itself contain parentheses, so starting the scan
+      // at the first token after `configure` can terminate before the body.
+      // Skip callback parameters and locate a definition in the callback body.
+      // Shorthand methods resolve to their parameter-list opening token;
+      // handle those bounds before searching for arrows elsewhere in the module.
+      let methodBodyStart = -1
+      if (tokens[start] === "{") methodBodyStart = start
+      if (tokens[start] === ")") {
+        // Method shorthand references resolve to the closing parameter token.
+        // Rewind to its opening delimiter before locating the method body.
+        let depth = 0
+        for (let i = start; i >= 0; i--) {
+          if (tokens[i] === ")") depth++
+          else if (tokens[i] === "(" && --depth === 0) {
+            start = i
+            break
+          }
+        }
+      }
+      if (tokens[start] === "(") {
+        let depth = 0
+        let parameterEnd = start
+        for (; parameterEnd < tokens.length; parameterEnd++) {
+          if (tokens[parameterEnd] === "(") depth++
+          else if (tokens[parameterEnd] === ")" && --depth === 0) { parameterEnd++; break }
+        }
+        if (tokens[parameterEnd] === "{") methodBodyStart = parameterEnd
+      }
+      const arrow = methodBodyStart < 0 ? (() => {
+        let depth = 0
+        for (let i = start; i + 1 < tokens.length; i++) {
+          const token = tokens[i]
+          if (["(", "[", "{"].includes(token)) depth++
+          else if ([")", "]", "}"].includes(token)) { if (depth === 0) break; depth-- }
+          else if ((token === ";" || token === ",") && depth === 0) break
+          if (tokens[i] === "=" && tokens[i + 1] === ">") return i
+        }
+        return -1
+      })() : -1
+      let bodyStart = arrow >= 0 ? arrow + 1 : (methodBodyStart >= 0 ? methodBodyStart : start)
+      // Limit the search to this callback's body so later module declarations
+      // cannot be mistaken for its returned definition.
+      let callbackEnd = tokens.length
+      if (arrow < 0) {
+        // Method or function callbacks have a parameter list followed by a
+        // block body; skip the parameters and bound scanning to that block.
+        let parameterEnd = start
+        if (tokens[parameterEnd] === "(") {
+          let depth = 0
+          for (; parameterEnd < tokens.length; parameterEnd++) {
+            if (tokens[parameterEnd] === "(") depth++
+            else if (tokens[parameterEnd] === ")" && --depth === 0) { parameterEnd++; break }
+          }
+        }
+        const body = tokens.indexOf("{", parameterEnd)
+        if (body >= 0) {
+          start = body
+          bodyStart = body
+          for (let i = body + 1, depth = 1; i < tokens.length; i++) {
+            if (tokens[i] === "{") depth++
+            else if (tokens[i] === "}" && --depth === 0) { callbackEnd = i + 1; break }
+          }
+        }
+      } else {
+        let bodyDepth = 0
+        for (let i = bodyStart; i < tokens.length; i++) {
+          const token = tokens[i]
+          if (["{", "(", "["].includes(token)) bodyDepth++
+          else if (["}", ")", "]"].includes(token)) {
+            if (bodyDepth === 0) { callbackEnd = i; break }
+            bodyDepth--
+            if (bodyDepth === 0) { callbackEnd = i + 1; break }
+          }
+        }
+      }
+      // Callback parameters shadow module bindings. Local declarations inside
+      // the body remain eligible, but lookup must not escape past a parameter.
+      const parametersEnd = arrow >= 0 ? arrow : bodyStart
+      const parameterNames = callbackBindingNames(callbackStart, parametersEnd)
+      callbackParameters.push({ start: bodyStart, end: callbackEnd, names: parameterNames })
+      // Select the returned definition call itself. Nested settings may contain
+      // helper `defineAgent` calls; choosing the last token would mistake those
+      // helpers for the callback result.
+      let callbackDefinition = -1
+      let callbackDefinitionDepth = Number.POSITIVE_INFINITY
+      let returnedDefinition = -1
+      let returnGroup = { depth: Number.POSITIVE_INFINITY }
+      const returnGroups = new Map<number, { depth: number }>()
+      const returnedDefinitions: number[] = []
+      let callbackDepth = 0
+      let returnExpression = false
+      let returnExpressionDepth = -1
+      const body = tokens[bodyStart] === ">" ? bodyStart + 1 : bodyStart
+      const callbackScope = variableScope(tokens[body] === "{" ? body + 1 : body)
+      for (let i = bodyStart; i < callbackEnd; i++) {
+        const token = tokens[i]
+        if (returnExpression && callbackDepth === returnExpressionDepth && startsStatement(i)) returnExpression = false
+        const inCallbackScope = variableScope(i) === callbackScope
+        const reference = resolveReference(i, new Set(), true)
+        const callEnd = memberCallEnd(reference)
+        const opaqueCall = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "") && tokens[callEnd] === "("
+          && conditionalBranches(reference) === undefined
+        const opaqueMember = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "")
+          && conditionalBranches(reference) === undefined
+          && ([".", "["].includes(tokens[reference + 1]) || (tokens[reference + 1] === "?" && tokens[reference + 2] === "."))
+        if (inCallbackScope && (factoryCall(reference) !== undefined || opaqueCall || opaqueMember)) {
+          let expressionStart = i
+          while (tokens[expressionStart - 1] === "(") expressionStart--
+          const expressionDepth = callbackDepth - (i - expressionStart)
+          // A returned expression may contain conditional branches; keep all
+          // defineAgent calls until the expression terminates rather than only
+          // accepting the token immediately following `return`.
+          // Expression-bodied arrows return their sole top-level expression
+          // without a `return` token; the callbackEnd bound keeps this from
+          // capturing unrelated definitions later in the module.
+          const expressionBody = arrow >= 0 && expressionDepth === 0 && !returnExpression
+          const returned = (returnExpression && expressionDepth === 0) || expressionBody ||
+            // In an expression-bodied arrow, later comma operands are also
+            // part of the returned expression; only the final operand is the
+            // callback value (the fallback below selects it).
+            (arrow >= 0 && !returnExpression && callbackDepth === 0 && tokens[i - 1] === ",") ||
+            tokens[expressionStart - 1] === "return" ||
+            ((returnExpression || tokens[body] !== "{") && ["?", ":"].includes(tokens[expressionStart - 1]))
+          if (returned) {
+            returnGroup.depth = Math.min(returnGroup.depth, expressionDepth)
+            returnGroups.set(i, returnGroup)
+            returnedDefinition = i
+            // Keep every call in the returned expression. Conditional branches
+            // may be nested in parentheses and therefore have different token
+            // depths, but each remains a possible callback result.
+            returnedDefinitions.push(i)
+          } else if (!returned && returnedDefinition < 0 && callbackDepth < callbackDefinitionDepth) {
+            callbackDefinition = i
+            callbackDefinitionDepth = callbackDepth
+          }
+        }
+        if (token === "return" && inCallbackScope) {
+          returnExpression = true
+          returnExpressionDepth = callbackDepth
+          // Each return has its own expression depth. Control-flow blocks may
+          // nest an early return deeper than the callback's final return.
+          returnGroup = { depth: Number.POSITIVE_INFINITY }
+        }
+        // Declarations also end a preceding semicolon-free return statement.
+        else if (callbackDepth === returnExpressionDepth && [";", "const", "let", "var"].includes(token)) returnExpression = false
+        if (["{", "(", "["].includes(token)) callbackDepth++
+        else if (["}", ")", "]"].includes(token)) callbackDepth--
+        if (callbackDepth < returnExpressionDepth) returnExpression = false
+      }
+      // Exclude nested settings within each returned expression independently.
+      // Function scope checks above exclude returns belonging to nested helpers.
+      const returnedCandidates = returnedDefinitions.filter((index) => {
+        const returnedDefinitionDepth = returnGroups.get(index)!.depth
+        let depth = 0
+        for (let i = bodyStart; i < index; i++) {
+          if (["{", "(", "["].includes(tokens[i])) depth++
+          else if (["}", ")", "]"].includes(tokens[i])) depth--
+        }
+        let expressionStart = index
+        while (tokens[expressionStart - 1] === "(") expressionStart--
+        depth -= index - expressionStart
+        // Keep the outer returned call and direct conditional branch calls;
+        // nested calls inside its argument object are never callback results.
+        // Conditional branches are one delimiter level inside the returned
+        // expression (for example `return ok ? defineAgent(...) : ...`).
+        // Property values in the returned definition are deeper still; even
+        // when preceded by `:`, they are nested settings rather than results.
+        if (depth === returnedDefinitionDepth) return true
+        if (depth !== returnedDefinitionDepth + 1 || tokens[index - 1] !== ":") return false
+        // A colon inside the returned Agent's settings is not a conditional
+        // branch. Only retain it when a matching top-level `?` precedes it.
+        let nested = 0
+        for (let j = index - 2; j >= bodyStart; j--) {
+          if (["}", ")", "]"].includes(tokens[j])) nested++
+          else if (["{", "(", "["].includes(tokens[j])) { if (nested > 0) nested--; else break }
+          else if (tokens[j] === "?" && nested === 0) {
+            let qDepth = 0
+            for (let k = bodyStart; k < j; k++) {
+              if (["{", "(", "["].includes(tokens[k])) qDepth++
+              else if (["}", ")", "]"].includes(tokens[k])) qDepth--
+            }
+            // Parenthesized conditional branches may sit deeper than the
+            // outer returned call. Keep the branch when its question mark is
+            // at or above the selected return depth; nested settings
+            // conditionals remain deeper and are excluded.
+            return qDepth <= returnedDefinitionDepth
+          }
+          else if (tokens[j] === ";" && nested === 0) break
+        }
+        return false
+      })
+      returnedDefinitions.splice(0, returnedDefinitions.length, ...returnedCandidates)
+      // An expression-bodied arrow returns the final operand of a comma
+      // expression; earlier operands are evaluated only for side effects.
+      if (arrow >= 0 && !tokens.slice(bodyStart, callbackEnd).includes("return") &&
+          !tokens.slice(bodyStart, callbackEnd).includes("?") && returnedDefinitions.length > 1) {
+        returnedDefinitions.splice(0, returnedDefinitions.length, returnedDefinitions.at(-1)!)
+      }
+      // Expression-bodied arrows return their direct definition without a
+      // `return` token; retain that callback result for ownership analysis.
+      if (returnedDefinitions.length === 0 && arrow >= 0 && tokens[bodyStart + 1] !== "{" && callbackDefinition >= 0) {
+        returnedDefinitions.push(callbackDefinition)
+      }
+      // Only callback results contribute ownership. Inspect their Capability
+      // values structurally, never property keys or unrelated settings.
+      for (const index of returnedDefinitions) {
+        if (factoryCall(resolveReference(index, new Set(), true)) === undefined) {
+          throw new Error("[vitehub] Agent Workspace discovery cannot inspect a configure result factory. Return a discoverable defineAgent() call, or add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
+        }
+      }
+      if (returnedDefinitions.some((index) => ownsWorkspace(index, new Set(seen)))) return true
     }
-    const entry = properties(registry).get(propertyName(selection))
-    return entry !== undefined && ownsWorkspace(entry, seen)
+    if (preset === undefined || registry === undefined) return false
+    const selectionIndex = resolveReference(preset)
+    const selection = tokens[selectionIndex]
+    if (!/^["'`]/.test(selection) || (selection.startsWith("`") && selection.includes("${"))
+      || hasLogicalOperator(preset) || hasLogicalOperator(selectionIndex) || conditionalBranches(preset)
+      || ["+", "?", ".", "[", "("].includes(tokens[selectionIndex + 1])) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic preset selection. Use a statically known preset name or add an explicit Workspace ownership marker.")
+    }
+    const entry = properties(registry, false, true).get(propertyName(selection))
+    return entry !== undefined && ownsWorkspace(entry, seen, true)
   }
 
   // The default export owns the folder; helper definitions and unselected presets do not.

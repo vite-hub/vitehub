@@ -126,6 +126,12 @@ import type {
   MaybeResolvable,
   ResolvedAgentTriggerDefinition,
 } from "../types.ts"
+
+// Chat adapters can acknowledge a message and leave their typing placeholder
+// visible forever when a Driver or a source provider stalls. Keep the existing
+// 28-second delivery budget as the default even when an Agent does not specify
+// an explicit timeout.
+const defaultChatInvocationTimeoutMs = 28_000
 import type { AttachmentPart, MessagePart } from "../messages.ts"
 import type {
   Adapter,
@@ -4773,9 +4779,9 @@ async function isChatMessageAuthorized(
   return invoker
 }
 
-function chatInvocationTimeout(timeout: number | undefined, maximum: number | undefined): number | undefined {
-  if (maximum === undefined) return timeout
-  return timeout === undefined ? maximum : Math.min(timeout, maximum)
+function chatInvocationTimeout(timeout: number | undefined, maximum: number | undefined): number {
+  const requested = timeout ?? defaultChatInvocationTimeoutMs
+  return maximum === undefined ? requested : Math.min(requested, maximum)
 }
 
 async function enforceChatInvocationTimeout<T>(task: Promise<T>, timeout: number | undefined, abortController?: AbortController): Promise<T> {
@@ -4953,7 +4959,7 @@ async function handleChatSdkMessage(
   let progress: ReturnType<typeof createManualDeliveryProgressUpdater> | undefined
   const manualDeliveryState: ManualChatDeliveryState = {}
   const toolResults: AgentToolStepItem[] = []
-  const invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
+  let invocationDeadlineAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
   let invocationStarted = false
   let invocationFailed = false
   let invocationError: unknown
@@ -5727,6 +5733,13 @@ async function handleChatSdkMessage(
       detachAgentChannelDelivery(delivery)
       return
     }
+    const awaitCommentaryDelivery = maximumInvocationDeadline !== undefined
+    const inlineStartedAt = Date.now()
+    maximumInvocationDeadline = inlineStartedAt + chatInvocationTimeout(
+      resolvedInvocationInput.timeout,
+      maximumInvocationDeadline === undefined ? undefined : Math.max(0, maximumInvocationDeadline - inlineStartedAt),
+    )
+    invocationDeadlineAbort ??= new AbortController()
     const inlineRunContext = run?.runId ? withAgentInvocationResponseOwner(runContext, run.runId) : runContext
     const thinkingFallback = invocation.metadata?.thinkingFallback
     if (manualDelivery && isRuntimeString(thinkingFallback)) {
@@ -5842,7 +5855,7 @@ async function handleChatSdkMessage(
                 )
               })
             } else {
-              const commentaryDeliveries: Promise<void>[] | undefined = maximumInvocationDeadline === undefined ? undefined : []
+              const commentaryDeliveries: Promise<void>[] | undefined = awaitCommentaryDelivery ? [] : undefined
               let finalDelivery: Promise<void> | undefined
               let finalDeliveryError: unknown
               const replies = streamAgentOutputToChatReplies(result, {

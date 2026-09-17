@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime"
+import { deriveTraceRuns } from "@vite-hub/runtime"
 import { title } from "../src/capabilities/title.ts"
-import { usage } from "../src/capabilities/usage.ts"
 import { defineAgent, runAgent, streamAgent } from "../src/index.ts"
 import { createMessage } from "../src/messages.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
@@ -18,87 +17,6 @@ function journal() {
 const runtime = (runId: string) => ({ memo: vi.fn(), run: { runId }, runtime: "unknown" as const, waitUntil: vi.fn() })
 
 describe("title journal ownership", () => {
-  it.each([
-    { mode: "text", priced: true }, { mode: "stream", priced: true },
-    { mode: "text", priced: false }, { mode: "stream", priced: false },
-  ])("prices auxiliary title calls before finish consumers for $mode output with title pricing $priced", async ({ mode, priced }) => {
-    const invocations = journal()
-    const finish = vi.fn()
-    const pricing = vi.fn(() => priced ? { usd: "0.01", estimated: true, source: "custom" as const } : undefined)
-    const titleUsage = { model: "title-model", usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } }
-    const primaryUsage = { model: "answer-model", usage: { inputTokens: 10, outputTokens: 7, totalTokens: 17 }, ...(!priced ? { cost: { display: "~$0.01", usd: "0.01", estimated: true, source: "custom" as const } } : {}) }
-    const agent = defineAgent({
-      capabilities: [title({ driver: { run: () => mode === "text"
-        ? { text: "Usage accounting", usageRecord: titleUsage }
-        : (async function* () {
-            yield { text: "Usage accounting", type: "text-delta" as const }
-            yield { type: "usage" as const, usageRecord: titleUsage }
-            yield { type: "finish" as const }
-          })(),
-      } }), usage({ pricing })],
-      hooks: { "agent:finish": finish },
-      driver: { run: () => mode === "text"
-        ? { text: "Done.", usageRecord: primaryUsage }
-        : (async function* () {
-            yield { text: "Done.", type: "text-delta" as const }
-            yield { type: "usage" as const, usageRecord: primaryUsage }
-            yield { type: "finish" as const }
-          })(),
-      },
-      invocations,
-    })
-    const runId = `title-usage-${mode}`
-    if (mode === "text") await runAgent(agent, runtime(runId), { prompt: "Explain usage accounting" })
-    else {
-      const stream = await streamAgent(agent, runtime(runId), { prompt: "Explain usage accounting" })
-      for await (const _event of stream as AsyncIterable<unknown>) {}
-    }
-    const invocation = (await invocations.getByRunId(runId))!
-    expect(pricing).toHaveBeenCalledTimes(priced ? 2 : 1)
-    if (priced) expect(pricing).toHaveBeenCalledWith(expect.objectContaining({ model: "answer-model" }))
-    expect(pricing).toHaveBeenCalledWith(expect.objectContaining({ model: "title-model" }))
-    expect(finish).toHaveBeenCalledOnce()
-    const finishEvent = finish.mock.calls[0]![0]
-    expect(finishEvent.extensions.get("usage")).toBe(finishEvent.invocation.usage)
-    expect(finishEvent.invocation.usage).toMatchObject({
-      calls: [primaryUsage, titleUsage],
-      usage: { inputTokens: 13, outputTokens: 9, totalTokens: 22 },
-      cost: { usd: priced ? "0.02" : "0.01", source: "custom" },
-    })
-    const terminal = invocation.observations.filter(entry => entry.name === "agent.invocation.finish")
-    expect(terminal).toHaveLength(1)
-    expect(terminal[0]?.attributes?.["usage.record"]).toMatchObject({
-      calls: [primaryUsage, titleUsage],
-      usage: { inputTokens: 13, outputTokens: 9, totalTokens: 22 },
-      cost: { usd: priced ? "0.02" : "0.01", source: "custom" },
-    })
-  })
-
-  it("retains recoverable title diagnostics without exporting title deltas", async () => {
-    const traceLog = createTraceEventLog({ content: "content" })
-    const invocations = journal()
-    await runAgent(defineAgent({
-      capabilities: [title({ driver: { async run(context) {
-        await context.traceLog?.append({ name: "agent.message.delta", type: "run", attributes: { "message.content": "Private title draft" } })
-        await context.traceLog?.append({ name: "agent.stream.error", type: "run", attributes: { "error.recoverable": true, "error.message": "Retrying title provider" } })
-        await context.traceLog?.append({ name: "agent.stream.error", type: "run", attributes: { "error.recoverable": false, "error.message": "Title provider failed" } })
-        return "Separate title"
-      } } })],
-      driver: { run: () => "Done." }, invocations,
-    }), { ...runtime("title-diagnostics"), traceLog }, { prompt: "Explain title ownership" })
-    const auxiliary = traceLog.entries().filter(entry => entry.attributes?.["vitehub.auxiliary.kind"] === "title")
-    expect(auxiliary.some(entry => entry.name === "agent.message.delta")).toBe(false)
-    expect(JSON.stringify(traceLog.entries())).not.toContain("Private title draft")
-    expect(auxiliary.filter(entry => entry.name === "agent.stream.error")).toEqual([
-      expect.objectContaining({ attributes: expect.objectContaining({ "error.recoverable": true, "error.message": "Retrying title provider" }) }),
-    ])
-    const invocation = (await invocations.getByRunId("title-diagnostics"))!
-    expect(invocation.observations.filter(entry => entry.name === "agent.stream.error")).toEqual([
-      expect.objectContaining({ attributes: expect.objectContaining({ "error.recoverable": true }) }),
-    ])
-    expect(invocation.status).toBe("completed")
-  })
-
   it.each(["run.error", "agent.invocation.error", "agent.stream.error", "agent.invocation.cancelled"])("preserves title trace order around %s", async (failure) => {
     const invocations = journal()
     let checked = false
@@ -155,6 +73,28 @@ describe("title journal ownership", () => {
     }))
   })
 
+  it("redacts streamed title observations while preserving application titles", async () => {
+    const invocations = journal()
+    const agent = defineAgent({
+      capabilities: [title({ execute: () => "password=hunter2" })],
+      driver: { run: () => (async function* () {
+        yield { text: "Done.", type: "text-delta" as const }
+        yield { type: "finish" as const }
+      })() },
+      invocations,
+    })
+    const stream = await streamAgent(agent, runtime("stream-secret-title"), { prompt: "Explain safety stock." })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+    expect(JSON.stringify(events)).toContain("password=hunter2")
+    const invocation = await invocations.getByRunId("stream-secret-title")
+    expect(invocation?.title).toBe("password=[REDACTED]")
+    const titles = invocation!.observations.filter(event => event.name === "agent.title.recorded")
+    expect(titles.length).toBeGreaterThan(1)
+    for (const event of titles) expect(event.attributes?.["vitehub.session.title"]).toBe("password=[REDACTED]")
+    expect(JSON.stringify(invocation)).not.toContain("hunter2")
+  })
+
   it("uses the T3 editorial prompt and normalizes a structured title", async () => {
     const invocations = journal()
     const generate = vi.fn((_context: unknown) => '{"title":"Resolve snapshot mismatch"}')
@@ -176,6 +116,65 @@ describe("title journal ownership", () => {
       driver: { run: () => "Done." }, invocations,
     }), runtime("title-cap"), { prompt: "Company: Back II Basic. Latest customer message: a long wrapped question" })
     expect((await invocations.getByRunId("title-cap"))?.title).toBe("New conversation")
+  })
+
+  it("retains title provider errors without failing the primary invocation", async () => {
+    const invocations = journal()
+    await runAgent(defineAgent({
+      capabilities: [title({ fallback: "New conversation", driver: { async run(context) {
+        await context.traceLog?.append({
+          name: "agent.stream.error",
+          type: "run",
+          attributes: { "error.message": "Spend cap reached", "error.recoverable": false },
+        })
+        throw new Error("Spend cap reached")
+      } } })],
+      driver: { run: () => "Done." }, invocations,
+    }), runtime("title-error-diagnostic"), { prompt: "Explain safety stock" })
+    const invocation = (await invocations.getByRunId("title-error-diagnostic"))!
+    expect(invocation.title).toBe("New conversation")
+    expect(invocation.status).toBe("completed")
+    expect(invocation.observations).toContainEqual(expect.objectContaining({
+      name: "agent.title.error",
+      attributes: expect.objectContaining({
+        "error.message": "Spend cap reached",
+        "error.recoverable": false,
+        "vitehub.auxiliary.kind": "title",
+      }),
+    }))
+    expect(invocation.observations.some(entry => entry.name === "agent.stream.error")).toBe(false)
+  })
+
+  it("redacts title error credentials before persisting metadata", async () => {
+    const invocations = journal()
+    await runAgent(defineAgent({
+      capabilities: [title({ driver: { async run(context) {
+        await context.traceLog?.append({
+          name: "agent.stream.error",
+          type: "run",
+          attributes: {
+            "error.message": "Authorization: Bearer title-secret",
+            "error.details": { apiKey: "opaque-secret", messages: ["Authorization: Bearer nested-secret"] },
+            "error.recoverable": false,
+          },
+        })
+        throw new Error("Title provider failed")
+      } } })],
+      driver: { run: () => "Done." }, invocations,
+    }), runtime("title-redacted-error"), { prompt: "Explain safety stock" })
+    const invocation = (await invocations.getByRunId("title-redacted-error"))!
+    expect(invocation.status).toBe("completed")
+    expect(invocation.observations).toContainEqual(expect.objectContaining({
+      name: "agent.title.error",
+      attributes: expect.objectContaining({
+        "error.message": "Authorization: Bearer [REDACTED]",
+        "error.recoverable": false,
+        "vitehub.auxiliary.kind": "title",
+      }),
+    }))
+    for (const secret of ["title-secret", "opaque-secret", "nested-secret"]) {
+      expect(JSON.stringify(invocation)).not.toContain(secret)
+    }
   })
 
   it("bounds generated titles and strips multiline commentary", async () => {

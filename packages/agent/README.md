@@ -37,6 +37,8 @@ Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubde
 
 The Vite integration requires Vite 8. Configure build inputs, output options, and external dependencies under `build.rolldownOptions`.
 
+The Vite integration generates H3 route modules inside the consuming application. When using `hubAgent()` with a Nitro host or `agentHostRoutes()`, declare `h3` in the application dependencies. Use `pnpm add h3@^1.15.11` for Nitro 2 and Nuxt 4, or `pnpm add h3@^2.0.1-rc.31` for Nitro 3. This optional peer is not required by the portable Agent APIs or the Deno runtime. Generated routes use the application host's H3 version.
+
 ## Minimal API
 
 ```ts
@@ -67,6 +69,12 @@ export default defineAgent({
   },
 });
 ```
+
+## Direct invocations
+
+Use `runAgent(agent, input)` in a script to get `[null, result]` or `[Error, null]`. ViteHub creates an isolated memo cache and run ID, then drains background work before returning. Results retain their inline output or Workflow Run shape. Agents that rely on default host Workflow discovery return an error tuple. Set `runtime: false` for inline execution, configure an explicit `workflow("name")` binding, or use the three-argument form with a host context. Non-Error failures are wrapped with their original value as the cause.
+
+`runAgent(agent, runtimeContext, input)` keeps the host context, returns the result directly, and throws failures. Use this form for request metadata, runtime configuration, and streams that require a host background lifetime. Errors during later stream or Response-body consumption are outside the two-argument tuple. See the [invocation guide](https://vitehub.dev/docs/agents/invocations).
 
 ## Custom Capability tools
 
@@ -343,7 +351,7 @@ export default defineAgent({
 
 The child gets a fresh runtime from the parent's configuration. `name` is not inherited; discovery names each Agent from its own file. Configure separate persistent storage when the Agents must keep separate data. An explicitly shared store or adapter remains shared.
 
-Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. Changing a Driver kind or store provider replaces that configuration.
+Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
 
 `extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions with `@../bot/instructions.md` and share Skills through explicit Sources or a directory link. Relative file paths resolve from each discovered Agent's directory.
 
@@ -391,9 +399,11 @@ const notes = defineAgent({
 notes.options.format // "concise" | "detailed"
 ```
 
-`options` uses nested defaults. Child values replace parent values, including `false`, empty arrays, and callbacks. Arrays never concatenate. Omitted or `undefined` values retain their defaults. Annotate optional fields and literal unions in the defaults to describe the accepted configuration. TypeScript checks options against the selected preset. If options come from untyped input, validate them in `configure`.
+`options` must be a plain record and uses nested defaults. Built-in instance roots are rejected by the types. Custom class roots are rejected at runtime because TypeScript cannot distinguish their structure from plain records with callbacks. Child values replace parent values, including `false`, empty arrays, and callbacks. Arrays never concatenate. Nested values with required methods, including class instances, require complete replacements. Omitted or `undefined` values retain their defaults. Annotate optional fields and literal unions in the defaults to describe the accepted configuration. TypeScript checks options against the selected preset. If options come from untyped input, validate them in `configure`.
 
-`configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
+`configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Copies of standard built-ins preserve their own property descriptors and nested values. Custom class instances and values such as `WeakMap`, `WeakSet`, and `Error` retain their identity across option copies. Detached buffers and their views retain identity. Resizable or growable buffers and their views also retain identity, preserving resize behavior and fixed-length or length-tracking views. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. For discovered Agents, a Workspace reference object must use a statically known string `name`; `name: undefined` owns a Workspace. Opaque names require an explicit Workspace ownership marker on the configured definition. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
+
+For folder Agents discovered from `agent.ts`, define `configure` in that file and return a discoverable `defineAgent()` call. Workspace discovery does not execute imported callbacks or opaque helper calls returned by `configure`, including computed calls such as `builders["workspace"]()` and asserted calls such as `build!()` or `(build as Factory)()`. Return `defineAgent()` directly, or declare `workspace: {}` for owned storage or a named Workspace reference on the configured Agent. It rejects an imported `configure` callback because it cannot determine the required Workspace setup. Discovery also rejects unresolved computed settings keys, quoted keys with unsupported escapes, compound `void` expressions, dynamic Workspace values such as `options.workspaceName`, opaque settings spreads such as `...importedSettings`, imported Capability options and preset registries (including object spreads), option-derived Capability lists such as `options.caps`, returned Agent members such as `agents.storage`, imported Agent parents, imported Channel maps and values, local Channel factories and opaque calls such as `github({ pullRequest: true })`, dynamic preset selections, logical Capability expressions such as `false || [storage]`, constructed Capability lists such as `Array.of(storage)` or `[plain].concat(storage)`, imported Capability values, destructured Capability bindings, and local Capability member access or calls such as `values.storage` and `values.storage()`. If these contribute an owned Workspace, add `workspace: {}` to the Agent definition. Otherwise, define the settings, parents, Channels, and Capabilities locally with direct bindings so discovery can inspect them.
 
 Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
 
@@ -462,7 +472,11 @@ existing PRs still receive lifecycle evidence that can cancel their active work.
 `claim(limit)` grants exclusive two-hour leases. `hydrateSnapshot()` fills gaps
 through a caller-supplied paginated REST reader and optional thread reader.
 `finish()` parks completed work or schedules a retry; feedback and terminal CI
-results wake it. Pending CI updates persist without starting another pass.
+results wake it by default. Pending CI updates persist without starting another pass.
+For explicit durable waits, pass `wait: { reason, evidenceKey }` to `finish()`.
+The inbox binds the wait to the current head and excludes it from claims until
+`wake(observedSnapshot, evidenceKey)` sees changed evidence. See the
+[host reconciliation contract](../../docs/content/docs/reference/github-inbox-waits.md).
 `recoverLeases()` releases expired leases only, including after a process restart.
 `createClaimStopCheck()` checks lease, PR state, and head changes, and accepts a
 repair push only when the provider Git HEAD proves the new head. Call `close()`
@@ -661,3 +675,100 @@ metadata updates and thread resolution. `autoMerge: false` omits the merge tool
 and the host rejects auto-merge operations. Enabling it requests GitHub native
 auto-merge subject to current PR admission and repository checks and reviews.
 There is no direct merge or branch-deletion fallback.
+
+### Bound repeated PR work
+
+The Node inbox accepts `budgets: { providerRetries: 3, noProgress: 3 }`.
+Call `reserveProviderAttempt(accountScope)` immediately before each provider dispatch,
+then `finishProviderAttempt(token, outcome)` exactly once. The initial dispatch plus
+three retries allow four consecutive classified provider failures. Successful
+provider access clears older failures; unrelated errors release their reservation
+without imposing a quota stop. Reservations also bound concurrent dispatches to
+four until they settle. Both pending reservations and failures survive restart.
+A crashed reservation requires inspection and `resetProviderBudget(scope, reason)`;
+there is no automatic cooldown or timer reset. Token generations reject results
+from before a reset. `providerBudget(scope)` exposes pending and failed attempts.
+
+Supply `finish(claim, { text, progress: { kind: 'no-progress' } })` when a host check
+proves no progress, including a completed invocation that merely repeats a wait.
+Three such completions block new claims for that head even after a webhook.
+Use `{ kind: 'verified', evidence: 'thread:123:resolved' }` for a newly verified change;
+credited evidence IDs persist for that head, so replay does not reset the count. A new head has a fresh budget.
+`resetProgressBudget(repository, number, expectedHead, reason)` permits an explicit
+operator retry and rejects active claims or stale heads. `summary()` exposes the
+persisted head, limit, count and exhaustion state. The first progress outcome saves
+the configured limit for that head. Configuration changes and restarts retain it;
+an explicit reset or a new head adopts the current limit. The host verifies evidence and classifies
+errors; Agent text, result status, and elapsed time do not choose this policy.
+
+See [durable retry budgets](https://vitehub.dev/docs/agents/invocations#durable-retry-budgets)
+for a worker example. Budgets are opt-in and do not change existing inbox callers.
+
+### Provider exit evidence
+
+A `launch` resolver can return `onExit({ cwd, abortSignal })` with its command. ViteHub calls this host callback once after the provider and Workspace commands stop, before it restores generated files or deletes the working directory. Auxiliary runs, such as title generation, do not call it. Use it to read the final checkout HEAD and persist evidence in host-owned state. The callback also runs after a failed or cancelled turn when shutdown completes. Cancellation can return before this deferred cleanup finishes. Its signal has a separate teardown deadline; stop all I/O when it aborts. Callback errors fail cleanup without preventing directory removal.
+
+The callback is skipped when provider shutdown fails or exceeds the cleanup deadline, and during provider inspection. Missing evidence must remain unknown. This callback does not verify model claims, grant push authority, or make closure state durable across host crashes. Validate the checkout in host code and persist the result before returning when durability is required.
+
+### Required GitHub checks
+
+Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`
+from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
+Supply an authenticated REST reader `(path) => Promise<{ status, data, nextPage? }>`; paths
+are relative to the GitHub API root. The reader combines active branch rules with
+classic branch protection and preserves required GitHub App identities. It requests
+the first rules page with a page size of 100, then follows explicit continuation
+targets. For every successful rules response, the callback must normalize the
+Link header's `rel="next"` URL to an API-relative `nextPage` path without a leading
+slash, relative to the complete configured API base URL, including its pathname.
+For GitHub Enterprise Server, `https://host/api/v3/repositories/123/rules/branches/main?page=2`
+becomes `repositories/123/rules/branches/main?page=2`, without repeating `api/v3`.
+The adapter must reject URLs with a different origin or outside the API base path,
+and preserve query parameters. For example, normalize a parsed next URL with:
+
+```ts
+function normalizeNextPage(nextUrl: string, apiBase: string): string {
+  const base = new URL(apiBase);
+  const prefix = base.pathname.replace(/\/$/, "") + "/";
+  const next = new URL(nextUrl);
+  if (next.origin !== base.origin || !next.pathname.startsWith(prefix)) {
+    throw new Error("Pagination URL is outside the GitHub API base");
+  }
+  return next.pathname.slice(prefix.length) + next.search;
+}
+```
+
+GitHub can change the route to `repositories/{id}/...`; the reader follows these
+paths without requiring the original route prefix.
+Set `nextPage: null` only when the header has no next relation
+(or after fetching all pages). Missing metadata, invalid or repeated targets,
+failed pages, and the 1,000-page limit return unknown policy. Page length does
+not establish completion. Other endpoint responses do not need `nextPage`.
+
+```ts
+const policies = createGitHubRequiredCheckPolicyReader(readGitHubRest)
+const policy = await policies.read('acme/app', 'main')
+const result = evaluateGitHubRequiredChecks(policy, {
+  repository: 'acme/app', branch: 'main', headSha,
+  checkRuns, statuses,
+})
+policies.invalidate('acme/app', 'main') // after a protection or ruleset event
+```
+
+Pass complete REST check-run records and commit statuses fetched for the exact
+head. Add the requested SHA as `sha` on each status because GitHub omits it from
+individual status records. The evaluator selects the
+latest matching records on the exact head. A successful same-context commit status
+for an App-bound requirement returns `unknown` because REST statuses do not identify
+the source App, unless a matching check run already proves failure. Failing and
+pending statuses retain their blocking states. Missing requirements return `pending`
+and appear in `missing`; malformed or unavailable policy returns `unknown`, never
+an empty passing policy. Required workflow rules return `unknown` because they
+cannot be represented as check contexts. Policy reads use a five-minute cache,
+with a two-minute cache for unknown results. Set `ttlMs`, `failureTtlMs`, and
+`clock` in the reader options to change this behavior. Invalidation also prevents
+older in-flight reads from restoring stale cache entries.
+
+These results describe scheduling evidence. They do not grant merge authority or
+replace fresh GitHub merge checks. Repository selection, approvals, merge methods,
+and review-provider policy remain application decisions.

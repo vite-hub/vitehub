@@ -29,21 +29,15 @@ vi.mock("../src/internal/ai-sdk-runtime.ts", () => ({
 import { resolveRuntimeValue } from "@vite-hub/runtime";
 import { codexLaunchArgs } from "../src/internal/codex-launch-args.ts";
 import type { AgentProviderEnvironmentResolver } from "../src/types.ts";
+import { isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts";
 import { title } from "../src/capabilities.ts";
 import { createMessage, defineAgent, runAgent } from "../src/index.ts";
 
 describe("title provider inheritance", () => {
-  it.each(["", " ", "\t\n"])("rejects empty title model overrides: %j", (model) => {
-    expect(() => title({ model })).toThrow("title({ model }) must be a non-empty string");
-  });
-
   it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2_147_483_648])(
     "rejects unsupported title timeout: %s",
     (timeoutMs) => {
-      expect(() => title({ timeoutMs })).toThrowError(expect.objectContaining({
-        code: "AGENT_R0922",
-        message: expect.stringContaining("must be an integer between 1 and 2147483647 milliseconds"),
-      }));
+      expect(() => title({ timeoutMs })).toThrow("must be an integer between 1 and 2147483647 milliseconds");
     },
   );
 
@@ -53,6 +47,25 @@ describe("title provider inheritance", () => {
 
   it.each(["", " ", "\t\n"])("rejects empty title reasoning effort: %j", (reasoningEffort) => {
     expect(() => title({ reasoningEffort })).toThrow("must be a non-empty model-advertised value");
+  });
+
+  it.each(["", " ", "\t\n"])("rejects empty title model: %j", (model) => {
+    expect(() => title({ model })).toThrow("title({ model }) must be a non-empty string");
+  });
+
+  it.each([
+    { options: { model: "" }, code: "AGENT_R0925" },
+    { options: { timeoutMs: 0 }, code: "AGENT_R0926" },
+    { options: { reasoningEffort: "" }, code: "AGENT_R0927" },
+  ])("identifies invalid title options with $code", ({ options, code }) => {
+    let diagnostic: unknown;
+    try {
+      title(options);
+    } catch (error) {
+      diagnostic = error;
+    }
+    expect(diagnostic).toMatchObject({ code });
+    expect(isAgentTypeDiagnostic(diagnostic)).toBe(true);
   });
 
   afterEach(() => {
@@ -89,12 +102,26 @@ describe("title provider inheritance", () => {
     if (resolver) expect(resolveModel).toHaveBeenCalled();
   });
 
+  it.each([undefined, "claude-title"])("rejects reasoning overrides for inherited Claude with model %s", async (model) => {
+    const agent = defineAgent({
+      capabilities: [title({ model, reasoningEffort: "high" })],
+      driver: { kind: "claude-code", model: "claude-main" },
+    });
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain model routing" })],
+    })).rejects.toMatchObject({
+      code: "AGENT_R0924",
+      message: expect.stringContaining("requires an inherited Codex provider"),
+    });
+    expect(mocks.adapters.every(adapter => adapter.model === "claude-main")).toBe(true);
+  });
+
   it.each([
     { expectedModel: "gpt-main", titleOptions: {}, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { instructions: "Use a short subject title" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: "medium" },
-    { expectedModel: "  gpt-cheap  ", titleOptions: { model: "  gpt-cheap  " }, reasoningEffort: "medium" },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap" }, reasoningEffort: undefined },
+    { expectedModel: "gpt-cheap", titleOptions: { model: "  gpt-cheap  " }, reasoningEffort: undefined },
     { expectedModel: "gpt-cheap", titleOptions: { model: "gpt-cheap", reasoningEffort: "low" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "low" }, reasoningEffort: "medium" },
     { expectedModel: "gpt-main", titleOptions: { reasoningEffort: "  low  " }, reasoningEffort: "medium" },

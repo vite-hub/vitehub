@@ -1,5 +1,6 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -298,4 +299,23 @@ test('timestamp-only comment evidence also invalidates hydration without another
   post(inbox, 'fresh-comment', 'issue_comment', {...payload, comment: {...payload.comment, updated_at: '2026-09-13T11:00:00Z'}})
   assert.equal(inbox.get(repository, 7)?.generation, claim.generation)
   assert.equal(inbox.hydrate(claim, {comments: {'1': payload.comment}}), false)
+})
+
+test('persisted status values are validated without coercion by both snapshot readers', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'inbox-status-'))
+  const path = join(directory, 'inbox.sqlite')
+  const inbox = new PullRequestInbox({ path, repositories: [repository] })
+  const db = new DatabaseSync(path)
+  t.onTestFinished(() => { db.close(); inbox.close(); rmSync(directory, { recursive: true, force: true }) })
+  inbox.seed(repository, pr())
+  const snapshot = inbox.get(repository, 7)!
+  const update = db.prepare('UPDATE pr_snapshots SET value=? WHERE repository=? AND number=?')
+  for (const status of ['ready', 'working', 'waiting', 'terminal']) {
+    update.run(JSON.stringify({ ...snapshot, status }), repository, 7)
+    assert.equal(inbox.get(repository, 7)?.status, status)
+    assert.equal(inbox.all()[0]?.status, status)
+    update.run(JSON.stringify({ ...snapshot, status: [status] }), repository, 7)
+    assert.throws(() => inbox.get(repository, 7), /Invalid inbox snapshot/)
+    assert.throws(() => inbox.all(), /Invalid inbox snapshot/)
+  }
 })

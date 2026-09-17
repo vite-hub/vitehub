@@ -77,6 +77,22 @@ describe("colocated Agent instructions", () => {
     expect(settings(resolved)?.driver?.execution).toEqual({ attachments: { maxBytes: 1024 } })
   })
 
+  it("preserves custom health and status handlers while refreshing framework handlers", () => {
+    const customHealth = { handler: async () => new Response("custom") }
+    const customStatus = async () => ({ readiness: "custom" })
+    const agent = defineAgent({ driver: { model }, runtime: false, health: customHealth })
+    agent.status = customStatus as never
+    const loaded = agentWithColocatedInstructions(agent, "Use colocated instructions.") as typeof agent
+
+    expect(loaded.health).toBe(customHealth)
+    expect(loaded.status).toBe(customStatus)
+
+    const framework = defineAgent({ driver: { model }, runtime: false })
+    const refreshed = agentWithColocatedInstructions(framework, "Use colocated instructions.") as typeof framework
+    expect(refreshed.health).not.toBe(framework.health)
+    expect(refreshed.status).not.toBe(framework.status)
+  })
+
   it("preserves properties and descriptors added to an Agent Definition", () => {
     const agent = defineAgent({ driver: { model }, runtime: false })
     const resolve = async () => ({ generate: async () => ({ text: "decorated" }) })
