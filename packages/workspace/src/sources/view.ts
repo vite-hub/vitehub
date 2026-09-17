@@ -339,7 +339,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         // A lazy consumer owns its fallback independently from a preparation
         // lifecycle that it happened to join.
       }
-      if (materializedSources.has(sourceKey) || completedSources.has(sourceKey) || reusedStartupSources.has(sourceKey)) {
+      if (materializedSources.has(sourceKey) || completedSources.has(sourceKey)) {
         if (isUncachedLazySource) uncachedMaterializedSources.add(sourceKey)
         return
       }

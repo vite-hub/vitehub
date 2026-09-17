@@ -964,6 +964,53 @@ describe("lazy sources", () => {
     expect(getKeys).toHaveBeenCalledTimes(2)
   })
 
+  it("revalidates inspection snapshots after another facade fails to refresh", async () => {
+    let version = 1
+    let markFailure!: () => void
+    let releaseFailure!: () => void
+    const reachedFailure = new Promise<void>((resolve) => { markFailure = resolve })
+    const failureReleased = new Promise<void>((resolve) => { releaseFailure = resolve })
+    const getKeys = vi.fn(async () => ["a.md", "b.md"])
+    const definition = {
+      name: "startup-inspection-failed-refresh",
+      sources: {
+        docs: custom({
+          materialize: "startup",
+          getKeys,
+          async getItem(key: string) {
+            if (version === 2 && key === "b.md") {
+              markFailure()
+              await failureReleased
+              throw new Error("refresh failed")
+            }
+            return { key, content: `version ${version}\n` }
+          },
+        }),
+      },
+    }
+    const store = createMemoryWorkspaceStore()
+    const runtime = createWorkspaceSourceView(definition, store)
+    await runtime.materializeSources()
+    await invalidateWorkspaceSourceMaterialization(definition, store, ["docs"])
+    const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+    await inspection.list("", { recursive: true })
+    expect(getKeys).toHaveBeenCalledOnce()
+
+    version = 2
+    const refresh = runtime.materializeSources()
+    await reachedFailure
+    const listing = inspection.list("", { recursive: true })
+    await new Promise(resolve => setImmediate(resolve))
+    version = 3
+    releaseFailure()
+    await expect(refresh).resolves.toMatchObject({ sources: [expect.objectContaining({ status: "error" })] })
+    await listing
+
+    expect(getKeys).toHaveBeenCalledTimes(3)
+    await expect(store.readFile("docs/a.md")).resolves.toMatchObject({ content: "version 3\n" })
+    await expect(store.readFile("docs/b.md")).resolves.toMatchObject({ content: "version 3\n" })
+  })
+
   it("normalizes keyed source mounts and cache defaults", () => {
     const resolved = normalizeWorkspaceSources({
       docs: custom({
