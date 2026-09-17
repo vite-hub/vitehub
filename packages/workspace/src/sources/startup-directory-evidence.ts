@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto"
 import { isDeepStrictEqual } from "node:util"
+import { workspaceMetadataScope } from "./workspace-metadata.ts"
 import type { WorkspaceStore } from "../core/types.ts"
 
 export function removedStartupDirectoryMetaKey(workspaceName: string | undefined, path: string) {
-  return `workspace:${workspaceName || "default"}:removed-startup-directory:${JSON.stringify(path)}`
+  return `workspace:${workspaceMetadataScope(workspaceName)}:removed-startup-directory:${JSON.stringify(path)}`
 }
 
 // Mutations belong to the shared Store tree, while removal evidence belongs

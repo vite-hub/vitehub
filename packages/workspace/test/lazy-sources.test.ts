@@ -118,7 +118,7 @@ describe("lazy sources", () => {
     const sources = { portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Original" }] }) }
     const definition = { name: "legacy-promotion", sources }
     await createWorkspaceSourceView(definition, store).materializeSources()
-    await store.setMeta!("workspace:promoted-source-skills:legacy-promotion", {
+    await store.setMeta!(`workspace:promoted-source-skills:"legacy-promotion"`, {
       [destination]: {
         digest: await sha256("# Original"),
         source: "portal",
@@ -1384,7 +1384,7 @@ describe("lazy sources", () => {
 
     await syncWorkspaceDefinition(next, store)
     await expect(store.stat("late.md")).resolves.toBeUndefined()
-    await expect(store.getMeta!("workspace:active-startup-removal:startup-sources")).resolves.toEqual([])
+    await expect(store.getMeta!(`workspace:"active-startup-removal":startup-sources`)).resolves.toEqual([])
   })
 
   it.each([false, true])("reconciles a removed owner once during concurrent startup materialization with abortable sync %s", async (abortableSync) => {
@@ -4297,7 +4297,7 @@ describe("startup cleanup ownership", () => {
     try {
       await syncWorkspaceDefinition({ name: initial.name, sources: {} }, store)
       await expect(store.stat("docs/first.md")).resolves.toBeUndefined()
-      await expect(store.getMeta?.("workspace:first-active:startup-sources")).resolves.toEqual([])
+      await expect(store.getMeta?.(`workspace:"first-active":startup-sources`)).resolves.toEqual([])
     }
     finally { release() }
     await pending

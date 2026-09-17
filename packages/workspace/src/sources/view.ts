@@ -367,12 +367,27 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function ensureStartupPointPath(source: (typeof sources)[number], path: string) {
     try {
+      const intersecting = sources.filter(item => item.materialize === "startup" && sourceMountIntersectsPath(item, path))
       // Check persisted ownership before refreshing: a user may have replaced
       // the indexed file with a directory since the previous invocation.
       const existing = await store.stat(path)
       if (existing && existing.type !== "file") {
-        const previous = await readCurrentSourceSnapshot(store, source, definition.name)
-        if (previous?.items?.[path]) return false
+        for (const item of intersecting) {
+          const previous = await readCurrentSourceSnapshot(store, item, definition.name)
+          if (previous?.items?.[path]) return false
+        }
+      }
+      if (intersecting.length > 1) {
+        await materializeStartupSourcesInPrecedenceOrder(intersecting)
+        // The resolver selects a mount, but another Source at that mount may
+        // own the file. Recover against its snapshot while preserving precedence.
+        for (const item of intersecting) {
+          const snapshot = await readCurrentSourceSnapshot(store, item, definition.name)
+          if (Object.keys(snapshot?.items || {}).some(itemPath => itemPath === path || itemPath.startsWith(`${path}/`))) {
+            source = item
+            break
+          }
+        }
       }
       const initial = await ensureMaterialized(source.key)
       if (initial?.sources.some(item => item.status === "error")) return false
@@ -391,8 +406,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       // and refresh:false reuse. Unknown paths must not refresh a complete snapshot.
       completedSources.delete(source.key)
       reusedStartupSources.delete(source.key)
-      const recovery = await materializeSerialized({ sources: [source.key] })
-      if (recovery.sources.some(item => item.status === "error")) return false
+      if (intersecting.length > 1) {
+        await materializeStartupSourcesInPrecedenceOrder(intersecting, [source.key])
+      }
+      else {
+        const recovery = await materializeSerialized({ sources: [source.key] })
+        if (recovery.sources.some(item => item.status === "error")) return false
+      }
       return Boolean(await store.stat(path))
     }
     catch (error) {
@@ -406,17 +426,18 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await Promise.all(items.map(async source => await ensureMaterialized(source.key)))
   }
 
-  async function materializeStartupSourcesInPrecedenceOrder(items: typeof sources) {
+  async function materializeStartupSourcesInPrecedenceOrder(items: typeof sources, recover: string[] = []) {
     if (!items.length) {
       // Reconcile removed owners even when no current Source needs a refresh.
       await materializeSerialized({ sources: [] })
       return
     }
     const preserved = new Map<string, WorkspaceFile[]>()
-    const incomplete = new Set<string>()
+    const incomplete = new Set(recover)
     // Capture reusable files before any overlapping lower-priority Source writes.
     if (options.reuseStartupSnapshots) {
       for (const source of items) {
+        if (incomplete.has(source.key)) continue
         const snapshot = await readCurrentSourceSnapshot(store, source, definition.name)
         if (snapshot?.status !== "ready") continue
         if (source.mountPath) {

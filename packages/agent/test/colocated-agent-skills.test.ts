@@ -62,6 +62,23 @@ describe("colocated Agent Skills", () => {
     expect(Object.hasOwn(remaining, "colocated")).toBe(!files.some(file => file.path === destination))
   })
 
+  it.each(["workspace", "capability"])("drops the complete fallback Skill when a %s Source owns one companion", (owner) => {
+    const explicit = custom({ mount: "", files: [{ path: ".agents/skills/review/checks.md", content: "Explicit checks" }] })
+    const unrelated = { content: "Other skill", workspacePath: ".agents/skills/reviewer/SKILL.md" }
+    const skills = {
+      instructions: { content: "Colocated instructions", workspacePath: destination },
+      checks: { content: "Colocated checks", workspacePath: ".agents/skills/review/checks.md" },
+      asset: { content: "Colocated asset", workspacePath: ".agents/skills/review/assets/rules.md" },
+      unrelated,
+    }
+    const agent = withColocatedAgentSkills(defineAgent({
+      workspace: owner === "workspace" ? { sources: { explicit } } : {},
+      capabilities: owner === "capability" ? [{ id: "review", workspaceSources: { explicit } }] : [],
+      driver: { model: {} as never },
+    }), skills)
+    expect(Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)).toEqual({ unrelated })
+  })
+
   afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
   })

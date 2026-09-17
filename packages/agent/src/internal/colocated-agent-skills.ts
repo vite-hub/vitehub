@@ -15,11 +15,19 @@ export function filterColocatedAgentSkills(skills: ColocatedAgentSkills, explici
     const paths = recursive ? [source.mountPath] : workspaceSourceGrantPaths(source.key, explicitSources[source.key]!)
     return paths.map(path => ({ path, recursive }))
   })
-  return Object.fromEntries(Object.entries(skills).filter(([key, source]) =>
-    !Object.hasOwn(explicitSources, key) && !workspaceSourceGrantPaths(key, source).some(path =>
+  const blockedSkillRoots = new Set<string>()
+  const entries = Object.entries(skills).map(([key, source]) => {
+    const paths = workspaceSourceGrantPaths(key, source)
+    const roots = paths.flatMap(path => path.match(/^\.agents\/skills\/[^/]+(?=\/|$)/)?.[0] || [])
+    const blocked = Object.hasOwn(explicitSources, key) || paths.some(path =>
       explicitPaths.some(explicit => path === explicit.path || path.startsWith(`${explicit.path}/`) || explicit.path.startsWith(`${path}/`) || explicit.recursive && !explicit.path),
-    ),
-  ))
+    )
+    if (blocked) for (const root of roots) blockedSkillRoots.add(root)
+    return { key, source, roots, blocked }
+  })
+  return Object.fromEntries(entries
+    .filter(entry => !entry.blocked && !entry.roots.some(root => blockedSkillRoots.has(root)))
+    .map(({ key, source }) => [key, source]))
 }
 
 interface EncodedColocatedAgentSkillSource {

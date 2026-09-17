@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util"
 import { isWorkspaceConflict, workspaceError } from "../core/errors.ts"
 import { contentStreamChunks, contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
+import { workspaceMetadataScope } from "./workspace-metadata.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
 import { captureStartupPathMutations, captureStartupDirectoryRemoval, removedStartupDirectoryMetaKey } from "./startup-directory-evidence.ts"
 import { normalizeSourceFileMetadata } from "./file-metadata.ts"
@@ -78,10 +79,10 @@ interface PromotedSourceSkillFile {
 }
 
 function startupSourcesMetaKey(workspaceName?: string) {
-  return `workspace:${workspaceName || "default"}:startup-sources`
+  return `workspace:${workspaceMetadataScope(workspaceName)}:startup-sources`
 }
 export function removedStartupPathMetaKey(workspaceName: string | undefined, path: string) {
-  return `workspace:${workspaceName || "default"}:removed-startup-path:${JSON.stringify(path)}`
+  return `workspace:${workspaceMetadataScope(workspaceName)}:removed-startup-path:${JSON.stringify(path)}`
 }
 async function captureStartupFileRemoval(store: WorkspaceStore, path: string, source: string) {
   return { source, mutations: await captureStartupPathMutations(store, path) }
@@ -256,7 +257,7 @@ async function reconcilePromotedSourceSkills(
 ) {
   if (!store.getMeta || !store.setMeta || !store.writeFileConditional) return
   const writeFileConditional = store.writeFileConditional.bind(store)
-  const previousValue = await store.getMeta(`${promotedSourceSkillsMetaKey}:${workspaceName || "default"}`)
+  const previousValue = await store.getMeta(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`)
   const previous = hasRuntimeType(previousValue, "object") && previousValue !== null
     ? Object.fromEntries(Object.entries(previousValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
     : {}
@@ -339,7 +340,7 @@ async function reconcilePromotedSourceSkills(
   for (const [destination, candidate] of candidates) {
     const existing = await readSourceFile(store, destination)
     const prior = previous[destination]
-    const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await promotedFileMatches(existing, prior))
+    const ownsExisting = Boolean(prior && prior.workspace === workspaceName && existing && await promotedFileMatches(existing, prior))
     if ((existing && !ownsExisting) || await hasNonFilePromotionDestination(store, destination)) retainedSkills.add(candidate.skill)
   }
 
@@ -360,7 +361,7 @@ async function reconcilePromotedSourceSkills(
       const sourceFile = verifiedSkillFiles.get(candidate.sourcePath)
       const existing = await readSourceFile(store, destination)
       const prior = previous[destination]
-      const ownsExisting = Boolean(prior && prior.workspace === (workspaceName || "default") && existing && await promotedFileMatches(existing, prior))
+      const ownsExisting = Boolean(prior && prior.workspace === workspaceName && existing && await promotedFileMatches(existing, prior))
       if (!sourceFile || (existing && !ownsExisting) || (entries.length > 1 && !store.compareAndSwapFile) || await hasNonFilePromotionDestination(store, destination)) {
         conflicted = true
         break
@@ -369,7 +370,7 @@ async function reconcilePromotedSourceSkills(
         ...sourceFile.metadata,
         promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
       }
-      const promoted = { source: candidate.source, sourcePath: candidate.sourcePath, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName || "default" }
+      const promoted = { source: candidate.source, sourcePath: candidate.sourcePath, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName }
       const expectedDigest = existing ? await sha256(existing.content) : null
       try {
         await control.mutate(async () => {
@@ -434,7 +435,7 @@ async function reconcilePromotedSourceSkills(
     }
     else if (existing) next[destination] = prior
   }
-  await control.checkpoint(async () => await store.setMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceName || "default"}`, next))
+  await control.checkpoint(async () => await store.setMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`, next))
 }
 
 function materializedItemMeta(
