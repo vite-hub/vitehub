@@ -17,7 +17,7 @@ export function filterColocatedAgentSkills(skills: ColocatedAgentSkills, explici
   })
   return Object.fromEntries(Object.entries(skills).filter(([key, source]) =>
     !Object.hasOwn(explicitSources, key) && !workspaceSourceGrantPaths(key, source).some(path =>
-      explicitPaths.some(explicit => path === explicit.path || explicit.recursive && (!explicit.path || path.startsWith(`${explicit.path}/`))),
+      explicitPaths.some(explicit => path === explicit.path || path.startsWith(`${explicit.path}/`) || explicit.path.startsWith(`${path}/`) || explicit.recursive && !explicit.path),
     ),
   ))
 }

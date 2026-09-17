@@ -16,6 +16,9 @@ describe("colocated Agent Skills", () => {
   const destination = ".agents/skills/review/SKILL.md"
   it.each([
     { form: "string", source: destination },
+    { form: "ancestor file", source: file({ content: "Explicit", workspacePath: ".agents/skills/review" }) },
+    { form: "descendant file", source: file({ content: "Explicit", workspacePath: `${destination}/child` }) },
+    { form: "finite ancestor file", source: custom({ mount: "", files: [{ path: ".agents/skills/review", content: "Explicit" }] }) },
     { form: "path", source: { path: destination } },
     { form: "file helper", source: file({ content: "Explicit", workspacePath: destination }) },
     { form: "binding", source: { source: file({ content: "Explicit", workspacePath: destination }) } },

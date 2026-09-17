@@ -152,6 +152,31 @@ describe("lazy sources", () => {
     await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
   })
 
+  it.each(["metadata", "mediaType"])("preserves concurrent attribute replacements during promoted-file retirement: %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    const destination = ".agents/skills/review/SKILL.md"
+    const sources = { portal: custom({ materialize: "startup", files: [{ path: destination, content: "# Source" }] }) }
+    const view = createWorkspaceSourceView({ name: "retirement-attributes", sources }, store)
+    await view.materializeSources()
+    const file = (await store.readFile(destination))!
+    const replacement = { ...file, ...(attribute === "metadata" ? { metadata: { user: true } } : { mediaType: "text/user" }) }
+    const remove = store.compareAndSwapFile!.bind(store)
+    let replaced = false
+    vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, next) => {
+      if (path === destination && !next) {
+        replaced = true
+        await store.writeFile(path, replacement)
+      }
+      await remove(path, expected, next)
+    })
+    Reflect.deleteProperty(sources, "portal")
+    await view.materializeSources()
+    expect(replaced).toBe(true)
+    await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toMatchObject(replacement)
+  })
+
   it.each(["shared", "shared/retained"])("keeps retained generated files out of diffs after ownership transfer to %s", async (mount) => {
     const sources = {
       removed: custom({ materialize: "startup", mount: "shared", files: [{ path: "removed.md", content: "removed" }] }),
@@ -403,13 +428,13 @@ describe("lazy sources", () => {
       },
     }, store)
     await view.materializeSources()
-    const remove = store.rm.bind(store)
+    const remove = store.compareAndSwapFile!.bind(store)
     let replaced = false
-    vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
-      await remove(path, options)
+    vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, next) => {
+      await remove(path, expected, next)
       if (replacement && path === destination && !replaced) {
         replaced = true
-        await remove(directory)
+        await store.rm(directory)
         await store.writeFile(directory, { path: directory, content: "User replacement" })
       }
     })

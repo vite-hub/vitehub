@@ -414,11 +414,17 @@ async function reconcilePromotedSourceSkills(
     if (existing && await promotedFileMatches(existing, prior)) {
       const latest = await readSourceFile(store, destination)
       if (latest && await promotedFileMatches(latest, prior)) {
-        if (store.conditionalRemoval) {
-          await control.mutate(() => store.rm(destination, { force: true, ifDigest: prior.digest }))
+        if (store.compareAndSwapFile) {
+          try {
+            await control.mutate(() => store.compareAndSwapFile!(destination, latest, undefined))
+          }
+          catch (error) {
+            if (!isWorkspaceConflict(error)) throw error
+            next[destination] = prior
+          }
         }
         else {
-          // Without atomic conditional removal, retain the entry rather than
+          // Without complete-file conditional removal, retain the entry rather than
           // risking deletion of a concurrent user replacement.
           next[destination] = prior
         }
