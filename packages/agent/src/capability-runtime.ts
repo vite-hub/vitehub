@@ -888,7 +888,7 @@ async function applyCapabilityWorkspaceContributions<
           && pr.mountPath === existing.mountPath
           && pr.source?.name === "github" && existing.source?.name === "github"
           && isRuntimeRecord(prFingerprint) && isRuntimeRecord(existingFingerprint)
-          && typeof prFingerprint.repo === "string" && prFingerprint.repo
+          && hasRuntimeType(prFingerprint.repo, "string") && prFingerprint.repo
           && prFingerprint.repo === existingFingerprint.repo
           && !registries.some(entry => entry.sources.includes(key))) {
           delete remaining[key]
