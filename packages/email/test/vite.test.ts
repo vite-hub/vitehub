@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, posix } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
@@ -365,7 +365,7 @@ describe("hubEmail", () => {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
-        .toBe(`/@fs/${nestedTemplate}?markdown-template`)
+        .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?markdown-template`)
     }
     finally {
       await server.close()
