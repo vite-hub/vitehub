@@ -336,9 +336,9 @@ describe("ViteHub Nuxt integration", () => {
       {
         name: "@vite-hub/queue/vite",
         config: inspectConfig,
-        configResolved: inspectConfig,
         vitehub: { queue: { createNitroConfig: mocks.queueNitroConfig } },
       },
+      { name: "@vite-hub/blob/vite", configResolved: inspectConfig },
     ])
     const { nuxt, runNitroConfigHook } = createNuxt(false, [], version)
 
