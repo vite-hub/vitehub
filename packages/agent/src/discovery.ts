@@ -455,9 +455,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (parameterScope) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect an option-derived Capability expression. Use a literal Capability list with direct local bindings, or add an explicit Workspace ownership marker to the Agent definition.")
     }
-    let referenceEnd = index + 1
-    while (tokens[referenceEnd] === ".") referenceEnd += 2
-    if (!parameterScope && imported.has(tokens[index]) && !["(", "<"].includes(tokens[referenceEnd])) {
+    if (imported.has(tokens[index])) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Capability. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or define the Capability locally so discovery can inspect it.")
     }
     if (!parameterScope && !imported.has(tokens[index]) && (tokens[index] === "new" || (tokens[index] === "Array" && tokens[memberCallEnd(index)] === "(") || [".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === "."))) {

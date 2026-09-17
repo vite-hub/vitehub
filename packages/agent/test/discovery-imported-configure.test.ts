@@ -324,3 +324,16 @@ it.each(['defineChannel("custom")', 'defineChannel("custom", undefined)', 'defin
   const definitions = await discover(`import { defineChannel } from "vite-hub/agent/channels"; const options = {}; export default defineAgent({ options: {}, configure: () => defineAgent({ channels: { custom: ${channel} } }) })`)
   expect(definitions[0]?.workspace).toBeUndefined()
 })
+
+it.each([
+  ['import { makeCapabilities } from "./caps"', "makeCapabilities()"],
+  ['import { makeCapabilities } from "./caps"', "makeCapabilities<Options>()"],
+  ['import makeCapabilities from "./caps"', "makeCapabilities()"],
+  ['import * as caps from "./caps"', "caps.makeCapabilities()"],
+  ['import { makeCapability } from "./caps"', "[makeCapability()]"],
+])("rejects imported Capability helper calls: %s %s", async (imports, expression) => {
+  const source = `${imports}; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ${expression} }) })`
+  await expect(discover(source)).rejects.toThrow("cannot inspect an imported Capability")
+  const definitions = await discover(source.replace("capabilities:", "workspace: {}, capabilities:"))
+  expect(definitions[0]?.workspace).toBe("notes")
+})

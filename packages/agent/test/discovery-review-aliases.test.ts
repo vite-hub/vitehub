@@ -34,8 +34,8 @@ it.each(["@vite-hub/agent", "vite-hub/agent"])("discovers named and namespace Ca
   }
 })
 
-it("does not recognize another package's similarly named factory", async () => {
-  await expect(workspaceFor('import * as hub from "other-package"; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: [hub.defineCapability({ workspace: {} })] }) })')).resolves.toBeUndefined()
+it("rejects another package's similarly named factory", async () => {
+  await expect(workspaceFor('import * as hub from "other-package"; export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: [hub.defineCapability({ workspace: {} })] }) })')).rejects.toThrow("cannot inspect an imported Capability")
 })
 
 it.each(["options", "(options)"])("preserves module Capabilities when the %s parameter shadows a declaration", async (parameters) => {

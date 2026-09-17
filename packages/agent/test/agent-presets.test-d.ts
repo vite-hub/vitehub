@@ -182,13 +182,19 @@ it("accepts interface options and rejects non-record roots", () => {
   defineAgent({ options: new Blob([]), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error File roots inherit Blob and are not plain option records.
   defineAgent({ options: new File([], "input"), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error Request roots are not plain option records.
+  defineAgent({ options: new Request("https://example.com"), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error Response roots are not plain option records.
+  defineAgent({ options: new Response(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Headers roots are not plain option records.
   defineAgent({ options: new Headers(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error FormData roots are not plain option records.
   defineAgent({ options: new FormData(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error URLSearchParams roots are not plain option records.
   defineAgent({ options: new URLSearchParams(), configure: () => defineAgent({ driver: "codex" }) })
-  defineAgent({ options: { headers: new Headers(), form: new FormData(), blob: new Blob([]) }, configure: value => {
+  defineAgent({ options: { headers: new Headers(), form: new FormData(), blob: new Blob([]), request: new Request("https://example.com"), response: new Response() }, configure: value => {
+    expectTypeOf(value.request).toEqualTypeOf<Request>()
+    expectTypeOf(value.response).toEqualTypeOf<Response>()
     expectTypeOf(value.blob).toEqualTypeOf<Blob>()
     expectTypeOf(value.headers).toEqualTypeOf<Headers>()
     expectTypeOf(value.form).toEqualTypeOf<FormData>()
