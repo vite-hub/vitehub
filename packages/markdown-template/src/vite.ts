@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { dirname, isAbsolute, resolve, win32 } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
@@ -35,6 +35,10 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
   await writeFile(path, contents, "utf8")
 }
 
+function isFileId(id: string): boolean {
+  return !id.includes("\0") && (isAbsolute(id) || win32.isAbsolute(id))
+}
+
 export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): Plugin {
   const runtimeImport = options.runtimeImport || markdownTemplateRuntimeSpecifier
   const runtimeAlias = options.runtimeImport ? undefined : fileURLToPath(import.meta.resolve(markdownTemplateRuntimeSpecifier))
@@ -57,11 +61,14 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
       if (!resolved || resolved.external) {
         this.error(`[vitehub] Could not resolve Markdown template ${JSON.stringify(request.path)}${importer ? ` from ${JSON.stringify(importer)}` : ""}.`)
       }
+      // Virtual modules belong to the resolving plugin, including their query and fragment.
+      if (!isFileId(resolved.id)) return resolved
       // Template imports read the resolved file directly, without other query transforms.
       const path = resolved.id.split(/[?#]/, 1)[0]!
       return `${path}?${markdownTemplateModuleQuery}`
     },
     async load(id) {
+      if (!isFileId(id)) return
       const request = parseMarkdownTemplateRequest(id)
       if (!request) return
       let path = request.path

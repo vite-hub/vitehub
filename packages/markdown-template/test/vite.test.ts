@@ -14,7 +14,7 @@ import {
 import { build } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { markdownTemplateMaterializationPath, parseMarkdownTemplateRequest } from "../src/internal/vite.ts"
+import { markdownTemplateMaterializationPath, parseMarkdownTemplateRequest, renderMarkdownTemplateModule, renderMarkdownTemplateTypes } from "../src/internal/vite.ts"
 import { hubMarkdownTemplate } from "../src/vite.ts"
 
 const tempDirs: string[] = []
@@ -189,6 +189,50 @@ describe("hubMarkdownTemplate", () => {
     const bundled = await import(pathToFileURL(join(root, "dist", "entry.mjs")).href) as { default: () => Promise<string> }
     await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
   })
+
+  it.each(["\0virtual:prompt?worker#fragment", "virtual:prompt?markdown-template"])("preserves plugin-owned module %s", async (id) => {
+    const root = await createRoot()
+    const entry = join(root, "entry.ts")
+    await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default () => prompt({ name: "ViteHub" })\n', "utf8")
+    const load = vi.fn((source: string) => {
+      if (source === id) return renderMarkdownTemplateModule("Hello {{ data.name }}.")
+    })
+    await build({
+      build: { lib: { entry, fileName: () => "entry.mjs", formats: ["es"] }, outDir: join(root, "dist") },
+      logLevel: "silent",
+      plugins: [hubMarkdownTemplate(), {
+        name: "virtual-template-owner",
+        resolveId(source) {
+          if (source === "./prompt.template.md") return id
+        },
+        load,
+      }],
+      root,
+    })
+    expect(load).toHaveBeenCalledWith(id, expect.anything())
+    // SAFETY: The fixture exports the renderer invocation built above.
+    const bundled = await import(pathToFileURL(join(root, "dist", "entry.mjs")).href) as { default: () => Promise<string> }
+    await expect(bundled.default()).resolves.toBe("Hello ViteHub.")
+  })
+
+  it("rejects compound query imports in generated types", async () => {
+    const root = await createRoot()
+    const entry = join(root, "entry.ts")
+    const types = join(root, "templates.d.ts")
+    await writeFile(types, renderMarkdownTemplateTypes(), "utf8")
+    await writeFile(entry, [
+      'import valid from "./prompt.md?markdown-template"',
+      'import invalid from "./prompt.md?worker&markdown-template"',
+      'export { valid, invalid }',
+    ].join("\n"), "utf8")
+    const program = createProgram({
+      options: { module: ModuleKind.NodeNext, moduleResolution: ModuleResolutionKind.NodeNext, noEmit: true, strict: true, skipLibCheck: true },
+      rootNames: [entry, types],
+    })
+    const diagnostics = getPreEmitDiagnostics(program)
+    expect(diagnostics.map(diagnostic => diagnostic.code)).toEqual([2307])
+    expect(flattenDiagnosticMessageText(diagnostics[0]!.messageText, "\n")).toContain("./prompt.md?worker&markdown-template")
+  }, 15_000)
 
   it("keeps missing import text literal when building a template", async () => {
     const root = await createRoot()
