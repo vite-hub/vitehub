@@ -46,7 +46,7 @@ function parseSnapshot(value: unknown): Snapshot {
   const number = input.number as number
   const required = ['repository', 'number', 'generation', 'handled', 'dirtyAt', 'nextAt', 'status', 'lease', 'leaseUntil', 'attempts', 'hydrated', 'refresh', 'feedbackRefresh', 'comments', 'reviews', 'reviewComments', 'checks', 'statuses', 'threads', 'reasons']
   if (Object.prototype.toString.call(input.repository) !== '[object String]' || !Number.isInteger(input.number) || number < 1 ||
-    required.some(key => !(key in input)) || !['ready', 'working', 'waiting', 'terminal'].includes(String(input.status)) ||
+    required.some(key => !(key in input)) || !['ready', 'working', 'waiting', 'terminal'].some(status => status === input.status) ||
     (input.lease !== null && Object.prototype.toString.call(input.lease) !== '[object String]') ||
     ![input.generation, input.handled, input.dirtyAt, input.nextAt, input.leaseUntil, input.attempts].every(n => Number.isFinite(n)) ||
     ![input.hydrated, input.refresh, input.feedbackRefresh].every(value => value === true || value === false) ||
