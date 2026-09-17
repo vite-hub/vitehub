@@ -49,6 +49,7 @@ describe("public package export contracts", () => {
       ["vite-hub/agent/evlog/posthog", "posthog-node"],
       ["@vite-hub/auth/agent", "@vite-hub/agent"],
       ["@vite-hub/auth/nuxt", "vite"],
+      ["@vite-hub/schedule/runtime/kv", "@vite-hub/kv"],
       ["@vite-hub/source/client", "vue"],
       ["@vite-hub/ui/vite", "vite"],
       ["@vite-hub/workspace/collections/client", "vue"],
@@ -65,6 +66,12 @@ describe("public package export contracts", () => {
       expect(publicPackageExportContracts.find(contract => contract.specifier === specifier)?.optionalRuntimePeers)
         .toContain(peer)
     }
+  })
+
+  it("keeps Schedule KV adapter declarations independent from its runtime peer", () => {
+    const adapter = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/schedule/runtime/kv")
+    expect(adapter?.optionalDeclarationPeers).toEqual([])
+    expect(adapter?.optionalRuntimePeers).toEqual(["@vite-hub/kv"])
   })
 
   it("keeps lazy optional peer exports runnable without their declaration peers", () => {

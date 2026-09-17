@@ -9,7 +9,7 @@ import { expect, it } from "vitest"
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
 const workspaceRoot = resolve(packageRoot, "../..")
-const childProcessTimeout = 30_000
+const childProcessTimeout = 60_000
 
 interface PackedManifest {
   dependencies?: Record<string, string>
@@ -53,6 +53,8 @@ async function packWorkspacePackage(packDir: string, name: string): Promise<stri
 
 function workspaceConfig(packageOverrides: Record<string, string>): string {
   return [
+    "autoInstallPeers: false",
+    "hoist: false",
     "packages:",
     "  - .",
     "overrides:",
@@ -84,7 +86,7 @@ async function installConsumer(root: string, dependencies: Record<string, string
   await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile", "--strict-peer-dependencies"], root)
 }
 
-it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async () => {
+it("keeps KV optional for packed Schedule consumers", { timeout: 150_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-optional-kv-"))
   const packDir = join(root, "packs")
   const withoutKV = join(root, "without-kv")
@@ -114,6 +116,7 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
       {
         "@vite-hub/schedule": `file:${scheduleTarball}`,
         vite: "8.0.8",
+        nitropack: "2.13.4",
       },
       {
         "@vite-hub/runtime": `file:${runtimeTarball}`,
@@ -126,7 +129,12 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
       writeFile(
         join(withoutKV, "src/server.mjs"),
         `
-        import { createMemoryRuntimeScheduleStore } from "@vite-hub/schedule/runtime"
+        import { defineSchedule } from "@vite-hub/schedule"
+        import { createMemoryRuntimeScheduleStore, executeStaticSchedule } from "@vite-hub/schedule/runtime"
+
+        const definition = defineSchedule({ cron: "* * * * *", handler: () => "static-proof" })
+        const result = await executeStaticSchedule({ name: "static-proof", cron: definition.cron, definition })
+        if (result.status !== "succeeded") throw new Error("Built static schedule failed")
 
         const store = createMemoryRuntimeScheduleStore()
         await store.create({
@@ -153,6 +161,7 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
             ssr: "src/server.mjs",
           },
           plugins: [hubSchedule({ providerOutput: false })],
+          ssr: { noExternal: true },
         })
       `,
         "utf8",
@@ -160,6 +169,30 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
     ])
     await run(process.execPath, [join(withoutKV, "node_modules/vite/bin/vite.js"), "build"], withoutKV)
     await run(process.execPath, [join(withoutKV, "dist/server.js")], withoutKV)
+    await mkdir(join(withoutKV, "server/routes"), { recursive: true })
+    await writeFile(join(withoutKV, "server/routes/proof.ts"), `
+      import { defineSchedule } from "@vite-hub/schedule"
+      const definition = defineSchedule({ cron: "* * * * *", handler: () => "static-proof" })
+      export default () => definition.cron
+    `, "utf8")
+    await run(process.execPath, ["--input-type=module", "--eval", `
+      import { build, createNitro, prepare } from "nitropack"
+      const nitro = await createNitro({
+        rootDir: process.cwd(),
+        srcDir: "server",
+        preset: "cloudflare_module",
+        noExternals: true,
+        compatibilityDate: "2026-01-01",
+      })
+      try {
+        if (!nitro.scannedHandlers.some(handler => handler.route === "/proof")) throw new Error("Static Schedule route was not discovered")
+        await prepare(nitro)
+        await build(nitro)
+      }
+      finally {
+        await nitro.close()
+      }
+    `], withoutKV)
     await run(
       process.execPath,
       [
@@ -195,15 +228,6 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
       })
       await injected.create({ ...record, id: "injected-proof" })
       if ((await injected.get("injected-proof"))?.id !== "injected-proof") throw new Error("Injected store failed")
-
-      try {
-        await createKVRuntimeScheduleStore().get("missing")
-        throw new Error("Default KV store unexpectedly loaded")
-      }
-      catch (error) {
-        const expected = "[vitehub:schedule] The default KV-backed stores require @vite-hub/kv. Install it with: pnpm add @vite-hub/kv"
-        if (!(error instanceof Error) || error.message !== expected) throw error
-      }
     `,
       ],
       withoutKV,
@@ -224,8 +248,9 @@ it("keeps KV optional for packed Schedule consumers", { timeout: 90_000 }, async
         "--eval",
         `
       import { createKVRuntimeScheduleStore } from "@vite-hub/schedule/runtime"
+      import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"
 
-      const store = createKVRuntimeScheduleStore({ prefix: "consumer-proof" })
+      const store = createKVRuntimeScheduleStore({ kvStore: scheduleKVStorage, prefix: "consumer-proof" })
       const record = {
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         cron: "0 * * * *",
