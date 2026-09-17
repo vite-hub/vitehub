@@ -408,3 +408,18 @@ it("retains Workspace access for disjoint branded literal Capability IDs", () =>
   // @ts-expect-error Equal literal values replace each other despite distinct brands.
   void replaced.__vitehubWorkspaceAgent
 })
+
+it("rejects stream option roots and preserves nested streams", () => {
+  // @ts-expect-error ReadableStream roots are not plain option records.
+  defineAgent({ options: new ReadableStream<string>(), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error WritableStream roots are not plain option records.
+  defineAgent({ options: new WritableStream<string>(), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error TransformStream roots are not plain option records.
+  defineAgent({ options: new TransformStream<string, number>(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: { input: new ReadableStream<string>(), output: new WritableStream<string>(), transform: new TransformStream<string, number>() }, configure: value => {
+    expectTypeOf(value.input).toEqualTypeOf<ReadableStream<string>>()
+    expectTypeOf(value.output).toEqualTypeOf<WritableStream<string>>()
+    expectTypeOf(value.transform).toEqualTypeOf<TransformStream<string, number>>()
+    return defineAgent({ driver: "codex" })
+  } })
+})

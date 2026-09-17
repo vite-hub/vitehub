@@ -53,8 +53,8 @@ it.each([
   await expect(workspaceFor(`${imports}; export default defineAgent({ options: {}, configure: ${configure} })`)).rejects.toThrow("option-derived Capability expression")
 })
 
-it("honors a locally shadowed Capability factory", async () => {
-  await expect(workspaceFor('import { defineCapability as capability } from "@vite-hub/agent"; export default defineAgent({ options: {}, configure: () => { const capability = () => ({}); return defineAgent({ capabilities: [capability({ workspace: {} })] }) } })')).resolves.toBeUndefined()
+it("rejects an opaque locally shadowed Capability factory", async () => {
+  await expect(workspaceFor('import { defineCapability as capability } from "@vite-hub/agent"; export default defineAgent({ options: {}, configure: () => { const capability = () => ({}); return defineAgent({ capabilities: [capability({ workspace: {} })] }) } })')).rejects.toThrow("local Capability member or helper call")
 })
 
 it("rejects an opaque local member that shadows a Capability namespace", async () => {

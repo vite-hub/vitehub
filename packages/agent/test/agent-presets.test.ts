@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { agentWithColocatedInstructions, defineAgent, defineCapability, runAgent } from "../src/index.ts"
 import { getAgentLayerOptions } from "../src/agent-layers.ts"
 import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
-import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
+import { markWorkspaceAgentDefinitionRegistered, workspaceAgentUsesRegisteredDefinition, workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
 describe("named Agent presets", () => {
   it("runs a selected published definition with local overrides", async () => {
@@ -286,6 +286,36 @@ it("removes contributed Workspace access when its last channel or capability is 
   expect(defineAgent({ extends: explicit, channels: { custom: { kind: "custom" } } }).__vitehubWorkspaceAgent).toBe(true)
 })
 
-it.each([[], () => true, new Request("https://example.com"), new Response(), new Blob([]), new File([], "input"), new Date(), new WeakMap(), new WeakSet(), new Error(), new AbortController(), new AbortController().signal, new class Client { connect() { return true } }()])("rejects non-record configured option roots", options => {
+it.each([new ReadableStream(), new WritableStream(), new TransformStream(), [], () => true, new Request("https://example.com"), new Response(), new Blob([]), new File([], "input"), new Date(), new WeakMap(), new WeakSet(), new Error(), new AbortController(), new AbortController().signal, new class Client { connect() { return true } }()])("rejects non-record configured option roots", options => {
   expect(() => defineAgent({ options, configure: () => defineAgent({ driver: "codex" }) } as never)).toThrow("requires only options defaults and a configure callback")
+})
+
+it("keeps Workspace registration state separate from configured definitions", () => {
+  const base = defineAgent({ name: "base", driver: "codex", workspace: {} })
+  markWorkspaceAgentDefinitionRegistered(base, "base")
+  const preset = defineAgent({ options: { enabled: true }, configure: () => base })
+  const selected = defineAgent({ preset: "base", presets: { base: preset }, name: "selected" })
+  const extended = defineAgent({ extends: preset, name: "extended" })
+  for (const definition of [preset, selected, extended]) {
+    expect(workspaceAgentUsesRegisteredDefinition(definition, "base")).toBe(false)
+  }
+  markWorkspaceAgentDefinitionRegistered(selected, "selected")
+  expect(workspaceAgentUsesRegisteredDefinition(selected, "selected")).toBe(true)
+  for (const definition of [base, preset, extended]) {
+    expect(workspaceAgentUsesRegisteredDefinition(definition, "selected")).toBe(false)
+  }
+  expect(workspaceAgentUsesRegisteredDefinition(base, "base")).toBe(true)
+})
+
+it("preserves nested streams through preset configuration", () => {
+  const streams = { input: new ReadableStream<string>(), output: new WritableStream<string>(), transform: new TransformStream<string, number>() }
+  const configure = vi.fn((options: typeof streams) => {
+    expect(options.input).toBe(streams.input)
+    expect(options.output).toBe(streams.output)
+    expect(options.transform).toBe(streams.transform)
+    return defineAgent({ driver: "codex" })
+  })
+  const preset = defineAgent({ options: streams, configure })
+  defineAgent({ extends: preset })
+  expect(configure).toHaveBeenCalledTimes(2)
 })

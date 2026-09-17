@@ -443,8 +443,8 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (destructuredBindings.has(binding)) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect a destructured Capability binding. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
       }
-      if ([".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === ".")) {
-        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Capability member. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
+      if (["(", "<", ".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === ".")) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Capability member or helper call. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
       }
       // Later declarations shadow outer bindings before their initializer runs.
       if (binding > index) return false
@@ -458,7 +458,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (imported.has(tokens[index])) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Capability. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or define the Capability locally so discovery can inspect it.")
     }
-    if (!parameterScope && !imported.has(tokens[index]) && (tokens[index] === "new" || (tokens[index] === "Array" && tokens[memberCallEnd(index)] === "(") || [".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === "."))) {
+    if (!parameterScope && !imported.has(tokens[index]) && (tokens[index] === "new" || ["(", "<"].includes(tokens[index + 1]) || (tokens[index] === "Array" && tokens[memberCallEnd(index)] === "(") || [".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === "."))) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
     }
     return false
@@ -606,7 +606,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     let depth = 0
     let atProperty = true
     for (let i = index + 1; i < tokens.length; i++) {
-      const token = tokens[i]
+      let token = tokens[i]
       if (depth === 0 && token === "}") break
       if (depth === 0 && atProperty) {
         if (token === "." && tokens[i + 1] === "." && tokens[i + 2] === ".") {
@@ -662,11 +662,14 @@ function isWorkspaceAgentDefinition(source: string): boolean {
               throw new Error("[vitehub] Agent Workspace discovery cannot inspect a computed Agent settings key. Use a literal key, or add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
             }
             if (key !== undefined) result.set(key, valueIndex)
-            // Account for a computed method parameter list explicitly. The
-            // opener is consumed while locating the key, so seed depth before
-            // continuing after it; otherwise the closing `)` would underflow
-            // the enclosing object scan and hide following sibling fields.
+            else {
+              result.delete("workspace")
+              onOpaqueSettings?.()
+            }
+            // Continue depth tracking at the value separator or method opener.
+            // The computed key's brackets have already been consumed.
             i = close
+            token = tokens[i]
             atProperty = false
           }
         } else if (tokens[i + 1] === ":") result.set(propertyName(token), i + 2)
@@ -733,11 +736,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     const workspace = options.get("workspace")
     if (workspace !== undefined && !undefinedValue(workspace)) {
       function workspaceOwnsDefinition(index: number): boolean {
-        const value = resolveReference(index)
+        const value = resolveReference(index, new Set(), true)
         const branches = conditionalBranches(value)
         if (branches) return branches.some(workspaceOwnsDefinition)
         if (tokens[value] === "{") {
-          const name = properties(value).get("name")
+          const name = properties(value, false, true).get("name")
           if (name === undefined) return true
           const nameValue = resolveReference(name)
           if (undefinedValue(nameValue)) return true
@@ -748,7 +751,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // A dynamic member may resolve to either a named reference or owned
         // storage. Require an explicit contract instead of guessing ownership.
         const optionBinding = callbackParameters.some(scope => value >= scope.start && value < scope.end && scope.names.has(tokens[value]))
-        if (optionBinding || tokens[value + 1] === "." || tokens[value + 1] === "[") {
+        if (optionBinding || ["(", "<", ".", "["].includes(tokens[value + 1])) {
           throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic Workspace value. Add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
         }
         return true

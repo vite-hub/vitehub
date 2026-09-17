@@ -1,4 +1,5 @@
 import { inheritAgentLayerOptions } from "./agent-layers.ts"
+import { registeredWorkspaceAgentNames } from "./internal/workspace-agent-registration.ts"
 import { agentInstructionSources, resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { listMaterializedWorkspaceEntries, listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourcesMetadata, readWorkspaceSourceMaterializationStatus, workspaceSourceGrantPaths, type WorkspaceSourceMetadata } from "@vite-hub/workspace/source-metadata"
@@ -217,8 +218,6 @@ export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
 }
-
-const registeredWorkspaceAgentNames = Symbol("vitehub.registeredWorkspaceAgentNames")
 
 type RegisteredWorkspaceAgent = {
   [registeredWorkspaceAgentNames]?: Set<string>

@@ -337,3 +337,36 @@ it.each([
   const definitions = await discover(source.replace("capabilities:", "workspace: {}, capabilities:"))
   expect(definitions[0]?.workspace).toBe("notes")
 })
+
+
+it.each([
+  "function makeCapabilities() { return [storage] }",
+  "const makeCapabilities = () => [storage]",
+])("rejects local Capability helper calls: %s", async (declaration) => {
+  for (const expression of ["makeCapabilities()", "makeCapabilities<Options>()", "[makeCapabilities()]"]) {
+    const source = `const storage = defineCapability({ workspace: {} }); ${declaration}; export default defineAgent({ capabilities: ${expression} })`
+    await expect(discover(source)).rejects.toThrow(/cannot inspect .*Capability/)
+    expect((await discover(source.replace("capabilities:", "workspace: {}, capabilities:")))[0]?.workspace).toBe("notes")
+  }
+})
+
+it("rejects computed overrides of a visible Workspace marker", async () => {
+  for (const workspace of ['"shared"', '{}']) {
+    await expect(discover(`export default defineAgent({ options: { key: "workspace" }, configure: options => defineAgent({ workspace: ${workspace}, [options.key]: {} }) })`)).rejects.toThrow("computed Agent settings key")
+    expect((await discover(`export default defineAgent({ options: { key: "workspace" }, configure: options => defineAgent({ [options.key]: {}, workspace: ${workspace} }) })`))[0]?.workspace).toBe(workspace === '{}' ? "notes" : undefined)
+  }
+})
+
+it.each([
+  'import getWorkspace from "./workspace"',
+  'function getWorkspace() { return "shared" }',
+  'const getWorkspace = () => "shared"',
+])("rejects opaque Workspace helper results: %s", async (declaration) => {
+  await expect(discover(`${declaration}; export default defineAgent({ workspace: getWorkspace() })`)).rejects.toThrow("dynamic Workspace value")
+})
+
+it("rejects opaque overrides of a nested Workspace name", async () => {
+  await expect(discover('import importedOptions from "./options"; export default defineAgent({ workspace: { name: "shared", ...importedOptions } })')).rejects.toThrow("opaque Agent settings")
+  await expect(discover('export default defineAgent({ options: { key: "name" }, configure: options => defineAgent({ workspace: { name: "shared", [options.key]: undefined } }) })')).rejects.toThrow("computed Agent settings key")
+  expect((await discover('const localOptions = { name: undefined }; export default defineAgent({ workspace: { name: "shared", ...localOptions } })'))[0]?.workspace).toBe("notes")
+})
