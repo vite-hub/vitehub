@@ -7,6 +7,38 @@ import { registerWorkspace } from "../src/test.ts"
 afterEach(resetWorkspaceRegistry)
 
 describe("startup directory cleanup diffs", () => {
+  it.each(["content", "metadata"])("excludes promoted Skills but preserves user changes to %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    const baseline = await store.snapshot()
+    const path = ".agents/skills/review/SKILL.md"
+    registerWorkspace("promoted-diff", defineWorkspace({ store, sources: {
+      portal: custom({ materialize: "startup", files: [{ path, content: "# Review" }] }),
+    } }))
+    const workspace = await useRegisteredWorkspace("promoted-diff")
+    await workspace.materializeSources?.()
+    expect((await workspace.diff()).entries).toEqual([])
+    expect((await workspace.diff({ from: baseline })).entries).toContainEqual(expect.objectContaining({ path, type: "added" }))
+    const file = (await store.readFile(path))!
+    await store.writeFile(path, { ...file, ...(attribute === "content" ? { content: "User Skill" } : { metadata: { owner: "user" } }) })
+    expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "added" }))
+  })
+
+  it("excludes synthesized startup parents while retaining user files and empty directories", async () => {
+    const store = createMemoryWorkspaceStore()
+    const mkdir = store.mkdir.bind(store)
+    store.mkdir = async (path, options) => await mkdir(path, { recursive: options?.recursive })
+    await store.snapshot()
+    registerWorkspace("synthetic-diff", defineWorkspace({ store, sources: {
+      generated: custom({ materialize: "startup", mount: "docs/generated", files: [{ path: "nested/file.md", content: "Generated" }] }),
+    } }))
+    const workspace = await useRegisteredWorkspace("synthetic-diff")
+    await workspace.materializeSources?.()
+    expect((await workspace.diff()).entries).toEqual([])
+    await store.mkdir("docs/empty", { recursive: true })
+    await store.writeFile("docs/user.md", { path: "docs/user.md", content: "User" })
+    expect((await workspace.diff()).entries.map(entry => entry.path)).toEqual(["docs", "docs/empty", "docs/user.md"])
+  })
+
   it.each(["refresh", "retirement"])("excludes generated directories after %s while preserving historical diffs", async (operation) => {
     let keys = ["nested/file.md"]
     const sources = { generated: custom({

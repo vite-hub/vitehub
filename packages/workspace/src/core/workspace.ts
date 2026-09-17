@@ -3,7 +3,7 @@ import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { normalizeWorkspaceSources } from "../sources/config.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
-import { materializedFileMatches, readCurrentSourceSnapshot, removedStartupFileMatches } from "../sources/materialization.ts"
+import { materializedFileMatches, readGeneratedPromotedSkillPaths, readCurrentSourceSnapshot, removedStartupFileMatches } from "../sources/materialization.ts"
 import { fileAttributesUnavailable } from "../internal/file-attributes.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
@@ -32,10 +32,11 @@ function getStore(definition: WorkspaceDefinition) {
 
 async function filterStartupSourceChanges(definition: WorkspaceDefinition, store: WorkspaceStore, diff: WorkspaceDiff): Promise<WorkspaceDiff> {
   if (!diff.entries.length) return diff
-  const generatedFiles = new Set<string>()
+  const sources = normalizeWorkspaceSources(definition.sources)
+  const generatedFiles = await readGeneratedPromotedSkillPaths(store, sources, definition.name)
   const generatedDirectories = new Set<string>()
   const generatedEmptyDirectories = new Set<string>()
-  for (const source of normalizeWorkspaceSources(definition.sources)) {
+  for (const source of sources) {
     if (source.materialize !== "startup") continue
     const snapshot = await readCurrentSourceSnapshot(store, source, definition.name)
     if (snapshot?.status !== "ready") continue
@@ -70,14 +71,14 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       && hasRuntimeType(entry.before.metadata.source, "string")
       && await removedStartupFileMatches(store, definition.name, entry.path, entry.before.metadata.source)) continue
     if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
-    if (entry.type === "added" && entry.after?.type === "directory" && generatedDirectories.has(entry.path)) {
+    if (entry.type === "added" && entry.after?.type === "directory") {
       const descendants = await store.list(entry.path, { recursive: true })
       // An empty directory may have been removed and recreated by a user (or
       // another Store instance) after the startup snapshot was recorded. With
       // no child ownership metadata, retain that addition so auto-commit does
       // not hide the replacement.
       if ((descendants.length === 0 && generatedEmptyDirectories.has(entry.path)) || (descendants.length > 0 && descendants.every(child => child.type === "directory"
-        ? generatedDirectories.has(child.path)
+        ? generatedDirectories.has(child.path) || descendants.some(descendant => descendant.type === "file" && descendant.path.startsWith(`${child.path}/`) && generatedFiles.has(descendant.path))
         : generatedFiles.has(child.path)))) continue
     }
     entries.push(entry)

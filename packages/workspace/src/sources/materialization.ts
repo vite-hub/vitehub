@@ -226,6 +226,19 @@ async function promotedFileMatches(file: WorkspaceFile, prior: PromotedSourceSki
       && isDeepStrictEqual(observableFileMetadata(file.metadata), observableFileMetadata(prior.metadata))))
 }
 
+export async function readGeneratedPromotedSkillPaths(store: WorkspaceStore, sources: readonly ResolvedWorkspaceSource[], workspaceName?: string) {
+  const registry = await store.getMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`)
+  const paths = new Set<string>()
+  if (!hasRuntimeType(registry, "object") || registry === null) return paths
+  const startupSources = new Set(sources.filter(source => source.materialize === "startup").map(source => source.key))
+  for (const [path, prior] of Object.entries(registry)) {
+    if (!isPromotedSourceSkillFile(prior) || prior.workspace !== workspaceName || !startupSources.has(prior.source)) continue
+    const file = await readSourceFile(store, path)
+    if (file && await promotedFileMatches(file, prior)) paths.add(path)
+  }
+  return paths
+}
+
 async function readSourceFile(store: WorkspaceStore, path: string) {
   try { return await store.readFile(path) }
   catch (error) {
