@@ -959,6 +959,37 @@ describe("bundleEsmEntry", () => {
     await expect(bundled.default()).resolves.toBe("Review PR 42.\n\n[Policy](@./missing.md)\n\n`@./missing.md`\n\n`multiline @./missing.md code`\n\n> ```md\n> @./missing.md\n> ```\n\n```\n@./missing.md\n```\n\n- Example\n\n  @./missing.md\n- Fenced example\n  ```md\n    @./missing.md\n  ```\n- Context\n@./missing.md\n\n\\> Waiting")
   })
 
+  it("bundles the exact Markdown template query", async () => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(join(rootDir, "prompt.md"), "Hello {{ data.name }}", "utf8")
+    await writeFile(entry, 'import render from "./prompt.md?markdown-template"\nexport default render\n', "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir })
+    // SAFETY: The fixture exports the renderer built above.
+    const bundled = await import(pathToFileURL(outfile).href) as { default: (data: { name: string }) => Promise<string> }
+    await expect(bundled.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub")
+  })
+
+  it.each([
+    "markdown-template&other",
+    "other&markdown-template",
+    "markdown-template=true",
+    "markdown-template#revision",
+  ])("does not compile unsupported Markdown template query %s", async (query) => {
+    const rootDir = await createTempDir()
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await writeFile(join(rootDir, "prompt.md"), "Hello {{ data.name }}", "utf8")
+    await writeFile(entry, `import render from "./prompt.md?${query}"\nexport default render\n`, "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await expect(bundleEsmEntry(entry, outfile, { format: "esm", platform: "node", rootDir }))
+      .rejects.toThrow('No loader is configured for ".md" files')
+  })
+
   it("keeps missing import text literal in bundled Markdown templates", async () => {
     const rootDir = await createTempDir()
     const entry = join(rootDir, "entry.mjs")

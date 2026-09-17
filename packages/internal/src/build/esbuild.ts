@@ -366,10 +366,10 @@ function createViteAliasPlugin(aliases: BundleEsmEntryOptions["alias"]): Plugin 
 function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
   if (id.includes("#")) return
   const queryIndex = id.indexOf("?")
-  const path = id.split(/[?#]/, 1)[0]!
+  const path = id.split("?", 1)[0]!
   if (queryIndex === -1) return path.endsWith(markdownTemplateFileSuffix) ? { path } : undefined
-  const query = id.slice(queryIndex + 1).split("#", 1)[0]!
-  if (!new URLSearchParams(query).has(markdownTemplateModuleQuery)) return
+  const query = id.slice(queryIndex + 1)
+  if (query !== markdownTemplateModuleQuery) return
   return { path }
 }
 
