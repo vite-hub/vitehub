@@ -60,7 +60,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     for (const path of [...(snapshot.ownedDirectories || []), ...(snapshot.ownedAncestors || []), ...(snapshot.ownsMount ? [source.mountPath] : [])]) {
       const identity = path === source.mountPath ? snapshot.mountIdentity : snapshot.directoryIdentities?.[path]
       const currentIdentity = (await store.stat(path))?.directoryIdentity
-      if (!currentIdentity || identity === currentIdentity) generatedDirectories.add(path)
+      if (identity && identity === currentIdentity) generatedDirectories.add(path)
     }
   }
   const entries: WorkspaceDiff["entries"] = []
@@ -74,12 +74,11 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
     if (entry.type === "added" && entry.after?.type === "directory") {
       const descendants = await store.list(entry.path, { recursive: true })
-      const canExcludeDirectory = async (path: string) => generatedDirectories.has(path) || !(await store.stat(path))?.directoryIdentity
-      if (!await canExcludeDirectory(entry.path)) {
+      if (!generatedDirectories.has(entry.path)) {
         entries.push(entry)
         continue
       }
-      const unownedDirectory = (await Promise.all(descendants.filter(child => child.type === "directory").map(async child => !await canExcludeDirectory(child.path)))).some(Boolean)
+      const unownedDirectory = descendants.some(child => child.type === "directory" && !generatedDirectories.has(child.path))
       if (unownedDirectory) {
         entries.push(entry)
         continue

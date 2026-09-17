@@ -301,7 +301,7 @@ const workspace = useWorkspace('docs', { refresh: false })
 
 This reuses current persisted snapshots of Sources with `materialize: 'startup'`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior.
 
-Source snapshot ownership is scoped to the Workspace name. Cleanup removes stale Source files only when the Store supports atomic conditional removal. Stores without that capability, including the Local Store, retain stale files to protect concurrent user edits. Directory cleanup also requires the original directory identity; replaced directories remain intact.
+Source snapshot ownership is scoped to the Workspace name. Cleanup removes stale Source files only when the Store supports atomic conditional removal. Stores without that capability, including the Local Store, retain stale files to protect concurrent user edits. Directory cleanup also requires the original directory identity; replaced directories remain intact. Default diffs exclude generated directory additions only while their recorded identity matches the Store. Directories without identity evidence remain visible in the diff.
 
 Startup file cleanup also requires Store creation history through `getPathCreationIdentity`. This keeps later user deletions visible in the default diff, including replacements made directly through the Store. Memory Stores support this; Stores without it retain startup files during cleanup.
 

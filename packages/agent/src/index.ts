@@ -3817,9 +3817,13 @@ async function createAgentInvocationContext<
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
-    // Owned definitions already include fallback Sources; references need their resolved Sources before filtering.
-    if (colocatedSkills && !ownsWorkspaceDefinition) {
-      invocationContext.set(colocatedAgentSkillsContextKey, filterColocatedAgentSkills(colocatedSkills, activeWorkspaceDefinition?.sources), { overwrite: true })
+    if (colocatedSkills) {
+      // Owned definitions include the fallback Sources themselves. Exclude those
+      // entries so only explicit Sources, including active Channel contributions, win.
+      const explicitSources = ownsWorkspaceDefinition
+        ? Object.fromEntries(Object.entries(activeWorkspaceDefinition?.sources || {}).filter(([key]) => !Object.hasOwn(colocatedSkills, key)))
+        : activeWorkspaceDefinition?.sources
+      invocationContext.set(colocatedAgentSkillsContextKey, filterColocatedAgentSkills(colocatedSkills, explicitSources), { overwrite: true })
     }
     const configuredWorkspace = workspaceOptions?.workspace
     const workspaceAutoCommit = configuredWorkspace && hasRuntimeType(configuredWorkspace, "object") && !("name" in configuredWorkspace)

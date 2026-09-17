@@ -294,6 +294,8 @@ async function reconcilePromotedSourceSkills(
 ) {
   if (!store.getMeta || !store.setMeta || !store.writeFileConditional) return
   const writeFileConditional = store.writeFileConditional.bind(store)
+  const pendingDirectoryMetaKey = (destination: string) => `workspace:${workspaceMetadataScope(workspaceName)}:pending-promoted-skill-directories:${JSON.stringify(destination)}`
+  const completedDirectoryCheckpoints = new Set<string>()
   const previousValue = await store.getMeta(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`)
   const previous = hasRuntimeType(previousValue, "object") && previousValue !== null
     ? Object.fromEntries(Object.entries(previousValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
@@ -408,14 +410,27 @@ async function reconcilePromotedSourceSkills(
         ...sourceFile.metadata,
         promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
       }
+      const pendingDirectories = await store.getMeta(pendingDirectoryMetaKey(destination))
       const directoryIdentities = { ...prior?.directoryIdentities }
+      if (hasRuntimeType(pendingDirectories, "object") && pendingDirectories !== null) {
+        for (const [path, identity] of Object.entries(pendingDirectories)) {
+          if (hasRuntimeType(identity, "string")) directoryIdentities[path] = identity
+        }
+      }
       const promoted = { directoryIdentities, source: candidate.source, sourcePath: candidate.sourcePath, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName }
       const expectedDigest = existing ? await sha256(existing.content) : null
       try {
         await control.mutate(async () => {
-          await store.mkdir(posix.dirname(destination), { recursive: true, onCreate: (path, identity) => {
-            if (identity) directoryIdentities[path] = identity
-          } })
+          try {
+            await store.mkdir(posix.dirname(destination), { recursive: true, onCreate: (path, identity) => {
+              if (identity) directoryIdentities[path] = identity
+            } })
+          }
+          finally {
+            // Directory creation survives failed or compensated file writes.
+            // Keep its evidence until the promotion registry is committed.
+            await store.setMeta!(pendingDirectoryMetaKey(destination), directoryIdentities)
+          }
           const replacement = { ...sourceFile, path: destination, metadata }
           if (existing && store.compareAndSwapFile) await store.compareAndSwapFile(destination, existing, replacement)
           else await writeFileConditional(destination, replacement, expectedDigest)
@@ -448,7 +463,10 @@ async function reconcilePromotedSourceSkills(
       }
     }
     else {
-      for (const { destination, promoted } of writes) next[destination] = promoted
+      for (const { destination, promoted } of writes) {
+        next[destination] = promoted
+        completedDirectoryCheckpoints.add(destination)
+      }
     }
     if (failure) throw failure
   }
@@ -489,6 +507,9 @@ async function reconcilePromotedSourceSkills(
     else if (existing) next[destination] = prior
   }
   await control.checkpoint(async () => await store.setMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`, next))
+  await control.checkpoint(async () => {
+    for (const destination of completedDirectoryCheckpoints) await store.setMeta?.(pendingDirectoryMetaKey(destination), null)
+  })
 }
 
 function materializedItemMeta(

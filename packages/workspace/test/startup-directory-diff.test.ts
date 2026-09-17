@@ -60,10 +60,25 @@ describe("startup directory cleanup diffs", () => {
     expect((await restarted.diff()).entries).toContainEqual(deletion)
   })
 
-  it.each(["docs", "docs/nested"])("preserves a user-created directory containing only startup files: %s", async (path) => {
+  it.each([
+    { path: "docs", identities: true },
+    { path: "docs/nested", identities: true },
+    { path: "docs", identities: false },
+    { path: "docs/nested", identities: false },
+  ])("preserves a user-created directory containing only startup files: $path, identities: $identities", async ({ path, identities }) => {
     const store = createMemoryWorkspaceStore()
     await store.snapshot()
     await store.mkdir(path, { recursive: true })
+    if (!identities) {
+      const stat = store.stat.bind(store)
+      store.stat = async (path) => {
+        const entry = await stat(path)
+        if (entry) delete entry.directoryIdentity
+        return entry
+      }
+      const mkdir = store.mkdir.bind(store)
+      store.mkdir = async (path, options) => await mkdir(path, { recursive: options?.recursive })
+    }
     registerWorkspace("user-directory", defineWorkspace({ store, sources: {
       generated: custom({ materialize: "startup", mount: "docs", files: [{ path: "nested/AGENTS.md", content: "Generated" }] }),
     } }))
@@ -72,7 +87,7 @@ describe("startup directory cleanup diffs", () => {
     expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "added" }))
   })
 
-  it("excludes synthesized startup parents while retaining user files and empty directories", async () => {
+  it("retains directories of unknown ownership while excluding generated files", async () => {
     const store = createMemoryWorkspaceStore()
     const stat = store.stat.bind(store)
     store.stat = async (path) => {
@@ -88,10 +103,10 @@ describe("startup directory cleanup diffs", () => {
     } }))
     const workspace = await useRegisteredWorkspace("synthetic-diff")
     await workspace.materializeSources?.()
-    expect((await workspace.diff()).entries).toEqual([])
+    expect((await workspace.diff()).entries.map(entry => entry.path)).toEqual(["docs", "docs/generated", "docs/generated/nested"])
     await store.mkdir("docs/empty", { recursive: true })
     await store.writeFile("docs/user.md", { path: "docs/user.md", content: "User" })
-    expect((await workspace.diff()).entries.map(entry => entry.path)).toEqual(["docs", "docs/empty", "docs/user.md"])
+    expect((await workspace.diff()).entries.map(entry => entry.path)).toEqual(["docs", "docs/empty", "docs/generated", "docs/generated/nested", "docs/user.md"])
   })
 
   it.each(["refresh", "retirement"])("excludes generated directories after %s while preserving historical diffs", async (operation) => {

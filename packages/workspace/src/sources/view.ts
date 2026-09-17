@@ -451,6 +451,16 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           }
           // External files replacing the mount or an ancestor must stay visible.
           if (mount?.type === "file") replacedMounts.add(source.key)
+          if (!mount) {
+            const segments = source.mountPath.split("/")
+            for (let index = 1; index < segments.length; index++) {
+              const ancestor = await store.stat(segments.slice(0, index).join("/"))
+              if (ancestor?.type === "file") {
+                replacedMounts.add(source.key)
+                break
+              }
+            }
+          }
           if (replacedMounts.has(source.key)) continue
           if (mount?.type !== "directory") {
             incomplete.add(source.key)
@@ -539,10 +549,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
               if (!item?.materializedContentDigest) continue
               const current = await store.readFile(file.path)
               const currentOwner = current?.metadata?.source
-              if (currentOwner !== undefined && currentOwner !== source.key || !await materializedFileMatches(current, item)) continue
+              if (!current || currentOwner !== undefined && currentOwner !== source.key || !await materializedFileMatches(current, item)) continue
               try {
-                if (store.writeFileConditional) await store.writeFileConditional(file.path, file, item.materializedContentDigest)
-                else recoveryError = workspaceError("[vitehub] Restoring a Workspace Source snapshot requires conditional writes.")
+                if (store.compareAndSwapFile) await store.compareAndSwapFile(file.path, current, file)
+                else recoveryError = workspaceError("[vitehub] Restoring a Workspace Source snapshot requires complete-file conditional writes.")
               }
               catch (error) {
                 // A writer replaced the validated content. Keep its newer file.
