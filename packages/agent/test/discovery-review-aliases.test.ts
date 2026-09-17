@@ -149,3 +149,16 @@ it.each([
 it("keeps plain conditional Capabilities plain", async () => {
   await expect(workspaceFor('const plain = defineCapability({}); export default defineAgent({ options: {}, configure: enabled => defineAgent({ capabilities: enabled ? [plain] : [] }) })')).resolves.toBeUndefined()
 })
+
+it.each([
+  '[plain].concat(storage)',
+  '([plain]).concat(storage)',
+  '(([])).concat(storage)',
+  '[plain]["concat"](storage)',
+  '[plain]?.concat(storage)',
+  '[storage].filter(() => false)',
+])("requires explicit ownership for expressions extending Capability arrays: %s", async (capabilities) => {
+  const source = `const plain = defineCapability({}); const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ${capabilities} }) })`
+  await expect(workspaceFor(source)).rejects.toThrow("opaque Capability expression")
+  await expect(workspaceFor(source.replace("capabilities:", "workspace: {}, capabilities:"))).resolves.toBe("support")
+})

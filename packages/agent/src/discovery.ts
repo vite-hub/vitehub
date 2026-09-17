@@ -343,12 +343,23 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (tokens[index] === "." && tokens[index + 1] === "." && tokens[index + 2] === ".") index += 3
     const outerBranches = conditionalBranches(index)
     if (outerBranches) return outerBranches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
-    while (tokens[index] === "(") index++
+    let wrappers = 0
+    while (tokens[index] === "(") { index++; wrappers++ }
     if (seen.has(index)) return false
     seen.add(index)
     const branches = conditionalBranches(index)
     if (branches) return branches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
     if (tokens[index] === "[") {
+      let end = index + 1
+      let brackets = 1
+      for (; end < tokens.length && brackets > 0; end++) {
+        if (tokens[end] === "[") brackets++
+        else if (tokens[end] === "]") brackets--
+      }
+      while (tokens[end] === ")" && wrappers > 0) { end++; wrappers-- }
+      if ([".", "[", "?", "!"].includes(tokens[end])) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
+      }
       let depth = 0
       for (let i = index + 1; i < tokens.length; i++) {
         if (depth === 0 && tokens[i] === "]") break

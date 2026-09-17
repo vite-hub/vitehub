@@ -406,3 +406,42 @@ it.each([ArrayBuffer, SharedArrayBuffer])("copies fixed buffer bytes without rea
   }
   expect(getter).not.toHaveBeenCalled()
 })
+
+it.each([false, true])("preserves detached buffers and their views (views first: %s)", viewsFirst => {
+  const buffer = new ArrayBuffer(8)
+  const view = new Uint8Array(buffer, 2, 4)
+  const data = new DataView(buffer, 2, 4)
+  structuredClone(buffer, { transfer: [buffer] })
+  const options = viewsFirst ? { view, data, buffer } : { buffer, view, data }
+  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options, configure })
+  const inherited = defineAgent({ extends: preset })
+  for (const result of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
+    expect(result.buffer).toBe(buffer)
+    expect(result.view).toBe(view)
+    expect(result.data).toBe(data)
+    expect(() => new Uint8Array(result.buffer)).toThrow(TypeError)
+  }
+})
+
+it.each(["accessor", "data"])("copies RegExp slots without reading shadowing %s properties", kind => {
+  const pattern = /a+/gimsuy
+  pattern.lastIndex = 2
+  const getter = vi.fn(() => { throw new Error("application accessor") })
+  for (const property of ["source", "flags", "global", "ignoreCase", "multiline", "dotAll", "unicode", "sticky", "hasIndices", "unicodeSets"]) {
+    Object.defineProperty(pattern, property, kind === "accessor" ? { get: getter } : { value: property === "source" ? "wrong" : "" })
+  }
+  const configure = vi.fn((_options: { pattern: RegExp }) => defineAgent({ driver: "codex" }))
+  const preset = defineAgent({ options: { pattern }, configure })
+  const inherited = defineAgent({ extends: preset })
+  for (const options of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
+    expect(options.pattern === pattern).toBe(false)
+    expect(Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(options.pattern)).toBe("a+")
+    expect(options.pattern.lastIndex).toBe(2)
+    expect(RegExp.prototype.exec.call(options.pattern, "xxAAA")?.[0]).toBe("AAA")
+    for (const property of ["source", "flags", "global", "ignoreCase", "multiline", "dotAll", "unicode", "sticky"]) {
+      expect(Object.getOwnPropertyDescriptor(options.pattern, property)).toEqual(Object.getOwnPropertyDescriptor(pattern, property))
+    }
+  }
+  expect(getter).not.toHaveBeenCalled()
+})

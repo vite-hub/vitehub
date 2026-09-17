@@ -269,6 +269,17 @@ function variablePresetBacking(value: ArrayBufferLike): boolean {
   return Object.getOwnPropertyDescriptor(prototype, property)?.get?.call(value) === true
 }
 
+function detachedPresetBacking(value: ArrayBufferLike): boolean {
+  if (!(value instanceof ArrayBuffer)) return false
+  try {
+    new Uint8Array(value)
+    return false
+  }
+  catch {
+    return true
+  }
+}
+
 function clonePresetBacking(value: ArrayBufferLike): ArrayBufferLike {
   const prototype = value instanceof ArrayBuffer ? ArrayBuffer.prototype : SharedArrayBuffer.prototype
   // SAFETY: The intrinsic accessor returns the backing store size without invoking application properties.
@@ -312,7 +323,13 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   }
   if (value instanceof RegExp) {
     if (Object.getPrototypeOf(value) !== RegExp.prototype) return value
-    return finish(new RegExp(value.source, value.flags))
+    // SAFETY: Intrinsic accessors read RegExp slots without invoking own properties.
+    const source = Object.getOwnPropertyDescriptor(RegExp.prototype, "source")!.get!.call(value) as string
+    const flags = [
+      ["hasIndices", "d"], ["global", "g"], ["ignoreCase", "i"], ["multiline", "m"],
+      ["dotAll", "s"], ["unicode", "u"], ["unicodeSets", "v"], ["sticky", "y"],
+    ].filter(([property]) => Object.getOwnPropertyDescriptor(RegExp.prototype, property)?.get?.call(value)).map(([, flag]) => flag).join("")
+    return finish(new RegExp(source, flags))
   }
   if (value instanceof URL) {
     if (Object.getPrototypeOf(value) !== URL.prototype) return value
@@ -324,12 +341,12 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
   }
   if (value instanceof ArrayBuffer) {
     if (Object.getPrototypeOf(value) !== ArrayBuffer.prototype) return value
-    if (variablePresetBacking(value)) return value
+    if (variablePresetBacking(value) || detachedPresetBacking(value)) return value
     return finish(clonePresetBacking(value))
   }
   if (globalThis.SharedArrayBuffer && value instanceof SharedArrayBuffer) {
     if (Object.getPrototypeOf(value) !== SharedArrayBuffer.prototype) return value
-    if (variablePresetBacking(value)) return value
+    if (variablePresetBacking(value) || detachedPresetBacking(value)) return value
     return finish(clonePresetBacking(value))
   }
   if (ArrayBuffer.isView(value)) {
@@ -348,7 +365,7 @@ function clonePresetOption(value: unknown, memo = new WeakMap<object, unknown>()
     const buffer = Object.getOwnPropertyDescriptor(prototype, "buffer")!.get!.call(value) as ArrayBufferLike
     // The platform cannot report whether a view tracks buffer length. Preserve these
     // views atomically, including out-of-bounds views whose range accessors throw.
-    if (variablePresetBacking(buffer)) return value
+    if (variablePresetBacking(buffer) || detachedPresetBacking(buffer)) return value
     // SAFETY: The intrinsic byteOffset accessor returns a number.
     const byteOffset = Object.getOwnPropertyDescriptor(prototype, "byteOffset")!.get!.call(value) as number
     // SAFETY: The intrinsic byteLength accessor returns a number.
