@@ -157,8 +157,18 @@ it.each([
   '[plain]["concat"](storage)',
   '[plain]?.concat(storage)',
   '[storage].filter(() => false)',
+  '([plain] as Capability[]).concat(storage)',
+  '([plain] satisfies Capability[]).concat(storage)',
+  '(([plain] as const) satisfies readonly Capability[]).concat(storage)',
 ])("requires explicit ownership for expressions extending Capability arrays: %s", async (capabilities) => {
   const source = `const plain = defineCapability({}); const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ${capabilities} }) })`
   await expect(workspaceFor(source)).rejects.toThrow("opaque Capability expression")
   await expect(workspaceFor(source.replace("capabilities:", "workspace: {}, capabilities:"))).resolves.toBe("support")
+})
+
+
+it.each(["as Capability[]", "satisfies Capability[]", "as const"])("preserves standalone asserted Capability lists: %s", async assertion => {
+  for (const [capability, workspace] of [["plain", undefined], ["storage", "support"]]) {
+    await expect(workspaceFor(`const plain = defineCapability({}); const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: () => defineAgent({ capabilities: ([${capability}] ${assertion}) }) })`)).resolves.toBe(workspace)
+  }
 })

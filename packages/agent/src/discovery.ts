@@ -356,7 +356,11 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         if (tokens[end] === "[") brackets++
         else if (tokens[end] === "]") brackets--
       }
-      while (tokens[end] === ")" && wrappers > 0) { end++; wrappers-- }
+      while (end < tokens.length) {
+        if (tokens[end] === ")" && wrappers > 0) { end++; wrappers--; continue }
+        if (tokens[end] === "as" || tokens[end] === "satisfies") { end = skipAssertion(end); continue }
+        break
+      }
       if ([".", "[", "?", "!"].includes(tokens[end])) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
       }
@@ -420,6 +424,18 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     return index
   }
 
+  function skipAssertion(index: number): number {
+    let end = index + 1
+    let depth = 0
+    for (; end < tokens.length; end++) {
+      const token = tokens[end]
+      if (depth === 0 && [")", ",", ";", "}"].includes(token)) break
+      if (["(", "[", "{", "<"].includes(token)) depth++
+      else if ([")", "]", "}", ">"].includes(token) && tokens[end - 1] !== "=") depth--
+    }
+    return end
+  }
+
   function memberCallEnd(index: number): number {
     let end = index + 1
     let wrappers = 0
@@ -444,13 +460,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       if (tokens[end] === "as" || tokens[end] === "satisfies") {
         // A parenthesized assertion preserves the callable expression. Skip
         // its type, including nested function types, until the wrapper closes.
-        let depth = 0
-        for (end++; end < tokens.length; end++) {
-          const token = tokens[end]
-          if (depth === 0 && [")", ",", ";", "}"].includes(token)) break
-          if (["(", "[", "{", "<"].includes(token)) depth++
-          else if ([")", "]", "}", ">"].includes(token) && tokens[end - 1] !== "=") depth--
-        }
+        end = skipAssertion(end)
         continue
       }
       if (tokens[end] === ")" && wrappers > 0) { wrappers--; end++; continue }
