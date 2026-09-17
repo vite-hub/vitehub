@@ -57,6 +57,8 @@ export interface MkdirOptions {
 }
 
 export interface RmOptions {
+  /** Stores supporting conditional removal must report actual removal, never a precondition no-op. */
+  onRemove?: () => void
   /** Require the observed directory identity. Only use with conditionalDirectoryRemoval. */
   ifDirectoryIdentity?: string
   recursive?: boolean

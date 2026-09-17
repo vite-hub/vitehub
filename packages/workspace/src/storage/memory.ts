@@ -160,6 +160,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       for (const key of this.#nodes.keys()) {
         if (key === normalized || key.startsWith(`${normalized}/`)) this.#nodes.delete(key)
       }
+      options.onRemove?.()
     })
   }
 

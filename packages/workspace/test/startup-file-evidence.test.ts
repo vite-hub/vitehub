@@ -60,3 +60,37 @@ it("keeps file deletions visible when another writer runs before the cleanup che
   expect(checkpointed).toBe(true)
   expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path: "generated/file.md", type: "removed" }))
 })
+
+it.each([
+  { ifDigest: "stale" },
+  { ifSource: "stale" },
+  { ifWorkspace: "stale" },
+  { ifDirectoryIdentity: "stale" },
+])("preserves cleanup evidence after a conditional removal no-op with %j", async (condition) => {
+  const store = createMemoryWorkspaceStore()
+  const sources = { generated: custom({ materialize: "startup", files: [{ path: "nested/file.md", content: "generated" }] }) }
+  registerWorkspace("conditional-evidence", defineWorkspace({ store, sources }))
+  const workspace = await useRegisteredWorkspace("conditional-evidence")
+  await workspace.materializeSources?.()
+  await workspace.snapshot()
+  Reflect.deleteProperty(sources, "generated")
+  await workspace.materializeSources?.()
+  expect((await workspace.diff()).entries).toEqual([])
+
+  const writer = createWorkspaceSourceView({ name: "other-workspace", sources: {} }, store)
+  const onRemove = vi.fn()
+  await writer.rm("generated", { ...condition, recursive: true, onRemove })
+  await writer.rm("generated/nested/file.md", { ...condition, onRemove })
+  expect(onRemove).not.toHaveBeenCalled()
+  expect((await workspace.diff()).entries).toEqual([])
+
+  await writer.writeFile("generated/nested/file.md", "user")
+  const before = (await workspace.diff()).entries
+  await writer.rm("generated", { ...condition, recursive: true, onRemove })
+  await writer.rm("generated/nested/file.md", { ...condition, onRemove })
+  expect(onRemove).not.toHaveBeenCalled()
+  expect((await workspace.diff()).entries).toEqual(before)
+  await writer.rm("generated/nested/file.md", { ifSource: null, onRemove })
+  expect(onRemove).toHaveBeenCalledOnce()
+  expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path: "generated/nested/file.md", type: "removed" }))
+})
