@@ -539,7 +539,7 @@ async function reconcileRemovedStartupSourcesInternal(
           return
         }
         // Persisted metadata does not prove that externally edited content is ours.
-        if ((!store.getMeta || !store.setMeta || (await resolveWorkspaceStoreTarget(store))?.provider === "local") && snapshot?.items
+        if (snapshot?.items
           && (!recordedDigest || await sha256(file.content) !== recordedDigest)) {
           if (durableOwner?.workspace === workspace && durableOwner.source === source.key) await removeWorkspaceFileOwner(store, path)
           return

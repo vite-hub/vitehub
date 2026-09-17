@@ -323,7 +323,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return await current
   }
 
-  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = true) {
+  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = true): Promise<void> {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     // File reads can validate overlapping root Sources per path and fall through to a lazy Source.
@@ -356,6 +356,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       completedSources.delete(sourceKey)
       reusedStartupSources.delete(sourceKey)
     }
+    // Snapshot validation can yield while another consumer starts recovery.
+    // Join that recovery instead of queuing another provider refresh.
+    const recovery = pendingBySource.get(sourceKey)
+    if (recovery && recovery !== pending) return await ensureMaterialized(sourceKey, verifyRootOwnership)
     await materializeSerialized({ sources: [sourceKey] })
   }
 

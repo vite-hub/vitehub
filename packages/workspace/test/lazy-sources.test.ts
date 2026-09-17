@@ -854,7 +854,7 @@ describe("lazy sources", () => {
       name: "concurrent-startup-removal",
       sources: { retained, other, removed: source("shared.md") },
     }, store).materializeSources()
-    await store.writeFile("shared.md", { path: "shared.md", content: "removed", metadata: { source: "removed", workspaceSourceOwner: "concurrent-startup-removal" } })
+    await store.writeFile("shared.md", { path: "shared.md", content: "shared.md", metadata: { source: "removed", workspaceSourceOwner: "concurrent-startup-removal" } })
     const remove = store.rm.bind(store)
     const removals = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
       // Let competing source materializations reach reconciliation before deletion.
@@ -964,7 +964,7 @@ describe("lazy sources", () => {
     expect(getKeys).toHaveBeenCalledTimes(2)
   })
 
-  it("revalidates inspection snapshots after another facade fails to refresh", async () => {
+  it.each([1, 3])("revalidates %i inspection snapshots after another facade fails to refresh", async (count) => {
     let version = 1
     let markFailure!: () => void
     let releaseFailure!: () => void
@@ -992,14 +992,14 @@ describe("lazy sources", () => {
     const runtime = createWorkspaceSourceView(definition, store)
     await runtime.materializeSources()
     await invalidateWorkspaceSourceMaterialization(definition, store, ["docs"])
-    const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
-    await inspection.list("", { recursive: true })
+    const inspections = Array.from({ length: count }, () => createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true }))
+    await Promise.all(inspections.map(inspection => inspection.list("", { recursive: true })))
     expect(getKeys).toHaveBeenCalledOnce()
 
     version = 2
     const refresh = runtime.materializeSources()
     await reachedFailure
-    const listing = inspection.list("", { recursive: true })
+    const listing = Promise.all(inspections.map(inspection => inspection.list("", { recursive: true })))
     await new Promise(resolve => setImmediate(resolve))
     version = 3
     releaseFailure()
