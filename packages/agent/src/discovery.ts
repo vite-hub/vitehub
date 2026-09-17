@@ -400,7 +400,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         : -1
     if (tokens[capabilityCall] === "<") capabilityCall = skipTypeArguments(capabilityCall)
     if (tokens[capabilityCall] === "(") {
-      const options = properties(capabilityCall + 1)
+      const options = properties(capabilityCall + 1, false, true)
       const workspace = options.get("workspace")
       if (workspace !== undefined && !undefinedValue(workspace)) return true
       const nested = options.get("capabilities")
@@ -992,7 +992,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       || ["+", "?", ".", "[", "("].includes(tokens[selectionIndex + 1])) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic preset selection. Use a statically known preset name or add an explicit Workspace ownership marker.")
     }
-    const entry = properties(registry).get(propertyName(selection))
+    const entry = properties(registry, false, true).get(propertyName(selection))
     return entry !== undefined && ownsWorkspace(entry, seen, true)
   }
 
