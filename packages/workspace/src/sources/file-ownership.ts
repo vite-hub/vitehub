@@ -3,7 +3,9 @@ import { workspaceStoreIdentity } from "../storage/identity.ts"
 import type { WorkspaceStore } from "../core/types.ts"
 
 // Retain ownership and retirement evidence when metadata persistence is unavailable.
-type OwnerRecord = WorkspaceFileOwner & { removing?: boolean, revision?: string }
+type OwnerRecord = WorkspaceFileOwner & { removing?: boolean, revision?: string, checkpoint?: string }
+const activeCheckpoints = new WeakMap<object, Map<string, string>>()
+const checkpointMetaKey = (path: string) => `workspace-file-checkpoint:${encodeURIComponent(normalizeWorkspacePath(path))}`
 const volatileOwners = new WeakMap<object, Map<string, OwnerRecord | null>>()
 
 const fileOwnerMetaKey = (path: string) => `workspace-file-owner:${encodeURIComponent(normalizeWorkspacePath(path))}`
@@ -24,7 +26,38 @@ function volatileFileOwners(store: WorkspaceStore) {
   return owners
 }
 
+// A pending checkpoint survives rollback even when all later metadata writes fail.
+export async function beginWorkspaceFileCheckpoint(store: WorkspaceStore, path: string): Promise<string | undefined> {
+  if (!store.getMeta || !store.setMeta) return undefined
+  const token = crypto.randomUUID()
+  const current = await store.getMeta(checkpointMetaKey(path))
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Checkpoint metadata is an untyped persistence boundary.
+  const previous = current && typeof current === "object"
+    ? "committed" in current && current.committed === true && "token" in current ? current.token
+      : "previous" in current ? current.previous : undefined
+    : undefined
+  await store.setMeta(checkpointMetaKey(path), { token, committed: false, previous })
+  const identity = workspaceStoreIdentity(store)
+  let checkpoints = activeCheckpoints.get(identity)
+  if (!checkpoints) {
+    checkpoints = new Map()
+    activeCheckpoints.set(identity, checkpoints)
+  }
+  checkpoints.set(normalizeWorkspacePath(path), token)
+  return token
+}
+
+export function endWorkspaceFileCheckpoint(store: WorkspaceStore, path: string): void {
+  activeCheckpoints.get(workspaceStoreIdentity(store))?.delete(normalizeWorkspacePath(path))
+}
+
+export async function commitWorkspaceFileCheckpoint(store: WorkspaceStore, path: string, token: string | undefined): Promise<void> {
+  if (token) await store.setMeta!(checkpointMetaKey(path), { token, committed: true })
+}
+
 export async function recordWorkspaceFileOwner(store: WorkspaceStore, path: string, owner: OwnerRecord): Promise<void> {
+  const checkpoint = activeCheckpoints.get(workspaceStoreIdentity(store))?.get(normalizeWorkspacePath(path))
+  if (checkpoint) owner = { ...owner, checkpoint }
   if (!store.getMeta || !store.setMeta) {
     volatileFileOwners(store).set(fileOwnerMetaKey(path), owner)
     return
@@ -46,6 +79,16 @@ export async function readWorkspaceFileOwner(store: WorkspaceStore, path: string
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Metadata is an untyped persistence boundary.
   if (!value || typeof value !== "object" || !("workspace" in value) || typeof value.workspace !== "string"
     || !("source" in value) || typeof value.source !== "string" || ("digest" in value && value.digest !== undefined && typeof value.digest !== "string")) return undefined
+  if ("checkpoint" in value && value.checkpoint !== activeCheckpoints.get(workspaceStoreIdentity(store))?.get(normalizeWorkspacePath(path))) {
+    const checkpoint = await store.getMeta?.(checkpointMetaKey(path))
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Checkpoint metadata is an untyped persistence boundary.
+    if (!checkpoint || typeof checkpoint !== "object"
+      || !(("token" in checkpoint && checkpoint.token === value.checkpoint && "committed" in checkpoint && checkpoint.committed === true)
+        || ("previous" in checkpoint && checkpoint.previous === value.checkpoint))) {
+      if (retireInvalidRemoval) await removeWorkspaceFileOwner(store, path)
+      return undefined
+    }
+  }
   // Recover an interrupted deletion only while the original file version remains.
   if ("removing" in value && value.removing === true) {
     const current = await store.stat(path)

@@ -238,3 +238,123 @@ it.each(["build", "startup"] as const)("preserves another Workspace's identical 
   await expect(reopened.readFile("file.md")).resolves.toMatchObject({ content: "original" })
   await expect(readWorkspaceFileOwner(reopened, "file.md")).resolves.toBeUndefined()
 })
+
+it.each(["build", "startup"] as const)("rejects the failed %s owner after committed checkpoint, marker and retirement outages", async (mode) => {
+  for (const revisions of [true, false]) {
+    const store = createMemoryWorkspaceStore()
+    const write = store.writeFile.bind(store)
+    store.writeFile = (path, file) => write(path, { ...file, metadata: undefined })
+    if (!revisions) {
+      const stat = store.stat.bind(store)
+      store.stat = async (path) => {
+        const entry = await stat(path)
+        return entry && { ...entry, revision: undefined }
+      }
+    }
+    await store.writeFile("file.md", { path: "file.md", content: "original" })
+    const setMeta = store.setMeta!.bind(store)
+    let ownerWrites = 0
+    store.setMeta = async (key, value) => {
+      if (key.startsWith("workspace-file-owner:")) {
+        ownerWrites++
+        if (ownerWrites === 1) await setMeta(key, value)
+        throw new Error("ownership unavailable")
+      }
+      await setMeta(key, value)
+    }
+    const definition: WorkspaceDefinition = { name: "combined-outage", sources: {
+      docs: custom({ materialize: mode, mount: "", files: [{ path: "file.md", content: "original" }] }),
+    } }
+    const sync = mode === "build" ? syncWorkspaceDefinition : materializeWorkspaceSources
+    if (mode === "build") await expect(sync(definition, store)).rejects.toThrow("checkpoint and rollback failed")
+    else await expect(sync(definition, store)).resolves.toMatchObject({ sources: [{ error: 'Workspace file checkpoint and rollback failed for "file.md".' }] })
+    expect(ownerWrites).toBe(3)
+    const reopened: WorkspaceStore = {
+      readFile: store.readFile.bind(store), writeFile: store.writeFile.bind(store),
+      stat: store.stat.bind(store), list: store.list.bind(store), glob: store.glob.bind(store),
+      mkdir: store.mkdir.bind(store), rm: store.rm.bind(store),
+      snapshot: store.snapshot.bind(store), diff: store.diff.bind(store),
+      getMeta: store.getMeta!.bind(store), setMeta,
+    }
+    await expect(readWorkspaceFileOwner(reopened, "file.md")).resolves.toBeUndefined()
+    await sync({ name: definition.name, sources: {} }, reopened)
+    await sync({ name: definition.name, sources: {
+      docs: custom({ materialize: mode, mount: "", files: [] }),
+    } }, reopened)
+    await expect(reopened.readFile("file.md")).resolves.toMatchObject({ content: "original" })
+  }
+})
+
+it.each(["build", "startup"] as const)("keeps committed %s output when completion publication fails", async (mode) => {
+  for (const committed of [true, false]) {
+    const store = createMemoryWorkspaceStore()
+    const write = store.writeFile.bind(store)
+    store.writeFile = (path, file) => write(path, { ...file, metadata: undefined })
+    await store.writeFile("file.md", { path: "file.md", content: "original" })
+    const setMeta = store.setMeta!.bind(store)
+    let publications = 0
+    store.setMeta = async (key, value) => {
+      if (key.startsWith("workspace-file-checkpoint:") && ++publications === 2) {
+        if (committed) await setMeta(key, value)
+        throw new Error("completion unavailable")
+      }
+      await setMeta(key, value)
+    }
+    const sync = mode === "build" ? syncWorkspaceDefinition : materializeWorkspaceSources
+    const definition: WorkspaceDefinition = { name: "completion-outage", sources: {
+      docs: custom({ materialize: mode, mount: "", files: [{ path: "file.md", content: "generated" }] }),
+    } }
+    if (mode === "build") await expect(sync(definition, store)).rejects.toThrow("completion unavailable")
+    else await expect(sync(definition, store)).resolves.toMatchObject({ sources: [{ error: "completion unavailable" }] })
+    await expect(store.readFile("file.md")).resolves.toMatchObject({ content: "generated" })
+    const owner = await readWorkspaceFileOwner(store, "file.md")
+    if (committed) expect(owner).toMatchObject({ workspace: definition.name, source: "docs" })
+    else expect(owner).toBeUndefined()
+  }
+})
+
+it.each((["build", "startup"] as const).flatMap(mode =>
+  ["write", "checkpoint"].map(failure => ({ mode, failure })),
+))("preserves the previous $mode owner after $failure admission fails", async ({ mode, failure }) => {
+  const store = createMemoryWorkspaceStore()
+  const write = store.writeFile.bind(store)
+  store.writeFile = (path, file) => write(path, { ...file, metadata: undefined })
+  await store.writeFile("file.md", { path: "file.md", content: "seed" })
+  const sync = mode === "build" ? syncWorkspaceDefinition : materializeWorkspaceSources
+  const definition: WorkspaceDefinition = { name: "previous-owner", sources: {
+    docs: custom({ materialize: mode, mount: "", files: [{ path: "file.md", content: "original" }] }),
+  } }
+  await sync(definition, store)
+  const owner = await readWorkspaceFileOwner(store, "file.md")
+  expect(owner).toMatchObject({ workspace: definition.name, source: "docs" })
+  const setMeta = store.setMeta!.bind(store)
+  if (failure === "write") {
+    store.writeFile = async () => { throw new Error("write unavailable") }
+  }
+  else {
+    store.setMeta = async (key, value) => {
+      await setMeta(key, value)
+      if (key.startsWith("workspace-file-checkpoint:")) throw new Error("checkpoint unavailable")
+    }
+  }
+  // A retry must carry forward the last successful token, not the failed token.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const replacement: WorkspaceDefinition = { name: "failed-owner", sources: {
+      docs: custom({ materialize: mode, mount: "", files: [{ path: "file.md", content: "replacement" }] }),
+    } }
+    if (mode === "build") await expect(sync(replacement, store)).rejects.toThrow(`${failure} unavailable`)
+    else await expect(sync(replacement, store)).resolves.toMatchObject({ sources: [{ error: `${failure} unavailable` }] })
+    await expect(readWorkspaceFileOwner(store, "file.md")).resolves.toEqual(owner)
+    await expect(store.readFile("file.md")).resolves.toMatchObject({ content: "original" })
+  }
+  const reopened: WorkspaceStore = {
+    readFile: store.readFile.bind(store), writeFile: write,
+    stat: store.stat.bind(store), list: store.list.bind(store), glob: store.glob.bind(store),
+    mkdir: store.mkdir.bind(store), rm: store.rm.bind(store),
+    snapshot: store.snapshot.bind(store), diff: store.diff.bind(store),
+    getMeta: store.getMeta!.bind(store), setMeta,
+  }
+  await expect(readWorkspaceFileOwner(reopened, "file.md")).resolves.toEqual(owner)
+  await sync({ name: definition.name, sources: {} }, reopened)
+  await expect(reopened.readFile("file.md")).resolves.toBeUndefined()
+})

@@ -13,7 +13,7 @@ import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
-import { recordWorkspaceFileOwner, readWorkspaceFileOwner, removeWorkspaceOwnedFile } from "./file-ownership.ts"
+import { recordWorkspaceFileOwner, readWorkspaceFileOwner, removeWorkspaceFileOwner, removeWorkspaceOwnedFile } from "./file-ownership.ts"
 import { withWorkspaceFileCheckpoint } from "./owned-write.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
@@ -397,9 +397,15 @@ async function removeStaleMaterializedSourceFiles(
         && recordedDigest !== undefined && durableOwner.digest !== recordedDigest) return
       // Durable ownership survives direct writes on every Store, not just local files.
       if (file?.metadata?.source === undefined
-        && (!durableOwner?.digest || !file || await sha256(file.content) !== durableOwner.digest)) return
+        && (!durableOwner?.digest || !file || await sha256(file.content) !== durableOwner.digest)) {
+        if (durableOwner?.workspace === workspace && durableOwner.source === source.key) await removeWorkspaceFileOwner(store, entry.path)
+        return
+      }
       // Persisted ownership can outlive an external edit. Preserve changed content.
-      if (localStore && previousSnapshot?.items && (!recordedDigest || !file || await sha256(file.content) !== recordedDigest)) return
+      if (localStore && previousSnapshot?.items && (!recordedDigest || !file || await sha256(file.content) !== recordedDigest)) {
+        if (durableOwner?.workspace === workspace && durableOwner.source === source.key) await removeWorkspaceFileOwner(store, entry.path)
+        return
+      }
       if (currentOwner === undefined && previousSnapshot?.items && !recordedDigest) return
       const overlapsAnotherSource = sources.some(candidate =>
         candidate.key !== source.key
@@ -528,10 +534,16 @@ async function reconcileRemovedStartupSourcesInternal(
         const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
         // A durable owner authorizes cleanup only while its written content remains.
         if (file.metadata?.source === undefined
-          && (!durableOwner?.digest || await sha256(file.content) !== durableOwner.digest)) return
+          && (!durableOwner?.digest || await sha256(file.content) !== durableOwner.digest)) {
+          if (durableOwner?.workspace === workspace && durableOwner.source === source.key) await removeWorkspaceFileOwner(store, path)
+          return
+        }
         // Persisted metadata does not prove that externally edited content is ours.
         if ((!store.getMeta || !store.setMeta || (await resolveWorkspaceStoreTarget(store))?.provider === "local") && snapshot?.items
-          && (!recordedDigest || await sha256(file.content) !== recordedDigest)) return
+          && (!recordedDigest || await sha256(file.content) !== recordedDigest)) {
+          if (durableOwner?.workspace === workspace && durableOwner.source === source.key) await removeWorkspaceFileOwner(store, path)
+          return
+        }
         if (owner !== source.key && !(owner === undefined && recordedDigest && await sha256(file.content) === recordedDigest)) return
         for (const currentSource of currentSources) {
           const retainedSnapshot = await readSourceSnapshotMetadata(store, workspace, currentSource.key)

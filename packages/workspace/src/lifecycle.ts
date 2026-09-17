@@ -5,7 +5,7 @@ import { files as filesLoader } from "./loaders/files.ts"
 import { contentStreamChunks, normalizeWorkspacePath, sha256 } from "./core/path.ts"
 import { workspaceError } from "./core/errors.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
-import { readWorkspaceFileOwner, recordWorkspaceFileOwner, removeWorkspaceOwnedFile } from "./sources/file-ownership.ts"
+import { readWorkspaceFileOwner, recordWorkspaceFileOwner, removeWorkspaceFileOwner, removeWorkspaceOwnedFile } from "./sources/file-ownership.ts"
 import { withWorkspaceFileCheckpoint } from "./sources/owned-write.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
@@ -599,7 +599,10 @@ async function buildSourceFilePaths(store: WorkspaceStore, workspace: string, mo
       if (owner?.workspace !== workspace || owner.source !== record.source || owner.digest !== record.digest) continue
       if (entry.digest !== record.digest) {
         const current = file ?? await store.readFile(entry.path)
-        if (!current || await sha256(current.content) !== record.digest) continue
+        if (!current || await sha256(current.content) !== record.digest) {
+          await removeWorkspaceFileOwner(store, entry.path)
+          continue
+        }
       }
       paths.push(entry.path)
     }
