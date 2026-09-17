@@ -68,6 +68,33 @@ it("preserves startup directories when retirement metadata fails before removal"
   }
 })
 
+it("retains retry authority when removal and restoration both fail", async () => {
+  const root = await mkdtemp(join(tmpdir(), "startup-directory-retirement-"))
+  try {
+    const store = createLocalWorkspaceStore(root)
+    await materializeWorkspaceSources({ name: "retirement", sources: {
+      docs: custom({ materialize: "startup", mount: "docs", files: [] }),
+    } }, store)
+    const setMeta = store.setMeta!.bind(store)
+    let snapshotWrites = 0
+    let removalAttempted = false
+    store.setMeta = async (key, value) => {
+      if (key === snapshotKey && ++snapshotWrites >= 2) throw new Error("metadata unavailable")
+      await setMeta(key, value)
+    }
+    store.removeEmptyDirectory = async () => { removalAttempted = true; throw new Error("removal unavailable") }
+    await expect(reconcileRemovedStartupSources("retirement", store, [])).rejects.toThrow("removal unavailable")
+    expect(removalAttempted).toBe(true)
+    const reopened = createLocalWorkspaceStore(root)
+    await reconcileRemovedStartupSources("retirement", reopened, [])
+    await expect(reopened.stat("docs")).resolves.toBeUndefined()
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(`${root}.meta.json`, { force: true })
+  }
+})
+
 it.each([false, true])("restores failed startup removal without reviving completed removals, recreate=%s", async (recreate) => {
   const root = await mkdtemp(join(tmpdir(), "startup-directory-retirement-"))
   try {

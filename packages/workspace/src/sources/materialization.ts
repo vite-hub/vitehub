@@ -119,6 +119,11 @@ async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">
   if (volatile?.has(key)) return volatile.get(key)
   // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
   const snapshot = await store.getMeta?.(sourceSnapshotMetaKey(workspace, sourceKey)) as SourceSnapshotMetadata | undefined
+  // A failed directory removal can leave the canonical retirement checkpoint
+  // behind after its restoration fails. The recovery snapshot preserves retry
+  // authority until the canonical snapshot is successfully written again.
+  const recovery = await store.getMeta?.(`${sourceSnapshotMetaKey(workspace, sourceKey)}:recovery`) as SourceSnapshotMetadata | undefined
+  if (recovery?.status === "ready") return recovery
   if (snapshot || !source) return snapshot
   // Reuse an older cache only for the same configuration. Cleanup callers do
   // not pass a Source, so they cannot claim an unscoped snapshot.
@@ -213,6 +218,7 @@ async function writeSourceSnapshotMetadata(store: WorkspaceStore, workspace: str
   snapshots.set(key, metadata)
   if (store.getMeta && store.setMeta) {
     await store.setMeta(key, metadata)
+    if (!key.endsWith(":recovery")) await store.setMeta(`${key}:recovery`, undefined)
     snapshots.delete(key)
   }
 }
@@ -373,6 +379,18 @@ async function removeStaleMaterializedSourceFiles(
   const staleDirectories = new Set((previousSnapshot?.ownedDirectories || []).filter(path =>
     sourceOwnsDirectory(source, path) && materializationPathMatches(path, scope),
   ))
+  const retainedMounts = new Map<string, SourceSnapshotMetadata>()
+  if (source.materialize === "startup" && source.mountPath) {
+    const workspaces = await readStartupIndex(store, startupWorkspacesMetaKey)
+    for (const otherWorkspace of Array.isArray(workspaces) ? workspaces.filter((name): name is string => name !== workspace) : []) {
+      const indexedSources = await readStartupIndex(store, startupSourcesMetaKey(otherWorkspace))
+      for (const indexedSource of Array.isArray(indexedSources) ? indexedSources.filter(isMaterializedStartupSource) : []) {
+        if (indexedSource.mountPath !== source.mountPath) continue
+        const snapshot = await readSourceSnapshotMetadata(store, otherWorkspace, indexedSource.key)
+        if (snapshot?.ownsMount !== false) retainedMounts.set(source.mountPath, snapshot)
+      }
+    }
+  }
   const removedDirectories = new Set<string>()
   // Build cleanup leaves an empty snapshot object; only that missing index needs recovery.
   // With metadata support, an absent snapshot is a first startup with no owned paths.
@@ -441,6 +459,10 @@ async function removeStaleMaterializedSourceFiles(
   // Checkpoint every selected directory even if inspection or removal fails.
   for (const path of cleanupDirectories) ownedDirectories.add(path)
   for (const path of cleanupDirectories) {
+    if (retainedMounts.has(path)) {
+      await checkpointDirectoryOwnership(path, false)
+      continue
+    }
     if ((await store.stat(path))?.type === "file") {
       ownedDirectories.delete(path)
       removedDirectories.add(path)
@@ -584,13 +606,35 @@ async function reconcileRemovedStartupSourcesInternal(
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, retired))
       }
       catch (error) {
-        await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, previous))
+        try {
+          await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, previous))
+        }
+        catch {
+          // Keep a durable copy when the immediate restoration checkpoint is
+          // also unavailable. Cleanup will prefer it after Store reopen.
+          if (store.setMeta) await store.setMeta(`${sourceSnapshotMetaKey(workspace, source.key)}:recovery`, previous)
+        }
         throw error
       }
       cleanupSnapshot = retired
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       let ownershipTransferred = false
+      const retainedMount = path === source.mountPath
+        ? retainedSources.find(({ workspace: retainedWorkspace, source: retainedSource }) =>
+          retainedWorkspace !== workspace && retainedSource.mountPath === path)
+        : undefined
+      if (retainedMount) {
+        await retireDirectory(path)
+        const retainedSnapshot = await readSourceSnapshotMetadata(store, retainedMount.workspace, retainedMount.source.key)
+        if (retainedSnapshot) {
+          await control.checkpoint(() => writeSourceSnapshotMetadata(store, retainedMount.workspace, {
+            ...retainedSnapshot,
+            ownsMount: true,
+          }))
+        }
+        continue
+      }
       for (const { workspace: retainedWorkspace, source: currentSource } of retainedSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, retainedWorkspace, currentSource.key)
         if (retainedSnapshot?.mountPath !== currentSource.mountPath) continue
@@ -629,7 +673,12 @@ async function reconcileRemovedStartupSourcesInternal(
         }
         catch (error) {
           if (previousSnapshot) {
-            await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, previousSnapshot))
+            try {
+              await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, previousSnapshot))
+            }
+            catch {
+              if (store.setMeta) await store.setMeta(`${sourceSnapshotMetaKey(workspace, source.key)}:recovery`, previousSnapshot)
+            }
             cleanupSnapshot = previousSnapshot
           }
           throw error
