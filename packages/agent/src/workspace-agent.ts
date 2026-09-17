@@ -287,9 +287,9 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     },
   }
 
-  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
+  const sourceDefaults: Record<string, WorkspaceSourceInput> = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
   // SAFETY: The object is constructed with the required sourceRootDir and optional source defaults immediately below.
-  const decoratedWorkspace = { sourceRootDir } as { sourceRootDir: string; sources?: typeof sourceDefaults }
+  const decoratedWorkspace = { sourceRootDir } as { sourceRootDir: string; sources?: Record<string, WorkspaceSourceInput> }
   if (Object.keys(sourceDefaults).length) decoratedWorkspace.sources = sourceDefaults
   const decoratedAgent = {
     ...workspaceAgent,

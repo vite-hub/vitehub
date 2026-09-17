@@ -450,6 +450,7 @@ describe("generated Agent deployment catalog", () => {
     expect(Object.keys(runtime!.capture.workspaceRegistry)).toEqual(["support"])
     const workspace = await runtime!.workspace("support")
     const sources = workspace.sources as Record<string, { content: string | Uint8Array }> | undefined
+    const skills = Object.fromEntries(Object.entries(sources ?? {}).filter(([key]) => key.startsWith("__vitehubAgentSkill:")))
     const settings = Object.getOwnPropertyDescriptor(workspace, "__vitehubAgentSettings")?.value as {
       driver?: { instructions?: unknown }
     } | undefined
