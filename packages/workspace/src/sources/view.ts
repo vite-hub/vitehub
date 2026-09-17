@@ -708,15 +708,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
   }
 
-  async function materializeRootStartupSources() {
-    await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => !source.mountPath && source.materialize === "startup"))
+  async function materializeStartupSourcesForPath(path: string) {
+    await materializeStartupSourcesInPrecedenceOrder(sources.filter(source => source.materialize === "startup" && sourceMountIntersectsPath(source, path)))
   }
 
   async function materializeRootSourceForPath(path: string, orderedStartup = false) {
     const rootSources = sources.filter(source => !source.mountPath)
-    // Materialize startup roots together so a point read preserves their precedence.
+    // Materialize intersecting startup mounts together to preserve their precedence.
     // This also reconciles removed owners before probing remaining lazy roots.
-    if (orderedStartup) await materializeRootStartupSources()
+    if (orderedStartup) await materializeStartupSourcesForPath(path)
     else await materializeStartupSourcesInPrecedenceOrder([])
     for (const source of rootSources) {
       if (!orderedStartup || source.materialize !== "startup") {
@@ -906,7 +906,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         if (!result) throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
       }
-      await materializeRootStartupSources()
+      await materializeStartupSourcesForPath(resolution.workspacePath)
       let result = await store.stat(resolution.workspacePath)
       if (!result) {
         if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) {
@@ -937,7 +937,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await ensureMaterialized(resolution.sourceKey)
         return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
       }
-      await materializeRootStartupSources()
+      await materializeStartupSourcesForPath(resolution.workspacePath)
       if (await store.stat(resolution.workspacePath)) return true
       if (!resolution.workspacePath && sources.some(source => !source.mountPath && usesLiveProvider(source))) return true
       await materializeRootSourceForPath(resolution.workspacePath)
