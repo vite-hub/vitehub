@@ -894,6 +894,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       })
       await writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
       await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
+      const installedManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
+      expect(installedManifest.peerDependenciesMeta?.["vue-router"]?.optional).toBe(true)
       await resolveCopiedConsoleImports(appDir)
     }
     finally {
