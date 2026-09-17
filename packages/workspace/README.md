@@ -347,3 +347,9 @@ Learn more at [vitehub.dev](https://vitehub.dev).
 `metadata.source` is reserved for internal Source materialization. Public Workspace writes and write validators cannot assign this ownership marker.
 
 File metadata must be a JSON-safe plain object containing only plain objects, dense arrays, strings, booleans, null, and finite numbers except negative zero. Omit optional properties instead of assigning `undefined`. Bigints, cycles, class instances, accessors, symbols, and functions are rejected. Workspace writes validate this contract before provider dispatch; direct local and memory Store writes also validate before changing file content. This keeps accepted metadata values consistent after a local Store restart.
+
+## Offline local lock recovery
+
+After a process crash, local Workspace lock markers can remain on disk. Stop every process that uses the store, then call `recoverLocalWorkspaceLocks({ root, offline: true })` from `@vite-hub/workspace/runtime` before restarting them. It returns the number of removed gate and reader directories and preserves Workspace files and metadata.
+
+The caller must enforce exclusive offline access, for example with a deployment startup lock. `offline: true` is an explicit acknowledgement, not an automatic liveness check. Never call this while another process can access the store. Normal reads and writes do not reclaim locks based on age, because a delayed heartbeat does not prove that a writer has stopped.

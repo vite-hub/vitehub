@@ -58,3 +58,5 @@ export type {
   WorkspacePreparationOptions,
   WorkspacePreparationState,
 } from "./runtime/preparation.ts"
+
+export { recoverLocalWorkspaceLocks } from "./storage/recover-local-locks.ts"
