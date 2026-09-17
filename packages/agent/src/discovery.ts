@@ -399,6 +399,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         ? index + 3
         : -1
     if (tokens[capabilityCall] === "<") capabilityCall = skipTypeArguments(capabilityCall)
+    if (tokens[capabilityCall] === "(" && tokens[capabilityCall + 1] === ")" && tokens[capabilityCall + 2] === "(") capabilityCall += 2
     if (tokens[capabilityCall] === "(") {
       const options = properties(capabilityCall + 1, false, true)
       const workspace = options.get("workspace")
@@ -419,6 +420,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       let initializer = binding + 2
       while (initializer < index && !["=", ";", ","].includes(tokens[initializer])) initializer++
       return tokens[initializer] === "=" && capabilityOwnsWorkspace(initializer + 1, seen)
+    }
+    if (parameterScope) {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an option-derived Capability expression. Use a literal Capability list with direct local bindings, or add an explicit Workspace ownership marker to the Agent definition.")
     }
     let referenceEnd = index + 1
     while (tokens[referenceEnd] === ".") referenceEnd += 2
@@ -503,7 +507,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     seen.add(index)
     if (preserveCalls) {
       const call = memberCallEnd(index)
-      if (tokens[call] === "(") return index
+      if (tokens[call] === "(" || [".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === ".")) return index
     }
     const binding = visibleDeclaration(index)
     if (binding !== undefined) {
@@ -885,7 +889,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         const callEnd = memberCallEnd(reference)
         const opaqueCall = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "") && tokens[callEnd] === "("
           && conditionalBranches(reference) === undefined
-        if (inCallbackScope && (factoryCall(reference) !== undefined || opaqueCall)) {
+        const opaqueMember = /^[A-Za-z_$][\w$]*$/.test(tokens[reference] ?? "")
+          && ([".", "["].includes(tokens[reference + 1]) || (tokens[reference + 1] === "?" && tokens[reference + 2] === "."))
+        if (inCallbackScope && (factoryCall(reference) !== undefined || opaqueCall || opaqueMember)) {
           let expressionStart = i
           while (tokens[expressionStart - 1] === "(") expressionStart--
           const expressionDepth = callbackDepth - (i - expressionStart)

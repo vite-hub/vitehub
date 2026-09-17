@@ -76,9 +76,8 @@ it.each(["values.storage()", 'values["storage"]()', "values[key]()", "values?.st
   expect(definitions[0]?.workspace).toBe("notes")
 })
 
-it("allows callback parameters to shadow imported Capabilities", async () => {
-  const definitions = await discover('import { storage } from "./storage"; export default defineAgent({ options: {}, configure: storage => defineAgent({ capabilities: [storage] }) })')
-  expect(definitions[0]?.workspace).toBeUndefined()
+it("rejects callback parameters that shadow imported Capabilities", async () => {
+  await expect(discover('import { storage } from "./storage"; export default defineAgent({ options: {}, configure: storage => defineAgent({ capabilities: [storage] }) })')).rejects.toThrow("option-derived Capability expression")
 })
 
 it("rejects opaque namespace Capability values", async () => {

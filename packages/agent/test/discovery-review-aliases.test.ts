@@ -49,9 +49,12 @@ it("preserves an unparenthesized callback parameter through callback aliases", a
 it.each([
   ['import { defineCapability as capability } from "@vite-hub/agent"', 'capability => defineAgent({ capabilities: [capability({ workspace: {} })] })'],
   ['import * as hub from "@vite-hub/agent"', 'hub => defineAgent({ channels: { custom: { capabilities: [hub.defineCapability({ workspace: {} })] } } })'],
-  ['import { defineCapability as capability } from "@vite-hub/agent"', '() => { const capability = () => ({}); return defineAgent({ capabilities: [capability({ workspace: {} })] }) }'],
-])("honors shadowed Capability factories: %s", async (imports, configure) => {
-  await expect(workspaceFor(`${imports}; export default defineAgent({ options: {}, configure: ${configure} })`)).resolves.toBeUndefined()
+])("rejects parameter-derived Capability factories: %s", async (imports, configure) => {
+  await expect(workspaceFor(`${imports}; export default defineAgent({ options: {}, configure: ${configure} })`)).rejects.toThrow("option-derived Capability expression")
+})
+
+it("honors a locally shadowed Capability factory", async () => {
+  await expect(workspaceFor('import { defineCapability as capability } from "@vite-hub/agent"; export default defineAgent({ options: {}, configure: () => { const capability = () => ({}); return defineAgent({ capabilities: [capability({ workspace: {} })] }) } })')).resolves.toBeUndefined()
 })
 
 it("rejects an opaque local member that shadows a Capability namespace", async () => {
@@ -228,4 +231,27 @@ it.each(["importedPresets", "{ ...importedPresets }"])("rejects opaque preset re
 it("inspects locally defined Capability options and preset registries", async () => {
   await expect(workspaceFor('const options = { workspace: {} }; const storage = defineCapability({ ...options }); export default defineAgent({ capabilities: [storage] })')).resolves.toBe("support")
   await expect(workspaceFor('const registry = { storage: defineAgent({ workspace: {} }) }; export default defineAgent({ preset: "storage", presets: { ...registry } })')).resolves.toBe("support")
+})
+
+
+it.each(["{}", "{ workspace: {} }"])("inspects curried Capability settings: %s", async settings => {
+  await expect(workspaceFor(`const storage = defineCapability<Config>()(${settings}); export default defineAgent({ capabilities: [storage] })`)).resolves.toBe(settings === "{}" ? undefined : "support")
+})
+
+it.each(["importedOptions", "{ ...importedOptions }"])("rejects opaque curried Capability settings: %s", async settings => {
+  await expect(workspaceFor(`import { importedOptions } from "./options"; const storage = defineCapability<Config>()(${settings}); export default defineAgent({ capabilities: [storage] })`)).rejects.toThrow("cannot inspect opaque Agent settings")
+})
+
+it.each(["options.caps", 'options["caps"]', "options"])("rejects option-derived Capability lists: %s", async capabilities => {
+  const source = `const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: { caps: [storage] }, configure: options => defineAgent({ capabilities: ${capabilities} }) })`
+  await expect(workspaceFor(source)).rejects.toThrow("option-derived Capability expression")
+  await expect(workspaceFor(source.replace("options: { caps:", "workspace: {}, options: { caps:"))).resolves.toBe("support")
+})
+
+it.each(["agents.storage", 'agents["storage"]', "agents?.storage"])("rejects returned Agent member values: %s", async member => {
+  for (const configure of [`() => ${member}`, `() => { return ${member} }`, `() => { const selected = ${member}; return selected }`]) {
+    const source = `const agents = { storage: defineAgent({ workspace: {} }) }; export default defineAgent({ options: {}, configure: ${configure} })`
+    await expect(workspaceFor(source)).rejects.toThrow("configure result factory")
+    await expect(workspaceFor(source.replace("options: {}", "workspace: {}, options: {}"))).resolves.toBe("support")
+  }
 })

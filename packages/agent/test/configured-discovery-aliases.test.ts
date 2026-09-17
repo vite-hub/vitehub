@@ -36,8 +36,7 @@ it.each(["({ storage })", "(storage)", "storage", "({ alias: storage })", "({ ne
     const folder = join(root, "server", "agents", "support")
     await mkdir(folder, { recursive: true })
     await writeFile(join(folder, "agent.ts"), `const storage = defineCapability({ workspace: {} }); export default defineAgent({ options: {}, configure: ${parameters} => defineAgent({ capabilities: [storage] }) })`)
-    const definitions = discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] })
-    expect(definitions[0]?.workspace).toBeUndefined()
+    expect(() => discoverAgentDefinitions({ mode: "server-agents", scanDirs: [join(root, "server")] })).toThrow("option-derived Capability expression")
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -1,7 +1,7 @@
 import { expectTypeOf, it } from "vitest"
 import { codexDriver, defineAgent, defineCapability, runAgentInline } from "../src/index.ts"
 import { github } from "../src/channels.ts"
-import type { AgentRuntimeContext } from "../src/index.ts"
+import type { AgentRuntimeContext, WorkspaceAgentWorkspaceConfig } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 it("infers the selected preset and rejects unknown names", () => {
@@ -49,6 +49,40 @@ it("preserves workspace overrides on configurable presets", () => {
   expectTypeOf(workspace.options.enabled).toEqualTypeOf<boolean>()
   const child = defineAgent({ extends: workspace, workspace: { mode: "read" }, options: { enabled: true } })
   expectTypeOf(child.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+})
+
+it("does not guarantee Workspace access from optional configured preset overrides", () => {
+  const plain = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex" }) })
+  const workspaceCapability = defineCapability({ id: "workspace", workspace: {} })
+  function checkWorkspace(workspace: WorkspaceAgentWorkspaceConfig | undefined) {
+    const extended = defineAgent({ extends: plain, workspace })
+    const selected = defineAgent({ preset: "plain", presets: { plain }, workspace })
+    // @ts-expect-error An optional Workspace override may leave the definition without Workspace access.
+    void extended.__vitehubWorkspaceAgent
+    // @ts-expect-error Named selection preserves the same uncertainty.
+    void selected.__vitehubWorkspaceAgent
+    const child = defineAgent({ extends: extended })
+    // @ts-expect-error Extending the uncertain definition does not guarantee Workspace access.
+    void child.__vitehubWorkspaceAgent
+    const explicit = defineAgent({ extends: extended, workspace: {} })
+    expectTypeOf(explicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+    const inherited = defineAgent({ extends: explicit, workspace })
+    expectTypeOf(inherited.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+    const contributed = defineAgent({ extends: extended, capabilities: [workspaceCapability] })
+    expectTypeOf(contributed.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
+    // @ts-expect-error Inferring the Workspace property must not accept unknown settings.
+    defineAgent({ extends: plain, workspace, unknownSetting: true })
+  }
+  void checkWorkspace
+  function checkOptionalProperty(settings: { workspace?: WorkspaceAgentWorkspaceConfig }) {
+    const extended = defineAgent({ extends: plain, ...settings })
+    const selected = defineAgent({ preset: "plain", presets: { plain }, ...settings })
+    // @ts-expect-error An optional property may be absent.
+    void extended.__vitehubWorkspaceAgent
+    // @ts-expect-error Named selection also accepts optional properties without promising Workspace access.
+    void selected.__vitehubWorkspaceAgent
+  }
+  void checkOptionalProperty
 })
 
 it("preserves structured output from configure through selection and extension", () => {

@@ -2130,6 +2130,10 @@ type ConfiguredOptionsRecord<TOptions> = [Extract<TOptions, readonly unknown[] |
 
 type ConfiguredAgentOptions<TDefinition> = TDefinition extends { options: infer TOptions extends object } ? TOptions : never
 
+// Infer the whole options object so optional Workspace properties retain undefined.
+type ConfiguredAgentWorkspaceOptions<TOptions, TDefinition> = TOptions & Record<
+  Exclude<keyof TOptions, keyof ConfiguredAgentSettings<TDefinition> | "preset" | "presets" | "extends" | "options">, never>
+
 type ConfiguredAgentSettings<TDefinition> = TDefinition extends AgentDefinition<infer TRuntimeConfig, infer TCallOptions, infer TInvoker, infer TContext, infer TOutput>
   ? AgentSettings<TRuntimeConfig, TCallOptions, TInvoker, TContext, AgentCapabilitiesInput<TRuntimeConfig>, TOutput>
   : never
@@ -2197,9 +2201,11 @@ type MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChan
 type ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels,
   TState = MergeConfiguredWorkspaceState<TDefinition, TWorkspace, TCapabilities, TChannels>> =
   TState extends { workspace: infer TExplicit, capabilities: infer TMergedCapabilities, channels: infer TMergedChannels }
-    ? (true extends TExplicit | ConfiguredCapabilitiesWorkspace<TMergedCapabilities> | ConfiguredChannelsWorkspace<TMergedChannels>
-        ? ConfiguredWorkspaceDefinition<Omit<TExplicit extends true ? TDefinition : AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>
-        : ConfiguredContextDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>)
+    ? ([TExplicit] extends [true]
+        ? ConfiguredWorkspaceDefinition<Omit<TDefinition, typeof configuredAgentWorkspace>, TCapabilities>
+        : true extends ConfiguredCapabilitiesWorkspace<TMergedCapabilities> | ConfiguredChannelsWorkspace<TMergedChannels>
+          ? ConfiguredWorkspaceDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>
+          : ConfiguredContextDefinition<Omit<AgentDefinitionFromWorkspace<TDefinition>, typeof configuredAgentWorkspace>, TCapabilities>)
       & { [configuredAgentWorkspace]: TState }
     : never
 
@@ -2371,7 +2377,7 @@ export interface DefineAgent {
   <
     TPresets extends Record<string, AgentDefinition>,
     const TPreset extends keyof TPresets & string,
-    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
+    const TWorkspace extends { workspace?: WorkspaceAgentWorkspaceConfig } = {},
     const TCapabilities extends ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>["capabilities"] = undefined,
     const TChannels extends ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>["channels"] = undefined,
   >(options:
@@ -2381,15 +2387,14 @@ export interface DefineAgent {
       options?: AgentPresetOptions<NoInfer<ConfiguredAgentOptions<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>>
       extends?: never
       driver?: Partial<ConfiguredAgentSettings<NoInfer<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>>["driver"]>
-      workspace?: TWorkspace
       capabilities?: TCapabilities
       channels?: TChannels
-    }
-  ): ConfiguredAgentDefinition<ConfiguredAgentOptions<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>, ConfiguredAgentWorkspace<TPresets[TPreset], TWorkspace, TCapabilities, TChannels>>
+    } & ConfiguredAgentWorkspaceOptions<TWorkspace, TPresets[TPreset]>
+  ): ConfiguredAgentDefinition<ConfiguredAgentOptions<Extract<TPresets[TPreset], ConfiguredAgentDefinition<object, AgentDefinition>>>, ConfiguredAgentWorkspace<TPresets[TPreset], TWorkspace["workspace"], TCapabilities, TChannels>>
 
   <
     TDefinition extends ConfiguredAgentDefinition<object, AgentDefinitionLike>,
-    const TWorkspace extends WorkspaceAgentWorkspaceConfig | undefined = undefined,
+    const TWorkspace extends { workspace?: WorkspaceAgentWorkspaceConfig } = {},
     const TCapabilities extends ConfiguredAgentSettings<NoInfer<TDefinition>>["capabilities"] = undefined,
     const TChannels extends ConfiguredAgentSettings<NoInfer<TDefinition>>["channels"] = undefined,
   >(options:
@@ -2397,11 +2402,10 @@ export interface DefineAgent {
       extends: TDefinition
       options?: AgentPresetOptions<NoInfer<TDefinition["options"]>>
       driver?: Partial<ConfiguredAgentSettings<NoInfer<TDefinition>>["driver"]>
-      workspace?: TWorkspace
       capabilities?: TCapabilities
       channels?: TChannels
-    }
-  ): ConfiguredAgentDefinition<TDefinition["options"], ConfiguredAgentWorkspace<TDefinition, TWorkspace, TCapabilities, TChannels>>
+    } & ConfiguredAgentWorkspaceOptions<TWorkspace, TDefinition>
+  ): ConfiguredAgentDefinition<TDefinition["options"], ConfiguredAgentWorkspace<TDefinition, TWorkspace["workspace"], TCapabilities, TChannels>>
 
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
