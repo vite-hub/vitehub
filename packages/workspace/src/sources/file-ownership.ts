@@ -36,3 +36,8 @@ export async function readWorkspaceFileOwner(store: WorkspaceStore, path: string
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Normalize the optional digest from untyped Store metadata to the owner contract.
   return { workspace: value.workspace, source: value.source, digest: "digest" in value && typeof value.digest === "string" ? value.digest : undefined }
 }
+
+export async function removeWorkspaceFileOwner(store: WorkspaceStore, path: string): Promise<void> {
+  volatileOwners.get(workspaceStoreIdentity(store))?.delete(fileOwnerMetaKey(path))
+  if (store.getMeta && store.setMeta) await store.setMeta(fileOwnerMetaKey(path), null)
+}

@@ -136,6 +136,8 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
   const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source)
   if (meta?.status !== "ready" || meta.configHash !== configHash) return false
   if (verifyOwnership === "workspace") {
+    // Refresh may intentionally remove an empty mount and relinquish its ownership.
+    if (Object.keys(meta.items || {}).length === 0 && meta.ownsMount !== false && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
     // Normal reads preserve external edits, but cannot reuse files owned by another Workspace.
     for (const path of Object.keys(meta.items || {})) {
       const file = await store.readFile(path)
@@ -155,14 +157,20 @@ async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string
   if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
   for (const path of Object.keys(meta.items || {})) {
     const stat = await store.stat(path)
-    if (stat?.type !== "file") return false
-    if (stat.metadata?.workspaceSourceOwner === workspace && stat.metadata.source === source.key) continue
-    const durable = await readWorkspaceFileOwner(store, path)
-    if (durable?.workspace !== workspace || durable.source !== source.key || !durable.digest) return false
-    const file = await store.readFile(path)
-    if (!file || await sha256(file.content) !== durable.digest) return false
+    if (!await materializedFileHasCurrentOwner(store, workspace, source.key, path, stat)) return false
   }
   return true
+}
+
+async function materializedFileHasCurrentOwner(store: WorkspaceStore, workspace: string, source: string, path: string, stat: WorkspaceStat | undefined) {
+  if (stat?.type !== "file") return false
+  if (stat.metadata?.workspaceSourceOwner === workspace && stat.metadata.source === source) return true
+  if (stat.metadata?.workspaceSourceOwner !== undefined && stat.metadata.workspaceSourceOwner !== workspace) return false
+  if (stat.metadata?.source !== undefined && stat.metadata.source !== source) return false
+  const durable = await readWorkspaceFileOwner(store, path)
+  if (durable?.workspace !== workspace || durable.source !== source || !durable.digest) return false
+  const file = await store.readFile(path)
+  return !!file && await sha256(file.content) === durable.digest
 }
 
 export async function hasFreshSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource) {
@@ -678,8 +686,7 @@ async function* iterateMaterializationEntries(
     const previous = materializedItemMeta(snapshot, configHash, path)
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
-      const owner = stat?.metadata?.workspaceSourceOwner
-      if (stat?.type === "file" && owner === workspace && stat.metadata?.source === source.key) {
+      if (stat && await materializedFileHasCurrentOwner(store, workspace, source.key, path, stat)) {
         yield {
           metadata: previous,
           path,

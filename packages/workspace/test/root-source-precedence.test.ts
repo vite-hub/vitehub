@@ -37,3 +37,27 @@ it("keeps lazy root Sources selective when reading an existing startup file", as
   await expect(view.readFile("other.md")).resolves.toBe("lazy")
   expect(getKeys).toHaveBeenCalledOnce()
 })
+
+it("restores root startup ownership when an unrelated lazy Source is present", async () => {
+  const store = createMemoryWorkspaceStore()
+  const getKeys = vi.fn(async () => ["other.md"])
+  const first = createWorkspaceSourceView({
+    name: "first",
+    sources: {
+      lazy: custom({ materialize: "lazy", mount: "", getKeys, async getItem(key) { return { key, content: "lazy" } } }),
+      startup: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "first" }] }),
+    },
+  }, store)
+  const second = createWorkspaceSourceView({
+    name: "second",
+    sources: {
+      startup: custom({ materialize: "startup", mount: "", files: [{ path: "shared.md", content: "second" }] }),
+    },
+  }, store)
+
+  await expect(first.readFile("shared.md")).resolves.toBe("first")
+  await expect(second.readFile("shared.md")).resolves.toBe("second")
+  await expect(first.readFile("shared.md")).resolves.toBe("first")
+  expect(getKeys).toHaveBeenCalledOnce()
+  await expect(first.readFile("other.md")).resolves.toBe("lazy")
+})

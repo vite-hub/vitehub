@@ -323,12 +323,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return await current
   }
 
-  async function ensureMaterialized(sourceKey: string) {
+  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = false) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     // Overlapping root Sources validate ownership per path and can fall through to a lazy Source.
     const verifyOwnership = options.reuseStartupSnapshots ? true
-      : source.mountPath || !sources.some(item => !item.mountPath && item.materialize === "lazy") ? "workspace" : false
+      : verifyRootOwnership || source.mountPath || !sources.some(item => !item.mountPath && item.materialize === "lazy") ? "workspace" : false
     const isUncachedLazySource = source.materialize === "lazy" && source.cache === false
     const pending = pendingBySource.get(sourceKey)
     if (pending?.fullSource) {
@@ -625,7 +625,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       await materializeRootStartupSources()
       const startupFile = await readOwnedRootStartupFile(resolution.workspacePath)
       if (startupFile) return decodeFile(startupFile.content, options)
-      await materializeRootSourceForPath(resolution.workspacePath)
+      const rootSource = await materializeRootSourceForPath(resolution.workspacePath)
+      if (!rootSource) {
+        for (const source of sources.filter(source => !source.mountPath && source.materialize === "startup")) {
+          await ensureMaterialized(source.key, true)
+        }
+      }
       const file = await store.readFile(resolution.workspacePath)
       if (!file) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)

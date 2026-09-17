@@ -5,7 +5,7 @@ import { files as filesLoader } from "./loaders/files.ts"
 import { contentStreamChunks, normalizeWorkspacePath, sha256 } from "./core/path.ts"
 import { workspaceError } from "./core/errors.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
-import { readWorkspaceFileOwner, recordWorkspaceFileOwner } from "./sources/file-ownership.ts"
+import { readWorkspaceFileOwner, recordWorkspaceFileOwner, removeWorkspaceFileOwner } from "./sources/file-ownership.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
@@ -387,48 +387,53 @@ async function reconcileBuildSourceMounts(definition: WorkspaceDefinition, store
     ...currentSources.map(source => source.mountPath),
   ])]
 
-  for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
-    abortSignal?.throwIfAborted()
-    const buildKeys = [...previousSources, ...currentSources].filter(source => source.mountPath === mountPath).map(source => source.key)
-    const removedPaths = await buildSourceFilePaths(store, definition.name, mountPath, buildKeys)
-    const affected: ResolvedWorkspaceSource[] = []
-    for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
-      const removesStartupMount = startup.mountPath === mountPath || startup.mountPath.startsWith(`${mountPath}/`)
-      if (!removesStartupMount && await sourceSnapshotOwnsAnyPath(store, definition.name, startup.key, removedPaths) === false) continue
-      affected.push(startup)
-    }
-    await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
-    for (const source of affected) {
-      await invalidateSourceSnapshot(store, definition.name, source.key)
-    }
-    abortSignal?.throwIfAborted()
-    await Promise.all(removedPaths.map(path => store.rm(path, { force: true })))
-    abortSignal?.throwIfAborted()
-  }
-  const rootSourceKeys = new Set([...previousSources, ...currentSources].filter(source => !source.mountPath).map(source => source.key))
-  for (const key of rootSourceKeys) {
-    abortSignal?.throwIfAborted()
-    const removedPaths = await buildSourceFilePaths(store, definition.name, "", [key])
-    const affected: ResolvedWorkspaceSource[] = []
-    for (const startup of startupSources) {
-      if (!removedPaths.some(path => sourceMountIntersectsPath(startup, path))) continue
-      if (await sourceSnapshotOwnsAnyPath(store, definition.name, startup.key, removedPaths) === false) continue
-      affected.push(startup)
-    }
-    await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
-    for (const startup of affected) {
-      await invalidateSourceSnapshot(store, definition.name, startup.key)
-    }
-    abortSignal?.throwIfAborted()
-    await removeRootBuildSourceFiles(store, removedPaths)
-    abortSignal?.throwIfAborted()
-  }
-
   const mutate = async (operation: () => Promise<void>) => {
     abortSignal?.throwIfAborted()
     const pending = operation()
     await (trackOperation ? trackOperation(pending) : pending)
   }
+
+  for (const mountPath of resetPaths.filter(Boolean).sort((a, b) => b.length - a.length)) {
+    abortSignal?.throwIfAborted()
+    const buildKeys = [...previousSources, ...currentSources].filter(source => source.mountPath === mountPath).map(source => source.key)
+    await mutate(() => updateBuildDirectories(materializationStore, async () => {
+      const removedPaths = await buildSourceFilePaths(materializationStore, definition.name, mountPath, buildKeys)
+      const affected: ResolvedWorkspaceSource[] = []
+      for (const startup of startupSources.filter(source => sourceMountIntersectsPath(source, mountPath))) {
+        const removesStartupMount = startup.mountPath === mountPath || startup.mountPath.startsWith(`${mountPath}/`)
+        if (!removesStartupMount && await sourceSnapshotOwnsAnyPath(store, definition.name, startup.key, removedPaths) === false) continue
+        affected.push(startup)
+      }
+      await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(source => source.key))
+      for (const source of affected) {
+        await invalidateSourceSnapshot(store, definition.name, source.key)
+      }
+      abortSignal?.throwIfAborted()
+      await removeBuildSourceFiles(materializationStore, definition.name, removedPaths)
+    }))
+    abortSignal?.throwIfAborted()
+  }
+  const rootSourceKeys = new Set([...previousSources, ...currentSources].filter(source => !source.mountPath).map(source => source.key))
+  for (const key of rootSourceKeys) {
+    abortSignal?.throwIfAborted()
+    await mutate(() => updateBuildDirectories(materializationStore, async () => {
+      const removedPaths = await buildSourceFilePaths(materializationStore, definition.name, "", [key])
+      const affected: ResolvedWorkspaceSource[] = []
+      for (const startup of startupSources) {
+        if (!removedPaths.some(path => sourceMountIntersectsPath(startup, path))) continue
+        if (await sourceSnapshotOwnsAnyPath(store, definition.name, startup.key, removedPaths) === false) continue
+        affected.push(startup)
+      }
+      await invalidateWorkspaceSourceMaterialization(definition, materializationStore, affected.map(startup => startup.key))
+      for (const startup of affected) {
+        await invalidateSourceSnapshot(store, definition.name, startup.key)
+      }
+      abortSignal?.throwIfAborted()
+      await removeBuildSourceFiles(materializationStore, definition.name, removedPaths)
+    }))
+    abortSignal?.throwIfAborted()
+  }
+
   await mutate(() => pruneBuildDirectories(materializationStore, definition.name))
 
   for (const mountPath of [...new Set(currentSources.map(source => source.mountPath))].filter(Boolean).sort((a, b) => a.length - b.length)) {
@@ -588,8 +593,14 @@ async function buildSourceFilePaths(store: WorkspaceStore, workspace: string, mo
   return paths
 }
 
-async function removeRootBuildSourceFiles(store: WorkspaceStore, paths: string[]) {
-  await Promise.all(paths.map(path => store.rm(path, { force: true })))
+async function removeBuildSourceFiles(store: WorkspaceStore, workspace: string, paths: string[]) {
+  const records = await readBuildFiles(store, workspace)
+  for (const path of paths) {
+    await store.rm(path, { force: true })
+    await removeWorkspaceFileOwner(store, path)
+    delete records[path]
+    await writeBuildMetadata(store, buildFilesMetaKey(workspace), records)
+  }
 }
 
 function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
