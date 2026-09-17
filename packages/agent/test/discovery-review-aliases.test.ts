@@ -282,8 +282,31 @@ it("requires explicit ownership for an opaque early configure return", async () 
 it.each([
   "if (options.early) return defineAgent({}); const ignored = options.other ? defineAgent({ workspace: {} }) : defineAgent({});",
   "if (options.early) return defineAgent({})\nconst ignored = options.other ? defineAgent({ workspace: {} }) : defineAgent({})\n",
+  "if (options.early) return defineAgent({})\noptions.other ? defineAgent({ workspace: {} }) : defineAgent({})\n",
+  "if (options.early) return defineAgent({}) /* boundary\n */ options.other ? defineAgent({ workspace: {} }) : defineAgent({})\n",
   "if (options.early) { return defineAgent({}) } options.other ? defineAgent({ workspace: {} }) : defineAgent({});",
   "if (options.early) return defineAgent({}); options.other ? defineAgent({ workspace: {} }) : defineAgent({});",
 ])("excludes unused conditionals after a configure return: %s", async (body) => {
   await expect(workspaceFor(`export default defineAgent({ options: {}, configure: options => { ${body} return defineAgent({}) } })`)).resolves.toBeUndefined()
+})
+
+it("preserves conditional configure returns across line breaks", async () => {
+  await expect(workspaceFor('export default defineAgent({ options: {}, configure: options => { return options.storage\n? defineAgent({ workspace: {} })\n: defineAgent({}) } })')).resolves.toBe("support")
+})
+
+it.each([
+  "(() => [storage])()",
+  "((() => [storage])())",
+  "(function () { return [storage] })()",
+  "(() => [storage]).call(null)",
+  "((() => [storage]) as Factory)()",
+  "(() => [storage])!()",
+])("rejects opaque IIFE-produced Capability lists: %s", async (capabilities) => {
+  const source = `const storage = defineCapability({ workspace: {} }); export default defineAgent({ capabilities: ${capabilities} })`
+  await expect(workspaceFor(source)).rejects.toThrow("opaque Capability expression")
+  await expect(workspaceFor(source.replace("capabilities:", "workspace: {}, capabilities:"))).resolves.toBe("support")
+})
+
+it("preserves non-null assertions on parenthesized Capability lists", async () => {
+  await expect(workspaceFor('const storage = defineCapability({ workspace: {} }); const list = [storage]; export default defineAgent({ capabilities: (list)! })')).resolves.toBe("support")
 })

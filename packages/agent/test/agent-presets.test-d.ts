@@ -178,6 +178,17 @@ it("accepts interface options and rejects non-record roots", () => {
   defineAgent({ options: new AbortController(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error AbortSignal roots are not plain option records.
   defineAgent({ options: new AbortController().signal, configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error Headers roots are not plain option records.
+  defineAgent({ options: new Headers(), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error FormData roots are not plain option records.
+  defineAgent({ options: new FormData(), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error URLSearchParams roots are not plain option records.
+  defineAgent({ options: new URLSearchParams(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: { headers: new Headers(), form: new FormData() }, configure: value => {
+    expectTypeOf(value.headers).toEqualTypeOf<Headers>()
+    expectTypeOf(value.form).toEqualTypeOf<FormData>()
+    return defineAgent({ driver: "codex" })
+  } })
   // @ts-expect-error Built-in instances may only be nested in a record.
   defineAgent({ options: new Date(), configure: () => defineAgent({ driver: "codex" }) })
 })
@@ -187,12 +198,18 @@ it("rejects option unions with non-record members and accepts record unions", ()
   function checkOptions(
     dateOptions: RecordOptions | Date,
     controllerOptions: RecordOptions | AbortController,
+    headersOptions: RecordOptions | Headers,
+    formOptions: RecordOptions | FormData,
     arrayOptions: RecordOptions | readonly string[],
     callbackOptions: RecordOptions | (() => boolean),
     recordOptions: RecordOptions | { mode: string },
   ) {
     // @ts-expect-error Every union member must be a record, excluding AbortController roots.
     defineAgent({ options: controllerOptions, configure: () => defineAgent({ driver: "codex" }) })
+    // @ts-expect-error Every union member must be a record, excluding Headers roots.
+    defineAgent({ options: headersOptions, configure: () => defineAgent({ driver: "codex" }) })
+    // @ts-expect-error Every union member must be a record, excluding FormData roots.
+    defineAgent({ options: formOptions, configure: () => defineAgent({ driver: "codex" }) })
     // @ts-expect-error Every union member must be a record, excluding Date roots.
     defineAgent({ options: dateOptions, configure: () => defineAgent({ driver: "codex" }) })
     // @ts-expect-error Every union member must be a record, excluding array roots.

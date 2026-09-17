@@ -74,13 +74,29 @@ function stripComments(source: string) {
 }
 
 // Keep literals as single tokens so their punctuation cannot change object depth.
-function tokenizeAgentSource(source: string): string[] {
-  return source.match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|[A-Za-z_$][\w$]*|[^\s]/g)
-    ?.filter(token => !token.startsWith("//") && !token.startsWith("/*")) ?? []
+function tokenizeAgentSource(source: string) {
+  const tokens: string[] = []
+  const lineBreaks = new Set<number>()
+  let previousEnd = 0
+  for (const match of source.matchAll(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\*[\s\S]*?\*\/|\/\/[^\n]*|\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\n\\])+\/[dgimsuvy]*|[A-Za-z_$][\w$]*|[^\s]/g)) {
+    const token = match[0]
+    if (token.startsWith("//") || token.startsWith("/*")) continue
+    if (/[\r\n\u2028\u2029]/.test(source.slice(previousEnd, match.index))) lineBreaks.add(tokens.length)
+    tokens.push(token)
+    previousEnd = match.index + token.length
+  }
+  return { tokens, lineBreaks }
 }
 
 function isWorkspaceAgentDefinition(source: string): boolean {
-  const tokens = tokenizeAgentSource(source)
+  const { tokens, lineBreaks } = tokenizeAgentSource(source)
+  function startsStatement(index: number): boolean {
+    if (!lineBreaks.has(index) || !/^[A-Za-z_$][\w$]*$/.test(tokens[index] ?? "")) return false
+    if (["in", "instanceof", "as", "satisfies"].includes(tokens[index])) return false
+    const previous = tokens[index - 1]
+    return [")", "]", "}"].includes(previous) ||
+      (/^[A-Za-z_$][\w$]*$/.test(previous ?? "") && !["return", "throw", "yield", "await", "new", "typeof", "void", "delete", "in", "instanceof", "as", "satisfies"].includes(previous))
+  }
   const declarations = new Map<string, number>()
   const imported = new Set<string>()
   const importedNamespaces = new Set<string>()
@@ -324,6 +340,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     for (let i = index; i < tokens.length; i++) {
       const token = tokens[i]
       if (expressionDepth === 0) {
+        if (i > index && conditionalDepth === 0 && startsStatement(i)) break
         if ([";", ",", ":", "export", "const", "let", "var", ")", "}", "]"].includes(token) && conditionalDepth === 0) break
         if (token === "?" && tokens[i + 1] !== "." && tokens[i + 1] !== "?" && tokens[i - 1] !== "?") {
           if (conditionalDepth === 0) consequent = i + 1
@@ -359,7 +376,21 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     const outerBranches = conditionalBranches(index)
     if (outerBranches) return outerBranches.some(branch => capabilityOwnsWorkspace(branch, new Set(seen)))
     let wrappers = 0
-    while (tokens[index] === "(") { index++; wrappers++ }
+    while (tokens[index] === "(") {
+      let end = index + 1
+      for (let depth = 1; end < tokens.length && depth > 0; end++) {
+        if (tokens[end] === "(") depth++
+        else if (tokens[end] === ")") depth--
+      }
+      while (tokens[end] === "!" || tokens[end] === "as" || tokens[end] === "satisfies") {
+        end = tokens[end] === "!" ? end + 1 : skipAssertion(end)
+      }
+      if (["(", ".", "[", "?"].includes(tokens[end])) {
+        throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
+      }
+      index++
+      wrappers++
+    }
     if (hasLogicalOperator(outerIndex) || hasLogicalOperator(index)) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect a logical Capability expression. Use a literal Capability list with direct local bindings, or add an explicit Workspace ownership marker.")
     }
@@ -892,6 +923,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       const callbackScope = variableScope(tokens[body] === "{" ? body + 1 : body)
       for (let i = bodyStart; i < callbackEnd; i++) {
         const token = tokens[i]
+        if (returnExpression && callbackDepth === returnExpressionDepth && startsStatement(i)) returnExpression = false
         const inCallbackScope = variableScope(i) === callbackScope
         const reference = resolveReference(i, new Set(), true)
         const callEnd = memberCallEnd(reference)
