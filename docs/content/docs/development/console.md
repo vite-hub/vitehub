@@ -54,10 +54,12 @@ export default defineConfig({
 })
 ```
 
-Nuxt uses the same option. Install Nuxt UI because the Console uses the ViteHub UI module.
+Nuxt uses the same option. Install the Console peers directly so package managers can resolve them without hoisting. The Console uses Nuxt UI, Reka UI, Vue, and the application router.
+
+ViteHub accepts Vue Router 4.5 or later in v4, and v5. Match the version used by your Nuxt application.
 
 ```bash [Terminal]
-pnpm add @nuxt/ui
+pnpm add @nuxt/ui reka-ui vue vue-router
 ```
 
 ```ts [nuxt.config.ts]
