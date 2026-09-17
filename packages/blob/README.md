@@ -18,7 +18,7 @@ pnpm add -D vite
 
 Add the SDK required by the driver you configure.
 
-Nitro is an optional host. Direct Nitro 3 integrations must install `nitro` in the application. Nuxt 4 integrations use the Nitro 2 runtime supplied by Nuxt. Generated host modules use that host's runtime API. Direct runtime use and standalone provider output do not require either Nitro package.
+Nitro is an optional host. Direct Nitro 3 integrations must install `nitro` in the application. Nuxt 4 integrations use the Nitro 2 runtime supplied by Nuxt. Supported Nuxt 5 integrations use Nitro 3. The adapter selects runtime imports from the actual Nuxt version. Generated host modules use that host's runtime API. Direct runtime use and standalone provider output do not require either Nitro package.
 
 ## Minimal API
 

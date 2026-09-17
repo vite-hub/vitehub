@@ -148,6 +148,7 @@ describe("Queue Nuxt integration", () => {
       const plugin = (nuxt.options.vite.plugins as unknown[]).flat(Infinity)[0] as ReturnType<typeof hubQueue>
       const viteRoot = join(root, "app")
       await (plugin.configResolved as (config: unknown) => Promise<void>)({
+        ...nuxt.options.vite,
         build: { outDir: "dist" },
         command: "serve",
         nitro: nitroConfig,

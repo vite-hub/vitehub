@@ -34,6 +34,7 @@ export type QueueVitePlugin = Plugin & QueueProvisionContributingPlugin
 
 export interface QueueNitroConfigOptions {
   development?: boolean
+  nitroVersion?: 2 | 3
   nitro: Record<string, unknown>
   projectRoot: string
   root: string
@@ -195,7 +196,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
         }
       },
       queue: {
-        async createNitroConfig({ development = false, nitro, projectRoot, root, serverDirs }) {
+        async createNitroConfig({ development = false, nitroVersion = 3, nitro, projectRoot, root, serverDirs }) {
           const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, nitro }
           nuxtProjectRoot = projectRoot
           nuxtServerQueueDirs = [...new Set(serverDirs || [resolve(projectRoot, "server"), resolve(root, "server")])]
@@ -209,7 +210,7 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
           nitroQueue = queue !== false && queue?.provider && nitroHosting && queue.provider !== nitroHosting ? false : queue
           cloudflareQueues = supportsCloudflareQueues(configuredNitro)
           nuxtOwnsCloudflareWorker = nitroQueue !== false && nitroHosting === "cloudflare" && cloudflareQueues
-          runtimeVersion = 2
+          runtimeVersion = nitroVersion
           localDevelopment = development
           await writeQueueNitroIntegration({ rootDir: projectRoot, queue: nitroQueue, hosting, cloudflareQueues, definitions, development: localDevelopment, version: runtimeVersion, importBase: internalOptions?.importBase })
           return configuredNitro

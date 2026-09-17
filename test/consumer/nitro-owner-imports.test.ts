@@ -42,8 +42,9 @@ it("builds packed owner-generated modules with the selected Nitro host and no ho
       overrides[packageName] = `file:${tarball}`
     }
 
-    for (const version of [2, 3]) {
-      const app = join(root, `nitro-${version}`)
+    for (const host of ["nuxt4", "nuxt5", "vite"] as const) {
+      const version = host === "nuxt4" ? 2 : 3
+      const app = join(root, `nitro-${host}`)
       await mkdir(join(app, "server/schedules"), { recursive: true })
       await writeFile(join(app, "package.json"), JSON.stringify({
         private: true,
@@ -84,10 +85,11 @@ import { createNitro, prepare, build } from '${version === 2 ? "nitropack/core" 
 
 const hooks = []
 const nuxt = {
+  _version: ${JSON.stringify(host === "nuxt4" ? "4.5.2" : "5.0.0-29774482.33d37e65")},
   options: { rootDir: process.cwd(), srcDir: process.cwd(), vite: {} },
   hook(name, callback) { if (name === 'nitro:config') hooks.push(callback) },
 }
-if (${version} === 2) {
+if (${host !== "vite"}) {
   queueNuxt({ provider: 'cloudflare' }, nuxt)
   scheduleNuxt({ providerOutput: 'nitro' }, nuxt)
 }
@@ -99,7 +101,7 @@ const config = await resolveConfig({
   ...nuxt.options.vite,
   nitro: hostConfig,
   plugins: [
-    ${version === 3 ? "{ name: 'nitro:main' }," : ""}
+    ${host === "vite" ? "{ name: 'nitro:main' }," : ""}
     hubBlob({ driver: 'cloudflare-r2', serve: { headers: { 'Cache-Control': 'public, max-age=3600' } } }),
     ...(nuxt.options.vite.plugins ?? [hubQueue({ provider: 'cloudflare' }), hubSchedule({ providerOutput: 'nitro' })]),
     hubRateLimit({ provider: 'cloudflare', namespace: 'packed-consumer' }),
@@ -151,7 +153,7 @@ console.log('packed Nitro ${version} owner imports compiled')
       const result = await run(["exec", "node", "generate-and-build.mjs"], app)
       expect(result.stdout).toContain(`packed Nitro ${version} owner imports compiled`)
 
-      if (version === 3) {
+      if (host === "vite") {
         // Each dated prerelease needs its own semver admission. Keep development pinned,
         // but prove published peers also accept the older supported consumer hosts.
         for (const compatibleVersion of ["3.0.260603-beta", "3.0.260610-beta"]) {

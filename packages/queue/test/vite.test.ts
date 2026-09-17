@@ -32,7 +32,7 @@ describe("hubQueue", () => {
     expect(hubQueue().closeBundle).toMatchObject({ order: "post", sequential: true })
   })
 
-  it("registers absolute generated paths when Nitro owns the Vite config", async () => {
+  it.each([2, 3] as const)("registers absolute generated paths for Nitro %s and retains host imports on hot updates", async (nitroVersion) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-owned-"))
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
@@ -53,6 +53,7 @@ describe("hubQueue", () => {
     })
 
     const nitro = await createQueueNitroConfig(plugin, {
+      nitroVersion,
       nitro: userConfig.nitro,
       projectRoot: root,
       root,
@@ -64,8 +65,8 @@ describe("hubQueue", () => {
 
     const update = plugin.handleHotUpdate as (context: unknown) => Promise<void>
     await update({ file: join(root, "welcome.queue.ts"), server: { config: { root } } })
-    expect(await readFile(join(root, ".vitehub/nitro/queue/plugin.ts"), "utf8")).toContain("from 'nitropack/runtime'")
-    expect(await readFile(join(root, ".vitehub/nitro/queue/middleware.ts"), "utf8")).toContain("defineEventHandler as defineMiddleware")
+    expect(await readFile(join(root, ".vitehub/nitro/queue/plugin.ts"), "utf8")).toContain(`from '${nitroVersion === 2 ? "nitropack/runtime" : "nitro"}'`)
+    expect(await readFile(join(root, ".vitehub/nitro/queue/middleware.ts"), "utf8")).toContain(nitroVersion === 2 ? "defineEventHandler as defineMiddleware" : "{ defineMiddleware }")
   })
 
   it("registers and generates the Nitro queue runtime", async () => {

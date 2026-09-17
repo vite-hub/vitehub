@@ -8,7 +8,7 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_RUNTIME_VERSION, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createScheduleNitroConfig, hubSchedule } from "../src/vite.ts"
 
 async function runProviderOutputHooks(plugin: ReturnType<typeof hubSchedule>) {
@@ -139,6 +139,7 @@ describe("Vite schedule integration", () => {
 
     const userConfig: Record<string, unknown> = {
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+      [VITEHUB_NITRO_RUNTIME_VERSION]: 2,
       root,
       nitro: {
         cloudflare: {
@@ -633,7 +634,10 @@ describe("Vite schedule integration", () => {
     }
   })
 
-  it("installs Schedule Provider Wake through the Nuxt module", async () => {
+  it.each([
+    { nuxtVersion: "4.5.2", nitroImport: "nitropack/runtime" },
+    { nuxtVersion: "5.0.0-29774482.33d37e65", nitroImport: "nitro" },
+  ])("installs Schedule Provider Wake through Nuxt $nuxtVersion", async ({ nuxtVersion, nitroImport }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nuxt-"))
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "server", "schedules", "mirror.ts"), [
@@ -646,6 +650,7 @@ describe("Vite schedule integration", () => {
     let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
     let prepareTypesHook: ((context: { references: { path: string }[] }) => void) | undefined
     const nuxt = {
+      _version: nuxtVersion,
       hook(...[name, handler]:
         | ["nitro:config", (nitroConfig: Record<string, unknown>) => void | Promise<void>]
         | ["prepare:types", (context: { references: { path: string }[] }) => void]
@@ -691,6 +696,7 @@ describe("Vite schedule integration", () => {
       plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain(`from '${nitroImport}'`)
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"*/15 * * * *\"")
   })
 
