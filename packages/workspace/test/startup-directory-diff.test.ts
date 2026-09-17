@@ -23,6 +23,31 @@ describe("startup directory cleanup diffs", () => {
     expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "added" }))
   })
 
+  it.each(["startup", "lazy"] as const)("preserves retirement diff ownership for %s promoted Skills", async (materialize) => {
+    const store = createMemoryWorkspaceStore()
+    const path = ".agents/skills/review/SKILL.md"
+    const sources = { portal: custom({ materialize, files: [{ path: ".claude/skills/review/SKILL.md", content: "# Review" }] }) }
+    registerWorkspace("retired-promotion-diff", defineWorkspace({ store, sources }))
+    const workspace = await useRegisteredWorkspace("retired-promotion-diff")
+    await workspace.materializeSources?.()
+    const baseline = await workspace.snapshot()
+    Reflect.deleteProperty(sources, "portal")
+    await workspace.materializeSources?.()
+    expect(await store.readFile(path)).toBeUndefined()
+    const deletion = expect.objectContaining({ path, type: "removed" })
+    if (materialize === "startup") expect((await workspace.diff()).entries).toEqual([])
+    else expect((await workspace.diff()).entries).toContainEqual(deletion)
+    expect((await workspace.diff({ from: baseline })).entries).toContainEqual(deletion)
+    resetWorkspaceRegistry()
+    registerWorkspace("retired-promotion-diff", defineWorkspace({ store, sources }))
+    const restarted = await useRegisteredWorkspace("retired-promotion-diff")
+    if (materialize === "startup") expect((await restarted.diff()).entries).toEqual([])
+    await restarted.writeFile(path, "User Skill")
+    expect((await restarted.diff()).entries).toContainEqual(expect.objectContaining({ path }))
+    await restarted.rm(path)
+    expect((await restarted.diff()).entries).toContainEqual(deletion)
+  })
+
   it("excludes synthesized startup parents while retaining user files and empty directories", async () => {
     const store = createMemoryWorkspaceStore()
     const mkdir = store.mkdir.bind(store)

@@ -429,8 +429,14 @@ async function reconcilePromotedSourceSkills(
       const latest = await readSourceFile(store, destination)
       if (latest && await promotedFileMatches(latest, prior)) {
         if (store.compareAndSwapFile) {
+          const removalEvidence = latest.metadata?.sourceMaterialize === "startup"
+            ? await captureStartupFileRemoval(store, destination, prior.source)
+            : undefined
           try {
             await control.mutate(() => store.compareAndSwapFile!(destination, latest, undefined))
+            if (removalEvidence) {
+              await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, destination), removalEvidence))
+            }
           }
           catch (error) {
             if (!isWorkspaceConflict(error)) throw error
@@ -683,15 +689,19 @@ async function removeStaleMaterializedSourceFiles(
         if (!await materializedFileMatches(latest, recorded)
           || (recorded.materializedAttributes && latestOwner === undefined && !fileAttributesUnavailable(latest))) continue
       }
+      // Digest and ownership conditions cannot detect concurrent attribute edits.
+      if (!store.compareAndSwapFile) continue
       const removalEvidence = await captureStartupFileRemoval(store, entry.path, source.key)
-      await control.mutate(() => store.rm(entry.path, {
-        force: true,
-        ...(store.conditionalRemoval && previousSnapshot?.items?.[entry.path]?.materializedContentDigest
-          ? { ifDigest: previousSnapshot.items[entry.path].materializedContentDigest }
-          : {}),
-        ifSource: latestOwner ?? null,
-        ifWorkspace: hasRuntimeType(latest.metadata?.workspace, "string") ? latest.metadata.workspace : null,
-      }))
+      try {
+        await control.mutate(() => store.compareAndSwapFile!(entry.path, latest, undefined))
+      }
+      catch (error) {
+        if (!isWorkspaceConflict(error)) throw error
+        if (source.materialize === "startup") {
+          await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), null))
+        }
+        continue
+      }
       if (source.materialize === "startup") {
         const removed = !await store.stat(entry.path)
         await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), removed ? removalEvidence : null))
@@ -813,13 +823,16 @@ async function reconcileRemovedStartupSourcesInternal(
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
+      if (!store.compareAndSwapFile) continue
       const removalEvidence = await captureStartupFileRemoval(store, path, source.key)
-      await control.mutate(() => store.rm(path, {
-        force: true,
-        ...(store.conditionalRemoval && recordedDigest ? { ifDigest: recordedDigest } : {}),
-        ifSource: owner ?? null,
-        ifWorkspace: hasRuntimeType(file.metadata?.workspace, "string") ? file.metadata.workspace : null,
-      }))
+      try {
+        await control.mutate(() => store.compareAndSwapFile!(path, file, undefined))
+      }
+      catch (error) {
+        if (!isWorkspaceConflict(error)) throw error
+        await control.checkpoint(async () => await store.setMeta?.(removalKey, null))
+        continue
+      }
       // Preserve cleanup evidence after the Source snapshot is retired. A
       // conditional removal can leave a concurrent replacement untouched.
       const removed = !await store.stat(path)

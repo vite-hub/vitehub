@@ -1403,11 +1403,11 @@ describe("lazy sources", () => {
     }, store).materializeSources()
     const shared = (await store.readFile("shared.md"))!
     await store.writeFile("shared.md", { ...shared, metadata: { ...shared.metadata, source: "removed" } })
-    const remove = store.rm.bind(store)
-    const removals = vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+    const remove = store.compareAndSwapFile!.bind(store)
+    const removals = vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, next) => {
       // Let competing source materializations reach reconciliation before deletion.
       await new Promise(resolve => setTimeout(resolve, 0))
-      await remove(path, options)
+      await remove(path, expected, next)
     })
     const definition = { name: "concurrent-startup-removal", sources: { retained, other } }
     const view = createWorkspaceSourceView(definition, store)
@@ -4266,10 +4266,10 @@ describe("startup cleanup ownership", () => {
     const replacement = { ...file, metadata: { ...file.metadata, workspace: "other-workspace" } }
     if (invalidate) await store.writeFile(file.path, replacement)
     else {
-      const remove = store.rm.bind(store)
-      vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+      const remove = store.compareAndSwapFile!.bind(store)
+      vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, next) => {
         if (path === file.path) await store.writeFile(path, replacement)
-        await remove(path, options)
+        await remove(path, expected, next)
       })
     }
 

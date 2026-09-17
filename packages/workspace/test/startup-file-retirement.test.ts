@@ -31,24 +31,49 @@ describe("startup file ownership", () => {
     }
   })
 
-  it.each(["refresh", "retire"])("preserves a replacement made at conditional removal during %s", async (operation) => {
+  it.each(["refresh", "retire"])("retains files without complete-file removal during %s", async (operation) => {
     const store = createMemoryWorkspaceStore()
     let keys = ["file.md"]
     const sources = { generated: custom({ materialize: "startup", async getKeys() { return keys }, async getItem(key) { return { key, content: "generated" } } }) }
-    const view = createWorkspaceSourceView({ name: "removal-race", sources }, store)
+    const view = createWorkspaceSourceView({ name: "without-conditional-file-removal", sources }, store)
     await view.materializeSources()
     const path = "generated/file.md"
-    const remove = store.rm.bind(store)
-    const spy = vi.spyOn(store, "rm").mockImplementation(async (target, options) => {
-      if (target === path) await store.writeFile(path, { path, content: "generated", metadata: { user: true } })
-      await remove(target, options)
-    })
-    try {
-      keys = []
-      if (operation === "retire") Reflect.deleteProperty(sources, "generated")
+    const file = await store.readFile(path)
+    Object.defineProperty(store, "compareAndSwapFile", { value: undefined })
+    keys = []
+    if (operation === "retire") Reflect.deleteProperty(sources, "generated")
+    await view.materializeSources()
+    await expect(store.readFile(path)).resolves.toEqual(file)
+  })
+
+  it.each(["refresh", "retire"])("preserves concurrent attribute replacements during %s", async (operation) => {
+    for (const attribute of ["mediaType", "metadata"] as const) {
+      const store = createMemoryWorkspaceStore()
+      let keys = ["file.md"]
+      const sources = { generated: custom({ materialize: "startup", async getKeys() { return keys }, async getItem(key) { return { key, content: "generated", mediaType: "text/markdown", metadata: { original: true } } } }) }
+      const view = createWorkspaceSourceView({ name: "removal-race", sources }, store)
       await view.materializeSources()
-      await expect(store.readFile(path)).resolves.toMatchObject({ metadata: { user: true } })
+      const path = "generated/file.md"
+      const file = (await store.readFile(path))!
+      const replacement = {
+        ...file,
+        mediaType: attribute === "mediaType" ? "text/plain" : file.mediaType,
+        metadata: attribute === "metadata" ? { ...file.metadata, user: true } : file.metadata,
+      }
+      const remove = store.compareAndSwapFile!.bind(store)
+      const spy = vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (target, expected, next) => {
+        if (target === path) await store.writeFile(path, replacement)
+        await remove(target, expected, next)
+      })
+      try {
+        keys = []
+        if (operation === "retire") Reflect.deleteProperty(sources, "generated")
+        await view.materializeSources()
+        expect(spy).toHaveBeenCalled()
+        await view.materializeSources()
+        await expect(store.readFile(path)).resolves.toEqual(replacement)
+      }
+      finally { spy.mockRestore() }
     }
-    finally { spy.mockRestore() }
   })
 })
