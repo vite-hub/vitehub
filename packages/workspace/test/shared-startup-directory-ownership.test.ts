@@ -175,15 +175,15 @@ it("retries directory cleanup when both removal and recovery inspection fail", a
   if (!snapshot || typeof snapshot !== "object") throw new Error("Missing startup snapshot")
   await store.setMeta!(key, { ...snapshot, ownedDirectories: [] })
   const empty = { ...definition, sources: { docs: custom({ materialize: "startup", mount: "docs", files: [] }) } }
-  const rm = store.rm.bind(store)
+  const rm = store.removeEmptyDirectory!.bind(store)
   const list = store.list.bind(store)
   let failInspection = false
-  store.rm = async (path, options) => {
+  store.removeEmptyDirectory = async (path) => {
     if (path === "docs/nested") {
       failInspection = true
       throw new Error("removal unavailable")
     }
-    return rm(path, options)
+    return rm(path)
   }
   store.list = async (path, options) => {
     if (failInspection && path === "docs/nested") throw new Error("inspection unavailable")
@@ -191,7 +191,7 @@ it("retries directory cleanup when both removal and recovery inspection fail", a
   }
   await expect(materializeWorkspaceSources(empty, store)).resolves.toMatchObject({ sources: [{ status: "error" }] })
   await expect(store.stat("docs/nested/file.md")).resolves.toBeUndefined()
-  store.rm = rm
+  store.removeEmptyDirectory = rm
   store.list = list
   await expect(materializeWorkspaceSources(empty, store)).resolves.toMatchObject({ sources: [{ status: "ready" }] })
   await expect(store.stat("docs/nested")).resolves.toBeUndefined()

@@ -2855,14 +2855,14 @@ describe("lazy sources", () => {
     }
     await createWorkspaceSourceView(definition, store).materializeSources()
     keys = []
-    const originalRm = store.rm.bind(store)
+    const originalRm = store.removeEmptyDirectory!.bind(store)
     let fail = true
-    vi.spyOn(store, "rm").mockImplementation(async (path, options) => {
+    vi.spyOn(store, "removeEmptyDirectory").mockImplementation(async (path) => {
       if (path === failedPath && fail) {
         fail = false
         throw new Error("provider unavailable")
       }
-      await originalRm(path, options)
+      await originalRm(path)
     })
     await expect(createWorkspaceSourceView(definition, store).materializeSources()).resolves.toMatchObject({
       sources: [{ status: "error", error: "provider unavailable" }],

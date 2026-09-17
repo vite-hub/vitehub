@@ -551,6 +551,9 @@ async function readBuildFiles(store: WorkspaceStore, workspace: string): Promise
 async function buildSourceFilePaths(store: WorkspaceStore, workspace: string, mountPath: string, keys: string[]) {
   const paths: string[] = []
   const records = await readBuildFiles(store, workspace)
+  for (const [path, record] of Object.entries(records)) {
+    if (keys.includes(record.source)) await readWorkspaceFileOwner(store, path, true)
+  }
   for (const entry of await store.list(mountPath, { recursive: true })) {
     if (entry.type !== "file") continue
     const file = entry.metadata ? undefined : await store.readFile(entry.path)

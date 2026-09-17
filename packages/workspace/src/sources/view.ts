@@ -323,10 +323,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return await current
   }
 
-  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = false) {
+  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = true) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
-    // Overlapping root Sources validate ownership per path and can fall through to a lazy Source.
+    // File reads can validate overlapping root Sources per path and fall through to a lazy Source.
     const verifyOwnership = options.reuseStartupSnapshots ? true
       : verifyRootOwnership || source.mountPath || !sources.some(item => !item.mountPath && item.materialize === "lazy") ? "workspace" : false
     const isUncachedLazySource = source.materialize === "lazy" && source.cache === false
@@ -505,10 +505,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return await store.stat(path)
   }
 
-  async function materializeRootStartupSources() {
+  async function materializeRootStartupSources(verifyRootOwnership = true) {
     for (const source of sources.filter(source => !source.mountPath && source.materialize === "startup")) {
       await ensurePrepared(source.key)
-      await ensureMaterialized(source.key)
+      await ensureMaterialized(source.key, verifyRootOwnership)
     }
   }
 
@@ -527,10 +527,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (await sha256(file.content) === owner.digest) return file
   }
 
-  async function materializeRootSourceForPath(path: string) {
+  async function materializeRootSourceForPath(path: string, verifyRootOwnership = true) {
     for (const source of sources.filter(source => !source.mountPath)) {
       await ensurePrepared(source.key)
-      await ensureMaterialized(source.key)
+      await ensureMaterialized(source.key, verifyRootOwnership)
       if (source.materialize === "startup") {
         if (await readOwnedRootStartupFile(path, source.key)) return source
       }
@@ -622,10 +622,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
       }
-      await materializeRootStartupSources()
+      await materializeRootStartupSources(false)
       const startupFile = await readOwnedRootStartupFile(resolution.workspacePath)
       if (startupFile) return decodeFile(startupFile.content, options)
-      const rootSource = await materializeRootSourceForPath(resolution.workspacePath)
+      const rootSource = await materializeRootSourceForPath(resolution.workspacePath, false)
       if (!rootSource) {
         for (const source of sources.filter(source => !source.mountPath && source.materialize === "startup")) {
           await ensureMaterialized(source.key, true)

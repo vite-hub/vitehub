@@ -374,6 +374,11 @@ async function removeStaleMaterializedSourceFiles(
       : previousPaths.size || (store.getMeta && store.setMeta && (!previousSnapshot || previousSnapshot.items))
         ? await Promise.all([...previousPaths].map(async path => await store.stat(path)))
         : await store.list("", { recursive: true })
+  for (const path of previousPaths) {
+    if (!nextPaths.has(path) && materializationPathMatches(path, scope)) {
+      await control.mutate(() => withWorkspaceStoreMutation(store, () => readWorkspaceFileOwner(store, path, true)))
+    }
+  }
   for (const entry of entries) {
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
     await control.mutate(() => withWorkspaceStoreMutation(store, async () => {
@@ -424,13 +429,13 @@ async function removeStaleMaterializedSourceFiles(
       removedDirectories.add(path)
       continue
     }
-    if ((await store.list(path)).length) continue
+    if ((await store.list(path)).length || !store.removeEmptyDirectory) continue
     try {
       const removed = await control.mutate(async () => {
         // Mutation admission can wait while another writer replaces the path.
         if ((await store.list(path)).length) return false
         if ((await store.stat(path))?.type !== "directory") return true
-        await store.rm(path, { force: true })
+        await store.removeEmptyDirectory!(path)
         return true
       })
       if (removed) {
@@ -500,6 +505,7 @@ async function reconcileRemovedStartupSourcesInternal(
     if (!Array.isArray(sources)) continue
     for (const source of sources.filter(isMaterializedStartupSource)) retainedSources.push({ workspace: otherWorkspace, source })
   }
+  const pendingDirectoryCleanup: MaterializedStartupSource[] = []
   for (const source of previousSources.filter(source => currentMounts.get(source.key) !== source.mountPath && !isActive(source))) {
     const snapshot = await readSourceSnapshotMetadata(store, workspace, source.key)
     const invalidatedSnapshot = snapshot && snapshot.mountPath === undefined && snapshot.items === undefined
@@ -513,8 +519,8 @@ async function reconcileRemovedStartupSourcesInternal(
     for (const path of previousPaths) {
       await control.mutate(() => withWorkspaceStoreMutation(store, async () => {
         const file = await store.readFile(path)
+        const durableOwner = await readWorkspaceFileOwner(store, path, true)
         if (!file) return
-        const durableOwner = await readWorkspaceFileOwner(store, path)
         if (file.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) return
         const owner = file.metadata?.source ?? durableOwner?.source
         const recordedDigest = snapshot?.items?.[path]?.materializedContentDigest
@@ -533,6 +539,7 @@ async function reconcileRemovedStartupSourcesInternal(
         await removeWorkspaceOwnedFile(store, path)
       }))
     }
+    let directoryCleanupUnavailable = false
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       for (const { workspace: retainedWorkspace, source: currentSource } of retainedSources) {
         const retainedSnapshot = await readSourceSnapshotMetadata(store, retainedWorkspace, currentSource.key)
@@ -555,10 +562,18 @@ async function reconcileRemovedStartupSourcesInternal(
       // Decide whether removal is needed before calling the Store, so an actual
       // removal failure always preserves the snapshot and index for a retry.
       if ((await store.stat(path))?.type !== "directory" || (await store.list(path)).length) continue
+      if (!store.removeEmptyDirectory) {
+        directoryCleanupUnavailable = true
+        continue
+      }
       await control.mutate(async () => {
         if ((await store.list(path)).length || (await store.stat(path))?.type !== "directory") return
-        await store.rm(path, { force: true })
+        await store.removeEmptyDirectory!(path)
       })
+    }
+    if (directoryCleanupUnavailable) {
+      pendingDirectoryCleanup.push(source)
+      continue
     }
     await control.checkpoint(async () => {
       const key = sourceSnapshotMetaKey(workspace, source.key)
@@ -578,7 +593,7 @@ async function reconcileRemovedStartupSourcesInternal(
   }
   // Register before materialization can persist files, including failed or interrupted attempts.
   // A newer definition must retain owners that can still write or checkpoint files.
-  const trackedSources = [...currentSources, ...activeOwners, ...previousSources.filter(isActive)]
+  const trackedSources = [...currentSources, ...activeOwners, ...previousSources.filter(isActive), ...pendingDirectoryCleanup]
   const uniqueSources = trackedSources.filter((source, index) => trackedSources.findIndex(candidate => candidate.key === source.key && candidate.mountPath === source.mountPath) === index)
   await control.checkpoint(() => writeStartupIndex(store, startupSourcesMetaKey(workspace), uniqueSources.map(({ key, mountPath }) => ({ key, mountPath }))))
   if (!uniqueSources.length) {

@@ -97,7 +97,7 @@ it("keeps build output until ownership retirement succeeds", async () => {
   const setMeta = store.setMeta!.bind(store)
   let fail = true
   store.setMeta = async (key, value) => {
-    if (fail && key.startsWith("workspace-file-owner:") && value === null) {
+    if (fail && key.startsWith("workspace-file-owner:") && value !== null) {
       fail = false
       throw new Error("metadata unavailable")
     }

@@ -17,6 +17,7 @@ function limitedStore(backing: WorkspaceStore, mode: MetadataMode): WorkspaceSto
     stat: backing.stat.bind(backing),
     mkdir: backing.mkdir.bind(backing),
     rm: backing.rm.bind(backing),
+    removeEmptyDirectory: backing.removeEmptyDirectory?.bind(backing),
     snapshot: backing.snapshot.bind(backing),
     diff: backing.diff.bind(backing),
     ...(mode === "get-only" ? { getMeta: backing.getMeta?.bind(backing) } : {}),
@@ -56,14 +57,14 @@ it.each(metadataModes)("retries directory removal after a Store failure with %s 
   const store = limitedStore(createMemoryWorkspaceStore(), mode)
   const source = definition("retry", ["nested/generated.md"])
   await materializeWorkspaceSources(source, store)
-  const remove = store.rm.bind(store)
+  const remove = store.removeEmptyDirectory!.bind(store)
   let fail = true
-  store.rm = async (path, options) => {
+  store.removeEmptyDirectory = async (path) => {
     if (path === "docs/nested" && fail) {
       fail = false
       throw new Error("temporary Store failure")
     }
-    await remove(path, options)
+    await remove(path)
   }
 
   await expect(materializeWorkspaceSources({ ...source, sources: {} }, store)).rejects.toThrow("temporary Store failure")
