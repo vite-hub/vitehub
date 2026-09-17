@@ -53,9 +53,17 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "nitro": "catalog:nitro-compat",
+    "nitropack": "catalog:unjs",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "nitro": {
+      "optional": true
+    },
+    "nitropack": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

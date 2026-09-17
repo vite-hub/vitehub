@@ -61,6 +61,7 @@ interface NitroVercelConfig {
   plugins?: unknown
 }
 
+export const VITEHUB_NITRO_RUNTIME_VERSION = "__vitehubNitroRuntimeVersion" as const
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
 export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
 export const VITEHUB_PROJECT_ROOT = "__vitehubProjectRoot" as const
@@ -77,6 +78,33 @@ export function hasNitroConfigContext(config: {
   plugins?: unknown
 }): boolean {
   return config[VITEHUB_NITRO_CONFIG_CONTEXT] === true || includesNitroVitePlugin(config.plugins)
+}
+
+/** The adapter selects the runtime; native Nitro Vite integrations use Nitro 3. */
+export function nitroRuntimeVersion(config: { [VITEHUB_NITRO_RUNTIME_VERSION]?: 2 | 3, plugins?: unknown }): 2 | 3 {
+  return config[VITEHUB_NITRO_RUNTIME_VERSION] ?? 3
+}
+
+/** Read Nuxt's actual version, since installed Nitro packages can belong to other hosts. */
+export function nuxtNitroRuntimeVersion(version: string): 2 | 3 {
+  const major = Number(version.split(".")[0])
+  if (major === 3 || major === 4) return 2
+  if (major === 5) return 3
+  throw new Error(`[vitehub] Unsupported Nuxt version for Nitro runtime selection: ${version}`)
+}
+
+export function nitroRuntimeImports(version: 2 | 3 = 3): { plugin: string, middleware: string, cache: string } {
+  return version === 2
+    ? {
+        plugin: "import { defineNitroPlugin as definePlugin } from 'nitropack/runtime'",
+        middleware: "import { defineEventHandler as defineMiddleware } from 'h3'",
+        cache: "import { cachedEventHandler as defineCachedHandler } from 'nitropack/runtime'",
+      }
+    : {
+        plugin: "import { definePlugin } from 'nitro'",
+        middleware: "import { defineMiddleware } from 'nitro'",
+        cache: "import { defineCachedHandler } from 'nitro/cache'",
+      }
 }
 
 export function resolveNitroVercelFunctionName(
