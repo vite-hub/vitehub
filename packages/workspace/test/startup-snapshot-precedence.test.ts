@@ -1,10 +1,65 @@
 import { describe, expect, it, vi } from "vitest"
+import { mkdtemp, rm } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
 
 import { custom } from "../src/index.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
+import { sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
 describe("startup snapshot precedence", () => {
+  it.each(["local", "memory without CAS", "memory without attributes"].flatMap(provider => [false, true].map(missingSnapshot => ({ provider, missingSnapshot }))))("recovers lower-only files on $provider with missing snapshot=$missingSnapshot", async ({ provider, missingSnapshot }) => {
+    const root = await mkdtemp(join(tmpdir(), "startup-precedence-"))
+    try {
+      const store = provider === "local" ? createLocalWorkspaceStore(root) : createMemoryWorkspaceStore()
+      store.compareAndSwapFile = undefined
+      if (provider === "memory without attributes") {
+        const writeFile = store.writeFile.bind(store)
+        store.writeFile = async (path, file) => await writeFile(path, { path, content: file.content })
+      }
+      const preservedContent = provider === "memory without attributes" ? "lower" : "preserved higher"
+      let higherContent = preservedContent
+      let lowerKeys = ["shared.md", "missing.md"]
+      const higherItem = vi.fn(async (key: string) => ({ key, content: higherContent }))
+      const lowerItem = vi.fn(async (key: string) => ({ key, content: "lower" }))
+      const definition = {
+        name: "startup-precedence-without-cas",
+        sources: {
+          higher: custom({ materialize: "startup", mount: "", async getKeys() { return ["shared.md"] }, getItem: higherItem }),
+          lower: custom({ materialize: "startup", mount: "", cache: { maxAge: 3600 }, async getKeys() { return lowerKeys }, getItem: lowerItem }),
+        },
+      }
+      await createWorkspaceSourceView(definition, store).list("")
+      higherContent = "new higher provider content"
+      await store.rm("missing.md")
+      lowerKeys = [...lowerKeys, "new.md"]
+      if (missingSnapshot) await store.setMeta?.(sourceSnapshotMetaKey("lower", definition.name), {})
+      const writes = vi.spyOn(store, "writeFile")
+      const inspection = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+      await inspection.list("")
+      for (const [path, expected] of [["shared.md", preservedContent], ["missing.md", "lower"], ["new.md", "lower"]] as const) {
+        const file = await store.readFile(path)
+        expect(Buffer.from(file?.content ?? "").toString("utf8")).toBe(expected)
+      }
+      expect(writes.mock.calls.some(([path]) => path === "shared.md")).toBe(false)
+      expect(higherItem).toHaveBeenCalledTimes(1)
+      const recoveredCalls = lowerItem.mock.calls.length
+      await inspection.list("")
+      await createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true }).list("")
+      expect(higherItem).toHaveBeenCalledTimes(1)
+      expect(lowerItem).toHaveBeenCalledTimes(recoveredCalls)
+      Reflect.deleteProperty(definition.sources, "higher")
+      await store.rm("shared.md")
+      const retired = createWorkspaceSourceView(definition, store, { reuseStartupSnapshots: true })
+      await expect(retired.readFile("shared.md", { encoding: "utf8" })).resolves.toBe("lower")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it.each([false, true].flatMap(fileMetadata => ["none", "foreign owner", "concurrent content", "concurrent metadata", "concurrent mediaType"].map(replacement => ({ fileMetadata, replacement }))))("recovers startup snapshots with file metadata=$fileMetadata and replacement=$replacement", async ({ fileMetadata, replacement }) => {
     const store = createMemoryWorkspaceStore()
     const writeFile = store.writeFile.bind(store)

@@ -238,7 +238,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     await Promise.all(items.map(async source => await ensurePrepared(source.key)))
   }
 
-  async function materializeSerialized(options: import("../core/types.ts").WorkspaceMaterializeSourcesOptions = {}) {
+  async function materializeSerialized(options: import("../core/types.ts").WorkspaceMaterializeSourcesOptions = {}, preservedPaths?: ReadonlySet<string>) {
     const requestedPath = normalizeWorkspacePath(options.path || "")
     const selectedSources = allSources
       .filter(source => source.materialize === "lazy" || source.materialize === "startup" || source.materialize === "build" && Boolean(requestedPath))
@@ -280,6 +280,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       try {
         result = await waitForMaterialization(materializeWorkspaceSources(definition, store, options, {
           isCurrent,
+          preservedPaths,
           async mutate(operation) {
             options.abortSignal?.throwIfAborted()
             return await trackMutation(operation)
@@ -496,7 +497,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
             // A ready higher-priority snapshot may own the visible bytes.
             // Keep that file with its owner rather than replaying it as this Source.
             let shadowed = false
-            if (file && item.materializedContentDigest) {
+            if (file) {
               for (const owner of items.slice(0, items.indexOf(source))) {
                 if (!preserved.has(owner.key)) continue
                 const ownerSnapshot = await readCurrentSourceSnapshot(store, owner, definition.name)
@@ -526,8 +527,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const pending = pendingBySource.has(source.key)
       try {
         await ensurePrepared(source.key)
-        const result = incomplete.has(source.key) || !preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))
-          ? await materializeSerialized({ sources: [source.key] })
+        const protectedPaths = new Set(items.slice(0, items.indexOf(source)).flatMap(owner => (preserved.get(owner.key) || [])
+          .filter(file => !source.mountPath || sourceMountContainsPath(source, file.path)).map(file => file.path)))
+        // Without complete-file CAS, avoid overwriting files that cannot safely
+        // be restored after a lower-priority Source refresh.
+        const protectFiles = !store.compareAndSwapFile && protectedPaths.size > 0 && !preserved.has(source.key)
+        const result = protectFiles || incomplete.has(source.key) || !preserved.has(source.key) && refreshedSources.some(refreshed => sourceMountIntersectsPath(source, refreshed.mountPath))
+          ? await materializeSerialized({ sources: [source.key] }, protectFiles ? protectedPaths : undefined)
           : await ensureMaterialized(source.key)
         if (result?.sources.some(item => item.status === "error")) {
           recoveryError = workspaceError(`[vitehub] Workspace Source recovery failed: ${source.key}.`)
@@ -544,6 +550,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const refreshedSnapshot = await readCurrentSourceSnapshot(store, source, definition.name)
           for (const owner of items.slice(0, items.indexOf(source)).reverse()) {
             for (const file of preserved.get(owner.key) || []) {
+              if (!store.compareAndSwapFile) continue
               if (source.mountPath && !sourceMountContainsPath(source, file.path)) continue
               const item = refreshedSnapshot?.items?.[file.path]
               if (!item?.materializedContentDigest) continue
@@ -551,8 +558,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
               const currentOwner = current?.metadata?.source
               if (!current || currentOwner !== undefined && currentOwner !== source.key || !await materializedFileMatches(current, item)) continue
               try {
-                if (store.compareAndSwapFile) await store.compareAndSwapFile(file.path, current, file)
-                else recoveryError = workspaceError("[vitehub] Restoring a Workspace Source snapshot requires complete-file conditional writes.")
+                await store.compareAndSwapFile(file.path, current, file)
               }
               catch (error) {
                 // A writer replaced the validated content. Keep its newer file.

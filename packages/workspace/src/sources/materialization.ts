@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 
@@ -100,6 +100,7 @@ const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string | und
 const promotionReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 
 export interface MaterializationControl {
+  preservedPaths?: ReadonlySet<string>
   isCurrent(): boolean
   mutate<T>(operation: () => Promise<T>): Promise<T>
   checkpoint<T>(operation: () => Promise<T>): Promise<T>
@@ -300,6 +301,20 @@ async function reconcilePromotedSourceSkills(
   const previous = hasRuntimeType(previousValue, "object") && previousValue !== null
     ? Object.fromEntries(Object.entries(previousValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
     : {}
+  const pendingFilesMetaKey = `${promotedSourceSkillsMetaKey}:pending:${workspaceMetadataScope(workspaceName)}`
+  const pendingFilesValue = await store.getMeta(pendingFilesMetaKey)
+  const pendingFiles = hasRuntimeType(pendingFilesValue, "object") && pendingFilesValue !== null
+    ? Object.fromEntries(Object.entries(pendingFilesValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
+    : {}
+  for (const [destination, pending] of Object.entries(pendingFiles)) {
+    const current = await readSourceFile(store, destination)
+    const pendingPromotion = pending.metadata?.promotedSourceSkill
+    const currentPromotion = current?.metadata?.promotedSourceSkill
+    const attempt = hasRuntimeType(pendingPromotion, "object") && pendingPromotion !== null ? Reflect.get(pendingPromotion, "attempt") : undefined
+    const currentAttempt = hasRuntimeType(currentPromotion, "object") && currentPromotion !== null ? Reflect.get(currentPromotion, "attempt") : undefined
+    if (hasRuntimeType(attempt, "string") && attempt === currentAttempt
+      && pending.workspace === workspaceName && current && await promotedFileMatches(current, pending)) previous[destination] = pending
+  }
   const incompleteSources = new Set<string>()
   const selectedSkills = new Map<string, { paths: string[], source: string }>()
   // Keep promotion aligned with Workspace source precedence: more-specific
@@ -408,7 +423,7 @@ async function reconcilePromotedSourceSkills(
       }
       const metadata = {
         ...sourceFile.metadata,
-        promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
+        promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath, attempt: randomUUID() },
       }
       const pendingDirectories = await store.getMeta(pendingDirectoryMetaKey(destination))
       const directoryIdentities = { ...prior?.directoryIdentities }
@@ -431,6 +446,10 @@ async function reconcilePromotedSourceSkills(
             // Keep its evidence until the promotion registry is committed.
             await store.setMeta!(pendingDirectoryMetaKey(destination), directoryIdentities)
           }
+          // Publish recoverable ownership before writing. A failed registry
+          // checkpoint must not turn this attempt's files into user-owned files.
+          pendingFiles[destination] = promoted
+          await store.setMeta!(pendingFilesMetaKey, pendingFiles)
           const replacement = { ...sourceFile, path: destination, metadata }
           if (existing && store.compareAndSwapFile) await store.compareAndSwapFile(destination, existing, replacement)
           else await writeFileConditional(destination, replacement, expectedDigest)
@@ -508,6 +527,7 @@ async function reconcilePromotedSourceSkills(
   }
   await control.checkpoint(async () => await store.setMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`, next))
   await control.checkpoint(async () => {
+    await store.setMeta?.(pendingFilesMetaKey, null)
     for (const destination of completedDirectoryCheckpoints) await store.setMeta?.(pendingDirectoryMetaKey(destination), null)
   })
 }
@@ -1222,9 +1242,13 @@ async function materializeWorkspaceSourcesInternal(
 
       revision = ctx.revision
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
-      const nextPaths = new Set<string>()
+      const nextPaths = new Set(control.preservedPaths)
       for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash, options)) {
         throwIfAborted(options.abortSignal)
+        if (control.preservedPaths?.has(entry.path)) {
+          itemMetadata[entry.path] ??= entry.metadata
+          continue
+        }
         const path = entry.path
         nextPaths.add(path)
         const parts = path.split("/")
