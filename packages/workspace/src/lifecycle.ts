@@ -5,7 +5,7 @@ import { files as filesLoader } from "./loaders/files.ts"
 import { contentStreamChunks, normalizeWorkspacePath, sha256 } from "./core/path.ts"
 import { workspaceError } from "./core/errors.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
-import { readWorkspaceFileOwner, recordWorkspaceFileOwner, removeWorkspaceFileOwner } from "./sources/file-ownership.ts"
+import { readWorkspaceFileOwner, recordWorkspaceFileOwner, removeWorkspaceOwnedFile } from "./sources/file-ownership.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
@@ -580,8 +580,7 @@ async function buildSourceFilePaths(store: WorkspaceStore, workspace: string, mo
 async function removeBuildSourceFiles(store: WorkspaceStore, workspace: string, paths: string[]) {
   const records = await readBuildFiles(store, workspace)
   for (const path of paths) {
-    await removeWorkspaceFileOwner(store, path)
-    await store.rm(path, { force: true })
+    await removeWorkspaceOwnedFile(store, path)
     delete records[path]
     await writeBuildMetadata(store, buildFilesMetaKey(workspace), records)
   }

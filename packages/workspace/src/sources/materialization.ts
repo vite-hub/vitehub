@@ -13,7 +13,7 @@ import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
-import { recordWorkspaceFileOwner, readWorkspaceFileOwner, removeWorkspaceFileOwner } from "./file-ownership.ts"
+import { recordWorkspaceFileOwner, readWorkspaceFileOwner, removeWorkspaceOwnedFile } from "./file-ownership.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -376,42 +376,44 @@ async function removeStaleMaterializedSourceFiles(
         : await store.list("", { recursive: true })
   for (const entry of entries) {
     if (!entry || !materializationPathMatches(entry.path, scope) || nextPaths.has(entry.path) || entry.type !== "file") continue
-    const file = await store.readFile(entry.path)
-    // Legacy snapshots can be shared; only file ownership authorizes deletion.
-    const durableOwner = await readWorkspaceFileOwner(store, entry.path)
-    if (file?.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) continue
-    const currentOwner = file?.metadata?.source ?? durableOwner?.source
-    if (source.materialize === "startup" && store.getMeta && store.setMeta && !previousSnapshot && currentOwner !== undefined) continue
-    const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
-    // During legacy snapshot migration, durable ownership is only valid when it
-    // matches the snapshot digest that authorized cleanup.
-    if (file?.metadata?.source === undefined && durableOwner?.digest !== undefined
-      && recordedDigest !== undefined && durableOwner.digest !== recordedDigest) continue
-    // Durable ownership survives direct writes on every Store, not just local files.
-    if (file?.metadata?.source === undefined
-      && (!durableOwner?.digest || !file || await sha256(file.content) !== durableOwner.digest)) continue
-    // Persisted ownership can outlive an external edit. Preserve changed content.
-    if (localStore && previousSnapshot?.items && (!recordedDigest || !file || await sha256(file.content) !== recordedDigest)) continue
-    if (currentOwner === undefined && previousSnapshot?.items && !recordedDigest) continue
-    const overlapsAnotherSource = sources.some(candidate =>
-      candidate.key !== source.key
-      && candidate.mountPath.length >= source.mountPath.length
-      && sourceMountContainsPath(candidate, entry.path),
-    )
-    if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || (Boolean(source.mountPath) && !overlapsAnotherSource)))) {
-      for (const directory of parentDirectoryPaths(entry.path)) {
-        if (sourceOwnsDirectory(source, directory)
-          && (directory !== source.mountPath || previousSnapshot?.ownsMount)) staleDirectories.add(directory)
+    await control.mutate(() => withWorkspaceStoreMutation(store, async () => {
+      const file = await store.readFile(entry.path)
+      // Legacy snapshots can be shared; only file ownership authorizes deletion.
+      const durableOwner = await readWorkspaceFileOwner(store, entry.path)
+      if (file?.metadata?.workspaceSourceOwner !== workspace && durableOwner?.workspace !== workspace) return
+      const currentOwner = file?.metadata?.source ?? durableOwner?.source
+      if (source.materialize === "startup" && store.getMeta && store.setMeta && !previousSnapshot && currentOwner !== undefined) return
+      const recordedDigest = previousSnapshot?.items?.[entry.path]?.materializedContentDigest
+      // During legacy snapshot migration, durable ownership is only valid when it
+      // matches the snapshot digest that authorized cleanup.
+      if (file?.metadata?.source === undefined && durableOwner?.digest !== undefined
+        && recordedDigest !== undefined && durableOwner.digest !== recordedDigest) return
+      // Durable ownership survives direct writes on every Store, not just local files.
+      if (file?.metadata?.source === undefined
+        && (!durableOwner?.digest || !file || await sha256(file.content) !== durableOwner.digest)) return
+      // Persisted ownership can outlive an external edit. Preserve changed content.
+      if (localStore && previousSnapshot?.items && (!recordedDigest || !file || await sha256(file.content) !== recordedDigest)) return
+      if (currentOwner === undefined && previousSnapshot?.items && !recordedDigest) return
+      const overlapsAnotherSource = sources.some(candidate =>
+        candidate.key !== source.key
+        && candidate.mountPath.length >= source.mountPath.length
+        && sourceMountContainsPath(candidate, entry.path),
+      )
+      if (currentOwner === source.key || (currentOwner === undefined && (previousPaths.has(entry.path) || (Boolean(source.mountPath) && !overlapsAnotherSource)))) {
+        for (const directory of parentDirectoryPaths(entry.path)) {
+          if (sourceOwnsDirectory(source, directory)
+            && (directory !== source.mountPath || previousSnapshot?.ownsMount)) staleDirectories.add(directory)
+        }
+        for (const candidate of sources) {
+          if (candidate.key === source.key) continue
+          const retainedSnapshot = await readSourceSnapshotMetadata(store, workspace, candidate.key)
+          if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[entry.path]) continue
+          await writeSourceSnapshotMetadata(store, workspace, { ...retainedSnapshot, status: "updating" })
+        }
+        await removeWorkspaceOwnedFile(store, entry.path)
+        onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
       }
-      for (const candidate of sources) {
-        if (candidate.key === source.key) continue
-        const retainedSnapshot = await readSourceSnapshotMetadata(store, workspace, candidate.key)
-        if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[entry.path]) continue
-        await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, { ...retainedSnapshot, status: "updating" }))
-      }
-      await control.mutate(() => store.rm(entry.path, { force: true }))
-      onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
-    }
+    }))
   }
   const cleanupDirectories = [...staleDirectories].filter(path => !nextDirectories.has(path)).sort((a, b) => b.length - a.length)
   // Checkpoint every selected directory even if inspection or removal fails.
@@ -528,8 +530,7 @@ async function reconcileRemovedStartupSourcesInternal(
           if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
           await writeSourceSnapshotMetadata(store, workspace, { ...retainedSnapshot, status: "updating" })
         }
-        await removeWorkspaceFileOwner(store, path)
-        await store.rm(path, { force: true })
+        await removeWorkspaceOwnedFile(store, path)
       }))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {

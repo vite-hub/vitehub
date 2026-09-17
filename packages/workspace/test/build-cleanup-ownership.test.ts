@@ -112,3 +112,28 @@ it("keeps build output until ownership retirement succeeds", async () => {
   await syncWorkspaceDefinition(empty, store)
   await expect(store.readFile("shared.md")).resolves.toMatchObject({ content: "same" })
 })
+
+it.each(cases)("retries build file cleanup after removal fails at '$mount', volatile=$volatile", async ({ mount, volatile }) => {
+  const store = createStore(volatile)
+  const path = [mount, "shared.md"].filter(Boolean).join("/")
+  const definition: WorkspaceDefinition = { name: "retry-removal", sources: {
+    source: custom({ materialize: "build", mount, files: [{ path: "shared.md", content: "same" }] }),
+  } }
+  await syncWorkspaceDefinition(definition, store)
+  const remove = store.rm.bind(store)
+  let fail = true
+  store.rm = async (target, options) => {
+    if (target === path && fail) {
+      fail = false
+      throw new Error("remove unavailable")
+    }
+    await remove(target, options)
+  }
+  const empty = { name: definition.name, sources: {} }
+  await expect(syncWorkspaceDefinition(empty, store)).rejects.toThrow("remove unavailable")
+  await expect(store.readFile(path)).resolves.toMatchObject({ content: "same" })
+  await expect(readWorkspaceFileOwner(store, path)).resolves.toMatchObject({ workspace: definition.name })
+  await syncWorkspaceDefinition(empty, store)
+  await expect(store.readFile(path)).resolves.toBeUndefined()
+  await expect(readWorkspaceFileOwner(store, path)).resolves.toBeUndefined()
+})

@@ -1,4 +1,4 @@
-import { normalizeWorkspacePath } from "../core/path.ts"
+import { normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import type { WorkspaceStore } from "../core/types.ts"
 
@@ -40,4 +40,20 @@ export async function readWorkspaceFileOwner(store: WorkspaceStore, path: string
 export async function removeWorkspaceFileOwner(store: WorkspaceStore, path: string): Promise<void> {
   volatileOwners.get(workspaceStoreIdentity(store))?.delete(fileOwnerMetaKey(path))
   if (store.getMeta && store.setMeta) await store.setMeta(fileOwnerMetaKey(path), null)
+}
+
+// Call inside the Store mutation queue after validating ownership.
+export async function removeWorkspaceOwnedFile(store: WorkspaceStore, path: string): Promise<void> {
+  const owner = await readWorkspaceFileOwner(store, path)
+  await removeWorkspaceFileOwner(store, path)
+  try {
+    await store.rm(path, { force: true })
+  }
+  catch (error) {
+    const remaining = await store.readFile(path)
+    if (owner?.digest && remaining && await sha256(remaining.content) === owner.digest) {
+      await recordWorkspaceFileOwner(store, path, owner)
+    }
+    throw error
+  }
 }
