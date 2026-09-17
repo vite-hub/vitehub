@@ -117,13 +117,18 @@ async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">
   const volatile = volatileSnapshots.get(workspaceStoreIdentity(store))
   const key = sourceSnapshotMetaKey(workspace, sourceKey)
   if (volatile?.has(key)) return volatile.get(key)
+  const snapshotValue = await store.getMeta?.(sourceSnapshotMetaKey(workspace, sourceKey))
   // SAFETY: This private metadata key is written exclusively by writeSourceSnapshotMetadata below.
-  const snapshot = await store.getMeta?.(sourceSnapshotMetaKey(workspace, sourceKey)) as SourceSnapshotMetadata | undefined
+  const snapshot = snapshotValue as SourceSnapshotMetadata | undefined
   // A failed directory removal can leave the canonical retirement checkpoint
   // behind after its restoration fails. The recovery snapshot preserves retry
   // authority until the canonical snapshot is successfully written again.
-  const recovery = await store.getMeta?.(`${sourceSnapshotMetaKey(workspace, sourceKey)}:recovery`) as SourceSnapshotMetadata | undefined
-  if (recovery?.status === "ready") return recovery
+  const recoveryValue = await store.getMeta?.(`${sourceSnapshotMetaKey(workspace, sourceKey)}:recovery`)
+  // SAFETY: The recovery key is written exclusively by the snapshot retirement paths below.
+  const recovery = recoveryValue as SourceSnapshotMetadata | undefined
+  if (recovery?.status === "ready" && snapshot?.status !== "ready") return recovery
+  if (recovery?.status === "ready" && snapshot.ownsMount === false && recovery.ownsMount !== false) return recovery
+  if (snapshot?.status === "ready") return snapshot
   if (snapshot || !source) return snapshot
   // Reuse an older cache only for the same configuration. Cleanup callers do
   // not pass a Source, so they cannot claim an unscoped snapshot.
@@ -387,7 +392,7 @@ async function removeStaleMaterializedSourceFiles(
       for (const indexedSource of Array.isArray(indexedSources) ? indexedSources.filter(isMaterializedStartupSource) : []) {
         if (indexedSource.mountPath !== source.mountPath) continue
         const snapshot = await readSourceSnapshotMetadata(store, otherWorkspace, indexedSource.key)
-        if (snapshot?.ownsMount !== false) retainedMounts.set(source.mountPath, snapshot)
+        if (snapshot && snapshot.ownsMount !== false) retainedMounts.set(source.mountPath, snapshot)
       }
     }
   }
