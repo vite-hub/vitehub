@@ -399,6 +399,37 @@ describe("lazy sources", () => {
     await expect(store.readFile(destination)).resolves.toMatchObject({ content: "# Concurrent user edit" })
   })
 
+  it.each(["metadata", "mediaType"])("preserves attribute-only promotion conflicts across the complete Skill: %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    const root = ".agents/skills/shared"
+    const destination = `${root}/checks.md`
+    let version = "Original"
+    const view = createWorkspaceSourceView({ name: "promotion-attribute-race", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [`${root}/SKILL.md`, destination, `${root}/other.md`] },
+        async getItem(key) { return { key, content: `${version}: ${key}` } },
+      }),
+    } }, store)
+    await view.materializeSources()
+    const original = (await store.readFile(destination))!
+    const replacement = { ...original, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }) }
+    version = "Updated"
+    const mkdir = store.mkdir.bind(store)
+    let writes = 0
+    vi.spyOn(store, "mkdir").mockImplementation(async (path, options) => {
+      await mkdir(path, options)
+      if (path === root && ++writes === 2) await store.writeFile(destination, replacement)
+    })
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toEqual(replacement)
+    await expect(store.readFile(`${root}/SKILL.md`)).resolves.toMatchObject({ content: `Original: ${root}/SKILL.md` })
+    await expect(store.readFile(`${root}/other.md`)).resolves.toMatchObject({ content: `Original: ${root}/other.md` })
+    await view.materializeSources()
+    await expect(store.readFile(destination)).resolves.toEqual(replacement)
+    await expect(store.readFile(`${root}/SKILL.md`)).resolves.toMatchObject({ content: `Original: ${root}/SKILL.md` })
+  })
+
   it.each([false, true])("preserves promotion destinations without conditional writes (existing: %s)", async (existing) => {
     const store = createMemoryWorkspaceStore()
     const destination = ".agents/skills/shared/SKILL.md"
@@ -588,17 +619,18 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView(definition, store)
     if (existing) await view.materializeSources()
     version = "Updated"
-    const write = store.writeFileConditional!.bind(store)
+    const mkdir = store.mkdir.bind(store)
+    let writes = 0
     let raced = false
-    vi.spyOn(store, "writeFileConditional").mockImplementation(async (path, file, digest) => {
-      if (path === `${root}/checks.md` && !raced) {
+    vi.spyOn(store, "mkdir").mockImplementation(async (path, options) => {
+      await mkdir(path, options)
+      if (path === root && ++writes === 2 && !raced) {
         raced = true
-        await store.writeFile(path, { path, content: "User checks" })
+        await store.writeFile(`${root}/checks.md`, { path: `${root}/checks.md`, content: "User checks" })
         if (replaceEarlier) await store.writeFile(`${root}/SKILL.md`, { path: `${root}/SKILL.md`, content: "User Skill" })
         if (cancellation === "abort") abort.abort(new Error("promotion canceled"))
         if (cancellation === "supersede") void invalidateWorkspaceSourceMaterialization(definition, store, ["portal"])
       }
-      await write(path, file, digest)
     })
     const result = view.materializeSources({ abortSignal: abort.signal })
     if (cancellation === "none") await result
@@ -626,15 +658,16 @@ describe("lazy sources", () => {
     } }, store)
     if (existing) await view.materializeSources()
     version = "Updated"
-    const write = store.writeFileConditional!.bind(store)
-    vi.spyOn(store, "writeFileConditional").mockImplementation(async (path, file, digest) => {
-      if (path === `${root}/checks.md`) await store.writeFile(path, { path, content: "User checks" })
-      await write(path, file, digest)
+    const mkdir = store.mkdir.bind(store)
+    let writes = 0
+    vi.spyOn(store, "mkdir").mockImplementation(async (path, options) => {
+      await mkdir(path, options)
+      if (path === root && ++writes === 2) await store.writeFile(`${root}/checks.md`, { path: `${root}/checks.md`, content: "User checks" })
     })
     const compensate = store.compareAndSwapFile!.bind(store)
     let replaced = false
     vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (path, expected, replacement) => {
-      if (path === destination) {
+      if (path === destination && expected.content === `Updated: ${destination}`) {
         replaced = true
         await store.writeFile(path, { ...expected, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }) })
       }

@@ -406,7 +406,9 @@ async function reconcilePromotedSourceSkills(
       try {
         await control.mutate(async () => {
           await store.mkdir(posix.dirname(destination), { recursive: true })
-          await writeFileConditional(destination, { ...sourceFile, path: destination, metadata }, expectedDigest)
+          const replacement = { ...sourceFile, path: destination, metadata }
+          if (existing && store.compareAndSwapFile) await store.compareAndSwapFile(destination, existing, replacement)
+          else await writeFileConditional(destination, replacement, expectedDigest)
         })
         writes.push({ destination, existing, promoted })
       }
