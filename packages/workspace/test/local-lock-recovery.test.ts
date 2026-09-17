@@ -41,7 +41,7 @@ it("refuses symlinked lock directories", async () => {
     await writeFile(join(root, "outside/keep"), "keep")
     await symlink(join(root, "outside"), join(root, ".vitehub"))
     await expect(recoverLocalWorkspaceLocks({ root, offline: true })).rejects.toThrow(
-      "Untrusted Workspace",
+      "Expected a real Workspace lock recovery directory",
     )
     expect(await readFile(join(root, "outside/keep"), "utf8")).toBe("keep")
   } finally {
