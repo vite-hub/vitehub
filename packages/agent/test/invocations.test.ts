@@ -1659,6 +1659,42 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it.each(["input.messages", "input.prompt"])("preserves message structure when %s text exceeds the capture budget", async (key) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime(`large-${key}`))
+    if (!journal) throw new Error("Expected the invocation journal.")
+    const messages = [
+      { id: "first", parts: [{ text: "x".repeat(100_000), type: "text" }], role: "user" },
+      { content: "second message", role: "assistant", id: "second" },
+      { parts: [{ text: "", type: "text" }], role: "user", id: "third" },
+    ]
+    await journal.context.traceLog?.append({ attributes: { [key]: messages }, name: "agent.input", type: "run" })
+    await journal.finish("completed")
+
+    const observation = (await invocations.getByRunId(`large-${key}`))?.observations.find(entry => entry.name === "agent.input")
+    expect(observation?.attributes?.[key]).toEqual([
+      { id: "first", parts: [{ text: expect.stringMatching(/^x+$/), type: "text" }], role: "user" },
+      { content: "[truncated]", role: "assistant", id: "second" },
+      { parts: [{ text: "", type: "text" }], role: "user", id: "third" },
+    ])
+    expect(JSON.stringify(observation?.attributes?.[key]).length).toBeLessThan(66_000)
+    expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(messages[0]?.parts?.[0]?.text).toHaveLength(100_000)
+    expect(messages[1]?.content).toBe("second message")
+  })
+
+  it.each(["input.messages", "input.prompt"])("retains short %s messages unchanged", async (key) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime(`short-${key}`))
+    if (!journal) throw new Error("Expected the invocation journal.")
+    const messages = [{ content: "Hello", role: "user", id: "first" }]
+    await journal.context.traceLog?.append({ attributes: { [key]: messages }, name: "agent.input", type: "run" })
+    await journal.finish("completed")
+    const observation = (await invocations.getByRunId(`short-${key}`))?.observations.find(entry => entry.name === "agent.input")
+    expect(observation?.attributes?.[key]).toEqual(messages)
+    expect(observation?.attributes).not.toHaveProperty("vitehub.observation.truncated")
+  })
+
   it("marks bounded ordinary observations as truncated", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("bounded-ordinary-observation"))

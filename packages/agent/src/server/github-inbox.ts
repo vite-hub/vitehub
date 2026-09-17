@@ -5,3 +5,5 @@ export { readSnapshot, hydrateSnapshot, readPullRequestThreads, reconcileOneSnap
 export type { ReadGitHubSnapshot, ReadThreads, ReadGraphql } from './github-inbox/snapshot-sync.ts'
 export { snapshotPrompt, assertPromptFits } from './github-inbox/snapshot-prompt.ts'
 export { snapshotPullRequest, claimStopReason, createClaimStopCheck } from './github-inbox/claim-state.ts'
+export type { InboxBudgets, ProgressBudget, ProgressOutcome, ProviderBudget, ProviderAttempt, ProviderAttemptOutcome } from './github-inbox/budgets.ts'
+export type { PullRequestWait } from './github-inbox/wait-state.ts'

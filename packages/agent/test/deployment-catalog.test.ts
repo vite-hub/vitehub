@@ -23,6 +23,7 @@ interface DeploymentRuntimeCapture {
   denoHandler?: (request: Request) => Promise<Response>
   lastAgent?: Record<PropertyKey, unknown>
   registeredAgent?: Record<PropertyKey, unknown>
+  extendRegisteredAgent?: () => Record<PropertyKey, unknown>
   registeredWorkspaceName?: string
   stateAdapter?: CapturedStateAdapter
   workspaceDefinitions: Record<string, Record<PropertyKey, unknown>>
@@ -43,6 +44,8 @@ const runtimeCaptureKey = "__vitehubAgentDeploymentRuntimeCapture"
 function deploymentRuntimeModules(): Map<string, string> {
   return new Map([
     ["@vite-hub/agent/server/internal", [
+      `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
+      "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
       "function assetText(agent, key) {",
       "  const source = agent[Symbol.for('vitehub.agent.colocatedSkills')]?.[key]",
@@ -72,6 +75,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "export function markDiscoveredWorkspaceAgentDefinitionRegistered(agent, defaults) {",
       "  const name = agent.__vitehubWorkspaceAgentOptions?.name || defaults.workspace || defaults.name",
       "  capture().registeredAgent = agent",
+      "  capture().extendRegisteredAgent = () => defineAgent({ extends: agent, description: 'Extended' })",
       "  capture().registeredWorkspaceName = name",
       "  return name",
       "}",
@@ -468,6 +472,10 @@ describe("generated Agent deployment catalog", () => {
     })
     expect(runtime!.capture.lastAgent).toBe(runtime!.capture.registeredAgent)
     expect(runtime!.capture.registeredWorkspaceName).toBe("support")
+    const extended = runtime!.capture.extendRegisteredAgent?.()
+    expect(extended?.description).toBe("Extended")
+    expect(extended?.sourceRootDir).toBe(join(runtime!.supportRoot, "workspace"))
+    expect(extended?.[Symbol.for("vitehub.agent.colocatedSkills")]).toEqual(skills)
   })
 
   it.each([false, true])("keeps startup instructions with an explicit source root and explicit override %s", async (explicitInstructions) => {

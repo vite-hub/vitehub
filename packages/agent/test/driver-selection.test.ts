@@ -6,6 +6,15 @@ import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAge
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
 
 describe("built-in Agent Driver selection", () => {
+  it("preserves and validates static provider exit callbacks", () => {
+    const onExit = vi.fn();
+    expect(normalizeAgentDriver({ driver: { kind: "codex", launch: { command: "codex", onExit } } })).toMatchObject({
+      launch: { command: "codex", onExit },
+    });
+    // SAFETY: This fixture supplies an invalid callback to test runtime validation.
+    expect(() => defineAgent({ driver: { kind: "codex", launch: { command: "codex", onExit: "invalid" } } } as never)).toThrow("driver.launch.onExit");
+  });
+
   it("normalizes the common retry setting into AI SDK call settings", () => {
     // SAFETY: This test needs only the resolver's presence; provider execution is not invoked.
     expect(normalizeAgentDriver({

@@ -44,6 +44,19 @@ Authenticate the request before passing trusted identity or access facts. `conte
 
 The second argument is [Runtime Context](/docs/concepts/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
 
+### Run without a host context
+
+For a script or direct invocation, pass the invocation input as the second argument:
+
+```ts
+const [error, result] = await runAgent(support, { prompt: 'Summarize the support policy.' })
+if (error) throw error
+```
+
+This form creates a fresh memo cache and run ID, uses the `unknown` runtime, and returns `[null, result]` or `[Error, null]`. It drains background work registered before the call settles. A background failure returns an error tuple; an invocation failure takes precedence if both fail. Non-Error thrown values become an `Error` with the original value as its `cause`.
+
+Results follow the configured Agent runtime: inline output stays unchanged, and an explicit Workflow binding returns its Workflow Run. Agents that rely on default host Workflow discovery return an error tuple. Set `runtime: false` for inline execution, configure an explicit `workflow("name")` binding, or use the three-argument form with a host context. This form does not supply request metadata, runtime configuration, or a host background lifetime. Use the three-argument form when those are required, including streams that schedule work during later consumption. The tuple covers the call itself; errors from consuming a returned stream or Response body still occur during consumption.
+
 ## Stream an Agent
 
 Use `streamAgent()` when a chat UI or internal consumer needs incremental output.
@@ -349,3 +362,97 @@ For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/
 `agentInvocationId(runId, agentName)` from `vite-hub/agent/server` resolves the canonical invocation ID before admission, allowing applications to include a live Console link in Channel activity.
 
 For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` exposes `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and does not retain disposable checkouts.
+
+## Durable retry budgets
+
+On Node hosts, the GitHub inbox can bound repeated provider dispatches and PR work
+in its existing SQLite database. This is an explicit scheduler API; configuring it
+does not intercept Agent invocations or classify errors automatically.
+
+```ts
+import { PullRequestInbox } from 'vite-hub/agent/server/github-inbox'
+
+const inbox = new PullRequestInbox({
+  path: './data/inbox.sqlite',
+  repositories: ['acme/project'],
+  budgets: { providerRetries: 3, noProgress: 3 },
+})
+```
+
+Reserve each dispatch, including retries, using a scope shared by workers that use
+the same provider account. Do not put credentials in the scope. Four reservations
+are available: one initial attempt plus three retries. Pending reservations count
+toward that bound, so a worker must wait for other in-flight results when all slots
+are occupied. Check `providerBudget(scope)` to distinguish pending work from four
+recorded failures.
+
+```ts
+const token = inbox.reserveProviderAttempt('codex:primary-account')
+if (!token) {
+  // Leave the PR claim unstarted. Inspect pending attempts or exhausted failures.
+  return
+}
+const claim = inbox.claim(1)[0]
+if (!claim) {
+  inbox.finishProviderAttempt(token, 'other-failure')
+  return
+}
+
+let result
+try {
+  result = await invokeRepairAgent(claim)
+} catch (error) {
+  // Application-owned classification: only known retryable provider failures count.
+  const retryable = isRetryableProviderFailure(error)
+  inbox.finishProviderAttempt(token, retryable ? 'retryable-failure' : 'other-failure')
+  inbox.release(claim)
+  throw error
+}
+inbox.finishProviderAttempt(token, 'success')
+
+try {
+  // Compare GitHub/provider state before and after the invocation. Do not parse prose.
+  const evidence = await verifyNewProgress(claim, result)
+  inbox.finish(claim, {
+    text: result.text,
+    retry: !evidence,
+    progress: evidence ? { kind: 'verified', evidence } : { kind: 'no-progress' },
+  })
+}
+catch (error) {
+  inbox.release(claim)
+  throw error
+}
+```
+
+`invokeRepairAgent`, `isRetryableProviderFailure`, and `verifyNewProgress` above are
+application functions. Concrete progress can be a newly pushed commit, a verified
+thread resolution, or a completed merge. A valid external wait belongs in durable
+scheduler state; if another invocation repeats that unchanged wait, it is no
+progress. Use evidence identifiers for actual transitions. Credited identifiers persist for that head, so even nonconsecutive replay after
+a restart or manual reset does not reset the counter. Result text and a successful model response alone are
+not progress.
+
+Three no-progress completions stop claims for the same head, even if result status
+is completed or another webhook arrives. New head state starts with a fresh budget.
+Stale claim completions cannot charge or reset the new head. `summary()` exposes
+`progressBudget` with its head, limit, count, exhaustion state and last verified evidence.
+The first recorded progress outcome saves the configured limit for that head.
+Workers retain this limit across configuration changes and restarts until an explicit
+reset adopts the current limit. A new head uses the current configuration.
+
+Provider successes clear only failures from earlier dispatches; late responses
+cannot clear newer failures. Other errors release their reservation without
+counting as quota failures. Duplicate completion tokens are ignored. SQLite
+transactions coordinate workers that open the same database. These guarantees do
+not extend to hosts with separate databases.
+
+There is no time-based unblock. Failure counts and uncompleted reservations survive
+restart. After inspecting interrupted work or restored quota, an operator can call
+`resetProviderBudget(scope, reason)`. This invalidates outstanding tokens and adopts
+the current retry limit. Existing provider scopes retain their limit until reset.
+For a stopped PR, use `resetProgressBudget(repository, number, expectedHead, reason)`;
+it rejects an active lease, a closed PR, or an outdated head. It records the reset
+reason separately and preserves already credited evidence IDs. Keep these operations
+behind the application's operator authorization. Do not call reset on every webhook
+or deployment. The inbox cannot prove an application's evidence or authorization.
