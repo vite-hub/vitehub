@@ -357,7 +357,6 @@ async function removeStaleMaterializedSourceFiles(
   ownedDirectories: Set<string>,
   onRemoved?: (path: string, bytes: number) => void,
 ) {
-  const localStore = (await resolveWorkspaceStoreTarget(store))?.provider === "local"
   const previousPaths = new Set(Object.keys(previousSnapshot?.items || {}))
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   // Owned directories survive failed cleanup after their last file was removed.
@@ -402,7 +401,7 @@ async function removeStaleMaterializedSourceFiles(
         return
       }
       // Persisted ownership can outlive an external edit. Preserve changed content.
-      if (localStore && previousSnapshot?.items && (!recordedDigest || !file || await sha256(file.content) !== recordedDigest)) {
+      if (previousSnapshot?.items && (!recordedDigest || !file || await sha256(file.content) !== recordedDigest)) {
         if (durableOwner?.workspace === workspace && durableOwner.source === source.key) await removeWorkspaceFileOwner(store, entry.path)
         return
       }

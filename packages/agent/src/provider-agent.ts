@@ -163,8 +163,7 @@ async function hasSafeProviderPath(root: string, path: string): Promise<boolean>
   for (const segment of relative(root, path).split(/[\\/]/).filter(Boolean)) {
     current = join(current, segment)
     const entry = await lstat(current).catch(() => undefined)
-    if (!entry) return false
-    if (entry.isSymbolicLink()) return false
+    if (!entry?.isDirectory() || entry.isSymbolicLink()) return false
   }
   return true
 }

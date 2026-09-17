@@ -148,7 +148,7 @@ it.each(cases)("revalidates startup cleanup after mutation admission with anothe
   await expect(readWorkspaceFileOwner(store, path)).resolves.toMatchObject({ workspace: "second" })
 })
 
-it.each(["", "docs"])("preserves edits with stale inline metadata when removing startup Source at '%s'", async (mount) => {
+it.each(["", "docs"].flatMap(mount => [false, true].map(refresh => ({ mount, refresh }))))("preserves edits with stale inline metadata at '$mount', refresh=$refresh", async ({ mount, refresh }) => {
   const store = createMemoryWorkspaceStore()
   const path = [mount, "shared.md"].filter(Boolean).join("/")
   const definition: WorkspaceDefinition = { name: "edited-inline-owner", sources: {
@@ -158,7 +158,13 @@ it.each(["", "docs"])("preserves edits with stale inline metadata when removing 
   const file = await store.readFile(path)
   expect(file?.metadata?.source).toBe("startup")
   await store.writeFile(path, { ...file!, content: "user edit" })
-  await materializeWorkspaceSources({ name: definition.name, sources: {} }, store)
+  const empty: WorkspaceDefinition = { name: definition.name, sources: refresh ? {
+    startup: custom({ materialize: "startup", mount, files: [] }),
+  } : {} }
+  await materializeWorkspaceSources(empty, store)
   await expect(store.readFile(path)).resolves.toMatchObject({ content: "user edit" })
   await expect(readWorkspaceFileOwner(store, path)).resolves.toBeUndefined()
+  await store.writeFile(path, { ...file!, content: "generated" })
+  await materializeWorkspaceSources(empty, store)
+  await expect(store.readFile(path)).resolves.toMatchObject({ content: "generated" })
 })

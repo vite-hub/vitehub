@@ -974,10 +974,11 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   if (hasRuntimeType(resolveMetadata, "function")) {
     Reflect.set(facade, metadataTarget, async () => {
       // SAFETY: workspaceMetadataTarget is ViteHub-owned and returns the narrow metadata contract below.
-      const metadata = await Reflect.apply(resolveMetadata, workspace, []) as { getMeta?: (key: string) => Promise<unknown>, list?: (path: string, options?: ListOptions) => Promise<WorkspaceEntry[]> } | undefined
+      const metadata = await Reflect.apply(resolveMetadata, workspace, []) as { workspaceName?: string, getMeta?: (key: string) => Promise<unknown>, list?: (path: string, options?: ListOptions) => Promise<WorkspaceEntry[]> } | undefined
       if (!metadata) return
       const list = metadata.list?.bind(metadata)
       return {
+        workspaceName: metadata.workspaceName,
         getMeta: metadata.getMeta?.bind(metadata),
         list: list
           ? async (path: string, options?: ListOptions) => filterEntries(scope, await list(path, options))

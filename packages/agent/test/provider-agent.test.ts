@@ -4564,6 +4564,49 @@ cli_auth_credentials_store = "keyring"
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it.each([".codex", ".codex/skills", ".codex/skills/canonical"])("preserves a provider replacement file at %s during Skill cleanup", async (replacementPath) => {
+    const threadId = `thread-workspace-replaced-skill-parent-${replacementPath}`
+    let root = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        await expect(readFile(`${root}/.codex/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        await rm(join(root, replacementPath), { recursive: true })
+        await writeFile(join(root, replacementPath), "Provider replacement")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => {
+        await expect(readFile(join(root, replacementPath), "utf8")).resolves.toBe("Provider replacement")
+        await expect(readFile(`${root}/.agents/skills/canonical/SKILL.md`, "utf8")).resolves.toBe("# Canonical\n")
+        return { entries: [] }
+      }),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = {
+      fs: {},
+      startSession: vi.fn(async (options: { target: string }) => {
+        root = options.target
+        await mkdir(`${root}/.agents/skills/canonical`, { recursive: true })
+        await writeFile(`${root}/.agents/skills/canonical/SKILL.md`, "# Canonical\n")
+        return session
+      }),
+      tools: {},
+    }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceAutoCommit: true,
+      workspaceDefinition: { mode: "write", name: "docs" },
+      workspaceMode: "write",
+    }) as never)
+    expect(session.diff).toHaveBeenCalledOnce()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("does not discover Skills through a linked provider directory", async () => {
     const threadId = "thread-workspace-linked-provider-skills"
     const external = await mkdtemp(join(tmpdir(), "vitehub-provider-skills-"))
@@ -5479,7 +5522,7 @@ cli_auth_credentials_store = "keyring"
 
       const args = (await readFile(marker, "utf8")).trim().split("\n")
       expect(args.slice(0, 2)).toEqual(["-rf", "--"])
-      expect(args[2]).toMatch(/^\/tmp\/vitehub-provider-/)
+      expect(args[2]?.startsWith(join(tmpdir(), "vitehub-provider-"))).toBe(true)
     }
     finally {
       process.env.PATH = previousPath
