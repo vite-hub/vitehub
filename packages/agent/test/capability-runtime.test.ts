@@ -142,6 +142,39 @@ function schema<T>(validate: (value: unknown) => T) {
 }
 
 describe("agent capability runtime", () => {
+  it.each(["lazy", "startup"] as const)("overlays the matching GitHub checkout for a PR invocation (%s)", async (materialize) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { github } = await import("@vite-hub/workspace")
+    const name = `pr-source-${crypto.randomUUID()}`
+    const source = (ref: string, content: string) => ({
+      ...github({ repo: "example/portal", ref, materialize }),
+      prepare: undefined,
+      resolveRevision: async () => ({ id: ref, immutable: true }),
+      getKeys: async () => ["version.txt"],
+      getItem: async (key: string) => ({ key, content }),
+      getItems: async () => [{ key: "version.txt", content }],
+      getMeta: async () => ({}),
+    })
+    const definition = defineWorkspace({ store: { provider: "memory" }, sources: { portal: source("main", "support") } })
+    registerWorkspace(name, definition)
+    const workspace = useWorkspace(name, { mode: "write" })
+    await expect(workspace.fs.readFile("portal/version.txt")).resolves.toBe("support")
+    const contribution = { sources: { vitehubGitHubPullRequest: {
+      ...source("pr-head", "pull request"), materialize: "lazy" as const, mount: { path: "portal" },
+    } } }
+    const resolve = (id: string) => resolveAgentCapabilities({ capabilities: [{ id, workspace: contribution }] }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
+    })
+    await expect(resolve("other-capability")).rejects.toThrow('conflicts with Workspace Source "portal"')
+    const result = await resolve("github-pull-request-workspace")
+    try {
+      expect(result.workspaceDefinition?.sources?.portal).toBeUndefined()
+      await expect(result.workspace!.fs.readFile("portal/version.txt")).resolves.toBe("pull request")
+      await expect(workspace.fs.readFile("portal/version.txt")).resolves.toBe("support")
+      expect(definition.sources?.portal).toBeDefined()
+    } finally { await result.close() }
+  })
+
   it("runs lifecycle phases in capability order and closes in reverse order", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const order: string[] = []

@@ -679,6 +679,7 @@ async function assertResolvedWorkspaceContributionSources(
   runtime: WorkspaceContributionRuntime,
   persistencePaths: readonly { capabilityId: string, path: string }[] = [],
   desiredWorkspace?: ReadonlyWorkspaceFacade,
+  replacedSources: ReadonlySet<string> = new Set(),
 ) {
   const contributed = new Map<string, string>()
   for (const contribution of registries) {
@@ -701,7 +702,7 @@ async function assertResolvedWorkspaceContributionSources(
       }
     }
     const retainedPaths = new Map(persistencePaths.filter(item => item.capabilityId === capabilityId).map(item => [item.path, item.capabilityId]))
-    if (!contributedSource.requestOnly && await workspaceSourcePathExists(workspace, contributedSource, retainedPaths, desiredWorkspace)) {
+    if (!replacedSources.has(key) && !contributedSource.requestOnly && await workspaceSourcePathExists(workspace, contributedSource, retainedPaths, desiredWorkspace)) {
       throw agentDiagnostics.AGENT_R0331({ message: `[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace path at mount "${contributedSource.mountPath}".` })
     }
   }
@@ -860,6 +861,7 @@ async function applyCapabilityWorkspaceContributions<
 ): Promise<{ definition: WorkspaceDefinition, registries: AgentCapabilityRegistries["workspaceContributions"], workspace: ReadonlyWorkspaceFacade<Name> } | undefined> {
   let definition = context.workspaceDefinition
   const registries: AgentCapabilityRegistries["workspaceContributions"] = []
+  const replacedSources = new Set<string>()
   const workspaceRuntime = await import("@vite-hub/workspace/runtime")
 
   for (const capability of capabilities) {
@@ -874,6 +876,27 @@ async function applyCapabilityWorkspaceContributions<
       : capability.workspace
     if (!resolved) continue
 
+    if (capability.id === "github-pull-request-workspace" && resolved.sources?.vitehubGitHubPullRequest) {
+      const pr = normalizedContributionSource("vitehubGitHubPullRequest", resolved.sources.vitehubGitHubPullRequest, workspaceRuntime)
+      const remaining = { ...definition.sources }
+      for (const [key, source] of Object.entries(remaining)) {
+        const existing = normalizedContributionSource(key, source, workspaceRuntime)
+        const prFingerprint = pr.source?.fingerprint
+        const existingFingerprint = existing.source?.fingerprint
+        // Replace only a declared checkout of the same repository at the same mount.
+        if (pr.mountPath && !pr.requestOnly && !existing.requestOnly
+          && pr.mountPath === existing.mountPath
+          && pr.source?.name === "github" && existing.source?.name === "github"
+          && isRuntimeRecord(prFingerprint) && isRuntimeRecord(existingFingerprint)
+          && typeof prFingerprint.repo === "string" && prFingerprint.repo
+          && prFingerprint.repo === existingFingerprint.repo
+          && !registries.some(entry => entry.sources.includes(key))) {
+          delete remaining[key]
+          replacedSources.add("vitehubGitHubPullRequest")
+        }
+      }
+      if (replacedSources.size) definition = { ...definition, sources: remaining }
+    }
     assertWorkspaceContribution(capability.id, resolved, definition, workspaceRuntime)
     const sources = withInvocationReadableSources(resolved.sources || {})
     const rules = resolved.rules || {}
@@ -922,6 +945,7 @@ async function applyCapabilityWorkspaceContributions<
     workspaceRuntime,
     context.workspacePersistencePaths,
     sourceResolution.workspace,
+    replacedSources,
   )
   const persistencePaths = context.workspacePersistencePaths || []
   // SAFETY: Persistence runs only for the writable workspace returned by capability source resolution.
