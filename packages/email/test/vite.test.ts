@@ -364,6 +364,7 @@ describe("hubEmail", () => {
     try {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
+      // Vite's plugin container normalizes the hook's /@fs// prefix to /@fs/.
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
         .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?markdown-template`)
     }
