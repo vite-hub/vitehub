@@ -4051,7 +4051,12 @@ async function createAgentInvocationContext<
       // Owned definitions include the fallback Sources themselves. Exclude those
       // entries so only explicit Sources, including active Channel contributions, win.
       const explicitSources = ownsWorkspaceDefinition
-        ? Object.fromEntries(Object.entries(activeWorkspaceDefinition?.sources || {}).filter(([key, source]) => source !== colocatedSkills[key]))
+        ? Object.fromEntries(Object.entries(activeWorkspaceDefinition?.sources || {}).filter(([key, source]) => {
+          // Registered definitions may deserialize Sources, so object identity is
+          // not stable for generated colocated entries. Keep same-key explicit
+          // Sources (for example Channel contributions) available to filtering.
+          return !(key.startsWith("__vitehubAgentSkill:") && Object.hasOwn(colocatedSkills, key)) && source !== colocatedSkills[key]
+        }))
         : activeWorkspaceDefinition?.sources
       invocationContext.set(colocatedAgentSkillsContextKey, filterColocatedAgentSkills(colocatedSkills, explicitSources), { overwrite: true })
     }
