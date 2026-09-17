@@ -133,7 +133,7 @@ export async function invalidateSourceSnapshot(store: WorkspaceStore, workspace:
   if (snapshot) await writeSourceSnapshotMetadata(store, workspace, { ...snapshot, status: "updating" })
 }
 
-export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, verifyOwnership: boolean | "workspace" = false) {
+export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, verifyOwnership: boolean | "workspace" = false, activeSources: ResolvedWorkspaceSource[] = []) {
   const configHash = await sourceConfigHash(source, store)
   const meta = await readSourceSnapshotMetadata(store, workspace, source.key, source)
   if (meta?.status !== "ready" || meta.configHash !== configHash) return false
@@ -152,14 +152,23 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, workspace:
     }
     return true
   }
-  return !verifyOwnership || await snapshotHasCurrentOwners(store, workspace, source, meta)
+  return !verifyOwnership || await snapshotHasCurrentOwners(store, workspace, source, meta, activeSources)
 }
 
-async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, meta: SourceSnapshotMetadata) {
+async function snapshotHasCurrentOwners(store: WorkspaceStore, workspace: string, source: ResolvedWorkspaceSource, meta: SourceSnapshotMetadata, activeSources: ResolvedWorkspaceSource[] = []) {
   if (Object.keys(meta.items || {}).length === 0 && meta.mountPath && (await store.stat(meta.mountPath))?.type !== "directory") return false
   for (const path of Object.keys(meta.items || {})) {
     const stat = await store.stat(path)
-    if (!await materializedFileHasCurrentOwner(store, workspace, source.key, path, stat)) return false
+    if (await materializedFileHasCurrentOwner(store, workspace, source.key, path, stat)) continue
+    // Startup snapshots share the most recent write at overlapping paths.
+    const owner = await readWorkspaceFileOwner(store, path)
+    const currentSource = activeSources.find(item => item.key === owner?.source && item.materialize === "startup")
+    if (source.materialize !== "startup" || owner?.workspace !== workspace || !owner.digest || !currentSource) return false
+    const currentSnapshot = await readCurrentSourceSnapshot(store, workspace, currentSource)
+    if (currentSnapshot?.status !== "ready" || !Object.hasOwn(currentSnapshot.items || {}, path)) return false
+    if (!await materializedFileHasCurrentOwner(store, workspace, currentSource.key, path, stat)) return false
+    const file = await store.readFile(path)
+    if (!file || await sha256(file.content) !== owner.digest) return false
   }
   return true
 }

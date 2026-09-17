@@ -93,14 +93,17 @@ async function pruneBuildDirectories(store: WorkspaceStore, workspace: string): 
     const owned = await readBuildDirectories(store, workspace)
     const users = await readBuildDirectoryUsers(store)
     const retained: string[] = []
+    const pending = new Set(owned)
     for (const path of owned.sort((a, b) => b.length - a.length)) {
       const others = (Object.hasOwn(users, path) ? users[path]! : []).filter(name => name !== workspace)
       if (others.length) {
         users[path] = others
+        pending.delete(path)
         continue
       }
       if ((await store.stat(path))?.type !== "directory") {
         delete users[path]
+        pending.delete(path)
         continue
       }
       if ((await store.list(path)).length) {
@@ -111,11 +114,26 @@ async function pruneBuildDirectories(store: WorkspaceStore, workspace: string): 
         retained.push(path)
         continue
       }
-      await store.removeEmptyDirectory(path)
+      const previousUsers = users[path]
       delete users[path]
+      pending.delete(path)
+      // Retire durable claims before deletion so a later metadata failure cannot
+      // grant cleanup authority over a directory recreated at the same path.
+      await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), [...pending])
+      await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
+      try {
+        await store.removeEmptyDirectory(path)
+      }
+      catch (error) {
+        pending.add(path)
+        if (previousUsers) users[path] = previousUsers
+        await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), [...pending])
+        await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
+        throw error
+      }
     }
-    await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
     await writeBuildMetadata(store, buildDirectoriesMetaKey(workspace), retained)
+    await writeBuildMetadata(store, buildDirectoryUsersMetaKey, users)
   })
 }
 
