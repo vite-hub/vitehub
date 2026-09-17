@@ -114,7 +114,7 @@ it("declares the optional host peer and executes packed Agent routes with applic
       writeFile(join(appDir, "generate.mjs"), generate),
       writeFile(join(appDir, "exercise.mjs"), exercise),
     ])
-    await run("corepack", ["pnpm", "install", "--ignore-scripts", "--reporter=append-only"], appDir)
+    await run("corepack", ["pnpm", "install", "--no-frozen-lockfile", "--ignore-scripts", "--reporter=append-only"], appDir)
     await run(process.execPath, ["generate.mjs"], appDir)
     // Portable imports and code generation work without H3. Only the generated host routes require it.
     await run(process.execPath, ["--input-type=module", "--eval", "await import('@vite-hub/agent'); await import('@vite-hub/agent/server')"], appDir)
@@ -132,7 +132,7 @@ it("declares the optional host peer and executes packed Agent routes with applic
     for (const [major, version] of [["1", "1.15.11"], ["2", "2.0.1-rc.31"]]) {
       dependencies.h3 = version!
       await writeManifest()
-      await run("corepack", ["pnpm", "install", "--ignore-scripts", "--reporter=append-only"], appDir)
+      await run("corepack", ["pnpm", "install", "--no-frozen-lockfile", "--ignore-scripts", "--reporter=append-only"], appDir)
       const { stdout } = await run(process.execPath, ["exercise.mjs", major!], appDir)
       expect(stdout).toContain(`generated Agent routes passed on H3 ${major}`)
     }
