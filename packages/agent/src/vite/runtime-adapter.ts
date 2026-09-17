@@ -62,14 +62,8 @@ export async function loadViteAgent(
   server: ViteDevServer,
   definition: DiscoveredAgentDefinition,
 ): Promise<LoadedViteAgent | undefined> {
-  const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
-  const agent = withColocatedAgentSkills(
-    agentWithColocatedInstructions(
-      resolveAgentModule(module),
-      await readColocatedAgentInstructions(definition.handler),
-    ),
-    colocatedSkills(definition.handler),
-  )
+  const module = await createViteWorkspaceAgentLoader(server, definition)()
+  const agent = resolveAgentModule(module)
   if (!agent) return
   return {
     agent,
