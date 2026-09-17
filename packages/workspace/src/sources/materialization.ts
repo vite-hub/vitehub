@@ -14,6 +14,7 @@ import { withWorkspaceStoreMutation } from "../storage/mutation.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import { recordWorkspaceFileOwner, readWorkspaceFileOwner, removeWorkspaceOwnedFile } from "./file-ownership.ts"
+import { withWorkspaceFileCheckpoint } from "./owned-write.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
 import type {
@@ -194,16 +195,17 @@ export async function sourceSnapshotOwnsAnyPath(store: WorkspaceStore, workspace
 }
 
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, workspace: string, metadata: SourceSnapshotMetadata) {
-  if (!store.getMeta || !store.setMeta) {
-    let snapshots = volatileSnapshots.get(workspaceStoreIdentity(store))
-    if (!snapshots) {
-      snapshots = new Map()
-      volatileSnapshots.set(workspaceStoreIdentity(store), snapshots)
-    }
-    snapshots.set(sourceSnapshotMetaKey(workspace, metadata.source), metadata)
-    return
+  let snapshots = volatileSnapshots.get(workspaceStoreIdentity(store))
+  if (!snapshots) {
+    snapshots = new Map()
+    volatileSnapshots.set(workspaceStoreIdentity(store), snapshots)
   }
-  await store.setMeta(sourceSnapshotMetaKey(workspace, metadata.source), metadata)
+  const key = sourceSnapshotMetaKey(workspace, metadata.source)
+  snapshots.set(key, metadata)
+  if (store.getMeta && store.setMeta) {
+    await store.setMeta(key, metadata)
+    snapshots.delete(key)
+  }
 }
 
 function materializedItemMeta(
@@ -934,24 +936,36 @@ async function materializeWorkspaceSourcesInternal(
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]
         const written = await control.mutate(() => withWorkspaceStoreMutation(store, async () => {
-          const result = await writeMaterializedFile(store, path, {
+          const write = () => writeMaterializedFile(store, path, {
             path,
             content: entry.content,
             contentStream: entry.contentStream,
             mediaType: item.mediaType,
             metadata: fileMetadata,
           }, previous?.content)
-          await recordWorkspaceFileOwner(store, path, { workspace, source: source.key, digest: result.digest })
-          for (const directory of missingDirectories) ownedDirectories.add(directory)
-          itemMetadata[path] = {
-            ...entry.metadata,
-            materializedAttributes: true,
-            materializedContentDigest: result.digest,
-            materializedBytes: result.size || 0,
-            materializedMediaType: item.mediaType,
-            materializedMetadata: observableFileMetadata(fileMetadata),
+          const checkpoint = async (result: Awaited<ReturnType<typeof write>>) => {
+            for (const directory of missingDirectories) ownedDirectories.add(directory)
+            itemMetadata[path] = {
+              ...entry.metadata,
+              materializedAttributes: true,
+              materializedContentDigest: result.digest,
+              materializedBytes: result.size || 0,
+              materializedMediaType: item.mediaType,
+              materializedMetadata: observableFileMetadata(fileMetadata),
+            }
+            await recordWorkspaceFileOwner(store, path, { workspace, source: source.key, digest: result.digest })
           }
-          return result
+          // Startup output needs rollback if its ownership checkpoint fails.
+          // Lazy streams retain their existing streaming path without reading old bytes.
+          if (source.materialize !== "startup") {
+            const result = await write()
+            await checkpoint(result)
+            return result
+          }
+          return await withWorkspaceFileCheckpoint(store, path, write, checkpoint, async () => {
+            if (previousItemMetadata) itemMetadata[path] = previousItemMetadata
+            else delete itemMetadata[path]
+          })
         }))
         sourceFiles++
         sourceBytes += written.size || 0

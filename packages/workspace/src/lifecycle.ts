@@ -6,6 +6,7 @@ import { contentStreamChunks, normalizeWorkspacePath, sha256 } from "./core/path
 import { workspaceError } from "./core/errors.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountIntersectsPath, type ResolvedWorkspaceSource } from "./sources/config.ts"
 import { readWorkspaceFileOwner, recordWorkspaceFileOwner, removeWorkspaceOwnedFile } from "./sources/file-ownership.ts"
+import { withWorkspaceFileCheckpoint } from "./sources/owned-write.ts"
 import { prepareWorkspaceSource } from "./sources/preparation.ts"
 import { invalidateSourceSnapshot, readCurrentSourceSnapshot, reconcileRemovedStartupSources, sourceSnapshotOwnsAnyPath } from "./sources/materialization.ts"
 import { invalidateWorkspaceSourceMaterialization } from "./sources/view.ts"
@@ -29,10 +30,6 @@ async function readBuildMetadata(store: WorkspaceStore, key: string): Promise<un
 }
 
 async function writeBuildMetadata(store: WorkspaceStore, key: string, value: unknown): Promise<void> {
-  if (store.getMeta && store.setMeta) {
-    await store.setMeta(key, value)
-    return
-  }
   const identity = workspaceStoreIdentity(store)
   let state = volatileBuildMetadata.get(identity)
   if (!state) {
@@ -40,6 +37,10 @@ async function writeBuildMetadata(store: WorkspaceStore, key: string, value: unk
     volatileBuildMetadata.set(identity, state)
   }
   state.set(key, value)
+  if (store.getMeta && store.setMeta) {
+    await store.setMeta(key, value)
+    state.delete(key)
+  }
 }
 
 const buildDirectoriesMetaKey = (workspace: string) => `workspace:${encodeURIComponent(workspace)}:build-directories`
@@ -128,9 +129,22 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Loader source values are an untyped extension boundary.
     if (typeof source !== "string") return
     const normalized = normalizeWorkspacePath(path)
-    await recordWorkspaceFileOwner(mutationStore, normalized, { workspace, source, digest })
     records[normalized] = { source, digest }
-    await writeBuildMetadata(mutationStore, buildFilesMetaKey(workspace), records)
+    try {
+      await recordWorkspaceFileOwner(mutationStore, normalized, { workspace, source, digest })
+    }
+    finally {
+      await writeBuildMetadata(mutationStore, buildFilesMetaKey(workspace), records)
+    }
+  }
+  const checkpointWrite = async <T>(path: string, write: () => Promise<T>, checkpoint: (result: T) => Promise<void>) => {
+    const normalized = normalizeWorkspacePath(path)
+    const previous = records[normalized]
+    return await withWorkspaceFileCheckpoint(mutationStore, path, write, checkpoint, async () => {
+      if (previous) records[normalized] = previous
+      else delete records[normalized]
+      await writeBuildMetadata(mutationStore, buildFilesMetaKey(workspace), records)
+    })
   }
   // Once accepted, a write and its ownership checkpoint settle together before abort returns.
   let writes = Promise.resolve()
@@ -158,17 +172,27 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
         const tagged = tag(path, file)
         const directories = parentPaths(path)
         const missing = await missingBuildDirectories(mutationStore, directories)
-        await mutationStore.writeFile(path, tagged)
-        await recordBuildDirectories(mutationStore, workspace, directories, missing)
-        await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
+        await checkpointWrite(path, () => mutationStore.writeFile(path, tagged), async () => {
+          try {
+            await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
+          }
+          finally {
+            await recordBuildDirectories(mutationStore, workspace, directories, missing)
+          }
+        })
       })
       if (property === "writeFileConditional" && target.writeFileConditional) return async (path: string, file: WorkspaceFile, digest: string | null) => await mutate(async () => {
         const tagged = tag(path, file)
         const directories = parentPaths(path)
         const missing = await missingBuildDirectories(mutationStore, directories)
-        await mutationStore.writeFileConditional!(path, tagged, digest)
-        await recordBuildDirectories(mutationStore, workspace, directories, missing)
-        await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
+        await checkpointWrite(path, () => mutationStore.writeFileConditional!(path, tagged, digest), async () => {
+          try {
+            await record(path, tagged.metadata?.workspaceBuildSource, await sha256(file.content))
+          }
+          finally {
+            await recordBuildDirectories(mutationStore, workspace, directories, missing)
+          }
+        })
       })
       if (property === "writeFileStream" && target.writeFileStream) return async (path: string, file: WorkspaceStreamFile) => await mutate(async () => {
         const tagged = tag(path, file)
@@ -181,10 +205,14 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
         })()
         const directories = parentPaths(path)
         const missing = await missingBuildDirectories(mutationStore, directories)
-        const written = await mutationStore.writeFileStream!(path, { ...tagged, content })
-        await recordBuildDirectories(mutationStore, workspace, directories, missing)
-        await record(path, tagged.metadata?.workspaceBuildSource, hash.digest("hex"))
-        return written
+        return await checkpointWrite(path, () => mutationStore.writeFileStream!(path, { ...tagged, content }), async () => {
+          try {
+            await record(path, tagged.metadata?.workspaceBuildSource, hash.digest("hex"))
+          }
+          finally {
+            await recordBuildDirectories(mutationStore, workspace, directories, missing)
+          }
+        })
       })
       return Reflect.get(target, property, target)?.bind(target)
     },

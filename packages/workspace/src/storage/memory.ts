@@ -24,6 +24,7 @@ type MemoryNode = {
   mediaType?: string
   metadata?: Record<string, unknown>
   mtime: number
+  revision?: string
 }
 
 function now() {
@@ -87,7 +88,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   async stat(path: string): Promise<WorkspaceStat | undefined> {
     const normalized = normalizeWorkspacePath(path)
     const node = this.#nodes.get(normalized)
-    return node ? await this.#entry(normalized, node) : undefined
+    return node ? { ...await this.#entry(normalized, node), revision: node.revision } : undefined
   }
 
   async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
@@ -169,6 +170,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     this.#nodes.set(normalized, {
       type: "file",
       content: file.content,
+      revision: crypto.randomUUID(),
       mediaType: file.mediaType,
       metadata: structuredClone(file.metadata),
       mtime: now(),

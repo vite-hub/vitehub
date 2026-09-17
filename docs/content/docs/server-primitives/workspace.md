@@ -303,6 +303,8 @@ const workspace = useWorkspace('docs', { refresh: false })
 
 This reuses current persisted snapshots of Sources with `materialize: 'startup'`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior. Custom Stores that omit `getMeta` or `setMeta` retain ownership and Source snapshots only for the lifetime of the Store instance.
 
+Stores can return `revision` from `stat()` to identify a stored file version. This opaque value must change when the file is modified or recreated, even with identical bytes. A write that makes no change to the stored file can keep its revision. Memory and local Stores provide it. Cleanup uses the revision and content digest to retry interrupted file removal. If the Store cannot identify the surviving file, cleanup preserves it and reports the ambiguous removal for inspection. After inspection, remove the file explicitly if it is still generated output, then retry cleanup.
+
 `refresh: false` applies only to read mode. It does not disable refreshes for other Sources or change explicit `sync()` and `materializeSources()` calls on a writable facade. Write mode keeps normal refresh behavior.
 
 | Surface | Methods |

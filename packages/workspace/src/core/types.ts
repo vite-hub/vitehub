@@ -280,6 +280,8 @@ export interface WorkspaceEntry {
 }
 
 export interface WorkspaceStat extends WorkspaceEntry {
+  /** Opaque stored-file version. Must change on modification or recreation, even when bytes are unchanged. */
+  revision?: string
   type: "file" | "directory"
 }
 
