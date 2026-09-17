@@ -1,3 +1,4 @@
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { resolve } from "node:path"
 import { createQueueNitroConfig, hubQueue } from "./vite.ts"
 
@@ -17,6 +18,7 @@ type NuxtLike = {
     serverDir?: string
     srcDir?: string
     vite?: {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
       plugins?: unknown[]
     }
   }
@@ -38,6 +40,7 @@ export default function viteHubQueueNuxtModule(options: QueueNuxtModuleOptions =
   })
 
   nuxt.options.vite ??= {}
+  nuxt.options.vite[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   const plugins = Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []
   const existingPlugin = findQueueVitePlugin(plugins)
   const plugin = existingPlugin || hubQueue(options)

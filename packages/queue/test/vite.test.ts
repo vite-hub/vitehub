@@ -61,6 +61,11 @@ describe("hubQueue", () => {
       handlers: [{ handler: resolve(root, ".vitehub/nitro/queue/middleware.ts") }],
       plugins: [resolve(root, ".vitehub/nitro/queue/plugin.ts")],
     })
+
+    const update = plugin.handleHotUpdate as (context: unknown) => Promise<void>
+    await update({ file: join(root, "welcome.queue.ts"), server: { config: { root } } })
+    expect(await readFile(join(root, ".vitehub/nitro/queue/plugin.ts"), "utf8")).toContain("from 'nitropack/runtime'")
+    expect(await readFile(join(root, ".vitehub/nitro/queue/middleware.ts"), "utf8")).toContain("defineEventHandler as defineMiddleware")
   })
 
   it("registers and generates the Nitro queue runtime", async () => {

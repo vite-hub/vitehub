@@ -1,3 +1,4 @@
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { resolve } from "node:path"
 import { createScheduleNitroConfig, hubSchedule } from "./vite.ts"
 
@@ -16,6 +17,7 @@ type NuxtLike = {
     rootDir?: string
     srcDir?: string
     vite?: {
+      [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
       plugins?: unknown[]
     }
   }
@@ -33,6 +35,7 @@ export default function viteHubScheduleNuxtModule(options: ScheduleNuxtModuleOpt
   })
 
   nuxt.options.vite ??= {}
+  nuxt.options.vite[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   const plugins = Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []
   if (!plugins.some(isScheduleVitePlugin)) {
     plugins.push(hubSchedule(options))
@@ -45,6 +48,7 @@ export default function viteHubScheduleNuxtModule(options: ScheduleNuxtModuleOpt
       ...options,
       command: nuxt.options.dev ? "serve" : "build",
       nitroOwnsPaths: true,
+      nitroVersion: 2,
       nitro: nitroConfig,
       projectRoot: options.projectRoot || rootDir,
       root: nuxt.options.srcDir || rootDir,

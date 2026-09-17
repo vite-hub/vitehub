@@ -36,6 +36,8 @@ Direct integrations use `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, and 
 
 Both packages require Node.js 24.15 or newer.
 
+Nitro is an optional host. Direct Nitro 3 integrations must install `nitro` in the application. Nuxt 4 integrations use the Nitro 2 runtime supplied by Nuxt. Generated host modules use that host's runtime API. Direct runtime use and standalone provider output do not require either Nitro package.
+
 ## Choose the schedule kind
 
 | Kind                       | Create it with                                       | Use it when                                                                                                 |

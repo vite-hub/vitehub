@@ -90,6 +90,8 @@ describe("Queue Nuxt integration", () => {
 
       const generatedPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
       const generatedMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
+      expect(generatedPlugin).toContain("from 'nitropack/runtime'")
+      expect(generatedMiddleware).toContain("defineEventHandler as defineMiddleware")
       expect(generatedPlugin).toContain("cloudflare:queue")
       expect(generatedMiddleware).toContain("enterQueueRuntimeEvent(event)")
       if (dev) {

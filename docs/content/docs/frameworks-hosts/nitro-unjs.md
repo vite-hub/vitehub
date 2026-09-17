@@ -9,6 +9,8 @@ icon: i-lucide-server
 ViteHub is not a Nitro module system.
 ViteHub uses Vite Integrations as the public integration layer, while package-owned Nitro wiring appears only where a host boundary needs generated runtime hooks.
 
+Direct `@vite-hub/blob`, `@vite-hub/queue`, `@vite-hub/rate-limit`, and `@vite-hub/schedule` integrations declare Nitro as an optional host. Install `nitro` in a direct Nitro 3 application. Nuxt 4 supplies Nitro 2 and its runtime aliases. The Nuxt adapters generate Nitro 2 imports; native Vite integrations generate Nitro 3 imports. These owner packages do not require Nitro for direct runtime use or standalone provider output.
+
 ## Boundary
 
 | Layer | ViteHub expectation |

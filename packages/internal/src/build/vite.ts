@@ -79,6 +79,25 @@ export function hasNitroConfigContext(config: {
   return config[VITEHUB_NITRO_CONFIG_CONTEXT] === true || includesNitroVitePlugin(config.plugins)
 }
 
+/** Nuxt config replay targets Nitro 2; the native Vite integration targets Nitro 3. */
+export function nitroRuntimeVersion(config: { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean, plugins?: unknown }): 2 | 3 {
+  return config[VITEHUB_NITRO_CONFIG_CONTEXT] === true ? 2 : 3
+}
+
+export function nitroRuntimeImports(version: 2 | 3 = 3): { plugin: string, middleware: string, cache: string } {
+  return version === 2
+    ? {
+        plugin: "import { defineNitroPlugin as definePlugin } from 'nitropack/runtime'",
+        middleware: "import { defineEventHandler as defineMiddleware } from 'h3'",
+        cache: "import { cachedEventHandler as defineCachedHandler } from 'nitropack/runtime'",
+      }
+    : {
+        plugin: "import { definePlugin } from 'nitro'",
+        middleware: "import { defineMiddleware } from 'nitro'",
+        cache: "import { defineCachedHandler } from 'nitro/cache'",
+      }
+}
+
 export function resolveNitroVercelFunctionName(
   config: NitroVercelConfig,
   product: string,
