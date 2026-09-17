@@ -70,6 +70,7 @@ interface MaterializedStartupSource {
 }
 
 interface PromotedSourceSkillFile {
+  directoryIdentities?: Record<string, string>
   digest: string
   mediaType?: string
   metadata?: Record<string, unknown>
@@ -246,13 +247,18 @@ async function promotedFileMatches(file: WorkspaceFile, prior: PromotedSourceSki
 
 export async function readGeneratedPromotedSkillPaths(store: WorkspaceStore, sources: readonly ResolvedWorkspaceSource[], workspaceName?: string) {
   const registry = await store.getMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`)
-  const paths = new Set<string>()
+  const paths = { files: new Set<string>(), directories: new Set<string>() }
   if (!hasRuntimeType(registry, "object") || registry === null) return paths
   const startupSources = new Set(sources.filter(source => source.materialize === "startup").map(source => source.key))
   for (const [path, prior] of Object.entries(registry)) {
     if (!isPromotedSourceSkillFile(prior) || prior.workspace !== workspaceName || !startupSources.has(prior.source)) continue
     const file = await readSourceFile(store, path)
-    if (file && await promotedFileMatches(file, prior)) paths.add(path)
+    if (file && await promotedFileMatches(file, prior)) {
+      paths.files.add(path)
+      for (const [directory, identity] of Object.entries(prior.directoryIdentities || {})) {
+        if ((await store.stat(directory))?.directoryIdentity === identity) paths.directories.add(directory)
+      }
+    }
   }
   return paths
 }
@@ -372,7 +378,8 @@ async function reconcilePromotedSourceSkills(
     const existing = await readSourceFile(store, destination)
     const prior = previous[destination]
     const ownsExisting = Boolean(prior && prior.workspace === workspaceName && existing && await promotedFileMatches(existing, prior))
-    if ((existing && !ownsExisting) || await hasNonFilePromotionDestination(store, destination)) retainedSkills.add(candidate.skill)
+    // Digest-only writes cannot protect an existing file's metadata or media type.
+    if ((existing && (!ownsExisting || !store.compareAndSwapFile)) || await hasNonFilePromotionDestination(store, destination)) retainedSkills.add(candidate.skill)
   }
 
   const next: Record<string, PromotedSourceSkillFile> = Object.fromEntries(Object.entries(previous).filter(([path, prior]) => {
@@ -401,11 +408,14 @@ async function reconcilePromotedSourceSkills(
         ...sourceFile.metadata,
         promotedSourceSkill: { source: candidate.source, sourcePath: candidate.sourcePath },
       }
-      const promoted = { source: candidate.source, sourcePath: candidate.sourcePath, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName }
+      const directoryIdentities = { ...prior?.directoryIdentities }
+      const promoted = { directoryIdentities, source: candidate.source, sourcePath: candidate.sourcePath, digest: await sha256(sourceFile.content), mediaType: sourceFile.mediaType, metadata: observableFileMetadata(metadata), workspace: workspaceName }
       const expectedDigest = existing ? await sha256(existing.content) : null
       try {
         await control.mutate(async () => {
-          await store.mkdir(posix.dirname(destination), { recursive: true })
+          await store.mkdir(posix.dirname(destination), { recursive: true, onCreate: (path, identity) => {
+            if (identity) directoryIdentities[path] = identity
+          } })
           const replacement = { ...sourceFile, path: destination, metadata }
           if (existing && store.compareAndSwapFile) await store.compareAndSwapFile(destination, existing, replacement)
           else await writeFileConditional(destination, replacement, expectedDigest)

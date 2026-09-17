@@ -12,6 +12,9 @@ afterEach(() => {
 })
 
 it.each([
+  ["after-cleanup", "direct-store"],
+  ["checkpoint", "direct-store"],
+  ["before-removal", "direct-store"],
   ["after-cleanup", "directory-evidence"],
   ["checkpoint", "directory-evidence"],
   ["before-removal", "directory-evidence"],
@@ -29,17 +32,18 @@ it.each([
   const writer = createWorkspaceSourceView({ name: writerName, sources: {} }, store)
   let checkpointed = false
   const recreateAndRemove = async () => {
-    if (mutationPhase === "after-cleanup") {
+    if (mutationPhase === "after-cleanup" && writerName !== "direct-store") {
       await writer.mkdir("generated/nested", { recursive: true })
       await writer.rm("generated", { recursive: true })
       return
     }
     // These mutations have already passed the view's startup reconciliation
     // barrier when cleanup yields to the Store operation below.
+    if (writerName === "direct-store") await store.rm("generated", { recursive: true, force: true })
     await store.mkdir("generated/nested", { recursive: true })
-    await invalidateStartupDirectoryRemoval(store, "generated/nested")
+    if (writerName !== "direct-store") await invalidateStartupDirectoryRemoval(store, "generated/nested")
     await store.rm("generated", { recursive: true })
-    await invalidateStartupDirectoryRemoval(store, "generated")
+    if (writerName !== "direct-store") await invalidateStartupDirectoryRemoval(store, "generated")
   }
   const setMeta = store.setMeta!.bind(store)
   if (mutationPhase === "checkpoint") {

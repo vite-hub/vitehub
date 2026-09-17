@@ -33,8 +33,7 @@ function getStore(definition: WorkspaceDefinition) {
 async function filterStartupSourceChanges(definition: WorkspaceDefinition, store: WorkspaceStore, diff: WorkspaceDiff): Promise<WorkspaceDiff> {
   if (!diff.entries.length) return diff
   const sources = normalizeWorkspaceSources(definition.sources)
-  const generatedFiles = await readGeneratedPromotedSkillPaths(store, sources, definition.name)
-  const generatedDirectories = new Set<string>()
+  const { files: generatedFiles, directories: generatedDirectories } = await readGeneratedPromotedSkillPaths(store, sources, definition.name)
   const generatedEmptyDirectories = new Set<string>()
   for (const source of sources) {
     if (source.materialize !== "startup") continue
@@ -59,7 +58,9 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       }
     }
     for (const path of [...(snapshot.ownedDirectories || []), ...(snapshot.ownedAncestors || []), ...(snapshot.ownsMount ? [source.mountPath] : [])]) {
-      generatedDirectories.add(path)
+      const identity = path === source.mountPath ? snapshot.mountIdentity : snapshot.directoryIdentities?.[path]
+      const currentIdentity = (await store.stat(path))?.directoryIdentity
+      if (!currentIdentity || identity === currentIdentity) generatedDirectories.add(path)
     }
   }
   const entries: WorkspaceDiff["entries"] = []
@@ -73,6 +74,16 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
     if (entry.after?.type === "file" && generatedFiles.has(entry.path)) continue
     if (entry.type === "added" && entry.after?.type === "directory") {
       const descendants = await store.list(entry.path, { recursive: true })
+      const canExcludeDirectory = async (path: string) => generatedDirectories.has(path) || !(await store.stat(path))?.directoryIdentity
+      if (!await canExcludeDirectory(entry.path)) {
+        entries.push(entry)
+        continue
+      }
+      const unownedDirectory = (await Promise.all(descendants.filter(child => child.type === "directory").map(async child => !await canExcludeDirectory(child.path)))).some(Boolean)
+      if (unownedDirectory) {
+        entries.push(entry)
+        continue
+      }
       // An empty directory may have been removed and recreated by a user (or
       // another Store instance) after the startup snapshot was recorded. With
       // no child ownership metadata, retain that addition so auto-commit does

@@ -430,6 +430,34 @@ describe("lazy sources", () => {
     await expect(store.readFile(`${root}/SKILL.md`)).resolves.toMatchObject({ content: `Original: ${root}/SKILL.md` })
   })
 
+  it.each(["metadata", "mediaType"])("retains single-file promotions without complete-file CAS: %s", async (attribute) => {
+    const store = createMemoryWorkspaceStore()
+    store.compareAndSwapFile = undefined
+    const destination = ".agents/skills/shared/SKILL.md"
+    let content = "# Original"
+    const view = createWorkspaceSourceView({ name: "unsupported-promotion-refresh", sources: {
+      portal: custom({
+        materialize: "startup",
+        async getKeys() { return [destination] },
+        async getItem(key) { return { key, content } },
+      }),
+    } }, store)
+    await view.materializeSources()
+    const original = (await store.readFile(destination))!
+    content = "# Updated"
+    const write = store.writeFileConditional!.bind(store)
+    const writes = vi.spyOn(store, "writeFileConditional").mockImplementation(async (path, file, digest) => {
+      if (path === destination) {
+        await store.writeFile(path, { ...original, ...(attribute === "mediaType" ? { mediaType: "text/user" } : { metadata: { owner: "user" } }) })
+      }
+      await write(path, file, digest)
+    })
+    await view.materializeSources()
+    expect(writes.mock.calls.some(([path]) => path === destination)).toBe(false)
+    await expect(store.readFile(destination)).resolves.toEqual(original)
+    await expect(store.readFile(`portal/${destination}`)).resolves.toMatchObject({ content })
+  })
+
   it.each([false, true])("preserves promotion destinations without conditional writes (existing: %s)", async (existing) => {
     const store = createMemoryWorkspaceStore()
     const destination = ".agents/skills/shared/SKILL.md"

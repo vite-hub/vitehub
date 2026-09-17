@@ -23,6 +23,18 @@ describe("startup directory cleanup diffs", () => {
     expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "added" }))
   })
 
+  it("preserves user-owned parents of promoted Skills", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.snapshot()
+    await store.mkdir(".agents/skills/review", { recursive: true })
+    registerWorkspace("promoted-user-directory", defineWorkspace({ store, sources: {
+      portal: custom({ materialize: "startup", files: [{ path: ".claude/skills/review/SKILL.md", content: "# Review" }] }),
+    } }))
+    const workspace = await useRegisteredWorkspace("promoted-user-directory")
+    await workspace.materializeSources?.()
+    expect((await workspace.diff()).entries.map(entry => entry.path)).toEqual([".agents", ".agents/skills", ".agents/skills/review"])
+  })
+
   it.each(["startup", "lazy"] as const)("preserves retirement diff ownership for %s promoted Skills", async (materialize) => {
     const store = createMemoryWorkspaceStore()
     const path = ".agents/skills/review/SKILL.md"
@@ -48,8 +60,26 @@ describe("startup directory cleanup diffs", () => {
     expect((await restarted.diff()).entries).toContainEqual(deletion)
   })
 
+  it.each(["docs", "docs/nested"])("preserves a user-created directory containing only startup files: %s", async (path) => {
+    const store = createMemoryWorkspaceStore()
+    await store.snapshot()
+    await store.mkdir(path, { recursive: true })
+    registerWorkspace("user-directory", defineWorkspace({ store, sources: {
+      generated: custom({ materialize: "startup", mount: "docs", files: [{ path: "nested/AGENTS.md", content: "Generated" }] }),
+    } }))
+    const workspace = await useRegisteredWorkspace("user-directory")
+    await workspace.materializeSources?.()
+    expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "added" }))
+  })
+
   it("excludes synthesized startup parents while retaining user files and empty directories", async () => {
     const store = createMemoryWorkspaceStore()
+    const stat = store.stat.bind(store)
+    store.stat = async (path) => {
+      const entry = await stat(path)
+      if (entry) delete entry.directoryIdentity
+      return entry
+    }
     const mkdir = store.mkdir.bind(store)
     store.mkdir = async (path, options) => await mkdir(path, { recursive: options?.recursive })
     await store.snapshot()
@@ -83,7 +113,7 @@ describe("startup directory cleanup diffs", () => {
     expect((await workspace.diff({ from: baseline })).entries).toContainEqual(expect.objectContaining({ path: "docs/generated/nested", type: "removed" }))
   })
 
-  it.each(["mkdir", "writeFile"])("keeps user directory deletions visible after recreation with %s", async (operation) => {
+  it.each(["mkdir", "writeFile", "store-mkdir", "store-writeFile"])("keeps user directory deletions visible after recreation with %s", async (operation) => {
     const sources = { generated: custom({ materialize: "startup", files: [{ path: "nested/file.md", content: "generated" }] }) }
     const store = createMemoryWorkspaceStore()
     registerWorkspace("recreated-directory-diff", defineWorkspace({ store, sources }))
@@ -96,9 +126,12 @@ describe("startup directory cleanup diffs", () => {
     resetWorkspaceRegistry()
     registerWorkspace("recreated-directory-diff", defineWorkspace({ store, sources }))
     const restarted = await useRegisteredWorkspace("recreated-directory-diff")
-    if (operation === "mkdir") await restarted.mkdir("generated/nested", { recursive: true })
+    if (operation === "store-mkdir") await store.mkdir("generated/nested", { recursive: true })
+    else if (operation === "store-writeFile") await store.writeFile("generated/nested/user.md", { path: "generated/nested/user.md", content: "user" })
+    else if (operation === "mkdir") await restarted.mkdir("generated/nested", { recursive: true })
     else await restarted.writeFile("generated/nested/user.md", "user")
-    await restarted.rm("generated", { recursive: true })
+    if (operation.startsWith("store-")) await store.rm("generated", { recursive: true })
+    else await restarted.rm("generated", { recursive: true })
     expect((await restarted.diff()).entries).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "generated", type: "removed" }),
       expect.objectContaining({ path: "generated/nested", type: "removed" }),
