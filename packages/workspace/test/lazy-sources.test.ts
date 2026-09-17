@@ -5,13 +5,14 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { WorkspaceStore } from "../src/index.ts"
 
-import { sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
+import { removedStartupPathMetaKey, sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView, invalidateWorkspaceSourceMaterialization } from "../src/sources/view.ts"
 import { markLiveWorkspaceSource } from "../src/sources/live.ts"
 import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { sha256 } from "../src/core/path.ts"
+import { workspaceConflict } from "../src/core/errors.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 const globSource = glob
@@ -21,6 +22,56 @@ import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
 
 const tempDirs: string[] = []
+
+describe("startup cleanup checkpoints", () => {
+  it.each(["promotion", "refresh", "retirement"].flatMap(mode => ["operational", "conflict", "replacement"].map(failureKind => ({ mode, failureKind }))))("compensates $mode removal checkpoint failure: $failureKind", async ({ mode, failureKind }) => {
+    const store = createMemoryWorkspaceStore()
+    const skillPath = ".agents/skills/review/SKILL.md"
+    const sourcePath = mode === "promotion" ? skillPath : "file.md"
+    const sources = { generated: custom({ materialize: "startup", files: [{ path: sourcePath, content: "generated" }] }) }
+    const definition = { name: `cleanup-checkpoint-${mode}`, sources }
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    const path = mode === "promotion" ? skillPath : `generated/${sourcePath}`
+    const original = await store.readFile(path)
+    expect(original).toBeDefined()
+    await store.snapshot()
+    if (mode === "refresh") {
+      sources.generated = custom({ materialize: "startup", files: [] })
+      await invalidateWorkspaceSourceMaterialization(definition, store, ["generated"])
+    }
+    else Reflect.deleteProperty(sources, "generated")
+    const setMeta = store.setMeta!.bind(store)
+    const failure = failureKind === "conflict" ? workspaceConflict("removal checkpoint unavailable") : new Error("removal checkpoint unavailable")
+    const replacement = { path, content: "user replacement", mediaType: "text/plain", metadata: { user: true } }
+    let failed = false
+    store.setMeta = async (key, value) => {
+      if (!failed && key === removedStartupPathMetaKey(definition.name, path) && value) {
+        failed = true
+        await expect(store.readFile(path)).resolves.toBeUndefined()
+        if (failureKind === "replacement") await store.writeFile(path, replacement)
+        throw failure
+      }
+      await setMeta(key, value)
+    }
+    const cleanup = createWorkspaceSourceView(definition, store).materializeSources()
+    if (mode === "refresh") await expect(cleanup).resolves.toMatchObject({ sources: [expect.objectContaining({ status: "error", error: failure.message })] })
+    else await expect(cleanup).rejects.toThrow(failure)
+    expect(failed).toBe(true)
+    if (failureKind === "replacement") {
+      await expect(store.readFile(path)).resolves.toMatchObject(replacement)
+      await createWorkspaceSourceView(definition, store).materializeSources()
+      await expect(store.readFile(path)).resolves.toMatchObject(replacement)
+      return
+    }
+    await expect(store.readFile(path)).resolves.toEqual(original)
+    await createWorkspaceSourceView(definition, store).materializeSources()
+    await expect(store.readFile(path)).resolves.toBeUndefined()
+    expect(await store.getMeta?.(removedStartupPathMetaKey(definition.name, path))).toBeTruthy()
+    registerWorkspace(definition.name, defineWorkspace({ store, sources }))
+    const workspace = await useRegisteredWorkspace(definition.name)
+    expect((await workspace.diff()).entries.some(entry => entry.path === path)).toBe(false)
+  })
+})
 
 async function expectRetiredFile(store: WorkspaceStore, path: string) {
   if (store.conditionalRemoval) await expect(store.stat(path)).resolves.toBeUndefined()

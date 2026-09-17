@@ -434,6 +434,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
     const preserved = new Map<string, WorkspaceFile[]>()
     const incomplete = new Set(recover)
+    const replacedMounts = new Set<string>()
     // Capture reusable files before any overlapping lower-priority Source writes.
     if (options.reuseStartupSnapshots) {
       for (const source of items) {
@@ -446,7 +447,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           catch (error) {
             const code = error instanceof Error ? Reflect.get(error, "code") : undefined
             if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "EISDIR") throw error
+            if (code === "ENOTDIR") replacedMounts.add(source.key)
           }
+          // External files replacing the mount or an ancestor must stay visible.
+          if (mount?.type === "file") replacedMounts.add(source.key)
+          if (replacedMounts.has(source.key)) continue
           if (mount?.type !== "directory") {
             incomplete.add(source.key)
             continue
@@ -492,6 +497,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     const refreshedSources: typeof sources = []
     let recoveryError: unknown
     for (const source of [...items].reverse()) {
+      if (replacedMounts.has(source.key)) continue
       const generation = generationBySource.get(source.key)
       const pending = pendingBySource.has(source.key)
       try {

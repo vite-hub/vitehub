@@ -103,6 +103,23 @@ export interface MaterializationControl {
   checkpoint<T>(operation: () => Promise<T>): Promise<T>
 }
 
+async function checkpointFileRemoval(store: WorkspaceStore, control: MaterializationControl, file: WorkspaceFile, checkpoint: () => Promise<void>) {
+  try {
+    await control.checkpoint(checkpoint)
+  }
+  catch (error) {
+    // Restore the complete file when evidence cannot be persisted. Bypass the
+    // cancelled control, but never overwrite a concurrent replacement.
+    try {
+      await store.writeFileConditional!(file.path, file, null)
+    }
+    catch (restoreError) {
+      if (!isWorkspaceConflict(restoreError)) throw restoreError
+    }
+    throw error
+  }
+}
+
 export function sourceSnapshotMetaKey(sourceKey: string, workspaceName?: string) {
   return workspaceName === undefined ? `source:${sourceKey}:snapshot` : `workspace:${JSON.stringify(workspaceName)}:source:${sourceKey}:snapshot`
 }
@@ -434,13 +451,17 @@ async function reconcilePromotedSourceSkills(
             : undefined
           try {
             await control.mutate(() => store.compareAndSwapFile!(destination, latest, undefined))
-            if (removalEvidence) {
-              await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, destination), removalEvidence))
-            }
           }
           catch (error) {
             if (!isWorkspaceConflict(error)) throw error
             next[destination] = prior
+            continue
+          }
+          if (removalEvidence) {
+            await checkpointFileRemoval(store, control, latest, async () => {
+              const removed = !await store.stat(destination)
+              await store.setMeta?.(removedStartupPathMetaKey(workspaceName, destination), removed ? removalEvidence : null)
+            })
           }
         }
         else {
@@ -690,7 +711,7 @@ async function removeStaleMaterializedSourceFiles(
           || (recorded.materializedAttributes && latestOwner === undefined && !fileAttributesUnavailable(latest))) continue
       }
       // Digest and ownership conditions cannot detect concurrent attribute edits.
-      if (!store.compareAndSwapFile) continue
+      if (!store.compareAndSwapFile || !store.writeFileConditional) continue
       const removalEvidence = await captureStartupFileRemoval(store, entry.path, source.key)
       try {
         await control.mutate(() => store.compareAndSwapFile!(entry.path, latest, undefined))
@@ -703,8 +724,10 @@ async function removeStaleMaterializedSourceFiles(
         continue
       }
       if (source.materialize === "startup") {
-        const removed = !await store.stat(entry.path)
-        await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), removed ? removalEvidence : null))
+        await checkpointFileRemoval(store, control, latest, async () => {
+          const removed = !await store.stat(entry.path)
+          await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), removed ? removalEvidence : null)
+        })
       }
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
@@ -823,7 +846,7 @@ async function reconcileRemovedStartupSourcesInternal(
         if (retainedSnapshot?.status !== "ready" || !retainedSnapshot.items?.[path]) continue
         await control.checkpoint(() => writeSourceSnapshotMetadata(store, { ...retainedSnapshot, status: "updating" }))
       }
-      if (!store.compareAndSwapFile) continue
+      if (!store.compareAndSwapFile || !store.writeFileConditional) continue
       const removalEvidence = await captureStartupFileRemoval(store, path, source.key)
       try {
         await control.mutate(() => store.compareAndSwapFile!(path, file, undefined))
@@ -835,8 +858,10 @@ async function reconcileRemovedStartupSourcesInternal(
       }
       // Preserve cleanup evidence after the Source snapshot is retired. A
       // conditional removal can leave a concurrent replacement untouched.
-      const removed = !await store.stat(path)
-      await control.checkpoint(async () => await store.setMeta?.(removalKey, removed ? removalEvidence : null))
+      await checkpointFileRemoval(store, control, file, async () => {
+        const removed = !await store.stat(path)
+        await store.setMeta?.(removalKey, removed ? removalEvidence : null)
+      })
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       const baseline = await (cleanupBaseline ??= store.diff().then(diff => diff.from))

@@ -2,7 +2,18 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { installHostedWorkspaceRuntime } from "../src/hosted.ts"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "../src/runtime/state.ts"
-import { createWorkspaceStore } from "../src/lifecycle.ts"
+import { createWorkspaceStore, syncWorkspaceDefinition } from "../src/lifecycle.ts"
+import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+
+function deferred() {
+  let resolve!: () => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
 
 afterEach(() => {
   setWorkspaceHostedStoreLoader(undefined)
@@ -10,6 +21,72 @@ afterEach(() => {
 })
 
 describe("workspace lifecycle", () => {
+  it("rejects compare-and-swap mutations from a loader after sync aborts", async () => {
+    const store = createMemoryWorkspaceStore()
+    const original = { path: "README.md", content: "original" }
+    await store.writeFile(original.path, original)
+    const controller = new AbortController()
+    const started = deferred()
+    const resume = deferred()
+    const finished = deferred()
+    const sync = syncWorkspaceDefinition({
+      name: "docs",
+      loaders: [{
+        name: "late-mutation",
+        async load(ctx) {
+          started.resolve()
+          await resume.promise
+          try {
+            await expect(async () => ctx.store.compareAndSwapFile!(original.path, original, undefined)).rejects.toBe(controller.signal.reason)
+            finished.resolve()
+          }
+          catch (error) {
+            finished.reject(error)
+          }
+        },
+      }],
+    }, store, controller.signal)
+    await started.promise
+    controller.abort(new Error("sync cancelled"))
+    await expect(sync).rejects.toBe(controller.signal.reason)
+    resume.resolve()
+    await finished.promise
+    await expect(store.readFile(original.path)).resolves.toMatchObject(original)
+  })
+
+  it("drains an active compare-and-swap before rejecting an aborted sync", async () => {
+    const store = createMemoryWorkspaceStore()
+    const original = { path: "README.md", content: "original" }
+    await store.writeFile(original.path, original)
+    const controller = new AbortController()
+    const started = deferred()
+    const resume = deferred()
+    const compareAndSwap = store.compareAndSwapFile!.bind(store)
+    vi.spyOn(store, "compareAndSwapFile").mockImplementation(async (...args) => {
+      started.resolve()
+      await resume.promise
+      await compareAndSwap(...args)
+    })
+    const sync = syncWorkspaceDefinition({
+      name: "docs",
+      loaders: [{
+        name: "active-mutation",
+        async load(ctx) {
+          await ctx.store.compareAndSwapFile!(original.path, original, undefined)
+        },
+      }],
+    }, store, controller.signal)
+    let settled = false
+    const result = sync.catch(error => error).finally(() => { settled = true })
+    await started.promise
+    controller.abort(new Error("sync cancelled"))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(settled).toBe(false)
+    resume.resolve()
+    await expect(result).resolves.toBe(controller.signal.reason)
+    await expect(store.readFile(original.path)).resolves.toBeUndefined()
+  })
+
   it("delegates hosted store creation through the runtime loader", async () => {
     setWorkspaceHostedStoreLoader((store, workspaceName) => ({
       async readFile() { return { path: workspaceName, content: store.provider } },
