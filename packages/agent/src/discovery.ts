@@ -91,7 +91,7 @@ function tokenizeAgentSource(source: string) {
 function isWorkspaceAgentDefinition(source: string): boolean {
   const { tokens, lineBreaks } = tokenizeAgentSource(source)
   function startsStatement(index: number): boolean {
-    if (!lineBreaks.has(index) || !/^[A-Za-z_$][\w$]*$/.test(tokens[index] ?? "")) return false
+    if (!lineBreaks.has(index) || !/^(?:[A-Za-z_$][\w$]*$|["'0-9])/.test(tokens[index] ?? "")) return false
     if (["in", "instanceof", "as", "satisfies"].includes(tokens[index])) return false
     const previous = tokens[index - 1]
     return [")", "]", "}"].includes(previous) ||

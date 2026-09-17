@@ -178,13 +178,18 @@ it("accepts interface options and rejects non-record roots", () => {
   defineAgent({ options: new AbortController(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error AbortSignal roots are not plain option records.
   defineAgent({ options: new AbortController().signal, configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error Blob roots are not plain option records.
+  defineAgent({ options: new Blob([]), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error File roots inherit Blob and are not plain option records.
+  defineAgent({ options: new File([], "input"), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Headers roots are not plain option records.
   defineAgent({ options: new Headers(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error FormData roots are not plain option records.
   defineAgent({ options: new FormData(), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error URLSearchParams roots are not plain option records.
   defineAgent({ options: new URLSearchParams(), configure: () => defineAgent({ driver: "codex" }) })
-  defineAgent({ options: { headers: new Headers(), form: new FormData() }, configure: value => {
+  defineAgent({ options: { headers: new Headers(), form: new FormData(), blob: new Blob([]) }, configure: value => {
+    expectTypeOf(value.blob).toEqualTypeOf<Blob>()
     expectTypeOf(value.headers).toEqualTypeOf<Headers>()
     expectTypeOf(value.form).toEqualTypeOf<FormData>()
     return defineAgent({ driver: "codex" })

@@ -280,6 +280,8 @@ it("requires explicit ownership for an opaque early configure return", async () 
 })
 
 it.each([
+  'if (options.early) return defineAgent({})\n"unused" ? defineAgent({ workspace: {} }) : defineAgent({})\n',
+  "if (options.early) return defineAgent({})\n1 ? defineAgent({ workspace: {} }) : defineAgent({})\n",
   "if (options.early) return defineAgent({}); const ignored = options.other ? defineAgent({ workspace: {} }) : defineAgent({});",
   "if (options.early) return defineAgent({})\nconst ignored = options.other ? defineAgent({ workspace: {} }) : defineAgent({})\n",
   "if (options.early) return defineAgent({})\noptions.other ? defineAgent({ workspace: {} }) : defineAgent({})\n",
