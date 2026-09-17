@@ -681,7 +681,7 @@ async function removeStaleMaterializedSourceFiles(
       }))
       if (source.materialize === "startup") {
         const removed = !await store.stat(entry.path)
-        await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), removed ? removalEvidence : undefined))
+        await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(workspaceName, entry.path), removed ? removalEvidence : null))
       }
       onRemoved?.(entry.path, file ? contentSize(file.content) : 0)
     }
@@ -760,7 +760,7 @@ async function reconcileRemovedStartupSourcesInternal(
     value = await store.getMeta(legacyStartupSourcesMetaKey)
     if (value !== undefined) {
       await store.setMeta(startupSourcesMetaKey(workspaceName), value)
-      await store.setMeta(legacyStartupSourcesMetaKey, undefined)
+      await store.setMeta(legacyStartupSourcesMetaKey, null)
     }
   }
   let cleanupBaseline: Promise<string | undefined> | undefined
@@ -792,7 +792,7 @@ async function reconcileRemovedStartupSourcesInternal(
       if ((recorded?.materializedContentDigest && !await materializedFileMatches(file, recorded))
         || (recorded?.materializedAttributes && owner === undefined && !fileAttributesUnavailable(file))
         || (owner !== source.key && !(owner === undefined && recordedDigest))) {
-        await control.checkpoint(async () => await store.setMeta?.(removalKey, undefined))
+        await control.checkpoint(async () => await store.setMeta?.(removalKey, null))
         continue
       }
       for (const currentSource of currentSources) {
@@ -810,7 +810,7 @@ async function reconcileRemovedStartupSourcesInternal(
       // Preserve cleanup evidence after the Source snapshot is retired. A
       // conditional removal can leave a concurrent replacement untouched.
       const removed = !await store.stat(path)
-      await control.checkpoint(async () => await store.setMeta?.(removalKey, removed ? removalEvidence : undefined))
+      await control.checkpoint(async () => await store.setMeta?.(removalKey, removed ? removalEvidence : null))
     }
     for (const path of [...staleDirectories].sort((a, b) => b.length - a.length)) {
       const baseline = await (cleanupBaseline ??= store.diff().then(diff => diff.from))
@@ -1197,7 +1197,7 @@ async function materializeWorkspaceSourcesInternal(
           }),
         }, previous?.content)
         if (source.materialize === "startup") {
-          await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(definition.name, path), undefined))
+          await control.checkpoint(async () => await store.setMeta?.(removedStartupPathMetaKey(definition.name, path), null))
         }
         const tracked = Object.hasOwn(itemMetadata, path)
         const previousItemMetadata = itemMetadata[path]
