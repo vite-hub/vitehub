@@ -911,6 +911,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     },
     async rm(path, options) {
+      if (!store.conditionalDirectoryRemoval && options?.ifDirectoryIdentity !== undefined) {
+        throw workspaceError("[vitehub] This Workspace Store does not support conditional directory removal.")
+      }
       if (!store.conditionalRemoval && (options?.ifDigest !== undefined || options?.ifSource !== undefined || options?.ifWorkspace !== undefined)) {
         throw workspaceError("[vitehub] This Workspace Store does not support conditional removal.")
       }

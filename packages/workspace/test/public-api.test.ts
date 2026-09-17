@@ -262,6 +262,41 @@ describe("workspace public API", () => {
     await expect(workspace.fs.exists("page.md")).resolves.toBe(false)
   })
 
+  it.each([false, undefined])("rejects conditional directory removal when Store support is %s", async (conditionalDirectoryRemoval) => {
+    const store = createMemoryWorkspaceStore()
+    Object.defineProperty(store, "conditionalDirectoryRemoval", { value: conditionalDirectoryRemoval })
+    const remove = vi.spyOn(store, "rm")
+    registerWorkspace("conditional-directory-removal", defineWorkspace({ store }))
+    const workspace = useWorkspace("conditional-directory-removal", { mode: "write" })
+    await workspace.fs.writeFile("docs/page.md", "preserve")
+
+    await expect(workspace.fs.rm("docs", { recursive: true, ifDirectoryIdentity: "stale" }))
+      .rejects.toThrow("does not support conditional directory removal")
+    expect(remove).not.toHaveBeenCalled()
+    await expect(workspace.fs.readFile("docs/page.md")).resolves.toBe("preserve")
+
+    await workspace.fs.rm("docs", { recursive: true })
+    expect(remove).toHaveBeenCalledOnce()
+    await expect(workspace.fs.exists("docs")).resolves.toBe(false)
+  })
+
+  it("preserves replacement directories during supported conditional removal", async () => {
+    const store = createMemoryWorkspaceStore()
+    registerWorkspace("conditional-directory-removal", defineWorkspace({ store }))
+    const workspace = useWorkspace("conditional-directory-removal", { mode: "write" })
+    await workspace.fs.writeFile("docs/page.md", "first")
+    const baseline = await store.stat("docs")
+    await workspace.fs.rm("docs", { recursive: true })
+    await workspace.fs.writeFile("docs/page.md", "replacement")
+
+    await workspace.fs.rm("docs", { recursive: true, ifDirectoryIdentity: baseline!.directoryIdentity! })
+    await expect(workspace.fs.readFile("docs/page.md")).resolves.toBe("replacement")
+
+    const current = await store.stat("docs")
+    await workspace.fs.rm("docs", { recursive: true, ifDirectoryIdentity: current!.directoryIdentity! })
+    await expect(workspace.fs.exists("docs")).resolves.toBe(false)
+  })
+
   it("preserves a replacement during supported conditional removal", async () => {
     registerWorkspace("conditional-removal", defineWorkspace({ store: { provider: "memory" } }))
     const workspace = useWorkspace("conditional-removal", { mode: "write" })

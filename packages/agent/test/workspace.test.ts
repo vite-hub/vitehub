@@ -7,6 +7,7 @@ import { noExecutionAuthority, unknownExecutionAuthority, ViteHubError } from "@
 
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSourceInput } from "@vite-hub/workspace"
 import type { AgentModelResolverContext } from "../src/index.ts"
+import type { ViteDevServer } from "vite"
 
 const readFile = vi.fn()
 const writeFile = vi.fn()
@@ -549,6 +550,49 @@ describe("defineAgent workspace option", () => {
     expect(run).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith({ unrelated })
     expect(registeredSources).toEqual({ review: { content: "Workspace review", workspacePath: ".agents/skills/review/SKILL.md" } })
+  })
+
+  it.each(["workspace", "capability"])("preserves explicit %s Skills in Vite owned Workspace invocations", async (owner) => {
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { loadViteAgent, createViteWorkspaceAgentLoader } = await import("../src/vite/runtime-adapter.ts")
+    const { colocatedAgentSkillsContextKey } = await import("../src/internal/colocated-agent-skills.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-owned-skills-"))
+    tempRoots.push(root)
+    const handler = join(root, "agent.ts")
+    for (const skill of ["review", "other"]) {
+      await mkdir(join(root, "skills", skill), { recursive: true })
+      await writeLocalFile(join(root, "skills", skill, "SKILL.md"), `Colocated ${skill}`)
+    }
+    await writeLocalFile(handler, "export default {}")
+    const name = `owned-skills-${Math.random().toString(36).slice(2)}`
+    const sources = { explicit: { content: "Explicit review", workspacePath: ".agents/skills/review/SKILL.md" } }
+    const run = vi.fn()
+    const agent = defineAgent({
+      name,
+      workspace: owner === "workspace" ? { sources } : {},
+      ...(owner === "capability" ? { capabilities: [{ id: "review-skill", workspaceSources: sources }] } : {}),
+      driver: { model: ({ context }: AgentModelResolverContext) => {
+        run(context.get(colocatedAgentSkillsContextKey))
+        return {} as never
+      } },
+    })
+    const server = { ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
+    const definition = { handler, name, workspace: name }
+    const registered = await createViteWorkspaceAgentLoader(server, definition)()
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(registered.default)
+    const loaded = await loadViteAgent(server, definition)
+    if (!loaded) throw new Error("Expected the Vite Agent to load")
+
+    await runAgentInline(loaded.agent, context(), { messages: [] })
+
+    expect(run).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith({
+      "__vitehubAgentSkill:.agents/skills/other/SKILL.md": expect.objectContaining({
+        content: new TextEncoder().encode("Colocated other"),
+        workspacePath: ".agents/skills/other/SKILL.md",
+      }),
+    })
+    expect(registered.default.sources).toMatchObject(sources)
   })
 
   it("attaches skill sources before validating the required skill path", async () => {
