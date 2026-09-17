@@ -397,6 +397,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (hasLogicalOperator(outerIndex) || hasLogicalOperator(index)) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect a logical Capability expression. Use a literal Capability list with direct local bindings, or add an explicit Workspace ownership marker.")
     }
+    if (tokens[index] === "await") {
+      throw new Error("[vitehub] Agent Workspace discovery cannot inspect an awaited Capability expression. Use a literal Capability list, or add an explicit Workspace ownership marker.")
+    }
     if (seen.has(index)) return false
     seen.add(index)
     const branches = conditionalBranches(index)
@@ -442,11 +445,13 @@ function isWorkspaceAgentDefinition(source: string): boolean {
       return nested !== undefined && capabilityOwnsWorkspace(nested, seen)
     }
     if (!/^[A-Za-z_$][\w$]*$/.test(tokens[index] ?? "")) return false
+    let suffix = index + 1
+    while (tokens[suffix] === "!") suffix++
     if (binding !== undefined) {
       if (destructuredBindings.has(binding)) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect a destructured Capability binding. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
       }
-      if (["(", "<", ".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === ".")) {
+      if (["(", "<", ".", "["].includes(tokens[suffix]) || (tokens[suffix] === "?" && tokens[suffix + 1] === ".")) {
         throw new Error("[vitehub] Agent Workspace discovery cannot inspect a local Capability member or helper call. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or use a direct local binding so discovery can inspect it.")
       }
       // Later declarations shadow outer bindings before their initializer runs.
@@ -461,7 +466,7 @@ function isWorkspaceAgentDefinition(source: string): boolean {
     if (imported.has(tokens[index])) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect an imported Capability. Add workspace: {} to the Agent definition when the Capability owns a Workspace, or define the Capability locally so discovery can inspect it.")
     }
-    if (!parameterScope && !imported.has(tokens[index]) && (tokens[index] === "new" || ["(", "<"].includes(tokens[index + 1]) || (tokens[index] === "Array" && tokens[memberCallEnd(index)] === "(") || [".", "["].includes(tokens[index + 1]) || (tokens[index + 1] === "?" && tokens[index + 2] === "."))) {
+    if (!parameterScope && !imported.has(tokens[index]) && (tokens[index] === "new" || ["(", "<"].includes(tokens[suffix]) || (tokens[index] === "Array" && tokens[memberCallEnd(index)] === "(") || [".", "["].includes(tokens[suffix]) || (tokens[suffix] === "?" && tokens[suffix + 1] === "."))) {
       throw new Error("[vitehub] Agent Workspace discovery cannot inspect an opaque Capability expression. Use a literal Capability list with direct local bindings, or add workspace: {} to the Agent definition when the Capabilities own a Workspace.")
     }
     return false
@@ -754,7 +759,9 @@ function isWorkspaceAgentDefinition(source: string): boolean {
         // A dynamic member may resolve to either a named reference or owned
         // storage. Require an explicit contract instead of guessing ownership.
         const optionBinding = callbackParameters.some(scope => value >= scope.start && value < scope.end && scope.names.has(tokens[value]))
-        if (optionBinding || ["(", "<", ".", "["].includes(tokens[value + 1])) {
+        let suffix = value + 1
+        while (tokens[suffix] === "!") suffix++
+        if (optionBinding || ["(", "<", ".", "["].includes(tokens[suffix]) || (tokens[suffix] === "?" && tokens[suffix + 1] === ".")) {
           throw new Error("[vitehub] Agent Workspace discovery cannot inspect a dynamic Workspace value. Add an explicit workspace: {} ownership marker or named Workspace reference to the configured Agent definition.")
         }
         return true

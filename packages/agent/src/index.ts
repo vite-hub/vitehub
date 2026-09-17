@@ -2124,7 +2124,7 @@ type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
 type AgentDefinitionLike = { resolve: (...args: never[]) => unknown }
 
 type ConfiguredOptionsRecord<TOptions> = [Extract<TOptions, readonly unknown[] | ((...args: never[]) => unknown)
-  | Promise<unknown> | Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | URLSearchParams | Headers | FormData | Blob | Request | Response
+  | Promise<unknown> | Date | Map<unknown, unknown> | Set<unknown> | RegExp | URL | URLSearchParams | Headers | FormData | Blob | Request | Response | EventTarget
   | WeakMap<object, unknown> | WeakSet<object> | Error | AbortController | AbortSignal
   | ArrayBuffer | ArrayBufferView | SharedArrayBuffer | ReadableStream<unknown> | WritableStream<unknown> | TransformStream<unknown, unknown>>] extends [never] ? unknown : never
 

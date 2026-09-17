@@ -343,7 +343,7 @@ it.each([
   "function makeCapabilities() { return [storage] }",
   "const makeCapabilities = () => [storage]",
 ])("rejects local Capability helper calls: %s", async (declaration) => {
-  for (const expression of ["makeCapabilities()", "makeCapabilities<Options>()", "[makeCapabilities()]"]) {
+  for (const expression of ["makeCapabilities()", "makeCapabilities<Options>()", "[makeCapabilities()]", "makeCapabilities!()", "makeCapabilities?.()"]) {
     const source = `const storage = defineCapability({ workspace: {} }); ${declaration}; export default defineAgent({ capabilities: ${expression} })`
     await expect(discover(source)).rejects.toThrow(/cannot inspect .*Capability/)
     expect((await discover(source.replace("capabilities:", "workspace: {}, capabilities:")))[0]?.workspace).toBe("notes")
@@ -362,7 +362,9 @@ it.each([
   'function getWorkspace() { return "shared" }',
   'const getWorkspace = () => "shared"',
 ])("rejects opaque Workspace helper results: %s", async (declaration) => {
-  await expect(discover(`${declaration}; export default defineAgent({ workspace: getWorkspace() })`)).rejects.toThrow("dynamic Workspace value")
+  for (const expression of ["getWorkspace()", "getWorkspace!()", "getWorkspace?.()"]) {
+    await expect(discover(`${declaration}; export default defineAgent({ workspace: ${expression} })`)).rejects.toThrow("dynamic Workspace value")
+  }
 })
 
 it("rejects opaque overrides of a nested Workspace name", async () => {
@@ -376,4 +378,16 @@ it.each(["(counter++, [storage])", "([storage], [])", "((counter++, [storage]))"
   const source = `let counter = 0; const storage = defineCapability({ workspace: {} }); export default defineAgent({ capabilities: ${expression} })`
   await expect(discover(source)).rejects.toThrow("sequence Capability expression")
   expect((await discover(source.replace("capabilities:", "workspace: {}, capabilities:")))[0]?.workspace).toBe("notes")
+})
+
+
+it.each(["await caps", "(await caps)", "[...(await caps)]"])("rejects awaited Capability lists: %s", async (expression) => {
+  const source = `const storage = defineCapability({ workspace: {} }); const caps = Promise.resolve([storage]); export default defineAgent({ capabilities: ${expression} })`
+  await expect(discover(source)).rejects.toThrow("awaited Capability expression")
+  expect((await discover(source.replace("capabilities:", "workspace: {}, capabilities:")))[0]?.workspace).toBe("notes")
+})
+
+it("preserves non-null assertions on direct Capability and Workspace bindings", async () => {
+  expect((await discover('const storage = defineCapability({ workspace: {} }); export default defineAgent({ capabilities: [storage!] })'))[0]?.workspace).toBe("notes")
+  expect((await discover('const workspace = "shared"; export default defineAgent({ workspace: workspace! })'))[0]?.workspace).toBeUndefined()
 })

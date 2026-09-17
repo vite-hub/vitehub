@@ -182,6 +182,12 @@ it("accepts interface options and rejects non-record roots", () => {
   defineAgent({ options: new Blob([]), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error File roots inherit Blob and are not plain option records.
   defineAgent({ options: new File([], "input"), configure: () => defineAgent({ driver: "codex" }) })
+  // @ts-expect-error EventTarget roots are not plain option records.
+  defineAgent({ options: new EventTarget(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: { target: new EventTarget() }, configure: value => {
+    expectTypeOf(value.target).toEqualTypeOf<EventTarget>()
+    return defineAgent({ driver: "codex" })
+  } })
   // @ts-expect-error Request roots are not plain option records.
   defineAgent({ options: new Request("https://example.com"), configure: () => defineAgent({ driver: "codex" }) })
   // @ts-expect-error Response roots are not plain option records.
