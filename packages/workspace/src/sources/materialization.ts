@@ -127,7 +127,7 @@ async function readSourceSnapshotMetadata(store: Pick<WorkspaceStore, "getMeta">
   // SAFETY: The recovery key is written exclusively by the snapshot retirement paths below.
   const recovery = recoveryValue as SourceSnapshotMetadata | undefined
   if (recovery?.status === "ready" && snapshot?.status !== "ready") return recovery
-  if (recovery?.status === "ready" && snapshot.ownsMount === false && recovery.ownsMount !== false) return recovery
+  if (recovery?.status === "ready" && snapshot?.ownsMount === false && recovery.ownsMount !== false) return recovery
   if (snapshot?.status === "ready") return snapshot
   if (snapshot || !source) return snapshot
   // Reuse an older cache only for the same configuration. Cleanup callers do
@@ -222,8 +222,8 @@ async function writeSourceSnapshotMetadata(store: WorkspaceStore, workspace: str
   const key = sourceSnapshotMetaKey(workspace, metadata.source)
   snapshots.set(key, metadata)
   if (store.getMeta && store.setMeta) {
-    await store.setMeta(key, metadata)
     if (!key.endsWith(":recovery")) await store.setMeta(`${key}:recovery`, undefined)
+    await store.setMeta(key, metadata)
     snapshots.delete(key)
   }
 }

@@ -2,7 +2,7 @@ import { expect, it } from "vitest"
 
 import type { WorkspaceStore } from "../src/core/types.ts"
 import { normalizeWorkspaceSources } from "../src/sources/config.ts"
-import { materializeWorkspaceSources, readCurrentSourceSnapshot, sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
+import { invalidateSourceSnapshot, materializeWorkspaceSources, readCurrentSourceSnapshot, sourceSnapshotMetaKey } from "../src/sources/materialization.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 
 const metadataModes = ["neither", "get-only", "set-only"] as const
@@ -145,4 +145,22 @@ it("retains durable cleanup evidence when clearing the snapshot fails", async ()
   await materializeWorkspaceSources({ ...source, sources: {} }, store)
   await expect(readCurrentSourceSnapshot(store, source.name, configuredSource!)).resolves.toBeUndefined()
   await expect(store.getMeta!(`workspace:${source.name}:startup-sources`)).resolves.toEqual([])
+})
+
+it("does not publish a canonical snapshot when recovery cleanup fails", async () => {
+  const store = createMemoryWorkspaceStore()
+  const source = definition("recovery-clear-order", ["generated.md"])
+  await materializeWorkspaceSources(source, store)
+  const [configuredSource] = normalizeWorkspaceSources(source.sources)
+  const key = sourceSnapshotMetaKey(source.name, "docs")
+  const canonical = await store.getMeta!(key)
+  await store.setMeta!(`${key}:recovery`, canonical)
+  const setMeta = store.setMeta!.bind(store)
+  store.setMeta = async (metadataKey, value) => {
+    if (metadataKey === `${key}:recovery` && value === undefined) throw new Error("recovery clear failed")
+    await setMeta(metadataKey, value)
+  }
+
+  await expect(invalidateSourceSnapshot(store, source.name, configuredSource!.key)).rejects.toThrow("recovery clear failed")
+  await expect(store.getMeta!(key)).resolves.toMatchObject({ status: "ready" })
 })
