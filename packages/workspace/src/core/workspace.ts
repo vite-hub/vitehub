@@ -33,7 +33,7 @@ function getStore(definition: WorkspaceDefinition) {
 async function filterStartupSourceChanges(definition: WorkspaceDefinition, store: WorkspaceStore, diff: WorkspaceDiff): Promise<WorkspaceDiff> {
   if (!diff.entries.length) return diff
   const sources = normalizeWorkspaceSources(definition.sources)
-  const { files: generatedFiles, directories: generatedDirectories } = await readGeneratedPromotedSkillPaths(store, sources, definition.name)
+  const { files: generatedFiles, directories: generatedDirectories, promotedDirectories } = await readGeneratedPromotedSkillPaths(store, sources, definition.name)
   const generatedEmptyDirectories = new Set<string>()
   for (const source of sources) {
     if (source.materialize !== "startup") continue
@@ -87,7 +87,7 @@ async function filterStartupSourceChanges(definition: WorkspaceDefinition, store
       // another Store instance) after the startup snapshot was recorded. With
       // no child ownership metadata, retain that addition so auto-commit does
       // not hide the replacement.
-      if ((descendants.length === 0 && generatedEmptyDirectories.has(entry.path)) || (descendants.length > 0 && descendants.every(child => child.type === "directory"
+      if ((descendants.length === 0 && (generatedEmptyDirectories.has(entry.path) || promotedDirectories.has(entry.path))) || (descendants.length > 0 && descendants.every(child => child.type === "directory"
         ? generatedDirectories.has(child.path) || descendants.some(descendant => descendant.type === "file" && descendant.path.startsWith(`${child.path}/`) && generatedFiles.has(descendant.path))
         : generatedFiles.has(child.path)))) continue
     }

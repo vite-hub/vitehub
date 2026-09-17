@@ -24,3 +24,6 @@ export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckS
 export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './github-pull-requests.ts'
 
 export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
+
+export { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from './github-required-checks.ts'
+export type { GitHubRequiredCheck, GitHubRequiredCheckPolicy, GitHubRequiredCheckPolicyReader, GitHubReadCheckPolicy, GitHubCheckPolicyResponse, GitHubRequiredCheckState, GitHubCheckEvidence, GitHubCheckRun, GitHubCommitStatus } from './github-required-checks.ts'

@@ -627,6 +627,36 @@ describe("defineAgent workspace option", () => {
     expect(run).toHaveBeenCalledWith({ unrelated })
   })
 
+  it("keeps a same-key active Channel Source ahead of an embedded fallback", async () => {
+    stat.mockRejectedValue(new Error("ENOENT"))
+    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { colocatedAgentSkillsContextKey, withColocatedAgentSkills } = await import("../src/internal/colocated-agent-skills.ts")
+    const run = vi.fn()
+    const agent = withColocatedAgentSkills(defineAgent({
+      name: `channel-same-key-${Math.random().toString(36).slice(2)}`,
+      workspace: {},
+      channels: { review: {
+        kind: "review",
+        capabilities: [{ id: "channel-review", workspace: { sources: {
+          review: { content: "Channel review", workspacePath: ".agents/skills/review/SKILL.md" },
+        } } }],
+      } },
+      driver: { model: ({ context }: AgentModelResolverContext) => {
+        run(context.get(colocatedAgentSkillsContextKey))
+        return {} as never
+      } },
+    }), {
+      review: { content: "Colocated review", workspacePath: ".agents/skills/review/SKILL.md" },
+    })
+
+    await runAgentInline(agent, Object.assign(context(), {
+      run: { channelId: "review", origin: "review", runId: "review:1", threadId: "review:1" },
+    }), { messages: [] })
+
+    expect(run).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith({})
+  })
+
   it("attaches skill sources before validating the required skill path", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")

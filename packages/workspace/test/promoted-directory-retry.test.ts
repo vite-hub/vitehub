@@ -140,3 +140,23 @@ it("does not recover pending promotion ownership from matching bytes without the
   expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path, type: "added" }))
   read.mockRestore()
 })
+
+it("filters an orphaned promotion directory after its source is removed", async () => {
+  const store = createMemoryWorkspaceStore()
+  const root = ".agents/skills/orphaned"
+  const sources = { portal: custom({ materialize: "startup", files: [{ path: ".claude/skills/orphaned/SKILL.md", content: "# Orphaned" }] }) }
+  const definition = defineWorkspace({ store, sources })
+  registerWorkspace("promotion-orphaned-directory", definition)
+  const workspace = await useRegisteredWorkspace("promotion-orphaned-directory")
+  const writeFileConditional = store.writeFileConditional!.bind(store)
+  const write = vi.spyOn(store, "writeFileConditional").mockImplementation(async (path, file, digest) => {
+    if (path === `${root}/SKILL.md`) throw new Error("promotion write failed")
+    return writeFileConditional(path, file, digest)
+  })
+  await expect(workspace.materializeSources?.()).rejects.toThrow("promotion write failed")
+  expect((await store.stat(root))?.type).toBe("directory")
+  Reflect.deleteProperty(sources, "portal")
+  write.mockRestore()
+  await workspace.materializeSources?.()
+  expect((await workspace.diff()).entries).toEqual([])
+})

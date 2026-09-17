@@ -95,6 +95,7 @@ export async function removedStartupFileMatches(store: WorkspaceStore, workspace
 export { removedStartupDirectoryMetaKey } from "./startup-directory-evidence.ts"
 const legacyStartupSourcesMetaKey = "workspace:startup-sources"
 const promotedSourceSkillsMetaKey = "workspace:promoted-source-skills"
+const promotedSourceDirectoriesMetaKey = "workspace:promoted-source-directories"
 const startupReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
 const activeStartupSourcesByStore = new WeakMap<WorkspaceStore, Map<string | undefined, Set<ResolvedWorkspaceSource>>>()
 const promotionReconciliationByStore = new WeakMap<WorkspaceStore, Promise<void>>()
@@ -248,16 +249,29 @@ async function promotedFileMatches(file: WorkspaceFile, prior: PromotedSourceSki
 
 export async function readGeneratedPromotedSkillPaths(store: WorkspaceStore, sources: readonly ResolvedWorkspaceSource[], workspaceName?: string) {
   const registry = await store.getMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`)
-  const paths = { files: new Set<string>(), directories: new Set<string>() }
-  if (!hasRuntimeType(registry, "object") || registry === null) return paths
+  const paths = { files: new Set<string>(), directories: new Set<string>(), promotedDirectories: new Set<string>() }
   const startupSources = new Set(sources.filter(source => source.materialize === "startup").map(source => source.key))
-  for (const [path, prior] of Object.entries(registry)) {
+  const directoryRegistry = await store.getMeta?.(`${promotedSourceDirectoriesMetaKey}:${workspaceMetadataScope(workspaceName)}`)
+  if (hasRuntimeType(directoryRegistry, "object") && directoryRegistry !== null) {
+    for (const [path, value] of Object.entries(directoryRegistry)) {
+      if (!hasRuntimeType(value, "object") || value === null || Reflect.get(value, "workspace") !== workspaceName) continue
+      const identity = Reflect.get(value, "identity")
+      if (hasRuntimeType(identity, "string") && (await store.stat(path))?.directoryIdentity === identity) {
+        paths.directories.add(path)
+        paths.promotedDirectories.add(path)
+      }
+    }
+  }
+  if (hasRuntimeType(registry, "object") && registry !== null) for (const [path, prior] of Object.entries(registry)) {
     if (!isPromotedSourceSkillFile(prior) || prior.workspace !== workspaceName || !startupSources.has(prior.source)) continue
     const file = await readSourceFile(store, path)
     if (file && await promotedFileMatches(file, prior)) {
       paths.files.add(path)
       for (const [directory, identity] of Object.entries(prior.directoryIdentities || {})) {
-        if ((await store.stat(directory))?.directoryIdentity === identity) paths.directories.add(directory)
+        if ((await store.stat(directory))?.directoryIdentity === identity) {
+          paths.directories.add(directory)
+          paths.promotedDirectories.add(directory)
+        }
       }
     }
   }
@@ -302,6 +316,11 @@ async function reconcilePromotedSourceSkills(
     ? Object.fromEntries(Object.entries(previousValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
     : {}
   const pendingFilesMetaKey = `${promotedSourceSkillsMetaKey}:pending:${workspaceMetadataScope(workspaceName)}`
+  const directoriesMetaKey = `${promotedSourceDirectoriesMetaKey}:${workspaceMetadataScope(workspaceName)}`
+  const priorDirectoriesValue = await store.getMeta(directoriesMetaKey)
+  const nextDirectories: Record<string, { identity: string, workspace?: string }> = hasRuntimeType(priorDirectoriesValue, "object") && priorDirectoriesValue !== null
+    ? Object.fromEntries(Object.entries(priorDirectoriesValue).filter((entry): entry is [string, { identity: string, workspace?: string }] => hasRuntimeType(entry[1], "object") && entry[1] !== null && hasRuntimeType(Reflect.get(entry[1], "identity"), "string")))
+    : {}
   const pendingFilesValue = await store.getMeta(pendingFilesMetaKey)
   const pendingFiles = hasRuntimeType(pendingFilesValue, "object") && pendingFilesValue !== null
     ? Object.fromEntries(Object.entries(pendingFilesValue).filter((entry): entry is [string, PromotedSourceSkillFile] => isPromotedSourceSkillFile(entry[1])))
@@ -314,6 +333,13 @@ async function reconcilePromotedSourceSkills(
     const currentAttempt = hasRuntimeType(currentPromotion, "object") && currentPromotion !== null ? Reflect.get(currentPromotion, "attempt") : undefined
     if (hasRuntimeType(attempt, "string") && attempt === currentAttempt
       && pending.workspace === workspaceName && current && await promotedFileMatches(current, pending)) previous[destination] = pending
+  }
+  for (const [destination, pending] of Object.entries(pendingFiles)) {
+    if (pending.workspace !== workspaceName || pending.metadata?.sourceMaterialize !== "startup") continue
+    const pendingDirectories = await store.getMeta(pendingDirectoryMetaKey(destination))
+    if (hasRuntimeType(pendingDirectories, "object") && pendingDirectories !== null) {
+      for (const [path, identity] of Object.entries(pendingDirectories)) if (hasRuntimeType(identity, "string")) nextDirectories[path] = { identity, workspace: workspaceName }
+    }
   }
   const incompleteSources = new Set<string>()
   const selectedSkills = new Map<string, { paths: string[], source: string }>()
@@ -455,6 +481,9 @@ async function reconcilePromotedSourceSkills(
           else await writeFileConditional(destination, replacement, expectedDigest)
         })
         writes.push({ destination, existing, promoted })
+        if (promoted.metadata?.sourceMaterialize === "startup") {
+          for (const [path, identity] of Object.entries(directoryIdentities)) nextDirectories[path] = { identity, workspace: workspaceName }
+        }
       }
       catch (error) {
         if (!isWorkspaceConflict(error)) {
@@ -525,7 +554,10 @@ async function reconcilePromotedSourceSkills(
     }
     else if (existing) next[destination] = prior
   }
-  await control.checkpoint(async () => await store.setMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`, next))
+  await control.checkpoint(async () => {
+    await store.setMeta?.(`${promotedSourceSkillsMetaKey}:${workspaceMetadataScope(workspaceName)}`, next)
+    await store.setMeta?.(directoriesMetaKey, nextDirectories)
+  })
   await control.checkpoint(async () => {
     await store.setMeta?.(pendingFilesMetaKey, null)
     for (const destination of completedDirectoryCheckpoints) await store.setMeta?.(pendingDirectoryMetaKey(destination), null)

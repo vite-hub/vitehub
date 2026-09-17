@@ -3,7 +3,7 @@ import { custom, defineWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { removedStartupPathMetaKey } from "../src/sources/materialization.ts"
-import { invalidateStartupDirectoryRemoval } from "../src/sources/startup-directory-evidence.ts"
+import { captureStartupPathMutations, invalidateStartupDirectoryRemoval } from "../src/sources/startup-directory-evidence.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { registerWorkspace } from "../src/test.ts"
 
@@ -59,6 +59,23 @@ it("keeps file deletions visible when another writer runs before the cleanup che
   await workspace.materializeSources?.()
   expect(checkpointed).toBe(true)
   expect((await workspace.diff()).entries).toContainEqual(expect.objectContaining({ path: "generated/file.md", type: "removed" }))
+})
+
+it.each([undefined, { ifSource: null }])("invalidates committed removal evidence when the caller callback throws with %j", async (condition) => {
+  const store = createMemoryWorkspaceStore()
+  const writer = createWorkspaceSourceView({ name: "other-workspace", sources: {} }, store)
+  await writer.writeFile("generated/file.md", "user")
+  await store.snapshot()
+  const before = await captureStartupPathMutations(store, "generated/file.md")
+  const callbackError = new Error("caller callback failed")
+  const onRemove = vi.fn(() => { throw callbackError })
+
+  await expect(writer.rm("generated/file.md", { ...condition, onRemove })).rejects.toBe(callbackError)
+
+  expect(onRemove).toHaveBeenCalledOnce()
+  expect(await store.readFile("generated/file.md")).toBeUndefined()
+  expect(await captureStartupPathMutations(store, "generated/file.md")).not.toEqual(before)
+  expect((await store.diff()).entries).toContainEqual(expect.objectContaining({ path: "generated/file.md", type: "removed" }))
 })
 
 it.each([

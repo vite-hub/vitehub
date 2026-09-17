@@ -2885,6 +2885,19 @@ export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntime
 }
 
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  options: GitHubChannelOptions<TRuntimeConfig> & {
+    pullRequest: true | (GitHubPullRequestCommentEventOptions<TRuntimeConfig> & { workspace?: true | { mount?: string } })
+  },
+): AgentChannelDefinition<TRuntimeConfig> & {
+  capabilities: readonly [
+    AgentCapabilityDefinition<TRuntimeConfig> & { workspace: NonNullable<AgentCapabilityDefinition<TRuntimeConfig>["workspace"]> },
+    ...AgentCapabilityDefinition<TRuntimeConfig>[],
+  ]
+}
+export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  options?: GitHubChannelOptions<TRuntimeConfig>,
+): AgentChannelDefinition<TRuntimeConfig>
+export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: GitHubChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   const { activity, app: appOptions, pullRequest, ...channelOptions } = options

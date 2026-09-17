@@ -987,12 +987,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           ...options,
           onRemove() {
             removed = true
-            options?.onRemove?.()
           },
         })
         const conditional = options?.ifDirectoryIdentity !== undefined || options?.ifDigest !== undefined
           || options?.ifSource !== undefined || options?.ifWorkspace !== undefined
         if (removed || !conditional) await invalidateStartupDirectoryRemoval(store, input.path)
+        if (removed) options?.onRemove?.()
         await writePolicy.after(input)
       }
       catch (error) {

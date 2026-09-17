@@ -31,7 +31,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
-| `vite-hub/agent/server/github-inbox` | Durable GitHub pull request inbox storage, webhook ingestion, hydration, and claims. |
+| `vite-hub/agent/server/github-inbox` | Durable GitHub pull request inbox storage, webhook ingestion, hydration, claims, and [explicit waits](./github-inbox-waits). |
 | `vite-hub/agent/invocations/d1` | Cloudflare D1 Agent Invocation Journal and explicit schema statements. |
 | `vite-hub/agent/invocations/sqlite` | LibSQL-compatible durable Agent Invocation Journal. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
@@ -220,3 +220,11 @@ composition and the owner-package paths above for advanced integration control.
 - [File conventions](/docs/reference/file-conventions)
 - [Package reference](/docs/reference)
 - [Runtime and host support](/docs/frameworks-hosts/support-matrix)
+
+`@vite-hub/agent/server/github` also exports
+`createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`.
+These inspect active rulesets and classic required-check protection, preserve App
+bindings, and classify complete check evidence for an exact head. Unknown policy
+is distinct from a known policy with no required checks. Cached results are for
+scheduling and inspection, not merge authorization. Invalidate the policy reader
+after branch-protection or ruleset changes.

@@ -23,6 +23,7 @@ interface DeploymentRuntimeCapture {
   denoHandler?: (request: Request) => Promise<Response>
   lastAgent?: Record<PropertyKey, unknown>
   registeredAgent?: Record<PropertyKey, unknown>
+  extendRegisteredAgent?: () => Record<PropertyKey, unknown>
   registeredWorkspaceName?: string
   stateAdapter?: CapturedStateAdapter
   workspaceDefinitions: Record<string, Record<PropertyKey, unknown>>
@@ -44,6 +45,8 @@ function deploymentRuntimeModules(): Map<string, string> {
   return new Map([
     ["@vite-hub/agent/server/internal", [
       `export { filterColocatedAgentSkills } from ${JSON.stringify(join(import.meta.dirname, "..", "src", "internal", "colocated-agent-skills.ts"))}`,
+      `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
+      "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
       "function assetText(agent, key) {",
       "  const source = agent[Symbol.for('vitehub.agent.colocatedSkills')]?.[key]",
@@ -73,6 +76,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "export function markDiscoveredWorkspaceAgentDefinitionRegistered(agent, defaults) {",
       "  const name = agent.__vitehubWorkspaceAgentOptions?.name || defaults.workspace || defaults.name",
       "  capture().registeredAgent = agent",
+      "  capture().extendRegisteredAgent = () => defineAgent({ extends: agent, description: 'Extended' })",
       "  capture().registeredWorkspaceName = name",
       "  return name",
       "}",
@@ -453,6 +457,7 @@ describe("generated Agent deployment catalog", () => {
     expect(Object.keys(runtime!.capture.workspaceRegistry)).toEqual(["support"])
     const workspace = await runtime!.workspace("support")
     const sources = workspace.sources as Record<string, { content: string | Uint8Array }> | undefined
+    const skills = runtime!.capture.registeredAgent?.[Symbol.for("vitehub.agent.colocatedSkills")] as Record<string, { content: Uint8Array }> | undefined
     const settings = Object.getOwnPropertyDescriptor(workspace, "__vitehubAgentSettings")?.value as {
       driver?: { instructions?: unknown }
     } | undefined
@@ -475,6 +480,10 @@ describe("generated Agent deployment catalog", () => {
     })
     expect(runtime!.capture.lastAgent).toBe(runtime!.capture.registeredAgent)
     expect(runtime!.capture.registeredWorkspaceName).toBe("support")
+    const extended = runtime!.capture.extendRegisteredAgent?.()
+    expect(extended?.description).toBe("Extended")
+    expect(extended?.sourceRootDir).toBe(join(runtime!.supportRoot, "workspace"))
+    expect(extended?.[Symbol.for("vitehub.agent.colocatedSkills")]).toEqual(skills)
   })
 
   it.each(["nitro", "deno", "netlify"] as const)("preserves explicit instruction destinations in %s deployment fallback", async (adapter) => {
