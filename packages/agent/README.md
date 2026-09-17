@@ -37,6 +37,8 @@ Until T3 publishes the runtime on npm, pnpm consumers must set `blockExoticSubde
 
 The Vite integration requires Vite 8. Configure build inputs, output options, and external dependencies under `build.rolldownOptions`.
 
+The Vite integration generates H3 route modules inside the consuming application. When using `hubAgent()` with a Nitro host or `agentHostRoutes()`, declare `h3` in the application dependencies. Use `pnpm add h3@^1.15.11` for Nitro 2 and Nuxt 4, or `pnpm add h3@^2.0.1-rc.31` for Nitro 3. This optional peer is not required by the portable Agent APIs or the Deno runtime. Generated routes use the application host's H3 version.
+
 ## Minimal API
 
 ```ts
