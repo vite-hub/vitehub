@@ -77,14 +77,17 @@ type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputEx
 export const workspacePersistencePathsSymbol: unique symbol = Symbol("vitehub.agent.workspacePersistencePaths")
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
 export const capabilityInvocationStartSymbol: unique symbol = Symbol("vitehub.agent.capabilityInvocationStart")
-export const githubPullRequestWorkspaceCapabilitySymbol: unique symbol = Symbol("vitehub.agent.githubPullRequestWorkspaceCapability")
+const trustedGitHubPullRequestWorkspaceCapabilities = new WeakSet<object>()
+export function trustGitHubPullRequestWorkspaceCapability<T extends object>(capability: T): T {
+  trustedGitHubPullRequestWorkspaceCapabilities.add(capability)
+  return capability
+}
 export const eagerFinishExtensionSymbol: unique symbol = Symbol("vitehub.agent.eagerFinishExtension")
 type InternalAgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
   [capabilityInvocationStartSymbol]?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
-  [githubPullRequestWorkspaceCapabilitySymbol]?: true
   [eagerFinishExtensionSymbol]?: boolean
   [workspaceMaterializationPathsSymbol]?: readonly string[]
   [workspacePersistencePathsSymbol]?: readonly string[]
@@ -878,7 +881,7 @@ async function applyCapabilityWorkspaceContributions<
       : capability.workspace
     if (!resolved) continue
 
-    if (capability[githubPullRequestWorkspaceCapabilitySymbol] === true && resolved.sources?.vitehubGitHubPullRequest) {
+    if (trustedGitHubPullRequestWorkspaceCapabilities.has(capability) && resolved.sources?.vitehubGitHubPullRequest) {
       const pr = normalizedContributionSource("vitehubGitHubPullRequest", resolved.sources.vitehubGitHubPullRequest, workspaceRuntime)
       const remaining = { ...definition.sources }
       for (const [key, source] of Object.entries(remaining)) {

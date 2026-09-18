@@ -2,7 +2,7 @@ import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-f
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { defineCapability, githubPullRequestWorkspaceCapabilitySymbol } from "./capability-runtime.ts"
+import { defineCapability, trustGitHubPullRequestWorkspaceCapability } from "./capability-runtime.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
@@ -2823,9 +2823,8 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
 ): AgentCapabilityDefinition<TRuntimeConfig> | undefined {
   if (!workspace?.enabled) return
-  return defineCapability({
+  return trustGitHubPullRequestWorkspaceCapability(defineCapability({
     id: "github-pull-request-workspace",
-    [githubPullRequestWorkspaceCapabilitySymbol]: true,
     async workspace(context) {
       const value = githubPullRequestContextValue(context)
       const token = await githubPullRequestMetadataToken(app, context, githubPullRequestInstallationId(value), value.repository)
@@ -2842,7 +2841,7 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
         },
       }
     },
-  })
+  }))
 }
 
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
