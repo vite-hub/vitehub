@@ -2823,7 +2823,7 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
 ): AgentCapabilityDefinition<TRuntimeConfig> | undefined {
   if (!workspace?.enabled) return
-  return trustGitHubPullRequestWorkspaceCapability(defineCapability({
+  const capability = defineCapability({
     id: "github-pull-request-workspace",
     async workspace(context) {
       const value = githubPullRequestContextValue(context)
@@ -2841,7 +2841,9 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
         },
       }
     },
-  }))
+  })
+  // Keep the trusted replacement behavior bound to the built-in resolver.
+  return trustGitHubPullRequestWorkspaceCapability(Object.freeze(capability))
 }
 
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
