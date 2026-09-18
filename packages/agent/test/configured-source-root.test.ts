@@ -104,6 +104,9 @@ it("keeps generated colocated skills available to derived definitions", async ()
     expect(Object.getOwnPropertyDescriptor(child, colocatedAgentSkillsSymbol)?.value).toEqual(
       Object.getOwnPropertyDescriptor(discovered, colocatedAgentSkillsSymbol)?.value,
     )
+    const cleared = decorate(base, "/discovered", undefined, undefined)
+    expect(Object.getOwnPropertyDescriptor(cleared, colocatedAgentSkillsSymbol)).toBeUndefined()
+    expect(Object.getOwnPropertyDescriptor(base, colocatedAgentSkillsSymbol)).toBeUndefined()
   }
   finally {
     await rm(root, { recursive: true, force: true })

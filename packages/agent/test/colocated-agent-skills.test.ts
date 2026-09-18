@@ -57,6 +57,17 @@ describe("colocated Agent Skills", () => {
     expect(Object.getOwnPropertyDescriptor(resolved, "settings")?.enumerable).toBe(false)
   })
 
+  it("clears source metadata when a reused definition loses its skills", () => {
+    const agent = { name: "review" }
+    const sources = { review: { content: new TextEncoder().encode("# Review\n"), workspacePath: "skills/review/SKILL.md" } }
+    const discovered = withColocatedAgentSkills(agent, sources)
+    const cleared = withColocatedAgentSkills(agent, undefined)
+
+    expect(Object.getOwnPropertyDescriptor(discovered, colocatedAgentSkillsSymbol)?.value).toBe(sources)
+    expect(Object.getOwnPropertyDescriptor(agent, colocatedAgentSkillsSymbol)).toBeUndefined()
+    expect(Object.getOwnPropertyDescriptor(cleared, colocatedAgentSkillsSymbol)).toBeUndefined()
+  })
+
   it("only discovers skills owned by folder Agent Definitions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-skills-"))
     roots.push(root)

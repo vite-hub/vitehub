@@ -26,7 +26,11 @@ export function decodeColocatedAgentSkills(
 }
 
 export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedAgentSkills | undefined): Agent {
-  if (!skills || !Object.keys(skills).length || !agent || !hasRuntimeType(agent, "object")) return agent
+  if (!agent || !hasRuntimeType(agent, "object")) return agent
+  if (!skills || !Object.keys(skills).length) {
+    delete (agent as Record<symbol, unknown>)[colocatedAgentSkillsSymbol]
+    return agent
+  }
   const resolved = Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent))
   const descriptor = { configurable: true, enumerable: true, value: skills }
   // Keep the source decoration on the original definition. Vite discovery
