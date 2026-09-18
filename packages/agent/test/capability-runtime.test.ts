@@ -143,7 +143,7 @@ function schema<T>(validate: (value: unknown) => T) {
 
 describe("agent capability runtime", () => {
   it.each(["lazy", "startup"] as const)("overlays the matching GitHub checkout for a PR invocation (%s)", async (materialize) => {
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { githubPullRequestWorkspaceCapabilitySymbol, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { github } = await import("@vite-hub/workspace")
     const name = `pr-source-${crypto.randomUUID()}`
     const source = (ref: string, content: string) => ({
@@ -162,11 +162,12 @@ describe("agent capability runtime", () => {
     const contribution = { sources: { vitehubGitHubPullRequest: {
       ...source("pr-head", "pull request"), materialize: "lazy" as const, mount: { path: "portal" },
     } } }
-    const resolve = (id: string) => resolveAgentCapabilities({ capabilities: [{ id, workspace: contribution }] }, runtime(), {}, workspace as never, "write", {
+    const resolve = (id: string, trusted = false) => resolveAgentCapabilities({ capabilities: [{ id, ...(trusted ? { [githubPullRequestWorkspaceCapabilitySymbol]: true } : {}), workspace: contribution }] }, runtime(), {}, workspace as never, "write", {
       driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
     })
     await expect(resolve("other-capability")).rejects.toThrow('conflicts with Workspace Source "portal"')
-    const result = await resolve("github-pull-request-workspace")
+    await expect(resolve("github-pull-request-workspace")).rejects.toThrow('conflicts with Workspace Source "portal"')
+    const result = await resolve("github-pull-request-workspace", true)
     try {
       expect(result.workspaceDefinition?.sources?.portal).toBeUndefined()
       await expect(result.workspace!.fs.readFile("portal/version.txt")).resolves.toBe("pull request")
