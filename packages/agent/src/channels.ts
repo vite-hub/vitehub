@@ -2,7 +2,7 @@ import { matchesGitHubPullRequestFilter } from './internal/github-pull-request-f
 export { matchesGitHubPullRequestFilter } from './internal/github-pull-request-filter.ts'
 import { createHash, createSign } from "node:crypto"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { defineCapability } from "./capability-runtime.ts"
+import { defineCapability, trustGitHubPullRequestWorkspaceCapability } from "./capability-runtime.ts"
 import { asUnknownBoundary, hasRuntimeType } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
@@ -2823,7 +2823,7 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
 ): AgentCapabilityDefinition<TRuntimeConfig> | undefined {
   if (!workspace?.enabled) return
-  return defineCapability({
+  const capability = defineCapability({
     id: "github-pull-request-workspace",
     async workspace(context) {
       const value = githubPullRequestContextValue(context)
@@ -2842,6 +2842,8 @@ function githubPullRequestWorkspaceCapability<TRuntimeConfig extends AgentRuntim
       }
     },
   })
+  // Keep the trusted replacement behavior bound to the built-in resolver.
+  return trustGitHubPullRequestWorkspaceCapability(Object.freeze(capability))
 }
 
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
