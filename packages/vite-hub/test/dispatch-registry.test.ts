@@ -38,7 +38,6 @@ it.each([
     if (framework === "nuxt") {
       const hooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
       await viteHubNuxtModule(options, {
-        _version: "4.5.2",
         hook(name, callback) {
           if (name === "nitro:config") hooks.push(callback)
         },

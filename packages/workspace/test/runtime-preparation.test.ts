@@ -29,30 +29,6 @@ function registerPreparationWorkspace(getItems: (ctx: SourceContext) => Promise<
 }
 
 describe("Workspace runtime preparation", () => {
-  it.each(["", "docs"])("prepares overlapping startup Sources in path precedence order at %s", async (mount) => {
-    const name = `workspace-preparation-${crypto.randomUUID()}`
-    const store = createMemoryWorkspaceStore()
-    const path = mount ? `${mount}/AGENTS.md` : "AGENTS.md"
-    registerWorkspace(name, {
-      sources: {
-        first: custom({ materialize: "startup", mount, files: [{ path: "AGENTS.md", content: "first" }] }),
-        second: custom({ materialize: "startup", mount, files: [{ path: "AGENTS.md", content: "second" }] }),
-        root: custom({ materialize: "startup", mount: "", files: [{ path, content: "root" }] }),
-      },
-      store,
-    })
-    const preparation = createWorkspacePreparation({ workspace: name })
-    try {
-      await expect(preparation.start()).resolves.toMatchObject({ status: "ready" })
-      // Check the provider's backing Store before a read can repair precedence.
-      await expect(store.readFile(path)).resolves.toMatchObject({ content: "first" })
-      await expect(useWorkspace(name).fs.readFile(path, { encoding: "utf8" })).resolves.toBe("first")
-    }
-    finally {
-      await preparation.stop()
-    }
-  })
-
   it("rejects preparation without startup sources while an unrelated lazy read is pending", async () => {
     let release!: () => void
     const blocked = new Promise<void>((resolve) => {
@@ -154,6 +130,34 @@ describe("Workspace runtime preparation", () => {
     await useWorkspace(second).fs.list("")
 
     expect(loaded).toEqual(["first", "second"])
+  })
+
+  it("retains startup ownership for distinct definitions sharing a Store", async () => {
+    const store = createMemoryWorkspaceStore()
+    const first = `workspace-startup-first-${crypto.randomUUID()}`
+    const second = `workspace-startup-second-${crypto.randomUUID()}`
+    const source = (content: string) => custom({
+      materialize: "startup",
+      async getKeys() { return ["ready.md"] },
+      async getItem(key) { return { key, content } },
+    })
+    registerWorkspace(first, { sources: { first: source("first") }, store })
+    registerWorkspace(second, { sources: { second: source("second") }, store })
+
+    await useWorkspace(first).fs.list("")
+    await useWorkspace(second).fs.list("")
+    await expect(store.readFile("first/ready.md")).resolves.toMatchObject({ content: "first" })
+    await expect(store.readFile("second/ready.md")).resolves.toMatchObject({ content: "second" })
+
+    // Recreate definitions to exercise persisted ownership beyond a completed view.
+    registerWorkspace(first, { sources: { first: source("first") }, store })
+    await useWorkspace(first).fs.list("")
+    await expect(store.readFile("second/ready.md")).resolves.toMatchObject({ content: "second" })
+
+    registerWorkspace(first, { sources: {}, store })
+    await useWorkspace(first).fs.list("")
+    await expect(store.readFile("first/ready.md")).resolves.toBeUndefined()
+    await expect(store.readFile("second/ready.md")).resolves.toMatchObject({ content: "second" })
   })
 
   it("is stopped until preparation starts", async () => {

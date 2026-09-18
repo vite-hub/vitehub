@@ -27,7 +27,6 @@ export function custom(source: WorkspaceSource | CustomWorkspaceSourceFiles): Wo
 
   return {
     ...options,
-    probeKeys: options.probeKeys ?? files.map(file => file.path),
     async getKeys() {
       return files.map(file => file.path)
     },

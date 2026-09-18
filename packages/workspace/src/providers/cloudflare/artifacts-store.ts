@@ -140,9 +140,6 @@ function isNonFastForward(error: unknown) {
 }
 
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
-  // Artifacts cannot provide an atomic digest/owner-checked removal operation.
-  // Advertise that limitation so startup cleanup preserves user replacements.
-  readonly conditionalRemoval = false
   #baseline: WorkspaceSnapshot | undefined
   #branch = "main"
   #files = new Map<string, FileMetadata>()
@@ -244,7 +241,6 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   }
 
   async #stat(normalized: string): Promise<WorkspaceStat | undefined> {
-    // SAFETY: The filesystem stat shape is narrowed to the methods and fields used below.
     const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
     const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
@@ -263,10 +259,17 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
     await this.#ensure()
-    await this.#mutate(() => this.#fs!.promises.mkdir(this.#absolute(normalized), {
-      recursive: options.recursive ?? true,
-      onCreate: options.onCreate ? absolute => options.onCreate!(absolute.slice(`${dir}/`.length)) : undefined,
-    }))
+    await this.#mutate(() => this.#fs!.promises.mkdir(this.#absolute(normalized), { recursive: options.recursive ?? true }))
+  }
+
+  async removeEmptyDirectory(path: string): Promise<void> {
+    const normalized = normalizeSafeWorkspacePath(path)
+    await this.#ensure()
+    await this.#mutate(async () => {
+      await this.#fs!.promises.rmdir(this.#absolute(normalized)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error
+      })
+    })
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {

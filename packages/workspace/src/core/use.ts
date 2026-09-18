@@ -17,7 +17,7 @@ import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { forwardWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
-import { forwardWorkspaceMetadataTarget, workspaceMetadataName, workspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../storage/metadata-target.ts"
+import { forwardWorkspaceMetadataTarget, workspaceMetadataTarget, type WorkspaceMetadataTargetCarrier } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
 
 import type { Tool, ToolSet } from "ai"
@@ -295,7 +295,6 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   }
 
   const workspace = {
-    [workspaceMetadataName]: name,
     async [workspaceMetadataTarget]() {
       const resolved = await resolveWorkspace()
       return (resolved as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.()
@@ -544,7 +543,6 @@ function createReadonlyFs<Name extends WorkspaceName>(
       return await createHostedWorkspaceSession(overlay, { ...options, host: options.host })
     },
   }, getWorkspaceSourceRequestExecution(workspace))
-  forwardWorkspaceMetadataTarget(workspace, readonlyFs)
   // SAFETY: Workspace metadata forwarding probes only the private symbol member owned by the Workspace package.
   const resolveMetadata = (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]
   if (resolveMetadata) {
@@ -553,6 +551,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
       const metadata = await ignoreMissingWorkspace(async () => await resolveMetadata.call(workspace))
       if (!metadata && !assets) return
       const target = {
+        workspaceName: metadata?.workspaceName,
         getMeta: metadata?.getMeta?.bind(metadata),
         list: async (path: string, options?: ListOptions) => {
           // SAFETY: The read-only facade's path belongs to this named Workspace's asset path contract.
@@ -628,7 +627,6 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     tools.write = createTools as WritableWorkspaceFacade<Name>["tools"]["write"]
     tools.none = emptyTools
     return {
-      [workspaceMetadataName]: name,
       [workspaceMetadataTarget]: async () => await (workspace as WorkspaceMetadataTargetCarrier)[workspaceMetadataTarget]?.(),
       [workspaceStoreTarget]: async () => {
         return await (workspace as Workspace & WorkspaceStoreTargetCarrier)[workspaceStoreTarget]?.()

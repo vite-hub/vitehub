@@ -8,7 +8,7 @@ import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, nitroRuntimeImports, nitroRuntimeVersion, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
@@ -59,8 +59,6 @@ export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
   command?: "build" | "serve"
   /** @internal Resolve generated Nitro registrations from the ViteHub project root. */
   nitroOwnsPaths?: boolean
-  /** @internal Runtime API selected by the host adapter. */
-  nitroVersion?: 2 | 3
   nitro?: unknown
   root?: string
   /** @internal Framework-resolved server definition directories. */
@@ -234,7 +232,6 @@ function mergeNitroVercelCrons(
 }
 
 interface RenderNitroSchedulePluginOptions {
-  nitroVersion?: 2 | 3
   importBase?: string
   pluginFile: string
   processRuntime?: ScheduleProcessRuntimeOptions
@@ -257,7 +254,7 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
     : undefined
   const scheduleStoreOptions = processRuntime?.prefix !== undefined ? { prefix: processRuntime.prefix } : {}
   return [
-    nitroRuntimeImports(options.nitroVersion).plugin,
+    "import { definePlugin } from 'nitro'",
     ...(providerWake
       ? [
           `import scheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.providerRegistryFile))}`,
@@ -390,7 +387,6 @@ function renderScheduleRegistryTypes(importBase = schedulePackageName): string {
 }
 
 interface WriteNitroSchedulePluginOptions {
-  nitroVersion?: 2 | 3
   crons: string[]
   importBase?: string
   processRuntime?: ScheduleProcessRuntimeOptions
@@ -410,7 +406,6 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   const writes: Array<Promise<void>> = [
     writeFile(pluginFile, renderNitroSchedulePlugin({
       importBase: options.importBase,
-      nitroVersion: options.nitroVersion,
       pluginFile,
       processRuntime: options.processRuntime,
       providerDefinitions: options.providerDefinitions,
@@ -507,7 +502,6 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const nitroDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     crons,
-    nitroVersion: options.nitroVersion,
     importBase: (options as InternalScheduleVitePluginOptions).importBase,
     processRuntime,
     providerDefinitions: nitroDefinitions,
@@ -594,7 +588,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         ...options,
         command: env.command,
         nitroOwnsPaths: hasNitroConfigContext(config),
-        nitroVersion: nitroRuntimeVersion(config),
         nitro: (config as { nitro?: unknown }).nitro,
         root: config.root || process.cwd(),
         serverDirs,

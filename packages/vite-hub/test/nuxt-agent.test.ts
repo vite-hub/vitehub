@@ -24,7 +24,6 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
 
   let nitroConfigHook: ((config: Record<string, unknown>) => Promise<void>) | undefined
   const nuxt = {
-    _version: "4.5.2",
     hook(
       name: "close" | "nitro:config",
       callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>),

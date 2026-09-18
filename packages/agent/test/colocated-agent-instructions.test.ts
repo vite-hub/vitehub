@@ -4,11 +4,8 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { custom, file } from "@vite-hub/workspace"
-
 import { agentWithColocatedInstructions, defineAgent } from "../src/index.ts"
 import { createViteWorkspaceAgentLoader, loadViteAgent } from "../src/vite/runtime-adapter.ts"
-import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
 import type { ViteDevServer } from "vite"
 import type { DiscoveredAgentDefinition } from "../src/index.ts"
@@ -19,30 +16,6 @@ function settings(agent: unknown) {
 
 describe("colocated Agent instructions", () => {
   const model = {} as never
-
-  it.each([
-    { form: "file", source: file({ content: "Explicit instructions", mount: "", workspacePath: "AGENTS.md" }) },
-    { form: "root mount", source: custom({ mount: "", files: [{ path: "AGENTS.md", content: "Explicit instructions" }] }) },
-  ])("keeps an explicit $form instruction Source under another key", async ({ source }) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-explicit-instructions-"))
-    try {
-      await writeFile(join(root, "instructions.md"), "Colocated instructions")
-      for (const capability of [false, true]) {
-        const agent = defineAgent({
-          driver: { model },
-          workspace: { sourceRootDir: root, ...(capability ? {} : { sources: { explicit: source } }) },
-          ...(capability ? { capabilities: [{ id: "instructions", workspaceSources: { explicit: source } }] } : {}),
-        })
-        expect(agent.sources?.__vitehubAgentInstructions).toBeUndefined()
-        const decorated = workspaceAgentWithSourceRoot(agent, root, "Colocated instructions")
-        expect(decorated.sources?.__vitehubAgentInstructions).toBeUndefined()
-        expect(decorated.sources?.explicit).toEqual(source)
-      }
-    }
-    finally {
-      await rm(root, { recursive: true, force: true })
-    }
-  })
 
   it("adds instructions to model Agents without a Workspace", () => {
     const agent = defineAgent({ driver: { model }, runtime: false })

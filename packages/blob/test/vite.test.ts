@@ -10,7 +10,7 @@ import { build as bundle } from "esbuild"
 import { H3Event, toResponse } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
-import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_RUNTIME_VERSION } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { BLOB_VIRTUAL_CONFIG_ID, hubBlob } from "../src/vite.ts"
 
@@ -169,7 +169,6 @@ describe("hubBlob", () => {
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const userConfig = {
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
-      [VITEHUB_NITRO_RUNTIME_VERSION]: 2,
       nitro: {},
       root,
     }

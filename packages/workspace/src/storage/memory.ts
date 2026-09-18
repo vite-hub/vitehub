@@ -1,6 +1,4 @@
-import { isDeepStrictEqual } from "node:util"
-
-import { assertWorkspaceDigest, workspaceConflict, workspaceError } from "../core/errors.ts"
+import { assertWorkspaceDigest, workspaceError } from "../core/errors.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { isExcludedWorkspacePath, matchesAny, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreTarget } from "./target.ts"
@@ -26,7 +24,7 @@ type MemoryNode = {
   mediaType?: string
   metadata?: Record<string, unknown>
   mtime: number
-  directoryIdentity?: string
+  revision?: string
 }
 
 function now() {
@@ -34,15 +32,12 @@ function now() {
 }
 
 class MemoryWorkspaceStore implements WorkspaceStore {
-  readonly conditionalDirectoryRemoval = true;
-  readonly conditionalRemoval = true;
   [workspaceStoreTarget]() {
     return { provider: "memory" }
   }
 
   #nodes = new Map<string, MemoryNode>([["", { type: "directory", mtime: now() }]])
   #meta = new Map<string, unknown>()
-  #creationIdentities = new Map<string, string>()
   #baseline: WorkspaceSnapshot | undefined
   #mutationQueue: Promise<void> = Promise.resolve()
 
@@ -71,27 +66,6 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     })
   }
 
-  async compareAndSwapFile(path: string, expected: WorkspaceFile, replacement: WorkspaceFile | undefined): Promise<void> {
-    await this.#mutate(async () => {
-      const normalized = normalizeWorkspacePath(path)
-      const current = this.#nodes.get(normalized)
-      if (current?.type !== "file"
-        || await sha256(current.content || "") !== await sha256(expected.content)
-        || current.mediaType !== expected.mediaType
-        || !isDeepStrictEqual(current.metadata, expected.metadata)) {
-        throw workspaceConflict(`[vitehub] Workspace file changed before compensation: ${normalized}.`)
-      }
-      if (replacement) this.#writeFile(normalized, replacement)
-      else this.#nodes.delete(normalized)
-    })
-  }
-
-  async getPathCreationIdentity(path: string): Promise<string> {
-    const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
-    return JSON.stringify(["", ...parts.map((_, index) => parts.slice(0, index + 1).join("/"))]
-      .map(parent => this.#creationIdentities.get(parent) ?? null))
-  }
-
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
     const normalizedPrefix = normalizeWorkspacePath(prefix)
     const result: WorkspaceEntry[] = []
@@ -114,38 +88,21 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   async stat(path: string): Promise<WorkspaceStat | undefined> {
     const normalized = normalizeWorkspacePath(path)
     const node = this.#nodes.get(normalized)
-    return node ? { ...await this.#entry(normalized, node), directoryIdentity: node.directoryIdentity } : undefined
+    return node ? { ...await this.#entry(normalized, node), revision: node.revision } : undefined
   }
 
-  async mkdir(path: string, options: MkdirOptions = {}): Promise<void> {
-    await this.#mutate(async () => {
+  async mkdir(path: string, _options: MkdirOptions = {}): Promise<void> {
+    await this.#mutate(() => {
       const normalized = normalizeWorkspacePath(path)
-      this.#ensureParents(normalized, options.onCreate)
-      const existing = this.#nodes.get(normalized)
-      if (existing && existing.type !== "directory") {
-        throw workspaceError(`[vitehub] Workspace path is not a directory: ${path}.`)
-      }
-      if (!existing) {
-        const directoryIdentity = crypto.randomUUID()
-        this.#creationIdentities.set(normalized, directoryIdentity)
-        this.#nodes.set(normalized, { type: "directory", mtime: now(), directoryIdentity })
-        options.onCreate?.(normalized, directoryIdentity)
-      }
+      this.#ensureParents(normalized)
+      this.#nodes.set(normalized, { type: "directory", mtime: now() })
     })
   }
 
   async rm(path: string, options: RmOptions = {}): Promise<void> {
-    await this.#mutate(async () => {
+    await this.#mutate(() => {
       const normalized = normalizeWorkspacePath(path)
       const node = this.#nodes.get(normalized)
-      if (options.ifDirectoryIdentity !== undefined
-        && (node?.type !== "directory" || node.directoryIdentity !== options.ifDirectoryIdentity)) return
-      if (options.ifDigest !== undefined || options.ifSource !== undefined || options.ifWorkspace !== undefined) {
-        if (node?.type !== "file") return
-        if (options.ifDigest !== undefined && (await this.#entry(normalized, node)).digest !== options.ifDigest) return
-        if (options.ifSource !== undefined && (node.metadata?.source ?? null) !== options.ifSource) return
-        if (options.ifWorkspace !== undefined && (node.metadata?.workspace ?? null) !== options.ifWorkspace) return
-      }
       if (!node) {
         if (options.force) return
         throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
@@ -153,14 +110,24 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       if (node.type === "directory" && !options.recursive) {
         for (const key of this.#nodes.keys()) {
           if (key.startsWith(`${normalized}/`)) {
-            throw Object.assign(workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`), { code: "ENOTEMPTY" })
+            throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
           }
         }
       }
       for (const key of this.#nodes.keys()) {
         if (key === normalized || key.startsWith(`${normalized}/`)) this.#nodes.delete(key)
       }
-      options.onRemove?.()
+    })
+  }
+
+  async removeEmptyDirectory(path: string): Promise<void> {
+    await this.#mutate(() => {
+      const normalized = normalizeWorkspacePath(path)
+      if (this.#nodes.get(normalized)?.type !== "directory") return
+      for (const key of this.#nodes.keys()) {
+        if (key.startsWith(`${normalized}/`)) throw workspaceError(`[vitehub] Workspace directory is not empty: ${path}.`)
+      }
+      this.#nodes.delete(normalized)
     })
   }
 
@@ -200,10 +167,10 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     file = { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }
     const normalized = normalizeWorkspacePath(path)
     this.#ensureParents(normalized)
-    this.#creationIdentities.set(normalized, crypto.randomUUID())
     this.#nodes.set(normalized, {
       type: "file",
       content: file.content,
+      revision: crypto.randomUUID(),
       mediaType: file.mediaType,
       metadata: structuredClone(file.metadata),
       mtime: now(),
@@ -216,16 +183,11 @@ class MemoryWorkspaceStore implements WorkspaceStore {
     return result
   }
 
-  #ensureParents(path: string, onCreate?: (path: string, directoryIdentity?: string) => void) {
+  #ensureParents(path: string) {
     const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
     for (let index = 1; index < parts.length; index++) {
       const dir = parts.slice(0, index).join("/")
-      if (!this.#nodes.has(dir)) {
-        const directoryIdentity = crypto.randomUUID()
-        this.#creationIdentities.set(dir, directoryIdentity)
-        this.#nodes.set(dir, { type: "directory", mtime: now(), directoryIdentity })
-        onCreate?.(dir, directoryIdentity)
-      }
+      if (!this.#nodes.has(dir)) this.#nodes.set(dir, { type: "directory", mtime: now() })
     }
   }
 

@@ -2859,8 +2859,6 @@ export default defineAgent({
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
       expect(denoServer).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(agent0)")
       expect(denoServer).toContain('workspaceRegistryEntry("support", agent0')
-      expect(denoServer).toContain("workspaceDefinitionFromOptions((agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions)")
-      expect(denoServer).toContain("registerWorkspace(workspaceName, workspaceDefinition)")
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
       expect(denoServer).toContain("Symbol.for('vitehub.agent.colocatedSkills')")
@@ -2869,11 +2867,11 @@ export default defineAgent({
       expect(denoServer).toContain(JSON.stringify("__vitehubAgentSkill:.agents/skills/review/SKILL.md"))
       expect(denoServer).toContain(JSON.stringify(Buffer.from([0, 255, 42]).toString("base64")))
       expect(denoServer).toContain(
-        "const remainingSkills = filterColocatedAgentSkills(skills, explicitSources)",
+        "const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
       )
-      expect(denoServer).toContain("materialize: 'startup'")
-      expect(denoServer).toContain("    ...remainingSkills,")
-      expect(denoServer).toContain("    ...workspace.sources,")
+      expect(denoServer).toContain(
+        "    ...(colocatedInstructions ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'startup', mount: '', workspacePath: 'AGENTS.md' } } : {}),",
+      )
       expect(denoServer).toContain("workspaceDefinitionFromOptions")
       expect(denoServer).toContain(
         "const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }",

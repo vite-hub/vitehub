@@ -317,7 +317,7 @@ describe("sources, loaders, and publishers", () => {
     expect(Buffer.from(updatedReadme?.content || "").toString("utf8")).toBe("# Updated docs\n")
   })
 
-  it("removes unowned stale files from a complete mounted Source refresh", async () => {
+  it("preserves unowned files during a complete mounted Source refresh", async () => {
     const store = createMemoryWorkspaceStore()
     await store.writeFile("docs/stale.md", { content: "# Stale\n", path: "docs/stale.md" })
 
@@ -332,7 +332,7 @@ describe("sources, loaders, and publishers", () => {
       },
     }, store)
 
-    await expect(store.readFile("docs/stale.md")).resolves.toBeUndefined()
+    await expect(store.readFile("docs/stale.md")).resolves.toMatchObject({ content: "# Stale\n" })
     await expect(store.readFile("docs/current.md")).resolves.toMatchObject({ content: "# Current\n" })
   })
 
@@ -1144,7 +1144,8 @@ describe("sources, loaders, and publishers", () => {
 
   it("waits for an accepted Store removal before cancellation settles", async () => {
     const base = createMemoryWorkspaceStore()
-    await base.setMeta?.("workspace:build-sources", [{ key: "docs", mountPath: "docs" }])
+    await base.setMeta?.("workspace:support:build-sources", [{ key: "docs", mountPath: "docs" }])
+    await base.writeFile("docs/stale.md", { path: "docs/stale.md", content: "stale", metadata: { source: "docs", workspaceSourceOwner: "support" } })
     let releaseRemoval!: () => void
     const removalBlocked = new Promise<void>((resolve) => { releaseRemoval = resolve })
     let removalStarted!: () => void
@@ -1382,7 +1383,76 @@ describe("sources, loaders, and publishers", () => {
       name: "stale-build-sources",
       sources: {},
     }, store)
-    await expect(store.list("", { recursive: true })).resolves.toEqual([])
+    expect((await store.list("", { recursive: true })).filter(entry => entry.type === "file")).toEqual([])
+  })
+
+  it.each(["", "docs"])("cleans explicit loader outputs at '%s' while preserving unowned files", async (mount) => {
+    const store = createMemoryWorkspaceStore()
+    const path = (name: string) => mount ? `${mount}/${name}` : name
+    let emit = true
+    const definition: WorkspaceDefinition = {
+      name: "derived-build-output",
+      sources: { docs: custom({ mount, files: [{ path: "input.md", content: "input" }] }) },
+      loaders: [{
+        name: "derived",
+        async load(ctx) {
+          if (!emit) return
+          await ctx.store.writeFile(path("derived.md"), { path: path("derived.md"), content: "derived" })
+          await ctx.store.writeFile(path("edited.md"), { path: path("edited.md"), content: "generated" })
+        },
+      }],
+    }
+    await store.writeFile(path("user.md"), { path: path("user.md"), content: "user" })
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile(path("derived.md"))).resolves.toMatchObject({ content: "derived" })
+    await store.writeFile(path("edited.md"), { path: path("edited.md"), content: "user edit" })
+    emit = false
+    await syncWorkspaceDefinition(definition, store)
+    await expect(store.readFile(path("derived.md"))).resolves.toBeUndefined()
+    await expect(store.readFile(path("user.md"))).resolves.toMatchObject({ content: "user" })
+    await expect(store.readFile(path("edited.md"))).resolves.toMatchObject({ content: "user edit" })
+  })
+
+  it.each([false, true])("tracks explicit loader ownership across root Sources with reversed order %s", async (reverse) => {
+    const store = createMemoryWorkspaceStore()
+    const entries = ["first", "second"].map(key => [key, custom({ mount: "", files: [] })] as const)
+    const definition: WorkspaceDefinition = {
+      name: "multi-root-loader-output",
+      sources: Object.fromEntries(reverse ? entries.toReversed() : entries),
+      loaders: [{
+        name: "derived",
+        async load(ctx) {
+          for (const source of ctx.sources) {
+            const path = `${source.key}.md`
+            await ctx.store.writeFile(path, { path, content: source.key, metadata: { source: source.key } })
+          }
+        },
+      }],
+    }
+    await syncWorkspaceDefinition(definition, store)
+    for (const key of ["first", "second"]) {
+      await expect(store.readFile(`${key}.md`)).resolves.toMatchObject({ metadata: { workspaceBuildSource: key } })
+    }
+    await syncWorkspaceDefinition({ ...definition, sources: { second: entries[1]![1] } }, store)
+    await expect(store.readFile("first.md")).resolves.toBeUndefined()
+    await expect(store.readFile("second.md")).resolves.toMatchObject({ content: "second", metadata: { workspaceBuildSource: "second" } })
+  })
+
+  it("rejects explicit loader writes with ambiguous root ownership", async () => {
+    const store = createMemoryWorkspaceStore()
+    const definition: WorkspaceDefinition = {
+      name: "ambiguous-root-loader-output",
+      sources: {
+        first: custom({ mount: "", files: [] }),
+        second: custom({ mount: "", files: [] }),
+      },
+      loaders: [{
+        name: "derived",
+        async load(ctx) { await ctx.store.writeFile("derived.md", { path: "derived.md", content: "derived" }) },
+      }],
+    }
+    await expect(syncWorkspaceDefinition(definition, store)).rejects.toThrow("Set metadata.source to the Source key")
+    await expect(store.readFile("derived.md")).resolves.toBeUndefined()
   })
 
   it("lets build sources read existing workspace files while syncing", async () => {
@@ -1517,8 +1587,8 @@ describe("sources, loaders, and publishers", () => {
         sourceKeys.flatMap(key => [`${key}-extra.md`, `${key}.md`]),
       )
     }
-    await expect(store.getMeta?.("workspace:build-sources")).resolves.toHaveLength(Object.keys(currentSources).length)
-    await expect(store.getMeta?.("workspace:build-sources")).resolves.toEqual(expect.arrayContaining(
+    await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toHaveLength(Object.keys(currentSources).length)
+    await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toEqual(expect.arrayContaining(
       Object.entries(currentSources).map(([key, source]) => ({ key, mountPath: source.mount })),
     ))
     const expectedFiles = [unrelated, ...currentMount === undefined ? [] : sourceKeys.flatMap(key => {

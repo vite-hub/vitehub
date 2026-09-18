@@ -3,9 +3,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
-import { custom, file } from "@vite-hub/workspace"
-import { defineAgent } from "../src/index.ts"
-import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
 
 import { colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../src/vite/colocated-agent-skills.ts"
@@ -13,72 +10,6 @@ import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../sr
 const roots: string[] = []
 
 describe("colocated Agent Skills", () => {
-  const destination = ".agents/skills/review/SKILL.md"
-  it.each([
-    { form: "string", source: destination },
-    { form: "ancestor file", source: file({ content: "Explicit", workspacePath: ".agents/skills/review" }) },
-    { form: "descendant file", source: file({ content: "Explicit", workspacePath: `${destination}/child` }) },
-    { form: "finite ancestor file", source: custom({ mount: "", files: [{ path: ".agents/skills/review", content: "Explicit" }] }) },
-    { form: "path", source: { path: destination } },
-    { form: "file helper", source: file({ content: "Explicit", workspacePath: destination }) },
-    { form: "binding", source: { source: file({ content: "Explicit", workspacePath: destination }) } },
-    { form: "mount and item", source: file({ content: "Explicit", mount: ".agents/skills/review", workspacePath: "SKILL.md" }) },
-    { form: "directory mount", source: custom({ mount: ".agents/skills/review", files: [{ path: "SKILL.md", content: "Explicit" }] }) },
-    { form: "root mount", source: custom({ mount: "", files: [{ path: destination, content: "Explicit" }] }) },
-  ])("filters provider fallback for an explicit $form Source", ({ source }) => {
-    const agent = withColocatedAgentSkills(defineAgent({ workspace: { sources: { explicit: source } }, driver: { model: {} as never } }), {
-      colocated: { content: "Colocated", workspacePath: destination },
-    })
-    const decorated = workspaceAgentWithSourceRoot(agent, "/workspace")
-    expect(Reflect.get(decorated, colocatedAgentSkillsSymbol)).toBeUndefined()
-  })
-
-  it("retains fallback when an explicit mount moves the matching item elsewhere", () => {
-    const skills = { colocated: { content: "Colocated", workspacePath: destination } }
-    const agent = withColocatedAgentSkills(defineAgent({
-      workspace: { sources: { explicit: { content: "Explicit", mount: "elsewhere", workspacePath: destination } } },
-      driver: { model: {} as never },
-    }), skills)
-    expect(Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)).toEqual(skills)
-  })
-
-  it.each(["review", "colocated"])("filters fallback for capability Workspace Source %s", (key) => {
-    const agent = withColocatedAgentSkills(defineAgent({
-      capabilities: [{ id: "review", workspaceSources: { [key]: { content: "Explicit", workspacePath: destination } } }],
-      workspace: {},
-      driver: { model: {} as never },
-    }), { colocated: { content: "Colocated", workspacePath: destination } })
-    expect(Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)).toBeUndefined()
-  })
-
-  it.each([{ files: [] }, { files: [{ path: "README.md", content: "Readme" }] }, { files: [{ path: destination, content: "Explicit" }] }])("retains unrelated fallback for finite root Source files %j", ({ files }) => {
-    const unrelated = { content: "Other skill", workspacePath: ".agents/skills/other/SKILL.md" }
-    const agent = withColocatedAgentSkills(defineAgent({
-      workspace: { sources: { explicit: custom({ mount: "", files }) } },
-      driver: { model: {} as never },
-    }), { colocated: { content: "Colocated", workspacePath: destination }, unrelated })
-    const remaining = Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)
-    expect(remaining).toHaveProperty("unrelated", unrelated)
-    expect(Object.hasOwn(remaining, "colocated")).toBe(!files.some(file => file.path === destination))
-  })
-
-  it.each(["workspace", "capability"])("drops the complete fallback Skill when a %s Source owns one companion", (owner) => {
-    const explicit = custom({ mount: "", files: [{ path: ".agents/skills/review/checks.md", content: "Explicit checks" }] })
-    const unrelated = { content: "Other skill", workspacePath: ".agents/skills/reviewer/SKILL.md" }
-    const skills = {
-      instructions: { content: "Colocated instructions", workspacePath: destination },
-      checks: { content: "Colocated checks", workspacePath: ".agents/skills/review/checks.md" },
-      asset: { content: "Colocated asset", workspacePath: ".agents/skills/review/assets/rules.md" },
-      unrelated,
-    }
-    const agent = withColocatedAgentSkills(defineAgent({
-      workspace: owner === "workspace" ? { sources: { explicit } } : {},
-      capabilities: owner === "capability" ? [{ id: "review", workspaceSources: { explicit } }] : [],
-      driver: { model: {} as never },
-    }), skills)
-    expect(Reflect.get(workspaceAgentWithSourceRoot(agent, "/workspace"), colocatedAgentSkillsSymbol)).toEqual({ unrelated })
-  })
-
   afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
   })

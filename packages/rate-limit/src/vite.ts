@@ -11,7 +11,7 @@ import {
   shouldSkipViteProviderBuild,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, hasNitroConfigContext, nitroRuntimeImports, nitroRuntimeVersion, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { normalizePath } from "vite"
@@ -76,10 +76,9 @@ function renderRuntimeInstaller(
   runtimeConfig: RateLimitRuntimeConfig,
   importBase: string,
   nitro: boolean,
-  version: 2 | 3 = 3,
 ): string {
   return [
-    ...(nitro ? [nitroRuntimeImports(version).plugin] : []),
+    ...(nitro ? ["import { definePlugin } from 'nitro'"] : []),
     `import { setRateLimitRuntimeConfig } from ${JSON.stringify(`${importBase}/runtime`)}`,
     "",
     `const config = ${JSON.stringify(runtimeConfig)}`,
@@ -185,7 +184,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       const runtimeFile = resolve(config.root, generatedRuntimeModule)
       const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
       await Promise.all([
-        writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase, true, nitroRuntimeVersion(config))),
+        writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase, true)),
         writeFileIfChanged(runtimeFile, renderRuntimeInstaller(runtimeConfig, importBase, false)),
       ])
       contributeProviderRuntime(composedOutput, { owner: "rate-limit", runtimeModules: { cloudflare: runtimeFile } })

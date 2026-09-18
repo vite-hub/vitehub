@@ -7,7 +7,6 @@ import { expect, it } from "vitest"
 
 import { getAgentLayerOptions, inheritAgentLayerOptions } from "../src/agent-layers.ts"
 import { defineAgent } from "../src/index.ts"
-import { filterColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { hubAgent } from "../src/vite.ts"
 import { workspaceAgentWithSourceRoot, workspaceDefinitionFromOptions } from "../src/workspace-agent.ts"
 
@@ -50,10 +49,9 @@ it("restores the discovered source root through the generated deployment helper"
     if (!helper) throw new Error("Expected generated Workspace source-root helper")
     const { code } = await transform(helper, { loader: "ts", format: "esm" })
     // SAFETY: Execute the generated helper with the same runtime dependencies as production.
-    const decorate = new Function("inheritAgentLayerOptions", "workspaceDefinitionFromOptions", "filterColocatedAgentSkills", `${code}\nreturn withWorkspaceSourceRoot`)(
+    const decorate = new Function("inheritAgentLayerOptions", "workspaceDefinitionFromOptions", `${code}\nreturn withWorkspaceSourceRoot`)(
       inheritAgentLayerOptions,
       workspaceDefinitionFromOptions,
-      filterColocatedAgentSkills,
     ) as typeof workspaceAgentWithSourceRoot
     checkReconfiguredRoot(decorate)
   }

@@ -5,7 +5,6 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve } from "node:path"
 
-import { nitroRuntimeImports } from "@vite-hub/internal/build/vite"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, getProviderRuntimeModule, getVercelRuntimePackages, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
@@ -222,7 +221,7 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
   }
 }
 
-function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, cloudflareQueues: boolean, queueDefinitions: Record<string, string>, development: boolean, version: 2 | 3) {
+function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, cloudflareQueues: boolean, queueDefinitions: Record<string, string>, development: boolean) {
   const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
   const vercelRuntime = queueConfig !== false && queueConfig.provider === "vercel"
   const cloudflare = cloudflareQueues && cloudflareRuntime
@@ -233,7 +232,7 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
       ? "createVercelQueueRuntimeClient"
       : undefined
   return [
-    nitroRuntimeImports(version).plugin,
+    "import { definePlugin } from 'nitro'",
     ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolvePackageDependency("@vercel/queue")))}`] : []),
     ...(cloudflareGlobals ? ["import * as vitehubCloudflareWorkers from 'cloudflare:workers'"] : []),
     ...(cloudflare ? [`import { createQueueCloudflareWorker } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-vite")))}`] : []),
@@ -257,12 +256,12 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
   ].join("\n")
 }
 
-function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, development: boolean, version: 2 | 3) {
+function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, development: boolean) {
   const cloudflare = queueConfig !== false && queueConfig.provider === "cloudflare"
   const cloudflareGlobals = cloudflare && !development
   const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
   return [
-    nitroRuntimeImports(version).middleware,
+    "import { defineMiddleware } from 'nitro'",
     ...(vercel ? [`import { waitUntil as vitehubWaitUntil } from ${JSON.stringify(createImportPath(middlewareFile, resolvePackageDependency("@vercel/functions")))}`] : []),
     ...(cloudflareGlobals ? ["import * as vitehubCloudflareWorkers from 'cloudflare:workers'"] : []),
     `import { enterQueueRuntimeEvent } from ${JSON.stringify(createImportPath(middlewareFile, resolveRuntimeModule("internal/runtime/state")))}`,
@@ -278,21 +277,8 @@ function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQu
   ].join("\n")
 }
 
-interface QueueNitroIntegrationOptions {
-  importBase?: string
-  rootDir: string
-  queue: QueueModuleOptions | undefined
-  hosting: string
-  cloudflareQueues: boolean
-  definitions?: DiscoveredQueueDefinition[]
-  development: boolean
-  version: 2 | 3
-}
-
-export async function writeQueueNitroIntegration(options: QueueNitroIntegrationOptions): Promise<void> {
-  const { rootDir, queue, hosting, cloudflareQueues, development, version } = options
-  const definitions = options.definitions ?? discoverQueueDefinitions({ rootDir })
-  await writeQueueTypes(rootDir, definitions, options.importBase ?? queuePackageName)
+export async function writeQueueNitroIntegration(rootDir: string, queue: QueueModuleOptions | undefined, hosting: string, cloudflareQueues = true, definitions: DiscoveredQueueDefinition[] = discoverQueueDefinitions({ rootDir }), development = false, importBase: string = queuePackageName): Promise<void> {
+  await writeQueueTypes(rootDir, definitions, importBase)
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
@@ -307,8 +293,8 @@ export async function writeQueueNitroIntegration(options: QueueNitroIntegrationO
   ])
   await Promise.all([
     writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8"),
-    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, cloudflareQueues, queueDefinitions, development, version), "utf8"),
-    writeFile(middlewareFile, renderNitroMiddleware(middlewareFile, queueConfig, definitions.length > 0, development, version), "utf8"),
+    writeFile(pluginFile, renderNitroPlugin(pluginFile, registryFile, queueConfig, cloudflareQueues, queueDefinitions, development), "utf8"),
+    writeFile(middlewareFile, renderNitroMiddleware(middlewareFile, queueConfig, definitions.length > 0, development), "utf8"),
   ])
 }
 

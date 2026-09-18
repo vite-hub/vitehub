@@ -4,7 +4,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
-import { createNoExternalMerger, hasNitroConfigContext, nitroRuntimeImports, nitroRuntimeVersion, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
@@ -166,11 +166,11 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
   ].filter(line => typeof line === "string").join("\n")
 }
 
-function renderNitroBlobMiddleware(importBase = blobPackageName, version: 2 | 3 = 3): string {
+function renderNitroBlobMiddleware(importBase = blobPackageName): string {
   return [
     "// @ts-ignore Cloudflare provides this virtual module at runtime.",
     "import { env as vitehubEnv } from 'cloudflare:workers'",
-    nitroRuntimeImports(version).middleware,
+    "import { defineMiddleware } from 'nitro'",
     `import { setActiveCloudflareEnv } from '${importBase}/runtime/state'`,
     "",
     "type CloudflareEnv = Record<string, unknown>",
@@ -190,16 +190,13 @@ function renderNitroBlobMiddleware(importBase = blobPackageName, version: 2 | 3 
   ].join("\n")
 }
 
-function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName, version: 2 | 3 = 3): string {
+function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPackageName): string {
   const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
-  // Nitro 2 applies cache headers before the handler; Nitro 3 needs the callback below.
-  const cacheControl = version === 3
-    ? Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
-    : undefined
+  const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
   return [
     `import { blob } from '${importBase}'`,
     `import { createError, getRouterParam${cacheControl !== undefined ? ", handleCacheHeaders, setResponseHeader" : ""}${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
-    nitroRuntimeImports(version).cache,
+    "import { defineCachedHandler } from 'nitro/cache'",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     ...(headers ? [`const responseHeaders = ${JSON.stringify(headers)}`] : []),
@@ -245,17 +242,17 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   ].join("\n")
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", version: 2 | 3 = 3): Promise<void> {
+async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel"): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
     writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, version)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase)),
   ])
   const serve = blob ? blob.serve : undefined
   if (!serve) return
   const file = resolve(root, generatedBlobServeRouteHandler)
-  await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase, version))
+  await writeFileIfChanged(file, renderBlobServeRouteHandler(serve, importBase))
 }
 
 export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
@@ -329,7 +326,6 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         cloudflareOwnedByNitro,
         importBase,
         hosting === "cloudflare" || hosting === "vercel" ? hosting : undefined,
-        nitroRuntimeVersion(config),
       )
     },
     configEnvironment(name, config) {

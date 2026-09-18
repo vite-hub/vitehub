@@ -147,8 +147,6 @@
     "box-typescript-sdk-gen": "catalog:storage",
     "dropbox": "catalog:storage",
     "google-auth-library": "catalog:storage",
-    "nitro": "catalog:nitro-compat",
-    "nitropack": "catalog:unjs",
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat"
   },
@@ -190,12 +188,6 @@
       "optional": true
     },
     "google-auth-library": {
-      "optional": true
-    },
-    "nitro": {
-      "optional": true
-    },
-    "nitropack": {
       "optional": true
     },
     "uploadthing": {

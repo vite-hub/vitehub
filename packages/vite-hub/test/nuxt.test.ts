@@ -8,7 +8,6 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
-  VITEHUB_NITRO_RUNTIME_VERSION,
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
@@ -109,13 +108,12 @@ import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 
-function createNuxt(dev = false, plugins: PluginOption[] = [], version = "4.4.2") {
+function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
   const closeHooks: Array<() => Promise<void>> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
   const pageHooks: Array<(pages: Array<{ file: string, name: string, path: string }>) => void> = []
   const nuxt = {
-    _version: version,
     callHook: vi.fn(async (_name: "restart") => {}),
     hook(name: "builder:watch" | "close" | "nitro:config" | "pages:extend", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
       if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
@@ -314,43 +312,6 @@ describe("ViteHub Nuxt integration", () => {
 
     expect(nuxt.options.vite.root).toBe(nuxt.options.rootDir)
     expect(Reflect.get(nuxt.options.vite, "__vitehubProjectRoot")).toBe(nuxt.options.rootDir)
-  })
-
-  it.each([
-    ["4.4.2", 2],
-    ["5.0.0-29774482.33d37e65", 3],
-  ] as const)("preserves host selection for Nuxt %s through config replacement and replay", async (version, nitroVersion) => {
-    const inspectConfig = vi.fn((config: UserConfig) => {
-      expect(Reflect.get(config, VITEHUB_NITRO_CONFIG_CONTEXT)).toBe(true)
-      expect(Reflect.get(config, VITEHUB_NITRO_RUNTIME_VERSION)).toBe(nitroVersion)
-    })
-    mocks.vitehub.mockReturnValue([
-      {
-        name: "vite-hub/replace-runtime-marker",
-        config(config: UserConfig) {
-          inspectConfig(config)
-          Reflect.deleteProperty(config, VITEHUB_NITRO_RUNTIME_VERSION)
-          return { root: config.root, [VITEHUB_NITRO_RUNTIME_VERSION]: nitroVersion === 2 ? 3 : 2 }
-        },
-      },
-      {
-        name: "@vite-hub/queue/vite",
-        config: inspectConfig,
-        vitehub: { queue: { createNitroConfig: mocks.queueNitroConfig } },
-      },
-      { name: "@vite-hub/blob/vite", configResolved: inspectConfig },
-    ])
-    const { nuxt, runNitroConfigHook } = createNuxt(false, [], version)
-
-    await viteHubNuxtModule({ preset: "cloudflare", queue: true }, nuxt)
-    expect(Reflect.get(nuxt.options.vite, VITEHUB_NITRO_CONFIG_CONTEXT)).toBe(true)
-    expect(Reflect.get(nuxt.options.vite, VITEHUB_NITRO_RUNTIME_VERSION)).toBe(nitroVersion)
-
-    await runNitroConfigHook(nitroOptions(nuxt))
-
-    expect(inspectConfig).toHaveBeenCalledTimes(3)
-    expect(mocks.queueNitroConfig).toHaveBeenCalledWith(expect.objectContaining({ nitroVersion }))
-    expect(Reflect.get(nuxt.options.vite, VITEHUB_NITRO_RUNTIME_VERSION)).toBe(nitroVersion)
   })
 
   it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
@@ -1844,7 +1805,6 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.existingQueueNitroConfig).toHaveBeenCalledWith({
       development: true,
       nitro: expect.objectContaining({ preset: "cloudflare_module" }),
-      nitroVersion: 2,
       projectRoot: "/tmp/vitehub-nuxt",
       root: "/tmp/vitehub-nuxt",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],

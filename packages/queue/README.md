@@ -13,8 +13,6 @@ pnpm add -D @vite-hub/cli vite
 
 The package requires Node 24 or newer. Vite is an optional peer dependency and is required for definition discovery and provider output. The ViteHub CLI provides the `vitehub provision` command used by the host guides.
 
-Nitro is an optional host. Direct Nitro 3 integrations must install `nitro` in the application. Nuxt 4 integrations use the Nitro 2 runtime supplied by Nuxt. Supported Nuxt 5 integrations use Nitro 3. The adapter selects runtime imports from the actual Nuxt version. Generated host modules use that host's runtime API. Direct runtime use and standalone provider output do not require either Nitro package.
-
 For Vercel Queues, also install the provider package and the ambient types used by generated functions:
 
 ```sh

@@ -94,6 +94,8 @@ The Vite config key is `workspace`.
 
 Without a `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without that token, and Local on other hosts. You must select Cloudflare Artifacts or GitHub yourself.
 
+Custom Stores can implement `removeEmptyDirectory(path)` for build Source cleanup. It must remove only an empty directory, preserve files and missing paths, and reject nonempty directories within the Store mutation boundary. Without this optional method, cleanup retains generated directories. Local, Memory, and Cloudflare Artifacts implement it.
+
 ### Cloudflare Artifacts
 
 Select Cloudflare Artifacts when a deployed Worker needs durable Workspace state:
@@ -299,13 +301,11 @@ For read-only inspection of an existing Workspace, pass `refresh: false`:
 const workspace = useWorkspace('docs', { refresh: false })
 ```
 
-This reuses current persisted snapshots of Sources with `materialize: 'startup'`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior.
+This reuses current persisted snapshots of Sources with `materialize: 'startup'`. Snapshots are reused when they are ready and match the current Source configuration, even if upstream content has changed. Missing snapshots or snapshots that no longer match the configuration still materialize. Omitting `refresh`, or setting it to `true`, keeps normal startup Source refresh behavior. Custom Stores that omit `getMeta` or `setMeta` retain ownership and Source snapshots only for the lifetime of the Store instance.
 
-Source snapshot ownership is scoped to the Workspace name. Cleanup removes stale Source files only when the Store supports atomic conditional removal. Stores without that capability, including the Local Store, retain stale files to protect concurrent user edits. Directory cleanup also requires the original directory identity; replaced directories remain intact. Default diffs exclude generated directory additions only while their recorded identity matches the Store. Directories without identity evidence remain visible in the diff. Conditional removal with a stale precondition preserves startup cleanup evidence and leaves the default diff unchanged.
+Build and startup overwrites persist a pending checkpoint before changing existing files. Cleanup accepts the new owner only after checkpoint completion, so failed rollback metadata cannot grant ownership of restored files after a Store reopen. If publishing completion fails after the file and owner were committed, the operation reports the error and keeps the generated output. Cleanup preserves that output unless completion was persisted. Retry the Source operation to establish ownership again.
 
-Startup file cleanup also requires Store creation history through `getPathCreationIdentity`. This keeps later user deletions visible in the default diff, including replacements made directly through the Store. Memory Stores support this; Stores without it retain startup files during cleanup.
-
-Startup Source Skills can be copied into `.agents/skills`. Creating a promotion with multiple files requires a Store with atomic conditional removal, so a conflicting copy can roll back without deleting user edits. Stores without that capability, including the Local Store, keep these Skills at their original mounted paths.
+Stores can return `revision` from `stat()` to identify a stored file version. This opaque value must change when the file is modified or recreated, even with identical bytes. A write that makes no change to the stored file can keep its revision. Memory and local Stores provide it. Cleanup uses the revision and content digest to retry interrupted file removal. If the Store cannot identify the surviving file, cleanup preserves it and reports the ambiguous removal for inspection. After inspection, remove the file explicitly if it is still generated output, then retry cleanup.
 
 `refresh: false` applies only to read mode. It does not disable refreshes for other Sources or change explicit `sync()` and `materializeSources()` calls on a writable facade. Write mode keeps normal refresh behavior.
 
@@ -335,7 +335,11 @@ Startup Source Skills can be copied into `.agents/skills`. Creating a promotion 
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Materializes every Source or a selected Source/path subset, with cancellation and progress reporting. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes optional Workspace Store metadata when the configured Store implements it. |
 
+Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition preserves files last materialized by another definition. Shared paths still contain the most recent write.
+
 File `metadata.source` is reserved for the string name of the Source that owns the file. The local Store rejects other values before writing bytes or consuming a content stream, preserving any existing content and metadata.
+
+Explicit loaders that write through `ctx.store` must preserve the input item's `metadata.source` when multiple build Sources share a mount. For derived output within a Source's mount, set it to that Source's key. An ambiguous write fails before storing the file. This lets later synchronization remove only that Source's output.
 
 Each materialized Source reports its provider, cache disposition, revision, duration, and added, updated, unchanged, and removed file counts. Set `details: 'paths'` when the caller is allowed to inspect file names; path details stay out of the result by default.
 

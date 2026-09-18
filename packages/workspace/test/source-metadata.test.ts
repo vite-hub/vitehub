@@ -48,13 +48,6 @@ afterEach(() => {
 })
 
 describe("Workspace Source metadata", () => {
-  it("exposes finite custom Source paths without claiming unrelated root files", () => {
-    const source = custom({ mount: "", files: [{ path: "README.md", content: "Readme" }] })
-    expect(normalizeWorkspaceSourceMetadata("docs", source).probeKeys).toEqual(["README.md"])
-    expect(workspaceSourceGrantPaths("docs", source)).toEqual(["README.md", ".vitehub/sources/docs.json"])
-    expect(normalizeWorkspaceSourceMetadata("empty", custom({ mount: "", files: [] })).probeKeys).toEqual([])
-  })
-
   it("preserves adapter-specific Workspace runtime options", () => {
     const direct = {
       async getKeys() {

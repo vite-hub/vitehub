@@ -2,7 +2,7 @@ import { consoleDatabaseUrl, withDataDir } from "./storage-config.ts"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { nuxtNitroRuntimeVersion, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_RUNTIME_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
 import { resolveAuthViteConfig } from "@vite-hub/auth/vite"
@@ -68,7 +68,6 @@ function configuredScanDirs(value: unknown): string[] | undefined {
 }
 
 type NuxtLike = {
-  _version: string
   callHook?: (name: "restart") => Promise<void>
   hook?: (
     name: "close" | "nitro:config",
@@ -479,7 +478,6 @@ function mergeEnvDeclarationNamespaces<T extends Record<string, unknown>>(
 }
 
 type QueueNitroConfigHandler = (options: {
-  nitroVersion?: 2 | 3
   development?: boolean
   nitro: Record<string, unknown>
   projectRoot: string
@@ -618,7 +616,6 @@ async function applyNitroConfig(
   }, nuxt.options.vite ?? {}) as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
-    [VITEHUB_NITRO_RUNTIME_VERSION]?: 2 | 3
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     nitro?: Record<string, unknown>
@@ -634,7 +631,6 @@ async function applyNitroConfig(
   const restoreReplayOwnership = () => {
     config[VITEHUB_GENERATED_ROOT] = generatedRoot
     config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
-    config[VITEHUB_NITRO_RUNTIME_VERSION] = nuxtNitroRuntimeVersion(nuxt._version)
     config[VITEHUB_PROJECT_ROOT] = projectRoot
     if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
   }
@@ -686,7 +682,6 @@ async function applyNitroConfig(
       const projectRoot = nuxt.options.rootDir || process.cwd()
       config.nitro = await createQueueNitroConfig({
         development: nuxt.options.dev,
-        nitroVersion: nuxtNitroRuntimeVersion(nuxt._version),
         nitro: config.nitro || {},
         projectRoot,
         root: projectRoot,
@@ -832,7 +827,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
-    [VITEHUB_NITRO_RUNTIME_VERSION]?: 2 | 3
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     kv?: KVModuleOptions
@@ -1017,7 +1011,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
-  viteConfig[VITEHUB_NITRO_RUNTIME_VERSION] = nuxtNitroRuntimeVersion(nuxt._version)
   viteConfig[VITEHUB_PROJECT_ROOT] = projectRoot
   if (nuxt.options.serverDir) viteConfig[VITEHUB_SERVER_DIRS] = [nuxt.options.serverDir]
   const installedVitePlugins: unknown = [

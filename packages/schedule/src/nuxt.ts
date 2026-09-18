@@ -1,4 +1,3 @@
-import { nuxtNitroRuntimeVersion, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_RUNTIME_VERSION } from "@vite-hub/internal/build/vite"
 import { resolve } from "node:path"
 import { createScheduleNitroConfig, hubSchedule } from "./vite.ts"
 
@@ -7,7 +6,6 @@ import type { ScheduleVitePluginOptions } from "./vite.ts"
 export interface ScheduleNuxtModuleOptions extends ScheduleVitePluginOptions {}
 
 type NuxtLike = {
-  _version: string
   hook?: {
     (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>): void
     (name: "prepare:types", handler: (context: { references: { path: string }[] }) => void): void
@@ -18,8 +16,6 @@ type NuxtLike = {
     rootDir?: string
     srcDir?: string
     vite?: {
-      [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
-      [VITEHUB_NITRO_RUNTIME_VERSION]?: 2 | 3
       plugins?: unknown[]
     }
   }
@@ -36,10 +32,7 @@ export default function viteHubScheduleNuxtModule(options: ScheduleNuxtModuleOpt
     context.references.push({ path: resolve(nuxt.options.rootDir || process.cwd(), ".vitehub/schedule.d.ts") })
   })
 
-  const nitroVersion = nuxtNitroRuntimeVersion(nuxt._version)
   nuxt.options.vite ??= {}
-  nuxt.options.vite[VITEHUB_NITRO_CONFIG_CONTEXT] = true
-  nuxt.options.vite[VITEHUB_NITRO_RUNTIME_VERSION] = nitroVersion
   const plugins = Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []
   if (!plugins.some(isScheduleVitePlugin)) {
     plugins.push(hubSchedule(options))
@@ -52,7 +45,6 @@ export default function viteHubScheduleNuxtModule(options: ScheduleNuxtModuleOpt
       ...options,
       command: nuxt.options.dev ? "serve" : "build",
       nitroOwnsPaths: true,
-      nitroVersion,
       nitro: nitroConfig,
       projectRoot: options.projectRoot || rootDir,
       root: nuxt.options.srcDir || rootDir,

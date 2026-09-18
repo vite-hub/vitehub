@@ -37,7 +37,7 @@ import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-cap
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
-import { colocatedAgentSkillsSymbol, filterColocatedAgentSkills, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
+import { colocatedAgentSkillsSymbol, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -271,16 +271,12 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
   const resolvedSourceRootDir = ownedWorkspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
   // SAFETY: withColocatedAgentSkills owns this symbol and stores only decoded Workspace source inputs.
   const colocatedSkills = Reflect.get(workspaceAgent, colocatedAgentSkillsSymbol) as ColocatedAgentSkills | undefined
-  const explicitSources = withCapabilityWorkspaceSources(normalizeWorkspaceOptions(options.workspace), staticAgentCapabilities(options.capabilities)).sources
-  const remainingSkills = colocatedSkills && filterColocatedAgentSkills(colocatedSkills, explicitSources)
   const sources: Record<string, WorkspaceSourceInput> = {
-    ...remainingSkills,
+    ...colocatedSkills,
     ...ownedWorkspace.sources,
   }
-  if (colocatedInstructions) {
-    Object.assign(sources, filterColocatedAgentSkills({
-      [colocatedAgentInstructionsSourceKey]: { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" },
-    }, explicitSources))
+  if (colocatedInstructions && !Object.hasOwn(sources, "__vitehubAgentInstructions")) {
+    sources.__vitehubAgentInstructions = { content: colocatedInstructions, materialize: "startup", mount: "", workspacePath: "AGENTS.md" }
   }
   const workspaceOptions = {
     ...options,
@@ -291,26 +287,15 @@ export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir:
     },
   }
 
-  const sourceDefaults = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
+  const sourceDefaults: Record<string, WorkspaceSourceInput> = Object.fromEntries(Object.entries(sources).filter(([key, source]) => source !== ownedWorkspace.sources?.[key]))
   // SAFETY: The object is constructed with the required sourceRootDir and optional source defaults immediately below.
-  const decoratedWorkspace = { sourceRootDir } as { sourceRootDir: string; sources?: typeof sourceDefaults }
+  const decoratedWorkspace = { sourceRootDir } as { sourceRootDir: string; sources?: Record<string, WorkspaceSourceInput> }
   if (Object.keys(sourceDefaults).length) decoratedWorkspace.sources = sourceDefaults
   const decoratedAgent = {
     ...workspaceAgent,
     // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
     ...workspaceDefinitionFromOptions(workspaceOptions as never),
     __vitehubWorkspaceAgentOptions: workspaceOptions,
-  }
-  // Explicit Workspace sources take precedence over colocated Skills. Keep the
-  // legacy symbol in sync so provider-side fallback materialization cannot
-  // overwrite an explicit source.
-  if (remainingSkills) {
-    if (Object.keys(remainingSkills).length) {
-      Object.defineProperty(decoratedAgent, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: remainingSkills })
-    } else {
-      // SAFETY: The decorated agent is a mutable record, and this symbol is removed only when no skills remain.
-      delete (decoratedAgent as Record<PropertyKey, unknown>)[colocatedAgentSkillsSymbol]
-    }
   }
   inheritAgentCapacity(workspaceAgent, decoratedAgent)
   inheritAgentLayerOptions(workspaceAgent, decoratedAgent, {
@@ -428,14 +413,12 @@ function withColocatedAgentInstructions(workspace: NormalizedWorkspaceOptions): 
   return {
     ...workspace,
     sources: {
-      ...filterColocatedAgentSkills({
-        [colocatedAgentInstructionsSourceKey]: {
-          materialize: "build",
-          mount: "",
-          path: colocatedAgentInstructionsPath,
-          workspacePath: colocatedAgentInstructionsWorkspacePath,
-        },
-      }, workspace.sources),
+      [colocatedAgentInstructionsSourceKey]: {
+        materialize: "build",
+        mount: "",
+        path: colocatedAgentInstructionsPath,
+        workspacePath: colocatedAgentInstructionsWorkspacePath,
+      },
       ...workspace.sources,
     },
   }

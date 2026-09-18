@@ -8,10 +8,10 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 const configurationSchema = v.object({ workspace: v.object({ name: v.string() }) })
-const sourceSchema = v.pipe(v.string(), v.nonEmpty(), v.regex(/^[^\p{Cc}]+$/u))
+const sourceLabelSchema = v.pipe(v.string(), v.minLength(1), v.check(value => !/\p{Cc}/u.test(value)))
 const hostWorkspaceSchema = v.union([
   v.object({ paths: v.array(v.string()), repository: v.string(), revision: v.string() }),
-  v.object({ content: v.string(), path: v.string(), provenance: v.optional(v.object({ source: v.string() })), revision: v.string(), size: v.number() }),
+  v.object({ content: v.string(), path: v.string(), provenance: v.optional(v.object({ source: sourceLabelSchema })), revision: v.string(), size: v.number() }),
 ])
 const maxFileBytes = 512 * 1024
 
@@ -49,18 +49,15 @@ export default async function consoleInvocationWorkspaceHandler(event: ConsoleRe
     if (!visiblePath(path)) throw failure(400, "Choose a visible file inside this Workspace.")
     if (!await workspace.fs.exists(path)) throw failure(404, "This file is not in the mounted Workspace.")
     const stat = await workspace.fs.stat(path)
-    if (!stat) throw failure(404, "This file is not in the mounted Workspace.")
     if (stat.type !== "file") throw failure(400, "Choose a file to preview.")
     if (stat.size !== undefined && stat.size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
     const content = await workspace.fs.readFile(path, { encoding: "utf8" })
     const size = new TextEncoder().encode(content).byteLength
     if (size > maxFileBytes) throw failure(413, "This file is too large to preview. The Console limit is 512 KiB.")
     if (content.includes("\0")) throw failure(415, "Binary files cannot be previewed as text.")
-    const parsedSource = v.safeParse(sourceSchema, stat.metadata?.source)
-    const source = parsedSource.success ? parsedSource.output : undefined
-    const result: { content: string, path: string, provenance?: { source: string }, revision: string, size: number } = { content, path, revision, size }
-    if (source) result.provenance = { source }
-    return result
+    const source = v.safeParse(sourceLabelSchema, stat.metadata?.source)
+    if (source.success) return { content, path, revision, size, provenance: { source: source.output } }
+    return { content, path, revision, size }
   }
   const entries = await workspace.fs.glob("**/*")
   const paths = entries.filter(entry => entry.type === "file" && visiblePath(entry.path)).map(entry => entry.path).sort()
