@@ -179,6 +179,35 @@ describe("agent capability runtime", () => {
     } finally { await result.close() }
   })
 
+  it("does not overlay a GitHub source with a narrower declared scope", async () => {
+    const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
+    const { github } = await import("@vite-hub/workspace")
+    const name = `pr-scoped-source-${crypto.randomUUID()}`
+    const source = (ref: string, content: string, options: { root?: string, include?: string[], ignore?: string[] } = {}) => ({
+      ...github({ repo: "example/portal", ref, materialize: "lazy", ...options }),
+      prepare: undefined,
+      resolveRevision: async () => ({ id: ref, immutable: true }),
+      getKeys: async () => ["version.txt"],
+      getItem: async (key: string) => ({ key, content }),
+      getItems: async () => [{ key: "version.txt", content }],
+      getMeta: async () => ({}),
+    })
+    const definition = defineWorkspace({
+      store: { provider: "memory" },
+      sources: { portal: source("main", "support", { root: "packages/portal", include: ["src/**"], ignore: ["**/*.secret"] }) },
+    })
+    registerWorkspace(name, definition)
+    const workspace = useWorkspace(name, { mode: "write" })
+    const capability = trustGitHubPullRequestWorkspaceCapability({
+      id: "github-pull-request-workspace",
+      workspace: { sources: { vitehubGitHubPullRequest: { ...source("pr-head", "pull request"), mount: { path: "portal" } } } },
+    })
+
+    await expect(resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
+    })).rejects.toThrow('conflicts with Workspace Source "portal"')
+  })
+
   it("runs lifecycle phases in capability order and closes in reverse order", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const order: string[] = []

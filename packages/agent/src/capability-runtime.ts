@@ -843,6 +843,10 @@ function withInvocationReadableSources(sources: Record<string, WorkspaceSourceIn
   return Object.fromEntries(Object.entries(sources).map(([key, source]) => [key, withInvocationReadableSource(source)]))
 }
 
+function sameGitHubSourceScope(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
+  return JSON.stringify([left.root, left.include, left.ignore]) === JSON.stringify([right.root, right.include, right.ignore])
+}
+
 async function capabilityContributionDigest(content: string | Uint8Array): Promise<string> {
   const bytes = hasRuntimeType(content, "string") ? new TextEncoder().encode(content) : content
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("")
@@ -895,6 +899,7 @@ async function applyCapabilityWorkspaceContributions<
           && isRuntimeRecord(prFingerprint) && isRuntimeRecord(existingFingerprint)
           && hasRuntimeType(prFingerprint.repo, "string") && prFingerprint.repo
           && prFingerprint.repo === existingFingerprint.repo
+          && sameGitHubSourceScope(prFingerprint, existingFingerprint)
           && !registries.some(entry => entry.sources.includes(key))) {
           delete remaining[key]
           replacedSources.add("vitehubGitHubPullRequest")
