@@ -1,4 +1,5 @@
-import { readdir, lstat, rm } from "node:fs/promises"
+import { readdir, lstat, rm, rename } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
 import { resolve, join } from "node:path"
 import { workspaceError } from "../core/errors.ts"
 
@@ -30,7 +31,12 @@ export async function recoverLocalWorkspaceLocks(options: {
     if (!/^[a-f0-9]{64}\.(gate|readers)$/.test(entry.name)) continue
     if (!entry.isDirectory() || entry.isSymbolicLink())
       throw workspaceError(`[vitehub] Expected a real Workspace lock marker directory: ${entry.name}.`)
-    await rm(join(directory, entry.name), { recursive: true })
+    const marker = join(directory, entry.name)
+    // Move the validated marker out of its public name before recursive removal.
+    // This prevents a replacement at the original pathname from being followed.
+    const quarantine = join(directory, `.recovery-${entry.name}-${randomUUID()}`)
+    await rename(marker, quarantine)
+    await rm(quarantine, { recursive: true })
     removed++
   }
   return { removed }
