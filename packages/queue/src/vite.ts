@@ -4,6 +4,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
@@ -108,22 +109,23 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
   const nitroOwnsPaths = hasNitroConfigContext(config)
   const plugin = nitroOwnsPaths ? resolve(root, generatedQueueNitroPlugin) : generatedQueueNitroPlugin
   const middleware = nitroOwnsPaths ? resolve(root, generatedQueueNitroMiddleware) : generatedQueueNitroMiddleware
-  const plugins = Array.isArray(nitro.plugins)
+  nitro.plugins = Array.isArray(nitro.plugins)
     ? nitro.plugins.filter(entry => !isGeneratedNitroRegistration(entry, generatedQueueNitroPlugin))
     : []
-  const handlers = Array.isArray(nitro.handlers)
+  nitro.handlers = Array.isArray(nitro.handlers)
     ? nitro.handlers.filter(handler => !isGeneratedNitroRegistration(handler?.handler, generatedQueueNitroMiddleware))
     : []
+  const kit = createNitroServerKit(nitro)
   if (!runtimeEnabled) {
     contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
-    return composeNitroCloudflareProviderOutput(providerOutput, { ...nitro, handlers, plugins }, value)
+    return composeNitroCloudflareProviderOutput(providerOutput, kit.config, value)
   }
-  if (!plugins.includes(plugin)) plugins.unshift(plugin)
-  handlers.unshift({ handler: middleware, middleware: true, route: "/**" })
+  kit.addPlugin(plugin, "start")
+  kit.addHandler({ handler: middleware, middleware: true, route: "/**" }, "start")
   const queueHosting = resolveQueueHosting(queue, nitro)
   if (queueHosting !== "cloudflare") {
     contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })
-    return composeNitroCloudflareProviderOutput(providerOutput, { ...nitro, handlers, plugins }, value)
+    return composeNitroCloudflareProviderOutput(providerOutput, kit.config, value)
   }
   const cloudflare = cloneNitroConfig(nitro.cloudflare)
   const wrangler = cloneNitroConfig(cloudflare.wrangler)
@@ -137,8 +139,8 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueModuleOpti
     ...nitro,
     ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
     cloudflare: { ...cloudflare, wrangler: { ...wrangler, compatibility_flags: compatibilityFlags } },
-    handlers,
-    plugins,
+    handlers: kit.config.handlers,
+    plugins: kit.config.plugins,
   }
   if (!generated) {
     contributeCloudflareProviderOutput(providerOutput, { owner: "queue" })

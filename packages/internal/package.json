@@ -45,6 +45,7 @@
     "./build/vercel-runtime-packages": "./dist/build/vercel-runtime-packages.js",
     "./build/user-entry": "./dist/build/user-entry.js",
     "./build/vite": "./dist/build/vite.js",
+    "./nitro-kit": "./dist/nitro-kit.js",
     "./workspace-inventory": "./dist/workspace-inventory.js",
     "./test/e2e-live": "./src/test/e2e-live.mjs",
     "./package.json": "./package.json"

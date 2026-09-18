@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
@@ -374,11 +375,9 @@ function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOption
 }
 
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {
-  const handlers = Array.isArray(config.handlers) ? [...config.handlers] : []
-  if (!handlers.some(handler => isRecord(handler) && handler.handler === generatedNitroDatabaseMiddleware)) {
-    handlers.unshift({ handler: generatedNitroDatabaseMiddleware, middleware: true, route: "/**" })
-  }
-  config.handlers = handlers
+  const kit = createNitroServerKit(config)
+  kit.addHandler({ handler: generatedNitroDatabaseMiddleware, middleware: true, route: "/**" }, "start")
+  config.handlers = kit.config.handlers
   const rollupConfig = isRecord(config.rollupConfig) ? { ...config.rollupConfig } : {}
   rollupConfig.external = mergeNitroExternal(rollupConfig.external, "cloudflare:workers")
   config.rollupConfig = rollupConfig

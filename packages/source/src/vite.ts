@@ -8,6 +8,7 @@ import {
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { findExportNames } from "mlly"
 
 import type { Plugin } from "vite"
@@ -171,7 +172,9 @@ export function mergeGeneratedSourceNitroConfig(
   const nitro: NitroGeneratedConfig = {}
   if (Object(value) === value && !Array.isArray(value)) Object.assign(nitro, value)
   if (generatedHandlers.length === 0) return nitro
-  const handlers = Array.isArray(nitro.handlers) ? [...nitro.handlers] : []
+  const kit = createNitroServerKit(nitro)
+  // SAFETY: The kit materializes Nitro handler entries as the generated source handler shape.
+  const handlers = kit.config.handlers as Array<GeneratedSourceHandler>
 
   for (const handler of generatedHandlers) {
     const exact = handlers.some(candidate =>
@@ -184,7 +187,7 @@ export function mergeGeneratedSourceNitroConfig(
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
-    handlers.push(handler)
+    kit.addHandler(handler)
   }
 
   const modules = Array.isArray(nitro.modules) ? [...nitro.modules] : []
@@ -192,7 +195,9 @@ export function mergeGeneratedSourceNitroConfig(
     Object(module) === module && Reflect.get(Object(module), "name") === "vite-hub/generated-route-guard")) {
     modules.push(generatedRouteGuard(generatedHandlers))
   }
-  return { ...nitro, handlers, modules }
+  kit.config.modules = modules
+  // SAFETY: The kit preserves the Nitro config object shape while adding generated route modules.
+  return kit.config as NitroGeneratedConfig
 }
 
 export function toRuntimeModuleSpecifier(file: string): string {

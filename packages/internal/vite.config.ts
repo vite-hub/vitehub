@@ -33,6 +33,7 @@ export default defineConfig({
       "src/build/vercel-runtime-package-copy.ts",
       "src/build/vercel-runtime-packages.ts",
       "src/build/vite.ts",
+      "src/nitro-kit.ts",
       "src/hosting.ts",
       "src/integrations/hex.ts",
       "src/runtime/app.ts",

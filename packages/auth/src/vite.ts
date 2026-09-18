@@ -2,6 +2,7 @@ import { resolve } from "node:path"
 import { Readable } from "node:stream"
 
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import { resolveAuthViteConfig } from "./config.ts"
@@ -187,7 +188,7 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
   const nitro = cloneNitroConfig(value)
   if (!config) return nitro
 
-  const existingHandlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
+  const kit = createNitroServerKit(nitro)
   const authHandlers: NitroHandler[] = [
     ...(config.route === false
       ? []
@@ -205,10 +206,9 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
   ]
   if (!authHandlers.length) return nitro
 
-  return {
-    ...nitro,
-    handlers: [...existingHandlers, ...authHandlers],
-  }
+  for (const handler of authHandlers) kit.addHandler(handler)
+  // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro handlers.
+  return kit.config as NitroConfig
 }
 
 function readForwardedProtocol(request: IncomingMessage): string {

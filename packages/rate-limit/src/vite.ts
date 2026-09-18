@@ -12,6 +12,7 @@ import {
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { normalizePath } from "vite"
@@ -55,9 +56,9 @@ function mergeNitroConfig(
 ): Record<string, unknown> {
   const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
-  const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
-  if (!plugins.includes(generatedNitroPlugin)) plugins.unshift(generatedNitroPlugin)
-  const baseNitro = { ...nitro, plugins }
+  const kit = createNitroServerKit(nitro)
+  kit.addPlugin(generatedNitroPlugin, "start")
+  const baseNitro = kit.config
   if (!nitroCloudflare || provider !== "cloudflare" || declarations.length === 0) {
     contributeCloudflareProviderOutput(providerOutput, { owner: "rate-limit" })
     return composeNitroCloudflareProviderOutput(providerOutput, baseNitro, value)

@@ -9,6 +9,7 @@ import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainPro
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
@@ -180,22 +181,23 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
 
 function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], module: string, plugin: string, providerWake: boolean }): NitroConfig {
   const nitro = cloneNitroConfig(value)
-  nitro.plugins = [
-    ...(Array.isArray(nitro.plugins)
-      ? nitro.plugins.filter(plugin => !isGeneratedNitroRegistration(plugin, generatedNitroSchedulePlugin))
-      : []),
-    options.plugin,
-  ]
-  if (!options.providerWake) return nitro
-  nitro.modules = [
-    ...(Array.isArray(nitro.modules)
-      ? nitro.modules.filter(module => !isGeneratedNitroRegistration(module, generatedNitroCloudflareModule))
+  nitro.plugins = Array.isArray(nitro.plugins)
+    ? nitro.plugins.filter(plugin => !isGeneratedNitroRegistration(plugin, generatedNitroSchedulePlugin))
+    : []
+  const kit = createNitroServerKit(nitro)
+  kit.addPlugin(options.plugin)
+  // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro plugins.
+  const configured = kit.config as NitroConfig
+  if (!options.providerWake) return configured
+  configured.modules = [
+    ...(Array.isArray(configured.modules)
+      ? configured.modules.filter(module => !isGeneratedNitroRegistration(module, generatedNitroCloudflareModule))
       : []),
     options.module,
   ]
-  nitro.cloudflare ||= {}
-  nitro.cloudflare.wrangler ||= {}
-  const wrangler = nitro.cloudflare.wrangler
+  configured.cloudflare ||= {}
+  configured.cloudflare.wrangler ||= {}
+  const wrangler = configured.cloudflare.wrangler
   const existingTriggers = isRecord(wrangler.triggers) ? wrangler.triggers : {}
   const existingCrons = Array.isArray(existingTriggers.crons)
     ? existingTriggers.crons.filter((cron): cron is string => typeof cron === "string")
@@ -204,7 +206,7 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], mo
     ...existingTriggers,
     crons: [...new Set([...existingCrons, ...options.crons])],
   }
-  return nitro
+  return configured
 }
 
 function mergeNitroVercelCrons(
