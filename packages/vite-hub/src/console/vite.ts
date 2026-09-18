@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import type { AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
@@ -331,7 +332,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
       const nitro: ConsoleNitroConfig = consoleConfig.nitro
         ? { ...consoleConfig.nitro }
         : {}
-      const handlers = Array.isArray(nitro.handlers)
+      nitro.handlers = Array.isArray(nitro.handlers)
         ? nitro.handlers.filter(handler => ![
                 join(consoleRuntimeRoot, "server/blob.get.js"),
                 join(consoleRuntimeRoot, "server/database.get.js"),
@@ -346,21 +347,22 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
                 join(consoleRuntimeRoot, "server/usage.get.js"),
                 join(consoleRuntimeRoot, "server/status.get.js"),
                 join(consoleRuntimeRoot, "server/page.get.js"),
-              ].includes(handler?.handler),
+          ].includes(handler?.handler),
           )
         : []
-      handlers.push(
+      const kit = createNitroServerKit(nitro)
+      for (const handler of [
         { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: "/api/_vitehub/console/status", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: "/api/_vitehub/console/usage", method: "get" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub" },
         { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: "/_vitehub/**" },
-      )
-      nitro.handlers = handlers
-      addConsoleDevframeHandler(nitro, consoleRuntimeRoot)
-      const plugins = Array.isArray(nitro.plugins)
-        ? nitro.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
+      ]) kit.addHandler(handler)
+      addConsoleDevframeHandler(kit.config, consoleRuntimeRoot)
+      const plugins = Array.isArray(kit.config.plugins)
+        ? kit.config.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         : []
-      plugins.push(generatedPlugin)
+      kit.config.plugins = plugins
+      kit.addPlugin(generatedPlugin)
       const publicAssets = Array.isArray(nitro.publicAssets) ? nitro.publicAssets.filter((asset) => asset?.baseURL !== "/_vitehub/assets") : []
       publicAssets.push({
         baseURL: "/_vitehub/assets",
@@ -368,7 +370,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions = {}): Plugi
         fallthrough: false,
       })
 
-      consoleConfig.nitro = { ...nitro, handlers: nitro.handlers, plugins, publicAssets }
+      consoleConfig.nitro = { ...kit.config, publicAssets }
     },
     async configResolved(config) {
       root = config.root

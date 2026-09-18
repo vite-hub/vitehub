@@ -7,7 +7,7 @@ icon: i-lucide-server
 ---
 
 ViteHub is not a Nitro module system.
-ViteHub uses Vite Integrations as the public integration layer, while package-owned Nitro wiring appears only where a host boundary needs generated runtime hooks.
+ViteHub uses Vite Integrations as the public integration layer, while package-owned Nitro wiring appears only where a host boundary needs generated runtime hooks. ViteHub's current Nitro integration targets Nitro 3.
 
 ## Boundary
 
@@ -17,6 +17,17 @@ ViteHub uses Vite Integrations as the public integration layer, while package-ow
 | Nitro | Host runtime bridge when a package must register generated handlers, middleware, or runtime hooks. |
 | UnJS libraries | Useful implementation dependencies for server primitives, not public ViteHub framework identity. |
 | Application server code | Calls Runtime Helpers and stable handlers without importing generated Nitro internals. |
+
+## Internal server kit
+
+ViteHub packages register generated Nitro handlers and plugins through a private
+Server Kit in `@vite-hub/internal`. The kit owns registration, duplicate checks,
+and ordering while the package keeps ownership of the generated file and its
+runtime behavior.
+
+The kit is an internal seam, not a public Nitro module API. It currently has one
+implementation for Nitro 3. A second server adapter will be added only when a
+supported host needs different registration semantics.
 
 ## Accepted Nitro handoffs
 

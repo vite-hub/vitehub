@@ -5,6 +5,7 @@ import { createProviderDeploymentOutputGenerationState, finalizeProviderDeployme
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { createWorkspaceDefinitionLoader, loadDiscoveredWorkspaceDefinition } from "../../build/assets.ts"
@@ -1446,9 +1447,9 @@ function shouldInstallNitroWorkspacePlugin(
 
 function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
-  const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
-  if (!plugins.includes(generatedNitroWorkspacePlugin)) plugins.push(generatedNitroWorkspacePlugin)
-  return { ...nitro, plugins }
+  const kit = createNitroServerKit(nitro)
+  kit.addPlugin(generatedNitroWorkspacePlugin)
+  return kit.config as NitroConfig
 }
 
 function mergeNitroExternal(value: unknown, addition: string): unknown {

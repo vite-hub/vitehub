@@ -5,6 +5,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { resolve } from "pathe"
 
@@ -126,28 +127,24 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
   const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler
-  const plugins = Array.isArray(nitro.plugins)
+  nitro.plugins = Array.isArray(nitro.plugins)
     ? nitro.plugins.filter(entry => !isGeneratedNitroRegistration(entry, generatedNitroBlobPlugin))
     : []
-  plugins.push(plugin)
-  const handlers = Array.isArray(nitro.handlers)
+  nitro.handlers = Array.isArray(nitro.handlers)
     ? nitro.handlers.filter(handler =>
         !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware),
       )
     : []
-  if (cloudflare) handlers.unshift({ handler: middleware, middleware: true, route: "/**" })
-  if (!serve) return { ...nitro, handlers, plugins }
-  const existingHandlers = handlers.filter(handler =>
+  const kit = createNitroServerKit(nitro)
+  kit.addPlugin(plugin)
+  if (cloudflare) kit.addHandler({ handler: middleware, middleware: true, route: "/**" })
+  if (!serve) return kit.config
+  const existingHandlers = (Array.isArray(kit.config.handlers) ? kit.config.handlers : []).filter(handler =>
     !isGeneratedNitroRegistration(handler?.handler, generatedBlobServeRouteHandler),
   )
-  return {
-    ...nitro,
-    handlers: [
-      ...existingHandlers,
-      { handler: serveHandler, route: blobServeNitroRoute(serve) },
-    ],
-    plugins,
-  }
+  kit.config.handlers = existingHandlers
+  kit.addHandler({ handler: serveHandler, route: blobServeNitroRoute(serve) })
+  return kit.config
 }
 
 function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName): string {

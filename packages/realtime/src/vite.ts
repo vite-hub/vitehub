@@ -4,6 +4,7 @@ import { dirname, relative, resolve } from "node:path"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
@@ -110,10 +111,9 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): Plugin {
         throw realtimeErrorDiagnostics.REALTIME_B0003({ message: `[vitehub] Realtime authority "memory" is single-process only and cannot use the ${deploymentPreset} deployment preset.` })
       }
       nitro.features = { ...nitro.features, websocket: true }
-      nitro.handlers = [
-        ...(nitro.handlers || []),
-        { handler: handlerFile, route: "/api/_vitehub/realtime/**" },
-      ]
+      const kit = createNitroServerKit(nitro)
+      kit.addHandler({ handler: handlerFile, route: "/api/_vitehub/realtime/**" })
+      Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro
     },
   }
