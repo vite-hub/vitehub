@@ -28,6 +28,11 @@ export function decodeColocatedAgentSkills(
 export function withColocatedAgentSkills<Agent>(agent: Agent, skills: ColocatedAgentSkills | undefined): Agent {
   if (!skills || !Object.keys(skills).length || !agent || !hasRuntimeType(agent, "object")) return agent
   const resolved = Object.create(Object.getPrototypeOf(agent), Object.getOwnPropertyDescriptors(agent))
-  Object.defineProperty(resolved, colocatedAgentSkillsSymbol, { configurable: true, enumerable: true, value: skills })
+  const descriptor = { configurable: true, enumerable: true, value: skills }
+  // Keep the source decoration on the original definition. Vite discovery
+  // returns a decorated clone, while runtime-created layers extend the
+  // original definition.
+  Object.defineProperty(agent, colocatedAgentSkillsSymbol, descriptor)
+  Object.defineProperty(resolved, colocatedAgentSkillsSymbol, descriptor)
   return resolved
 }

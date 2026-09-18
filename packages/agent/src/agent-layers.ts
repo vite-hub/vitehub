@@ -146,6 +146,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
       : discoveryDefaults
     const resolved = merge(applicableDefaults, settings, "")
     if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+    inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
     // SAFETY: Resolved settings merge a registered definition with its overrides.
     rememberLayerMetadata(resolved, { options: resolved as AgentSettings, configured: { ...configured, options, overrides: inheritedOverrides }, defaults: inherited.defaults, parent })
     // Preserve application-owned decorations from the configure result on every reconfiguration.
@@ -156,6 +157,7 @@ export function resolveAgentLayerOptions(input: unknown, ownsWorkspace: (setting
   const { name: _parentName, ...defaults } = layerMetadata(parent)!.options
   const resolved = merge(defaults, overrides, "")
   if (!record(resolved)) throw new TypeError("[vitehub] Invalid Agent layer options.")
+  inheritColocatedSkills(asMetadataTarget(parent), asMetadataTarget(resolved))
   // SAFETY: Resolved settings merge a registered definition with its overrides.
   rememberLayerMetadata(resolved, { options: resolved as AgentSettings, defaults: inherited.defaults, parent })
   return resolved

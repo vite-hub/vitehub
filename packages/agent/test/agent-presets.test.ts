@@ -182,7 +182,7 @@ it("keeps plain Agents extendable after colocated Skills discovery", () => {
   const child = defineAgent({ extends: discovered, description: "Child" })
   expect(child.description).toBe("Child")
   expect(Object.getOwnPropertyDescriptor(child, colocatedAgentSkillsSymbol)?.value).toBe(skills)
-  expect(Object.getOwnPropertyDescriptor(base, colocatedAgentSkillsSymbol)).toBeUndefined()
+  expect(Object.getOwnPropertyDescriptor(base, colocatedAgentSkillsSymbol)?.value).toBe(skills)
 })
 
 it("keeps configured options and discovered instructions through further extension", () => {
