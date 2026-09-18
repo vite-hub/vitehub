@@ -148,6 +148,7 @@ describe("agent capability runtime", () => {
     const name = `pr-source-${crypto.randomUUID()}`
     const source = (ref: string, content: string) => ({
       ...github({ repo: "example/portal", ref, materialize }),
+      fingerprint: { inferredSource: "github", options: { repo: "example/portal", ref } },
       prepare: undefined,
       resolveRevision: async () => ({ id: ref, immutable: true }),
       getKeys: async () => ["version.txt"],
@@ -185,6 +186,7 @@ describe("agent capability runtime", () => {
     const name = `pr-scoped-source-${crypto.randomUUID()}`
     const source = (ref: string, content: string, options: { root?: string, include?: string[], ignore?: string[] } = {}) => ({
       ...github({ repo: "example/portal", ref, materialize: "lazy", ...options }),
+      fingerprint: { inferredSource: "github", options: { repo: "example/portal", ref, ...options } },
       prepare: undefined,
       resolveRevision: async () => ({ id: ref, immutable: true }),
       getKeys: async () => ["version.txt"],
