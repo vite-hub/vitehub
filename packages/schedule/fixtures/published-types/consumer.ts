@@ -3,7 +3,15 @@ import registry from "#vitehub/schedule/registry"
 
 import type { ScheduleDefinitionRegistry, ScheduleErrorCode, ScheduleErrorDetails } from "@vite-hub/schedule"
 import { defineSchedule } from "@vite-hub/schedule"
-import { createMemoryScheduleRunStore, executeSchedule } from "@vite-hub/schedule/runtime"
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore, createMemoryScheduleRunStore, executeSchedule } from "@vite-hub/schedule/runtime"
+import { scheduleKVStorage } from "@vite-hub/schedule/runtime/kv"
+
+createKVRuntimeScheduleStore({ kvStore: scheduleKVStorage })
+createKVScheduleRunStore({ kvStore: scheduleKVStorage })
+// @ts-expect-error KV storage must be selected explicitly.
+createKVRuntimeScheduleStore()
+// @ts-expect-error A prefix does not select KV storage.
+createKVScheduleRunStore({ prefix: "proof" })
 
 // @ts-expect-error Discovery belongs to the build integration entry.
 import { discoverScheduleDefinitions } from "@vite-hub/schedule"

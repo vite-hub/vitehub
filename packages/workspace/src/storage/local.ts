@@ -777,7 +777,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { stat } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, normalized)
-    const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
+    const info = await stat(absolute, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
     })
@@ -786,8 +786,9 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const entry: WorkspaceStat = {
       path: normalized,
       type: info.isDirectory() ? "directory" : "file",
-      size: info.isFile() ? info.size : undefined,
-      mtime: info.mtimeMs,
+      size: info.isFile() ? Number(info.size) : undefined,
+      mtime: Number(info.mtimeNs) / 1e6,
+      revision: info.isFile() ? `${info.dev}:${info.ino}:${info.birthtimeNs}:${info.ctimeNs}:${info.mtimeNs}` : undefined,
       mediaType: metadata?.mediaType,
       metadata: metadata?.metadata,
     }
@@ -800,12 +801,21 @@ class LocalWorkspaceStore implements WorkspaceStore {
     await mkdir(resolveInside(this.root, path), { recursive: options.recursive ?? true })
   }
 
+  async removeEmptyDirectory(path: string): Promise<void> {
+    await withWorkspacePathLock(this.root, path, async () => {
+      const { rmdir } = await import("node:fs/promises")
+      await rmdir(resolveInside(this.root, path)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error
+      })
+    })
+  }
+
   async rm(path: string, options: RmOptions = {}): Promise<void> {
     await withWorkspacePathLock(this.root, path, () => this.#rm(path, options))
   }
 
   async #rm(path: string, options: RmOptions = {}): Promise<void> {
-    const { lstat, mkdir, open, rm } = await import("node:fs/promises")
+    const { lstat, mkdir, open, rm, rmdir } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const metadata = await this.#prepareMetadataDirectories(normalized, false)
     const marker = this.#removalMarker(normalized)
@@ -832,6 +842,13 @@ class LocalWorkspaceStore implements WorkspaceStore {
     await rm(resolveInside(this.root, path), {
       recursive: options.recursive ?? false,
       force: options.force ?? false,
+    }).catch(async (error: NodeJS.ErrnoException) => {
+      // Preserve non-recursive empty-directory removal before sidecar cleanup.
+      if (error.code === "ERR_FS_EISDIR" && !options.recursive) {
+        await rmdir(resolveInside(this.root, path))
+        return
+      }
+      throw error
     }).catch(async (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
         if (!options.force) missingTargetError = error

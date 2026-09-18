@@ -122,6 +122,20 @@ afterEach(() => {
 })
 
 describe("Cloudflare Artifacts workspace store", () => {
+  it("removes only empty directories", async () => {
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+    await store.mkdir("empty")
+    await store.removeEmptyDirectory!("empty")
+    await expect(store.stat("empty")).resolves.toBeUndefined()
+    await expect(store.removeEmptyDirectory!("missing")).resolves.toBeUndefined()
+    await store.writeFile("replacement", { path: "replacement", content: "keep" })
+    await store.removeEmptyDirectory!("replacement")
+    expect(Buffer.from((await store.readFile("replacement"))!.content).toString()).toBe("keep")
+    await store.writeFile("occupied/keep.md", { path: "occupied/keep.md", content: "keep" })
+    await expect(store.removeEmptyDirectory!("occupied")).rejects.toThrow()
+    expect(Buffer.from((await store.readFile("occupied/keep.md"))!.content).toString()).toBe("keep")
+  })
+
   it("derives distinct repository names from distinct Workspace names", async () => {
     const names: string[] = []
     const binding = {

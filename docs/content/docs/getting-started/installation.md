@@ -89,9 +89,7 @@ without the framework distribution.
 | --- | --- | --- |
 | Server Primitives | `pnpm add @vite-hub/kv vite` | `hubKv()` from `@vite-hub/kv/vite` |
 | Rate Limit | `pnpm add @vite-hub/rate-limit vite` | `hubRateLimit()` from `@vite-hub/rate-limit/vite` |
-| Agents | `pnpm add @vite-hub/agent @vite-hub/workspace vite` | `hubAgent()` from `@vite-hub/agent/vite` |
-
-For Agent routes on a Nitro host, also add `h3` to the application dependencies. Use `pnpm add h3@^1.15.11` with Nitro 2 or Nuxt 4, and `pnpm add h3@^2.0.1-rc.31` with Nitro 3. Generated routes resolve H3 from the application. Portable Agent APIs and the Deno runtime do not require H3.
+| Agents | `pnpm add @vite-hub/agent vite` | `hubAgent()` from `@vite-hub/agent/vite` |
 
 ::tip
 Start new applications with `vite-hub`. Direct owner packages are the

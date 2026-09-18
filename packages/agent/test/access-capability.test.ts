@@ -1,9 +1,13 @@
 import { asUnknownBoundary, hasRuntimeType } from "../src/internal/runtime-type.ts"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import type { AgentToolSet, ResolvedAgentRuntimeContext } from "../src/types.ts"
 import { custom, file, github, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceSession, type WorkspaceStat } from "@vite-hub/workspace"
-import { attachWorkspaceSourceRequestExecution } from "@vite-hub/workspace/runtime"
+import { attachWorkspaceSourceRequestExecution, registerWorkspace, useWorkspace } from "@vite-hub/workspace/runtime"
+import { listMaterializedWorkspaceSourceEntries, normalizeWorkspaceSourceMetadata, readWorkspaceSourceMaterializationStatus } from "@vite-hub/workspace/source-metadata"
 
 function runtime(): ResolvedAgentRuntimeContext {
   return {
@@ -299,6 +303,42 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
     await expect(resolved.workspace!.fs.list("customers")).resolves.toEqual([{ path: "customers/acme", type: "directory" }])
     await expect(resolved.tools!.inScope.execute!({ path: "customers/globex/brief.md" })).resolves.toBe(false)
+  })
+
+  it.each(["memory", "local"] as const)("inspects root startup Sources through a restricted Workspace Scope with a %s Store", async (provider) => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const name = `scoped-root-source-${crypto.randomUUID()}`
+    const source = custom({
+      files: [
+        { path: "public/readme.md", content: "Public" },
+        { path: "private/secret.md", content: "Private" },
+      ],
+      materialize: "startup",
+      mount: "",
+    })
+    const root = await mkdtemp(join(tmpdir(), "vitehub-scoped-source-"))
+    onTestFinished(async () => {
+      await rm(root, { recursive: true, force: true })
+      await rm(`${root}.meta.json`, { force: true })
+    })
+    registerWorkspace(name, { sources: { docs: source }, store: { provider, root } })
+    const workspace = useWorkspace(name)
+    await workspace.fs.list("")
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [access({ workspace: {
+        defaultScope: "public",
+        scopes: { public: { paths: ["public"] } },
+      } })],
+    }, runtime(), { prompt: "check" }, workspace)
+    const metadata = normalizeWorkspaceSourceMetadata("docs", source)
+
+    await expect(readWorkspaceSourceMaterializationStatus(resolved.workspace, metadata)).resolves.toMatchObject({
+      source: "docs", status: "ready", mountPath: "",
+    })
+    const entries = await listMaterializedWorkspaceSourceEntries(resolved.workspace, metadata)
+    expect(entries?.map(entry => entry.path)).toEqual(["public", "public/readme.md"])
+    await expect(resolved.workspace!.fs.exists("private/secret.md")).resolves.toBe(false)
   })
 
   it("bounds model-facing glob patterns before preserving Workspace Scope filtering", async () => {

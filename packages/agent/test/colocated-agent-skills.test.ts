@@ -27,19 +27,19 @@ describe("colocated Agent Skills", () => {
     const sources = readColocatedAgentSkills(handler)
 
     expect(Object.keys(sources || {})).toEqual([
-      "__vitehubAgentSkill:skills/review/assets/fixture.bin",
-      "__vitehubAgentSkill:skills/review/SKILL.md",
+      "__vitehubAgentSkill:.agents/skills/review/assets/fixture.bin",
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md",
     ])
-    expect(sources?.["__vitehubAgentSkill:skills/review/assets/fixture.bin"]).toEqual({
+    expect(sources?.["__vitehubAgentSkill:.agents/skills/review/assets/fixture.bin"]).toEqual({
       content: Buffer.from(binary).toString("base64"),
       encoding: "base64",
-      materialize: "build",
+      materialize: "startup",
       mount: "",
-      workspacePath: "skills/review/assets/fixture.bin",
+      workspacePath: ".agents/skills/review/assets/fixture.bin",
     })
-    expect(decodeColocatedAgentSkills(sources)?.["__vitehubAgentSkill:skills/review/assets/fixture.bin"]).toMatchObject({
+    expect(decodeColocatedAgentSkills(sources)?.["__vitehubAgentSkill:.agents/skills/review/assets/fixture.bin"]).toMatchObject({
       content: binary,
-      workspacePath: "skills/review/assets/fixture.bin",
+      workspacePath: ".agents/skills/review/assets/fixture.bin",
     })
   })
 
@@ -81,7 +81,7 @@ describe("colocated Agent Skills", () => {
     await symlink("shared", join(root, "skills"))
 
     expect(readColocatedAgentSkills(join(root, "agent.ts"))).toHaveProperty(
-      "__vitehubAgentSkill:skills/review/SKILL.md",
+      "__vitehubAgentSkill:.agents/skills/review/SKILL.md",
     )
   })
 

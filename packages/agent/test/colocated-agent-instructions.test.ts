@@ -5,12 +5,10 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { agentWithColocatedInstructions, defineAgent } from "../src/index.ts"
-import { loadViteAgent } from "../src/vite/runtime-adapter.ts"
-import { resolveAgentInstructions } from "../src/agent-instructions.ts"
+import { createViteWorkspaceAgentLoader, loadViteAgent } from "../src/vite/runtime-adapter.ts"
 
 import type { ViteDevServer } from "vite"
 import type { DiscoveredAgentDefinition } from "../src/index.ts"
-import type { AgentAdapterInstructions } from "../src/types.ts"
 
 function settings(agent: unknown) {
   return (agent as { __vitehubAgentSettings?: { driver?: { execution?: unknown, instructions?: unknown } } }).__vitehubAgentSettings
@@ -36,38 +34,6 @@ describe("colocated Agent instructions", () => {
     expect(agentWithColocatedInstructions(agent, "Use colocated instructions.")).toBe(agent)
   })
 
-  it.each(["codex", "claude-code", "model"] as const)("fills an inherited %s template from a colocated document", async (kind) => {
-    const instructions = { template: "Before.\n\n{{{ instructions }}}\n\nAfter." }
-    const base = kind === "model"
-      ? defineAgent({ driver: { model, instructions }, workspace: {}, runtime: false })
-      : kind === "codex"
-        ? defineAgent({ driver: { kind: "codex", instructions }, workspace: {}, runtime: false })
-        : defineAgent({ driver: { kind: "claude-code", instructions }, workspace: {}, runtime: false })
-    const child = defineAgent({ extends: base })
-    const loaded = agentWithColocatedInstructions(child, "## Additional context\nCheck migrations.")
-    const resolved = loaded.__vitehubWorkspaceAgentOptions.driver
-    expect(resolved).toHaveProperty("instructions.content", "## Additional context\nCheck migrations.")
-    expect(base.__vitehubWorkspaceAgentOptions.driver).toHaveProperty("instructions", instructions)
-    const document = await resolveAgentInstructions(
-      (resolved as { instructions: AgentAdapterInstructions }).instructions,
-      {} as never,
-    )
-    expect(document).toBe("Before.\n\n## Additional context\nCheck migrations.\n\nAfter.")
-    const grandchild = defineAgent({ extends: loaded, driver: { instructions: "Third layer." } })
-    expect(grandchild.__vitehubWorkspaceAgentOptions.driver).toHaveProperty("instructions.content", "Third layer.")
-  })
-
-  it("preserves explicit slot content and full replacement, including empty content", () => {
-    for (const instructions of [
-      { template: "{{{ instructions }}}", content: "Explicit." },
-      { template: "{{{ instructions }}}", content: "" },
-      { mode: "replace" as const, value: "" },
-    ]) {
-      const agent = defineAgent({ driver: { kind: "codex", instructions }, workspace: {} })
-      expect(agentWithColocatedInstructions(agent, "From file.")).toBe(agent)
-    }
-  })
-
   it("adds instructions to provider Agents without a Workspace", () => {
     const agent = defineAgent({ driver: { execution: { attachments: { maxBytes: 1024 } }, kind: "codex" }, runtime: false })
     const resolved = agentWithColocatedInstructions(agent, "Review the local invocation.")
@@ -75,22 +41,6 @@ describe("colocated Agent instructions", () => {
     expect(resolved).not.toBe(agent)
     expect(settings(resolved)?.driver?.instructions).toBe("Review the local invocation.")
     expect(settings(resolved)?.driver?.execution).toEqual({ attachments: { maxBytes: 1024 } })
-  })
-
-  it("preserves custom health and status handlers while refreshing framework handlers", () => {
-    const customHealth = { handler: async () => new Response("custom") }
-    const customStatus = async () => ({ readiness: "custom" })
-    const agent = defineAgent({ driver: { model }, runtime: false, health: customHealth })
-    agent.status = customStatus as never
-    const loaded = agentWithColocatedInstructions(agent, "Use colocated instructions.") as typeof agent
-
-    expect(loaded.health).toBe(customHealth)
-    expect(loaded.status).toBe(customStatus)
-
-    const framework = defineAgent({ driver: { model }, runtime: false })
-    const refreshed = agentWithColocatedInstructions(framework, "Use colocated instructions.") as typeof framework
-    expect(refreshed.health).not.toBe(framework.health)
-    expect(refreshed.status).not.toBe(framework.status)
   })
 
   it("preserves properties and descriptors added to an Agent Definition", () => {
@@ -166,22 +116,45 @@ describe("colocated Agent instructions", () => {
     }
   })
 
-  it("loads a discovered workspace document into the preset template", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-preset-instructions-"))
-    const handler = join(root, "agent.ts")
+  it.each(["discovered", "explicit", "override"] as const)("mounts colocated instructions and skills in the Vite Workspace loader with %s sources", async (sourceConfiguration) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-colocated-workspace-"))
+    const handler = join(root, "support", "agent.ts")
     try {
+      await mkdir(join(root, "support", "skills", "review"), { recursive: true })
       await writeFile(handler, "export default {}", "utf8")
-      await writeFile(join(root, "instructions.md"), "Check the migration.\n", "utf8")
-      const preset = defineAgent({
-        driver: { kind: "codex", instructions: { template: "Before.\n\n{{{ instructions }}}\n\nAfter." } },
-        workspace: {},
-        runtime: false,
+      await writeFile(join(root, "support", "instructions.md"), "Support the local invocation.\n", "utf8")
+      await writeFile(join(root, "support", "skills", "review", "SKILL.md"), "# Review\n", "utf8")
+      const explicitInstructions = {
+        materialize: "build" as const,
+        mount: "",
+        path: "instructions.md",
+        workspacePath: "AGENTS.md",
+      }
+      const agent = defineAgent({
+        workspace: {
+          ...(sourceConfiguration !== "discovered" ? { sourceRootDir: join(root, "support") } : {}),
+          ...(sourceConfiguration === "override" ? { sources: { __vitehubAgentInstructions: explicitInstructions } } : {}),
+        },
+        driver: { model },
       })
-      const agent = defineAgent({ extends: preset })
+      if (sourceConfiguration !== "discovered") {
+        expect(agent.sources?.__vitehubAgentInstructions).toMatchObject({
+          materialize: "build",
+          path: "instructions.md",
+        })
+      }
       const server = { ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
-      const loaded = await loadViteAgent(server, { handler, name: "reviewer" } as DiscoveredAgentDefinition)
-      const instructions = settings(loaded?.agent)?.driver?.instructions as AgentAdapterInstructions
-      expect(await resolveAgentInstructions(instructions, {} as never)).toBe("Before.\n\nCheck the migration.\n\nAfter.")
+
+      const loaded = await createViteWorkspaceAgentLoader(server, { handler, name: "support", workspace: "support" } as DiscoveredAgentDefinition)()
+      const sources = loaded.default.sources as Record<string, { content: string | Uint8Array, materialize: string, workspacePath: string }>
+
+      expect(sources.__vitehubAgentInstructions).toEqual(sourceConfiguration === "override" ? explicitInstructions : {
+        content: "Support the local invocation.\n",
+        materialize: "startup",
+        mount: "",
+        workspacePath: "AGENTS.md",
+      })
+      expect(new TextDecoder().decode(sources["__vitehubAgentSkill:.agents/skills/review/SKILL.md"]?.content as Uint8Array)).toBe("# Review\n")
     }
     finally {
       await rm(root, { force: true, recursive: true })

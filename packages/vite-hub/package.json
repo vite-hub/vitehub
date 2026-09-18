@@ -54,6 +54,7 @@
     "./_internal/schedule": "./dist/_internal/schedule.js",
     "./_internal/schedule/runtime": "./dist/_internal/schedule/runtime.js",
     "./_internal/schedule/runtime/driver": "./dist/_internal/schedule/runtime/driver.js",
+    "./_internal/schedule/runtime/kv": "./dist/_internal/schedule/runtime/kv.js",
     "./_internal/schedule/runtime/process": "./dist/_internal/schedule/runtime/process.js",
     "./_internal/schedule/runtime/static": "./dist/_internal/schedule/runtime/static.js",
     "./_internal/workflow": "./dist/_internal/workflow.js",
@@ -133,6 +134,7 @@
     "./schedule": "./dist/schedule.js",
     "./schedule/runtime": "./dist/schedule/runtime.js",
     "./schedule/runtime/driver": "./dist/schedule/runtime/driver.js",
+    "./schedule/runtime/kv": "./dist/schedule/runtime/kv.js",
     "./schedule/runtime/process": "./dist/schedule/runtime/process.js",
     "./shell": "./dist/shell.js",
     "./shell/providers/cloudflare": "./dist/shell/providers/cloudflare.js",
@@ -264,8 +266,7 @@
     "reka-ui": "^2.10.4",
     "vite": "catalog:vite-compat",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui",
-    "vue-router": "^4.5.0 || ^5.0.0"
+    "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "@nuxt/ui": {
@@ -296,9 +297,6 @@
       "optional": true
     },
     "vue": {
-      "optional": true
-    },
-    "vue-router": {
       "optional": true
     }
   },

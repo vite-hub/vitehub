@@ -5,14 +5,13 @@ import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { forwardWorkspaceRevisionMaterializer } from "../storage/materialization.ts"
 import { forwardWorkspaceStoreTarget } from "../storage/target.ts"
-import { workspaceMetadataTarget } from "../storage/metadata-target.ts"
+import { createWorkspaceMetadataTarget, workspaceMetadataTarget, type WorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
 import type {
   Workspace,
   WorkspaceDefinition,
   WorkspaceSession,
-  WorkspaceStore,
 } from "./types.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -25,12 +24,13 @@ function getStore(definition: WorkspaceDefinition) {
   return getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
 }
 
-export function createWorkspace(definition: WorkspaceDefinition): Workspace {
+export function createWorkspace(definition: WorkspaceDefinition, options: { reuseStartupSnapshots?: boolean } = {}): Workspace {
   const store = getStore(definition)
-  const files = createWorkspaceSourceView(definition, store)
+  const files = createWorkspaceSourceView(definition, store, options)
 
-  const workspace: Workspace & { [workspaceMetadataTarget]: () => WorkspaceStore } = {
-    [workspaceMetadataTarget]: () => store,
+  const metadata = createWorkspaceMetadataTarget(store, definition.name)
+  const workspace: Workspace & { [workspaceMetadataTarget]: () => WorkspaceMetadataTarget } = {
+    [workspaceMetadataTarget]: () => metadata,
     name: definition.name,
     async capabilities() {
       return { conditionalWrites: hasRuntimeType(store.writeFileConditional, "function") }

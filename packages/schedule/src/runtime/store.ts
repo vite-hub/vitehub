@@ -5,7 +5,7 @@ import type { ScheduleKVStorage } from "./kv-storage.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface KVScheduleStoreOptions {
-  kvStore?: ScheduleKVStorage
+  kvStore: ScheduleKVStorage
   prefix?: string
 }
 
@@ -61,24 +61,6 @@ function scheduleRunBase(prefix: string): string {
 
 function scheduleRunAttemptBase(prefix: string): string {
   return joinKey(prefix, "schedule-run-attempts")
-}
-
-function isMissingKVPackage(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  const code = (error as NodeJS.ErrnoException).code
-  return code === "ERR_MODULE_NOT_FOUND" && error.message.includes("Cannot find package '@vite-hub/kv'")
-}
-
-async function resolveDefaultKVStore(): Promise<ScheduleKVStorage> {
-  try {
-    return (await import("./kv.ts")).scheduleKVStorage
-  }
-  catch (error) {
-    if (isMissingKVPackage(error)) {
-      throw scheduleErrorDiagnostics.SCHEDULE_R0029({ message: "[vitehub:schedule] The default KV-backed stores require @vite-hub/kv. Install it with: pnpm add @vite-hub/kv", cause: error })
-    }
-    throw error
-  }
 }
 
 function cloneRuntimeSchedule<TInput>(record: RuntimeScheduleRecord<TInput>): RuntimeScheduleRecord<TInput> {
@@ -184,17 +166,14 @@ export function createMemoryRuntimeScheduleStore(): RuntimeScheduleStore {
   }
 }
 
-export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {}): RuntimeScheduleStore {
+export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions): RuntimeScheduleStore {
   const prefix = options.prefix ?? "vitehub:schedule"
 
-  async function getKVStore() {
-    return options.kvStore || await resolveDefaultKVStore()
-  }
+  const store = options.kvStore
 
   return {
     async create(record) {
       assertRuntimeScheduleId(record.id)
-      const store = await getKVStore()
       const key = runtimeScheduleKey(prefix, record.id)
       return await withKVKeyLock(key, async () => {
         if (await store.has(key)) {
@@ -205,7 +184,6 @@ export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {
       })
     },
     async delete(id) {
-      const store = await getKVStore()
       const key = runtimeScheduleKey(prefix, id)
       return await withKVKeyLock(key, async () => {
         const exists = await store.has(key)
@@ -217,17 +195,15 @@ export function createKVRuntimeScheduleStore(options: KVScheduleStoreOptions = {
       })
     },
     async get(id) {
-      const record = await (await getKVStore()).get<StoredRuntimeScheduleRecord>(runtimeScheduleKey(prefix, id))
+      const record = await store.get<StoredRuntimeScheduleRecord>(runtimeScheduleKey(prefix, id))
       return record ? deserializeRuntimeSchedule(record) : undefined
     },
     async list() {
-      const store = await getKVStore()
       const keys = await store.keys(runtimeScheduleBase(prefix))
       const records = await Promise.all(keys.map(key => store.get<StoredRuntimeScheduleRecord>(key)))
       return records.flatMap(record => record ? [deserializeRuntimeSchedule(record)] : [])
     },
     async update(id, patch) {
-      const store = await getKVStore()
       const key = runtimeScheduleKey(prefix, id)
       return await withKVKeyLock(key, async () => {
         const existing = await store.get<StoredRuntimeScheduleRecord>(key)
@@ -382,16 +358,13 @@ export function createMemoryScheduleRunStore(): ScheduleRunStore {
   }
 }
 
-export function createKVScheduleRunStore(options: KVScheduleStoreOptions = {}): ScheduleRunStore {
+export function createKVScheduleRunStore(options: KVScheduleStoreOptions): ScheduleRunStore {
   const prefix = options.prefix ?? "vitehub:schedule"
 
-  async function getKVStore() {
-    return options.kvStore || await resolveDefaultKVStore()
-  }
+  const store = options.kvStore
 
   return {
     async createAttempt(attempt) {
-      const store = await getKVStore()
       const key = scheduleRunAttemptKey(prefix, attempt.id)
       return await withKVKeyLock(key, async () => {
         if (await store.has(key)) {
@@ -402,7 +375,6 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions = {}): 
       })
     },
     async createRun(run) {
-      const store = await getKVStore()
       const key = scheduleRunKey(prefix, run.id)
       return await withKVKeyLock(key, async () => {
         if (await store.has(key)) {
@@ -413,27 +385,24 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions = {}): 
       })
     },
     async getAttempt(id) {
-      const attempt = await (await getKVStore()).get<StoredScheduleRunAttemptRecord>(scheduleRunAttemptKey(prefix, id))
+      const attempt = await store.get<StoredScheduleRunAttemptRecord>(scheduleRunAttemptKey(prefix, id))
       return attempt ? deserializeScheduleRunAttempt(attempt) : undefined
     },
     async getRun(id) {
-      const run = await (await getKVStore()).get<StoredScheduleRunRecord>(scheduleRunKey(prefix, id))
+      const run = await store.get<StoredScheduleRunRecord>(scheduleRunKey(prefix, id))
       return run ? deserializeScheduleRun(run) : undefined
     },
     async listAttempts(runId) {
-      const store = await getKVStore()
       const keys = await store.keys(scheduleRunAttemptBase(prefix))
       const attempts = await Promise.all(keys.map(key => store.get<StoredScheduleRunAttemptRecord>(key)))
       return attempts.flatMap(attempt => attempt && attempt.runId === runId ? [deserializeScheduleRunAttempt(attempt)] : [])
     },
     async listRuns() {
-      const store = await getKVStore()
       const keys = await store.keys(scheduleRunBase(prefix))
       const runs = await Promise.all(keys.map(key => store.get<StoredScheduleRunRecord>(key)))
       return runs.flatMap(run => run ? [deserializeScheduleRun(run)] : [])
     },
     async updateAttempt(id, patch) {
-      const store = await getKVStore()
       const key = scheduleRunAttemptKey(prefix, id)
       const existing = await store.get<StoredScheduleRunAttemptRecord>(key)
       if (!existing) {
@@ -448,7 +417,6 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions = {}): 
       return cloneScheduleRunAttempt(next)
     },
     async updateRun(id, patch) {
-      const store = await getKVStore()
       const key = scheduleRunKey(prefix, id)
       const existing = await store.get<StoredScheduleRunRecord>(key)
       if (!existing) {
