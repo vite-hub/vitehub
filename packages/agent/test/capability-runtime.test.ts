@@ -210,6 +210,36 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow('conflicts with Workspace Source "portal"')
   })
 
+  it("overlays a resolved GitHub source fingerprint when its scope matches", async () => {
+    const { resolveAgentCapabilities, trustGitHubPullRequestWorkspaceCapability } = await import("../src/capability-runtime.ts")
+    const { github } = await import("@vite-hub/workspace")
+    const name = `pr-resolved-source-${crypto.randomUUID()}`
+    const source = (ref: string, content: string, resolved = false) => ({
+      ...github({ repo: "example/portal", ref, materialize: "lazy", root: "packages/portal" }),
+      fingerprint: resolved
+        ? { source: { inferredSource: "github", options: { repo: "example/portal", ref, root: "packages/portal" } }, sourceResolution: {} }
+        : { inferredSource: "github", options: { repo: "example/portal", ref, root: "packages/portal" } },
+      prepare: undefined,
+      resolveRevision: async () => ({ id: ref, immutable: true }),
+      getKeys: async () => ["version.txt"],
+      getItem: async (key: string) => ({ key, content }),
+      getItems: async () => [{ key: "version.txt", content }],
+      getMeta: async () => ({}),
+    })
+    const definition = defineWorkspace({ store: { provider: "memory" }, sources: { portal: source("main", "support", true) } })
+    registerWorkspace(name, definition)
+    const workspace = useWorkspace(name, { mode: "write" })
+    const capability = trustGitHubPullRequestWorkspaceCapability({
+      id: "github-pull-request-workspace",
+      workspace: { sources: { vitehubGitHubPullRequest: { ...source("pr-head", "pull request"), mount: { path: "portal" } } } },
+    })
+    const result = await resolveAgentCapabilities({ capabilities: [capability] }, runtime(), {}, workspace as never, "write", {
+      driverKind: "provider", invocationKind: "run", workspaceDefinition: { ...definition, name },
+    })
+    try { expect(result.workspaceDefinition?.sources?.portal).toBeUndefined() }
+    finally { await result.close() }
+  })
+
   it("runs lifecycle phases in capability order and closes in reverse order", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const order: string[] = []

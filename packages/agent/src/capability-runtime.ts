@@ -844,7 +844,8 @@ function withInvocationReadableSources(sources: Record<string, WorkspaceSourceIn
 }
 
 function githubSourceFingerprintOptions(fingerprint: Record<string, unknown>): Record<string, unknown> {
-  return isRuntimeRecord(fingerprint.options) ? fingerprint.options : fingerprint
+  const source = isRuntimeRecord(fingerprint.source) ? fingerprint.source : fingerprint
+  return isRuntimeRecord(source.options) ? source.options : source
 }
 
 function sameGitHubSourceScope(left: Record<string, unknown>, right: Record<string, unknown>): boolean {
