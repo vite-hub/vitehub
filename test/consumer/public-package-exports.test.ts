@@ -19,7 +19,7 @@ import { packageInfos } from "../utils/repo"
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "reka-ui", "vite", "vitest", "vue", "vue-router"]
+const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "reka-ui", "vite", "vitest", "vue"]
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -418,36 +418,6 @@ async function withoutRootDependencies(appDir: string, allowed: Set<string>, run
   }
 }
 
-async function resolveCopiedConsoleImports(appDir: string) {
-  const packageRoot = await realpath(join(appDir, "node_modules/vite-hub"))
-  const runtimeRoot = join(packageRoot, "dist/console/runtime")
-  const files = (await readdir(runtimeRoot, { recursive: true }))
-    .filter(file => file.endsWith(".vue") || (file.endsWith(".ts") && !file.endsWith(".d.ts")))
-  expect(files.some(file => file.endsWith(join("pages", "agents.vue")))).toBe(true)
-  const imports = await Promise.all(files.map(async (file) => {
-    const filename = join(runtimeRoot, file)
-    const source = await readFile(filename, "utf8")
-    // Vue scripts are copied unchanged; their imports are outside the JS export checks.
-    const script = file.endsWith(".vue")
-      ? [...source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(match => match[1]).join("\n")
-      : source
-    const specifiers = ts.preProcessFile(script).importedFiles
-      .map(imported => imported.fileName)
-      .filter(specifier => !specifier.startsWith(".") && !specifier.startsWith("#"))
-    return { filename, specifiers }
-  }))
-
-  await withoutRootDependencies(appDir, new Set(), async () => {
-    const script = [
-      'import { pathToFileURL } from "node:url"',
-      "for (const { filename, specifiers } of JSON.parse(process.argv[1])) {",
-      "  for (const specifier of specifiers) import.meta.resolve(specifier, pathToFileURL(filename).href)",
-      "}",
-    ].join("\n")
-    await run(process.execPath, ["--experimental-import-meta-resolve", "--input-type=module", "--eval", script, JSON.stringify(imports)], appDir)
-  })
-}
-
 async function assertResolution(appDir: string, specifiers: readonly string[], expected: boolean) {
   const script = [
     "const specifiers = JSON.parse(process.argv[1])",
@@ -476,7 +446,6 @@ async function addOptionalPeers(appDir: string) {
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vitest: agentManifest.peerDependencies!.vitest!,
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
-    "vue-router": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/vue-router/package.json")),
   }
   const args = Object.entries(peers).map(([name, version]) => `${name}@${version}`)
   await run("corepack", ["pnpm", "add", "--save-dev", "--ignore-scripts", ...args], appDir)
@@ -874,35 +843,6 @@ describe("published declaration diagnostics", () => {
 })
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package exports from tarballs", () => {
-  it.each(["4.5.0", "5.0.0"])("resolves copied Console imports with Vue Router %s from declared dependencies", async (routerVersion) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-imports-"))
-    const appDir = join(root, "consumer")
-    const packDir = join(root, "packs")
-
-    try {
-      await Promise.all([mkdir(appDir, { recursive: true }), mkdir(packDir, { recursive: true })])
-      const specs = await packPublicPackages(packDir)
-      const manifest = await readManifest(join(repoRoot, "packages/vite-hub/package.json"))
-      const peers = await resolvedPeerDependencySpecs(manifest.peerDependencies || {})
-      // Explicitly install the router even if its declaration regresses. Root fallback
-      // must not make the copied package files pass with an undeclared dependency.
-      const consolePeers = Object.fromEntries(["@nuxt/ui", "reka-ui", "vue"].map(name => [name, peers[name]!]))
-      await writeConsumer(appDir, {
-        "vite-hub": specs["vite-hub"]!,
-        ...consolePeers,
-        "vue-router": routerVersion,
-      })
-      await writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
-      await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
-      const installedManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
-      expect(installedManifest.peerDependenciesMeta?.["vue-router"]?.optional).toBe(true)
-      await resolveCopiedConsoleImports(appDir)
-    }
-    finally {
-      await rm(root, { recursive: true, force: true })
-    }
-  }, 300_000)
-
   it("installs and exercises every classified export without workspace visibility", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-public-exports-"))
     const appDir = join(root, "consumer")

@@ -102,6 +102,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
+  root: string
   appendedContent?: string
   content?: Uint8Array
   directories: string[]
@@ -113,7 +114,7 @@ interface GeneratedProviderFile {
   path: string
 }
 
-async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+async function inspectGeneratedProviderFilePath(root: string, path: string) {
   let parent = root
   const directories: string[] = []
   for (const segment of relative(root, dirname(path)).split(/[\\/]/).filter(Boolean)) {
@@ -127,7 +128,13 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   if (entry && !entry.isFile() && !entry.isSymbolicLink()) {
     throw agentDiagnostics.AGENT_R0671({ message: `[vitehub] Generated provider file collides with a non-file entry: ${path}` })
   }
+  return { directories, entry }
+}
+
+async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+  const { directories, entry } = await inspectGeneratedProviderFilePath(root, path)
   const generated = {
+    root,
     content: entry?.isFile() ? await readFile(path) : undefined,
     directories,
     existed: entry !== undefined,
@@ -151,11 +158,12 @@ const providerSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"]
 
 async function hasSafeProviderPath(root: string, path: string): Promise<boolean> {
   let current = root
+  const rootEntry = await lstat(root).catch(() => undefined)
+  if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return false
   for (const segment of relative(root, path).split(/[\\/]/).filter(Boolean)) {
     current = join(current, segment)
     const entry = await lstat(current).catch(() => undefined)
-    if (!entry) return false
-    if (entry.isSymbolicLink()) return false
+    if (!entry?.isDirectory() || entry.isSymbolicLink()) return false
   }
   return true
 }
@@ -193,7 +201,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
   const link = relative(dirname(target), source)
   try {
     await symlink(link, target, "dir")
-    return { directories, existed: false, ownedLink: link, path: target }
+    return { root, directories, existed: false, ownedLink: link, path: target }
   }
   catch (error) {
     // Windows may deny directory symlinks without Developer Mode or elevation.
@@ -201,7 +209,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
     if (isRuntimeRecord(error) && (error.code === "EPERM" || error.code === "EACCES")) {
       try {
         await cp(source, target, { recursive: true })
-        return { directories, existed: false, path: target, copiedBridgeSource: source }
+        return { root, directories, existed: false, path: target, copiedBridgeSource: source }
       }
       catch (copyError) {
         for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
@@ -237,6 +245,10 @@ async function materializeProviderSkillCompatibility(root: string): Promise<Gene
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  // The provider can replace parents after materialization. Leave redirected paths untouched.
+  if (!await hasSafeProviderPath(generated.root, dirname(generated.path))) return
+  if (generated.copiedBridgeSource !== undefined
+    && !await hasSafeProviderPath(generated.root, dirname(generated.copiedBridgeSource))) return
   if (generated.appendedContent !== undefined) {
     const entry = await lstat(generated.path).catch(() => undefined)
     if (entry?.isFile()) {
@@ -2562,6 +2574,9 @@ async function* runProvider<
         || !hasRuntimeType(source.workspacePath, "string")) continue
       const target = resolve(root, source.workspacePath)
       if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
+      // Preserve resolved Workspace Sources only after validating the complete path.
+      const { entry } = await inspectGeneratedProviderFilePath(root, target)
+      if (entry?.isFile()) continue
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))

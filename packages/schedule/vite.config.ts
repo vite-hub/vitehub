@@ -26,6 +26,7 @@ export default defineConfig({
       "src/nuxt.ts",
       "src/runtime.ts",
       "src/runtime/driver.ts",
+      "src/runtime/kv.ts",
       "src/runtime/process.ts",
       "src/runtime/state.ts",
       "src/runtime/static.ts",

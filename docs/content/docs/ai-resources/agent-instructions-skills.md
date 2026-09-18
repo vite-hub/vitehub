@@ -54,7 +54,7 @@ Keeping them separate prevents repository guidance from leaking into runtime Age
 | Agent-local `skills/` | Provider-backed Agent Invocations | Automatically installs Skills owned by a folder Agent Definition. |
 | [`skills()` Capability](/docs/capabilities/skills) | ViteHub Agent Invocations | Makes Workspace-backed or external Source Skills available to the Agent. |
 
-Agent-local Skills require a folder Definition. Place them beside `server/agents/<name>/agent.ts` under `server/agents/<name>/skills/<skill>/SKILL.md`. A flat Definition such as `server/agents/review.ts` cannot own a sibling Skill tree; move it to `server/agents/review/agent.ts` when it needs colocated Skills.
+Agent-local Skills require a folder Definition. Place them beside `server/agents/<name>/agent.ts` under `server/agents/<name>/skills/<skill>/SKILL.md`. ViteHub materializes them in the Agent Workspace at `.agents/skills/<skill>/SKILL.md`. A flat Definition such as `server/agents/review.ts` cannot own a sibling Skill tree; move it to `server/agents/review/agent.ts` when it needs colocated Skills.
 
 ## Use the docs fallback
 

@@ -59,6 +59,10 @@ const optionalPeerExports = new Map<string, readonly string[]>([
   ["vite-hub/workflow/runtime/openworkflow-worker", ["openworkflow"]],
 ])
 
+const runtimeOnlyPeerExports = new Map<string, readonly string[]>([
+  ["@vite-hub/schedule/runtime/kv", ["@vite-hub/kv"]],
+])
+
 const declarationOnlyPeerExports = new Map<string, readonly string[]>([
   ["@vite-hub/agent", ["@vite-hub/workflow"]],
   ["@vite-hub/agent/runtime/workflow", ["@vite-hub/workflow"]],
@@ -124,7 +128,10 @@ export const publicPackageExportContracts: readonly PublicPackageExportContract[
     return {
       kind: exportKind(info.packageName, subpath, specifier, target),
       optionalDeclarationPeers,
-      optionalRuntimePeers: optionalDeclarationPeers.filter(peer => !declarationOnlyPeers.has(peer)),
+      optionalRuntimePeers: [
+        ...optionalDeclarationPeers.filter(peer => !declarationOnlyPeers.has(peer)),
+        ...(runtimeOnlyPeerExports.get(specifier) || []),
+      ],
       packageName: info.packageName,
       specifier,
       subpath,

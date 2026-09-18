@@ -740,9 +740,6 @@ importers:
       esbuild:
         specifier: catalog:esbuild-v27
         version: 0.27.7
-      h3:
-        specifier: ^1.15.11 || ^2.0.1-rc.31
-        version: 2.0.1-rc.31(crossws@0.4.12(srvx@1.0.3))(ocache@0.3.0)
       nostics:
         specifier: catalog:runtime
         version: 1.2.0

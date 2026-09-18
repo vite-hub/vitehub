@@ -597,6 +597,40 @@ describe("workspace public API", () => {
     await expect(readonly.getMeta?.("snapshot")).resolves.toEqual({ status: "ready" })
   })
 
+  it("lets read-only inspection reuse current startup snapshots", async () => {
+    const existingKeys = vi.fn(async () => ["AGENTS.md"])
+    const addedKeys = vi.fn(async () => ["SKILL.md"])
+    const definition = {
+      name: "snapshot-inspection",
+      store: { provider: "memory" as const },
+      sources: {
+        existing: custom({
+          materialize: "startup",
+          mount: "",
+          getKeys: existingKeys,
+          async getItem(key) { return { key, content: "# Existing\n" } },
+        }),
+      } as Record<string, ReturnType<typeof custom>>,
+    }
+
+    const initial = useWorkspace("snapshot-inspection", { definition })
+    await initial.fs.list("", { recursive: true })
+    definition.sources.added = custom({
+      materialize: "startup",
+      mount: ".agents/skills/review",
+      getKeys: addedKeys,
+      async getItem(key) { return { key, content: "# Added\n" } },
+    })
+
+    const inspection = useWorkspace("snapshot-inspection", { definition, mode: "read", refresh: false })
+    await expect(inspection.fs.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "AGENTS.md", type: "file" }),
+      expect.objectContaining({ path: ".agents/skills/review/SKILL.md", type: "file" }),
+    ]))
+    expect(existingKeys).toHaveBeenCalledOnce()
+    expect(addedKeys).toHaveBeenCalledOnce()
+  })
+
   it("merges bundled assets with lazy runtime sources in the read-only facade", async () => {
     setWorkspaceRuntimeAssetsRegistry({
       docs: createWorkspaceAssets({
