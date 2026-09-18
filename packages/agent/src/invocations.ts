@@ -403,6 +403,7 @@ function normalizedTimestamp(value: Date | string): string {
 }
 
 interface ObservationBudget {
+  deferredText?: Array<() => void>
   collectionItems?: number
   items: number
   maxDepth?: number
@@ -672,12 +673,24 @@ function boundedObservationValue(
     .filter(([, child]) => child !== undefined)
   const length = Math.min(entries.length, collectionItems, budget.items)
   if (length < entries.length) budget.truncated = true
-  return Object.fromEntries(entries
+  const result: Record<string, unknown> = Object.fromEntries(entries
     .slice(0, length)
     .flatMap(([key, child]) => {
       if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
+      // Reserve message structure across the array before allocating text bodies.
+      if (budget.deferredText && (key === "text" || key === "content") && hasRuntimeType(child, "string") && budget.items > 0) {
+        budget.items--
+        budget.deferredText.push(() => {
+          const length = Math.min(child.length, maxStringLength, budget.stringLength)
+          if (length < child.length) budget.truncated = true
+          budget.stringLength -= length
+          result[key] = length || !child.length ? child.slice(0, length) : "[truncated]"
+        })
+        return [[key, ""]]
+      }
       return [[boundedString(key), boundedObservationValue(child, budget, depth + 1, maxStringLength, builtIns)]]
     }))
+  return result
 }
 
 function boundedObservationPayload(
@@ -703,6 +716,15 @@ function boundedObservationAttributeValue(
   maxStringLength: number,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
 ): unknown {
+  if ((key === "input.messages" || key === "input.prompt") && Array.isArray(value)) {
+    const messageBudget: ObservationBudget & { deferredText: Array<() => void> } = { ...budget, deferredText: [] }
+    const messages = boundedObservationValue(value, messageBudget, 0, maxStringLength, builtIns)
+    for (const writeText of messageBudget.deferredText) writeText()
+    budget.items = messageBudget.items
+    budget.stringLength = messageBudget.stringLength
+    budget.truncated ||= messageBudget.truncated
+    return messages
+  }
   if (key === "message.content") {
     // Message chunks can fill the capture limit without consuming identity metadata space.
     const contentBudget = { ...budget, stringLength: maxStringLength }

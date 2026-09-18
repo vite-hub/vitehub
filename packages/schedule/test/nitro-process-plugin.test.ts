@@ -63,6 +63,7 @@ async function loadProcessPlugin(installScheduleRuntime: PluginHarness["installS
   const generated = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
   const imports = [
     "const { createKVRuntimeScheduleStore, createKVScheduleRunStore, createProcessScheduleWakeDriver, definePlugin, installScheduleRuntime, normalizeScheduleRuntimeError } = globalThis.__vitehubSchedulePluginHarness",
+    "const scheduleKVStorage = {}",
     "const runtimeScheduleRegistry = {}",
     "const staticScheduleRegistry = {}",
   ].join("\n")

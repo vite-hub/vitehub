@@ -1367,6 +1367,19 @@ describe("local workspace store", () => {
     expect(await store.stat("generated")).toBeUndefined()
   })
 
+  it("removes empty directories without recursively deleting their contents", async () => {
+    const store = await createStore()
+    await store.writeFile("docs/keep.md", { path: "docs/keep.md", content: "keep" })
+
+    await expect(store.rm("docs", { force: true })).rejects.toThrow()
+    await expect(store.stat("docs/keep.md")).resolves.toMatchObject({ type: "file" })
+
+    await store.rm("docs/keep.md")
+    await store.rm("docs")
+    await expect(store.stat("docs")).resolves.toBeUndefined()
+    await expect(store.rm("docs", { force: true })).resolves.toBeUndefined()
+  })
+
   it("lists only top-level entries when recursive is false", async () => {
     const store = await createStore()
 

@@ -102,6 +102,7 @@ export interface ProviderAgentAdapterOptions<
 }
 
 interface GeneratedProviderFile {
+  root: string
   appendedContent?: string
   content?: Uint8Array
   directories: string[]
@@ -113,7 +114,7 @@ interface GeneratedProviderFile {
   path: string
 }
 
-async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+async function inspectGeneratedProviderFilePath(root: string, path: string) {
   let parent = root
   const directories: string[] = []
   for (const segment of relative(root, dirname(path)).split(/[\\/]/).filter(Boolean)) {
@@ -127,7 +128,13 @@ async function materializeGeneratedProviderFile(root: string, path: string, cont
   if (entry && !entry.isFile() && !entry.isSymbolicLink()) {
     throw agentDiagnostics.AGENT_R0671({ message: `[vitehub] Generated provider file collides with a non-file entry: ${path}` })
   }
+  return { directories, entry }
+}
+
+async function materializeGeneratedProviderFile(root: string, path: string, content: string | Uint8Array): Promise<GeneratedProviderFile> {
+  const { directories, entry } = await inspectGeneratedProviderFilePath(root, path)
   const generated = {
+    root,
     content: entry?.isFile() ? await readFile(path) : undefined,
     directories,
     existed: entry !== undefined,
@@ -151,11 +158,12 @@ const providerSkillRoots = [".agents/skills", ".codex/skills", ".claude/skills"]
 
 async function hasSafeProviderPath(root: string, path: string): Promise<boolean> {
   let current = root
+  const rootEntry = await lstat(root).catch(() => undefined)
+  if (!rootEntry?.isDirectory() || rootEntry.isSymbolicLink()) return false
   for (const segment of relative(root, path).split(/[\\/]/).filter(Boolean)) {
     current = join(current, segment)
     const entry = await lstat(current).catch(() => undefined)
-    if (!entry) return false
-    if (entry.isSymbolicLink()) return false
+    if (!entry?.isDirectory() || entry.isSymbolicLink()) return false
   }
   return true
 }
@@ -193,7 +201,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
   const link = relative(dirname(target), source)
   try {
     await symlink(link, target, "dir")
-    return { directories, existed: false, ownedLink: link, path: target }
+    return { root, directories, existed: false, ownedLink: link, path: target }
   }
   catch (error) {
     // Windows may deny directory symlinks without Developer Mode or elevation.
@@ -201,7 +209,7 @@ async function materializeProviderSkillLink(root: string, source: string, target
     if (isRuntimeRecord(error) && (error.code === "EPERM" || error.code === "EACCES")) {
       try {
         await cp(source, target, { recursive: true })
-        return { directories, existed: false, path: target, copiedBridgeSource: source }
+        return { root, directories, existed: false, path: target, copiedBridgeSource: source }
       }
       catch (copyError) {
         for (const directory of directories.reverse()) await rmdir(directory).catch(() => undefined)
@@ -237,6 +245,10 @@ async function materializeProviderSkillCompatibility(root: string): Promise<Gene
 }
 
 async function restoreGeneratedProviderFile(generated: GeneratedProviderFile): Promise<void> {
+  // The provider can replace parents after materialization. Leave redirected paths untouched.
+  if (!await hasSafeProviderPath(generated.root, dirname(generated.path))) return
+  if (generated.copiedBridgeSource !== undefined
+    && !await hasSafeProviderPath(generated.root, dirname(generated.copiedBridgeSource))) return
   if (generated.appendedContent !== undefined) {
     const entry = await lstat(generated.path).catch(() => undefined)
     if (entry?.isFile()) {
@@ -464,7 +476,14 @@ function normalizedProviderLaunch(value: unknown): AgentProviderLaunchCommand {
   if (value.args !== undefined && (!Array.isArray(value.args) || !value.args.every(item => hasRuntimeType(item, "string")))) {
     throw agentDiagnostics.AGENT_R0675({ message: "[vitehub] driver.launch args must contain only strings." })
   }
+  if (value.onExit !== undefined && !hasRuntimeType(value.onExit, "function")) {
+    throw agentDiagnostics.AGENT_R0674({ message: "[vitehub] driver.launch onExit must be a function." })
+  }
   const launch: AgentProviderLaunchCommand = { command: value.command.trim() }
+  if (hasRuntimeType(value.onExit, "function")) {
+    // SAFETY: Runtime validation establishes a callable host-supplied lifecycle hook.
+    launch.onExit = value.onExit as AgentProviderLaunchCommand["onExit"]
+  }
   if (value.args !== undefined) launch.args = [...value.args]
   return launch
 }
@@ -2372,6 +2391,7 @@ async function* runProvider<
   }
   let workspaceSession: WorkspaceSession | undefined
   let sourceProvenance: ProviderSourceProvenance[] = []
+  let onProviderExit: AgentProviderLaunchCommand["onExit"]
   let runtime: ProviderRuntime | undefined
   let providerLaunchDiagnosticPath: string | undefined
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
@@ -2567,6 +2587,9 @@ async function* runProvider<
         || !hasRuntimeType(source.workspacePath, "string")) continue
       const target = resolve(root, source.workspacePath)
       if (target !== root && !target.startsWith(`${root}/`)) throw agentDiagnostics.AGENT_R0712({ message: "[vitehub] Colocated Skill path must stay inside the provider Workspace." })
+      // Preserve resolved Workspace Sources only after validating the complete path.
+      const { entry } = await inspectGeneratedProviderFilePath(root, target)
+      if (entry?.isFile()) continue
       generatedProviderFiles.push(await materializeGeneratedProviderFile(root, target, source.content))
     }
     generatedProviderFiles.push(...await materializeProviderSkillCompatibility(root))
@@ -2677,6 +2700,7 @@ async function* runProvider<
         Promise.resolve(resolveRuntimeValue(options.launch, launchContext)),
         effectiveSignal,
       ))
+      onProviderExit = launch.onExit
       if (!launchRoot) throw agentDiagnostics.AGENT_R0717({ message: "[vitehub] Provider launcher root was not prepared." })
       const materializedLauncher = await waitForProviderOperation(
         materializeProviderLauncher(launchRoot, launch, providerLaunchSecretEnvironmentKeys, root),
@@ -2971,36 +2995,39 @@ async function* runProvider<
         ])
         if (timeout) clearTimeout(timeout)
         if (stopped) runtimeCleanupSettled = true
+        else cleanupTimedOut = true
         await releaseCodexCredentialHome(stopped
           ? deferredRuntimeFailure
           : agentDiagnostics.AGENT_R0723({ message: "[vitehub] Provider Agent Driver deferred runtime cleanup timed out." }))
       })())
     }
+    let exitCallbackPending = false
+    let exitCallbackFailed = false
     let workspaceFinalization: Promise<void> | undefined
-    const finalizeWorkspace = () => workspaceFinalization ??= (async () => {
-        try {
-          for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-        try {
-          await closeWorkspace(
-            context,
-            workspaceSession,
-            caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
-            cleanup.signal,
-          )
-        }
-        catch (error) {
-          cleanupErrors.push(error)
-        }
-        finally {
-          releaseWorkspaceCleanup?.()
-        }
-      })()
+    const finalizeWorkspace = (signal = cleanup.signal) => workspaceFinalization ??= (async () => {
+      try {
+        for (const generated of generatedProviderFiles.reverse()) await restoreGeneratedProviderFile(generated)
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      try {
+        await closeWorkspace(
+          context,
+          workspaceSession,
+          caught ?? cleanupErrors[0] ?? (completed ? undefined : agentDiagnostics.AGENT_R0724({ message: "[vitehub] Provider Agent Driver invocation did not complete." })),
+          signal,
+        )
+      }
+      catch (error) {
+        cleanupErrors.push(error)
+      }
+      finally {
+        releaseWorkspaceCleanup?.()
+      }
+    })()
     const toolCleanup = Promise.resolve().then(() => toolServer?.close())
-    const cleanupTask = (async () => {
+    const shutdownTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
         ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)
         : Promise.resolve()
@@ -3032,18 +3059,51 @@ async function* runProvider<
       for (const result of await Promise.allSettled(activeWorkspaceCommands)) {
         if (result.status === "rejected" && !caught) cleanupErrors.push(result.reason)
       }
-      await finalizeWorkspace()
-      if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+    })()
+    const exitCallbackTask = shutdownTask.then(async () => {
+      if (onProviderExit && !isAuxiliaryAgentAdapterContext(context) && !runtimeCleanupFailure && !deferredRuntimeFailure && !cleanupTimedOut) {
+        exitCallbackPending = true
+        const exitCleanup = createProviderCleanupSignal(undefined)
         try {
-          await cleanupRoot()
+          await waitForProviderOperation(
+            Promise.resolve().then(() => onProviderExit!({ cwd: root, abortSignal: exitCleanup.signal })),
+            exitCleanup.signal,
+          )
         }
         catch (error) {
+          exitCallbackFailed = true
           cleanupErrors.push(error)
         }
+        finally {
+          exitCallbackPending = false
+          exitCleanup.dispose()
+        }
       }
-    })()
+    })
+    const cleanupTask = exitCallbackTask.then(async () => {
+      const finalizationCleanup = createProviderCleanupSignal(undefined)
+      const finalizationTask = (async () => {
+        await finalizeWorkspace(finalizationCleanup.signal)
+        if (!runtimeCleanupDeferred && !workspaceCleanupDeferred) {
+          try {
+            await cleanupRoot()
+          }
+          catch (error) {
+            cleanupErrors.push(error)
+          }
+        }
+      })()
+      try {
+        await waitForProviderOperation(finalizationTask, finalizationCleanup.signal)
+      }
+      finally {
+        finalizationCleanup.dispose()
+      }
+    })
     try {
-      await waitForProviderOperation(cleanupTask, cleanup.signal)
+      await waitForProviderOperation(shutdownTask, cleanup.signal)
+      cleanup.dispose()
+      await cleanupTask
       if (codexCredentialHome) {
         try {
           await releaseCodexCredentialHome()
@@ -3067,7 +3127,7 @@ async function* runProvider<
         }
         forcedRootCleanup = toolCleanup
           .catch(() => undefined)
-          .then(finalizeWorkspace)
+          .then(() => finalizeWorkspace())
           .finally(cleanupRoot)
         observeLateCleanup(forcedRootCleanup)
         void cleanupTask.catch(() => undefined)
@@ -3076,14 +3136,18 @@ async function* runProvider<
         let timeout: ReturnType<typeof setTimeout> | undefined
         const cleanupTimeout = agentDiagnostics.AGENT_R0725({ message: "[vitehub] Provider Agent Driver invocation cleanup timed out." })
         invocationCleanupDeferred = Promise.race([
-          cleanupTask,
-          new Promise<void>(resolve => timeout = setTimeout(resolve, providerCleanupTimeoutMs)),
-        ]).finally(async () => {
+          shutdownTask.then(() => true),
+          new Promise<false>(resolve => timeout = setTimeout(() => resolve(false), providerCleanupTimeoutMs)),
+        ]).then(async (stopped) => {
+          if (stopped) await exitCallbackTask
+          else cleanupTimedOut = true
+        }).finally(async () => {
           if (timeout) clearTimeout(timeout)
           try {
             await releaseCodexCredentialHome(runtimeCleanupFailure ?? (runtimeCleanupSettled ? undefined : cleanupTimeout))
           }
           finally {
+            await finalizeWorkspace()
             await cleanupRoot()
           }
         })
@@ -3129,7 +3193,7 @@ async function* runProvider<
     else releaseSessionLock?.()
     if (cleanupErrors.length) {
       const cleanupError = new AggregateError(caught === undefined ? cleanupErrors : [caught, ...cleanupErrors], "[vitehub] Provider Agent Driver cleanup failed.")
-      if (completed && caught === undefined && cleanupErrors.every(providerCleanupTimedOut)) {
+      if (completed && caught === undefined && !exitCallbackPending && !exitCallbackFailed && cleanupErrors.every(providerCleanupTimedOut)) {
         yield { error: cleanupError.message, recoverable: true, type: "error" }
       }
       else throw cleanupError

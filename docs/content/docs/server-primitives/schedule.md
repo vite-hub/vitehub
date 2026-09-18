@@ -262,10 +262,22 @@ Static provider output remains build-time configuration; selecting the Process R
 | Store | Configure with | Nuance |
 | --- | --- | --- |
 | Memory Runtime Schedule Store | `createMemoryRuntimeScheduleStore()` | Default in-process behavior; useful for tests and local runtime only. |
-| KV Runtime Schedule Store | `createKVRuntimeScheduleStore(options?)` | Persists Runtime Schedule records through a KV-compatible storage object. |
+| KV Runtime Schedule Store | `createKVRuntimeScheduleStore({ kvStore, prefix? })` | Persists Runtime Schedule records through a KV-compatible storage object. |
 | Memory Schedule Run Store | `createMemoryScheduleRunStore()` | Default in-process run history; useful for tests and local runtime only. |
-| KV Schedule Run Store | `createKVScheduleRunStore(options?)` | Persists Schedule Runs and attempts through KV-compatible storage. |
+| KV Schedule Run Store | `createKVScheduleRunStore({ kvStore, prefix? })` | Persists Schedule Runs and attempts through KV-compatible storage. |
 | Custom Store | `setRuntimeScheduleStore(store)`, `setScheduleRunStore(store)` | Implement `RuntimeScheduleStore` or `ScheduleRunStore` directly. |
+
+Both KV factories require an explicit `ScheduleKVStorage`. To use ViteHub KV, pass `scheduleKVStorage` from `vite-hub/schedule/runtime/kv` (or `@vite-hub/schedule/runtime/kv` for standalone consumers). Standalone consumers must install `@vite-hub/kv` when using that adapter. Static schedules, memory stores, and custom storage do not need the package.
+
+```ts
+import { createKVRuntimeScheduleStore, createKVScheduleRunStore } from "vite-hub/schedule/runtime"
+import { scheduleKVStorage } from "vite-hub/schedule/runtime/kv"
+
+const runtimeScheduleStore = createKVRuntimeScheduleStore({ kvStore: scheduleKVStorage })
+const scheduleRunStore = createKVScheduleRunStore({ kvStore: scheduleKVStorage })
+```
+
+Migration: existing factory calls without `kvStore` must pass the adapter explicitly. Generated Process Runtime wiring selects the adapter automatically. Existing calls with custom `kvStore` objects are unchanged.
 
 ## Connect Schedule to Agents
 
