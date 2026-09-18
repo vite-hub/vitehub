@@ -207,6 +207,7 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
   if (!authHandlers.length) return nitro
 
   for (const handler of authHandlers) kit.addHandler(handler)
+  // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro handlers.
   return kit.config as NitroConfig
 }
 

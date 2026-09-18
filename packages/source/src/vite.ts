@@ -173,6 +173,7 @@ export function mergeGeneratedSourceNitroConfig(
   if (Object(value) === value && !Array.isArray(value)) Object.assign(nitro, value)
   if (generatedHandlers.length === 0) return nitro
   const kit = createNitroServerKit(nitro)
+  // SAFETY: The kit materializes Nitro handler entries as the generated source handler shape.
   const handlers = kit.config.handlers as Array<GeneratedSourceHandler>
 
   for (const handler of generatedHandlers) {
@@ -195,6 +196,7 @@ export function mergeGeneratedSourceNitroConfig(
     modules.push(generatedRouteGuard(generatedHandlers))
   }
   kit.config.modules = modules
+  // SAFETY: The kit preserves the Nitro config object shape while adding generated route modules.
   return kit.config as NitroGeneratedConfig
 }
 

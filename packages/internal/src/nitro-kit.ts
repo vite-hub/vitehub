@@ -23,7 +23,11 @@ function cloneArray(value: unknown): unknown[] {
   return Array.isArray(value) ? [...value] : []
 }
 
-function sameHandler(left: NitroServerHandler, right: NitroServerHandler): boolean {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Object(value) === value && !Array.isArray(value)
+}
+
+function sameHandler(left: Record<string, unknown>, right: NitroServerHandler): boolean {
   return left.handler === right.handler
     && left.route === right.route
     && left.method === right.method
@@ -32,8 +36,8 @@ function sameHandler(left: NitroServerHandler, right: NitroServerHandler): boole
 
 /** Create a Nitro 3 configuration builder for generated ViteHub output. */
 export function createNitroServerKit(value: unknown = {}): NitroServerKit {
-  const config = value && typeof value === "object" && !Array.isArray(value)
-    ? { ...(value as Record<string, unknown>) }
+  const config = isRecord(value)
+    ? { ...value }
     : {}
   const handlers = cloneArray(config.handlers)
   const plugins = cloneArray(config.plugins)
@@ -44,7 +48,7 @@ export function createNitroServerKit(value: unknown = {}): NitroServerKit {
   return {
     config,
     addHandler(handler, position = "end") {
-      if (handlers.some(candidate => candidate && typeof candidate === "object" && !Array.isArray(candidate) && sameHandler(candidate as NitroServerHandler, handler))) return
+      if (handlers.some(candidate => isRecord(candidate) && sameHandler(candidate, handler))) return
       if (position === "start") handlers.unshift({ ...handler })
       else handlers.push({ ...handler })
     },

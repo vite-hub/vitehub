@@ -186,6 +186,7 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], mo
     : []
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(options.plugin)
+  // SAFETY: The kit preserves the Nitro config object shape while adding only Nitro plugins.
   const configured = kit.config as NitroConfig
   if (!options.providerWake) return configured
   configured.modules = [
