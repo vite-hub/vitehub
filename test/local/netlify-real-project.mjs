@@ -57,7 +57,7 @@ function previewSpec(packageName, preview) {
   return `https://pkg.pr.new/vite-hub/vitehub/${packageName}@${preview}`
 }
 
-function renderWorkspaceYaml(overrides, vitePlusVersion) {
+function renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion) {
   const overrideLines = Object.entries(overrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
   return [
     "allowBuilds:",
@@ -69,7 +69,7 @@ function renderWorkspaceYaml(overrides, vitePlusVersion) {
     "  node-liblzma: true",
     "catalog:",
     `  vite: npm:@voidzero-dev/vite-plus-core@${vitePlusVersion}`,
-    `  vitest: npm:@voidzero-dev/vite-plus-test@${vitePlusVersion}`,
+    `  vitest: ${vitestVersion}`,
     `  vite-plus: ${vitePlusVersion}`,
     "overrides:",
     "  vite: \"catalog:\"",
@@ -86,8 +86,8 @@ function renderWorkspaceYaml(overrides, vitePlusVersion) {
   ].join("\n")
 }
 
-async function writeFixtureFiles(overrides, vitePlusVersion) {
-  await writeFile(join(appDir, "pnpm-workspace.yaml"), renderWorkspaceYaml(overrides, vitePlusVersion), "utf8")
+async function writeFixtureFiles(overrides, vitePlusVersion, vitestVersion) {
+  await writeFile(join(appDir, "pnpm-workspace.yaml"), renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion), "utf8")
   await mkdir(join(appDir, "src", "lib"), { recursive: true })
   await mkdir(join(appDir, "server", "agents"), { recursive: true })
   await writeFile(join(appDir, "src", "lib", "reply.ts"), "export const replyMarker = \"netlify-alias-ok\"\n", "utf8")
@@ -194,7 +194,7 @@ async function createProject({ packageSource, preview }) {
   const overrides = packageSource === "local"
     ? await createLocalPackageSpecs(join(baseDir, "vitehub-packs"))
     : { "vite-hub": previewSpec("vite-hub", preview) }
-  await writeFixtureFiles(overrides, vitePlus.version)
+  await writeFixtureFiles(overrides, vitePlus.version, vitePlus.dependencies.vitest)
 
   const packageSpecs = packageSource === "local"
     ? [overrides["@vite-hub/agent"], overrides["vite-hub"]]
