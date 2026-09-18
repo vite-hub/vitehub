@@ -86,14 +86,14 @@ const defaultProgressSummaryInstructions = [
 
 const defaultProgressSummaryTemplate = [
   "# User request",
-  "{{ userText }}",
+  "{{ data.userText }}",
   "",
   "# Live evidence",
-  "Elapsed: {{ elapsed }}",
-  "Reasoning active: {{ reasoningActiveText }}",
-  "Active tools: {{ activeTools }}",
-  "Recently completed tools: {{ completedTools }}",
-  "Previous status: {{ previous }}",
+  "Elapsed: {{ data.elapsed }}",
+  "Reasoning active: {{ data.reasoningActiveText }}",
+  "Active tools: {{ data.activeTools }}",
+  "Recently completed tools: {{ data.completedTools }}",
+  "Previous status: {{ data.previous }}",
 ].join("\n")
 
 const maxProgressSummaryUserTextLength = 2_000

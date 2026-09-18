@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises"
+import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -8,7 +8,6 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalMerger, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
-import { extractMarkdownTemplateImportSpecifiers, resolveMarkdownTemplateImports } from "@vite-hub/markdown-template/internal/composition"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -21,6 +20,18 @@ export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
 const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
 const mergeNoExternal = createNoExternalMerger("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
+const normalizeTemplateModulePath = (id: string) => {
+  const path = id.split(/[?#]/, 1)[0]
+  if (!path.startsWith("/@fs/")) return path
+  const file = path.slice(5)
+  // Vite keeps a leading slash for POSIX paths, but prefixes Windows drive
+  // paths with one as well; remove that extra separator before comparison.
+  const normalized = (/^\/?[A-Za-z]:[\\/]/.test(file) ? file.replace(/^\//, "") : file).replaceAll("\\", "/")
+  // Drive-letter paths are already absolute after removing Vite's prefix;
+  // adding a leading slash would turn `C:/...` into a root-relative path.
+  return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/") ? normalized : `/${normalized}`
+}
+const normalizeWatchedPath = (file: string) => file.replaceAll("\\", "/")
 export type EmailProvider = "cloudflare-email" | "resend"
 
 interface GeneratedEmailDefinition {
@@ -194,7 +205,6 @@ function configureNitroCloudflareWorkers(config: Record<string, unknown>, email:
 }
 
 const emailTemplatePrefix = "#vitehub/emails/"
-const resolvedEmailTemplatePrefix = "\0vitehub:email-template:"
 
 function emailTemplateName(id: string): string | undefined {
   if (!id.startsWith(emailTemplatePrefix)) return
@@ -252,19 +262,6 @@ function renderEmailTemplateTypes(names: string[]): string {
   ].join("\n")).join("\n\n") + (names.length ? "\n" : "")
 }
 
-async function collectEmailTemplateDependencies(files: string[], dependencies: Set<string>): Promise<void> {
-  const visit = async (file: string) => {
-    const template = await readFile(file, "utf8")
-    for (const specifier of extractMarkdownTemplateImportSpecifiers(template)) {
-      const dependency = resolve(dirname(file), specifier)
-      if (dependencies.has(dependency)) continue
-      dependencies.add(dependency)
-      await visit(dependency)
-    }
-  }
-  for (const file of files) await visit(file)
-}
-
 interface EmailTemplate {
   file: string
   name: string
@@ -283,23 +280,6 @@ async function discoverEmailTemplates(templatesRoots: string[]): Promise<EmailTe
   return [...templates].map(([name, file]) => ({ file, name }))
 }
 
-async function renderEmailTemplateModule(file: string, watch?: (file: string) => void): Promise<string> {
-  watch?.(file)
-  const template = await resolveMarkdownTemplateImports(await readFile(file, "utf8"), {
-    sourceId: file,
-    async resolveImport(specifier, importer) {
-      const id = resolve(dirname(importer), specifier)
-      watch?.(id)
-      return { id, template: await readFile(id, "utf8") }
-    },
-  })
-  return [
-    `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}`,
-    `export default (data = {}) => renderMarkdownTemplate(${JSON.stringify(template)}, { data })`,
-    "",
-  ].join("\n")
-}
-
 async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot: string, rootDir: string): Promise<void> {
   const stagingRoot = `${outputRoot}.staging`
   const backupRoot = `${outputRoot}.backup`
@@ -309,7 +289,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
   for (const { file, name } of templates) {
     const target = resolve(stagingRoot, `${encodeURIComponent(name)}.mjs`)
     const entry = `${target}.entry.mjs`
-    await writeFileIfChanged(entry, await renderEmailTemplateModule(file))
+    await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
     try {
       await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir })
     }
@@ -373,15 +353,10 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     const files = templates.map(template => template.file)
     const names = templates.map(template => template.name)
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
+    const nextWatchFiles = new Set([...watchFiles, ...files])
+    watchFiles = nextWatchFiles
     if (options.materialize) {
-      const nextWatchFiles = new Set(files)
-      try {
-        await collectEmailTemplateDependencies(files, nextWatchFiles)
-        await materializeEmailTemplates(templates, materializedRoot, options.projectRoot)
-      }
-      finally {
-        watchFiles = nextWatchFiles
-      }
+      await materializeEmailTemplates(templates, materializedRoot, options.projectRoot)
       materialized = true
     }
     return Object.fromEntries(names
@@ -492,7 +467,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         } while (refreshPending)
         if (refreshed) {
           for (const module of server.moduleGraph.idToModuleMap.values()) {
-            if (module.id && (module.id.startsWith(resolvedEmailTemplatePrefix) || isInside(materializedRoot, module.id.split("?", 1)[0]))) server.moduleGraph.invalidateModule(module)
+            if (module.id) {
+              const modulePath = module.id.split("?", 1)[0]
+              const queriedSource = normalizeTemplateModulePath(module.id)
+              if (isInside(materializedRoot, modulePath) || watchFiles.has(queriedSource) || watchFiles.has(modulePath) || [...watchFiles].some(file => normalizeWatchedPath(file) === normalizeWatchedPath(queriedSource) || normalizeWatchedPath(file) === normalizeWatchedPath(modulePath))) {
+                server.moduleGraph.invalidateModule(module)
+              }
+            }
           }
           server.ws.send({ type: "full-reload" })
         }
@@ -521,7 +502,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         for (const templatesRoot of templatesRoots) {
           const file = resolve(templatesRoot, `${name}.md`)
           try {
-            if ((await stat(file)).isFile()) return `${resolvedEmailTemplatePrefix}${file}`
+            if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
           }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
@@ -530,14 +511,15 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       })()
     },
     load(id) {
-      if (id.startsWith(resolvedEmailTemplatePrefix)) {
-        return renderEmailTemplateModule(id.slice(resolvedEmailTemplatePrefix.length), (file) => {
-          watchFiles.add(file)
-          this.addWatchFile(file)
-        })
-      }
       if (id === resolvedEmailDefinitionId && definition) {
         return renderEmailDefinitionModule(definition)
+      }
+      if (id.endsWith("?markdown-template")) {
+        const file = normalizeTemplateModulePath(id)
+        if (![...watchFiles].some(watched => normalizeWatchedPath(watched) === normalizeWatchedPath(file))) return
+        return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
+          `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
+        )
       }
     },
   }

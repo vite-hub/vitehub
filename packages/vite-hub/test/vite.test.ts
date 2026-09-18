@@ -551,6 +551,7 @@ describe("vitehub", () => {
 
   it("keeps coherent defaults and opt-in integrations", () => {
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual([
+      "@vite-hub/markdown-template/vite",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/dependencies",
@@ -576,6 +577,7 @@ describe("vitehub", () => {
       workflow: true,
       workspace: true,
     }))).toEqual([
+      "@vite-hub/markdown-template/vite",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/dependencies",

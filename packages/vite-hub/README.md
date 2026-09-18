@@ -127,7 +127,7 @@ import { defineWorkflow } from "vite-hub/workflow";
 
 The root export intentionally contains only the framework configuration API. Feature code belongs on a feature subpath, which forwards to the package that owns it.
 
-Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. Use ordinary `.md` files and ship their relative fragments with the server. File rendering reads the local filesystem at runtime and needs no Vite plugin. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
+Render a local prompt with `renderMarkdownFile(new URL("./prompt.md", import.meta.url), { data })`. File rendering reads only the requested file at runtime; references such as `@./fragment.md` remain literal, so compose any additional Markdown explicitly before rendering. Use `renderMarkdownTemplate(text, { data })` for content already loaded from a Workspace, Source, or application storage.
 
 Built-in Agent Drivers and Box runtimes are selected by literal or tagged values, so they do not need provider-specific ViteHub imports. Install an optional external provider or SDK explicitly when its runtime requires one.
 
